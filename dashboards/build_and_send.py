@@ -47,7 +47,10 @@ HERE = Path(__file__).resolve().parent
 
 # Field IDs (per-instance, stable across releases -- see the skill's jira_field_ids.md)
 CF_IMPLEMENTED_BY_AI = "cf[15229]"   # "Implemented by AI Agent" (Yes/No)
-CF_PR_URL = "cf[15262]"              # PR URL -- the "new AI metrics" signal
+CF_PR_URL = "cf[15262]"              # PR URL -- superseded by CF_AI_MODEL_USED below
+                                     # (Kobi, 2026-10-07) as the "having AI metrics" signal
+CF_AI_MODEL_USED = "cf[15264]"       # "AI Model Used" (short text, e.g. "claude-sonnet-5") --
+                                     # populated more reliably than PR URL on the same epics
 CF_ISSUE_CATEGORY = "cf[10139]"      # "Issue Category" dropdown -- same field EDCT
                                      # excludes Maintenance on (edct_from_jira.py)
 EXCLUDED_CATEGORY = "Maintenance"
@@ -337,10 +340,12 @@ def build_edct(cfg: dict, today: dt.date) -> dict:
 
 
 def build_ai_fields(j: Jira, cfg: dict, today: dt.date, first_month: int = 4) -> dict:
-    """Marked-as-AI vs having-the-PR-URL-metric, monthly. Scope matches the Power BI
-    'AI Fields Adaption' page filters: ALL issue types, ALL statuses, by resolved
-    date -- so the metrics series sums to the report's quarterly '# Issues with PR
-    ID'. Narrowing this to Done Stories/Bugs understates it badly."""
+    """Marked-as-AI vs having-the-AI-metrics-signal, monthly. Scope matches the Power
+    BI 'AI Fields Adaption' page filters: ALL issue types, ALL statuses, by resolved
+    date. The "having metrics" signal was the PR URL field (cf[15262]) until Kobi
+    switched it (2026-10-07) to cf[15264] 'AI Model Used' -- populated more reliably
+    on the same epics (e.g. PMN-34876 has AI Model Used set but no PR URL). Narrowing
+    this to Done Stories/Bugs understates it badly."""
     months, marked, metrics, pct_links = [], [], [], []
     team, _ = team_clauses(cfg)
     for m in range(first_month, today.month + 1):
@@ -349,13 +354,13 @@ def build_ai_fields(j: Jira, cfg: dict, today: dt.date, first_month: int = 4) ->
         months.append(calendar.month_name[m] + ("*" if m == today.month else ""))
         proj = cfg["project"]
         marked.append(j.count(f'project = {proj}{team} AND {CF_IMPLEMENTED_BY_AI} = "Yes" AND {window}'))
-        metrics_jql = f'project = {proj}{team} AND {CF_PR_URL} is not EMPTY AND {window}'
+        metrics_jql = f'project = {proj}{team} AND {CF_AI_MODEL_USED} is not EMPTY AND {window}'
         metrics.append(j.count(metrics_jql))
         # The %-line label links to its numerator (issues that actually carry the new
         # metric), the more useful drill-through than the marked-as-AI denominator.
         pct_links.append(jira_link(j, metrics_jql))
-    return {"_definition": "Marked as AI = cf[15229] = Yes; having metrics = cf[15262] PR-URL "
-                           "populated. All issue types, all statuses, by resolved date.",
+    return {"_definition": "Marked as AI = cf[15229] = Yes; having metrics = cf[15264] AI Model "
+                           "Used populated. All issue types, all statuses, by resolved date.",
             "months": months, "marked_ai": marked, "new_metrics": metrics, "pct_links": pct_links,
             "as_of": today.isoformat()}
 
@@ -368,10 +373,14 @@ def build_ai_metrics_table(j: Jira, cfg: dict, today: dt.date) -> dict:
     Bucketed by the Closed date field (cf[10099]); last 4 calendar months including
     the current partial one. For a team-scoped config (Ascenders/Fellowship, both
     cuts of PMN) this scopes to that team, same as every other section here -- an
-    unscoped table would just repeat PMN's own whole-project numbers verbatim."""
+    unscoped table would just repeat PMN's own whole-project numbers verbatim.
+
+    "Having AI Metrics Stats" was PR URL (cf[15262]) populated until Kobi switched it
+    (2026-10-07) to cf[15264] 'AI Model Used' -- a short-text field populated more
+    reliably on the same epics than PR URL ever was."""
     proj = cfg["project"]
     any_team, bug_team = team_clauses(cfg)
-    FIELDS = ["customfield_15262", CF_CODE_COVERAGE, CF_DEV_DURATION,
+    FIELDS = ["customfield_15264", CF_CODE_COVERAGE, CF_DEV_DURATION,
               CF_REVIEW_DURATION, "customfield_10099"]
     GROUPS = [("epics", "issuetype = Epic", any_team),
               ("bug_story", "issuetype in (Story, Bug)", bug_team)]
@@ -419,7 +428,7 @@ def build_ai_metrics_table(j: Jira, cfg: dict, today: dt.date) -> dict:
         for ym in months:
             items = buckets[ym]
             marked.append(len(items))
-            hv = sum(1 for f in items if f.get("customfield_15262"))
+            hv = sum(1 for f in items if f.get("customfield_15264"))
             having.append(hv)
             pct_vals.append(100.0 * hv / len(items) if items else 0.0)
             med_dev.append(median([f[CF_DEV_DURATION] for f in items
@@ -627,7 +636,7 @@ def build_meta(data: dict, cfg: dict, snapshot: dict, today: dt.date) -> dict:
         sections.append({
             "file": "chart_ai_fields_adoption.png", "rail": "#7B4FC7", "tint": "rgba(123,79,199,0.06)",
             "seclabel": "AI Adoption", "title": "AI Fields Adoption (All Issue Types)",
-            "caption": (f"{af_pct_closed:.1f}% of AI-marked issues carry the PR-URL metric field in "
+            "caption": (f"{af_pct_closed:.1f}% of AI-marked issues have an AI Model Used value in "
                         f"{af['months'][af_closed]} ({af['new_metrics'][af_closed]} of "
                         f"{af['marked_ai'][af_closed]}); "
                         # Denominator can legitimately be 0 early in a month, which would
@@ -691,7 +700,7 @@ def build_meta(data: dict, cfg: dict, snapshot: dict, today: dt.date) -> dict:
         def group_rows(g: dict) -> dict:
             return {
                 "Issues Marked as AI": [str(v) for v in g["marked_ai"]],
-                "Having AI Metrics Stats (PR URL)": [str(v) for v in g["having_metrics"]],
+                "Having AI Metrics Stats (AI Model Used)": [str(v) for v in g["having_metrics"]],
                 "%": [f"{v:.1f}%" for v in g["pct"]],
                 "Median Development Time (min)": [fmt1(v) for v in g["median_dev_min"]],
                 "Median Review Time (min)": [fmt1(v) for v in g["median_review_min"]],

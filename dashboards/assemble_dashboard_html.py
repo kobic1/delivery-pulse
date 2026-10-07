@@ -136,7 +136,7 @@ def main():
             + render_table("METRIC &mdash; EPICS", amt["epics_rows"], amt["months"])
             + render_table("METRIC &mdash; BUG + STORY", amt["bug_story_rows"], amt["months"])
             + f'<div class="cap">Pulled live from {meta["project"]} Jira, bucketed by the Closed '
-              f'date field; % is of AI-marked issues that also carry a PR URL. As of '
+              f'date field; % is of AI-marked issues that also have an AI Model Used value. As of '
               f'{amt["as_of"]}.</div></div>\n'
         )
 

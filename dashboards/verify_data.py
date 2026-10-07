@@ -184,38 +184,16 @@ def check_ai_epics(data, report, today):
 
 
 def check_ai_fields(data, report, today, tolerance=3):
-    """The report's AI Fields Adaption page is QUARTERLY, so reconcile our monthly
-    'having AI metrics' series by summing it into quarters. A small gap is normal --
-    the report is a snapshot and Jira is live -- so allow +/-tolerance as a WARN."""
-    rep = (report or {}).get("issues_with_pr_id")
-    if not rep:
-        record("SKIP", "reconcile:ai_fields_adoption", "no issues_with_pr_id in report_values.json")
-        return
-    d = data.get("ai_fields_adoption")
-    if not d:
-        record("FAIL", "reconcile:ai_fields_adoption", "no ai_fields_adoption section in data.json")
-        return
-    quarters = {}
-    for label, n in zip(d["months"], d["new_metrics"]):
-        y, m = norm_month(label, today.year)
-        quarters.setdefault(f"{y}/Q{(m - 1) // 3 + 1}", 0)
-        quarters[f"{y}/Q{(m - 1) // 3 + 1}"] += n
-    for key, want in rep.items():
-        got = quarters.get(key)
-        if got is None:
-            record("FAIL", f"reconcile:pr_id {key}", f"report has {want}, dashboard covers no month in {key}")
-        elif got == want:
-            record("PASS", f"reconcile:pr_id {key}", f"{got} == report {want}")
-        elif abs(got - want) <= tolerance:
-            record("WARN", f"reconcile:pr_id {key}",
-                   f"dashboard {got} vs report {want} (diff {got - want:+d}, within snapshot tolerance)")
-        else:
-            qy, qn = int(key.split("/")[0]), int(key.split("/Q")[1])
-            status = drift_status(qy, qn * 3)      # last month of that quarter
-            record(status, f"reconcile:pr_id {key}",
-                   f"dashboard {got} != report {want} (diff {got - want:+d})"
-                   + (" -- open quarter vs frozen snapshot" if status == "WARN"
-                      else " -- definition drift, not lag"))
+    # 2026-10-07: "having AI metrics" now means cf[15264] 'AI Model Used' populated,
+    # not cf[15262] PR URL (Kobi's call -- AI Model Used is populated more reliably
+    # on the same epics). report_values.json's issues_with_pr_id is the frozen
+    # Power BI snapshot under the OLD PR-URL definition, so it no longer describes
+    # the same population as the live series -- same situation as ai_epics_pct's
+    # Maintenance exclusion. Skip until/unless the snapshot is rebuilt on the new
+    # basis; there's no live-Jira way to reconcile against a stale definition.
+    record("SKIP", "reconcile:ai_fields_adoption",
+           "definition changed 2026-10-07 (AI Model Used, not PR URL); "
+           "report_values.json's issues_with_pr_id does not, so no valid comparison exists")
 
 
 def check_internal(data, today):
