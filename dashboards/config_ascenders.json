@@ -2,7 +2,7 @@
   "project": "PMN",
   "project_label": "PMN (Performance Management Native)",
   "powerbi_snapshot": "powerbi_snapshot.json",
-  "release": "26.4",
+  "release": "27.1",
   "subject_prefix": "PMN Release Status \u2014 Ascenders Team",
   "_team_scope_note": "PMN records the team in two different fields depending on issue type: cf[10040] 'Epic Team\\s' is set on epics, cf[10098] 'Team Name' on stories/bugs/tasks (and some epics). Filtering on either one alone silently drops most of the data -- as of Aug 2026, cf[10040] matched 41 Ascenders issues and cf[10098] matched 680. any_clause is the union, used for epics and the all-issue-type AI series; bug_clause is what bugs actually carry.",
   "team_scope": {
@@ -10,31 +10,31 @@
     "any_clause": "(cf[10040] = \"Ascenders\" OR cf[10098] = \"Ascenders\")",
     "bug_clause": "cf[10098] = \"Ascenders\""
   },
-  "release_start_date": "2026-07-15",
-  "release_end_date": "2026-10-06",
+  "release_start_date": "2026-10-08",
+  "release_end_date": "2027-01-05",
   "sprint_boundaries": [
-    "2026-07-15",
-    "2026-08-05",
-    "2026-08-26",
-    "2026-09-16",
-    "2026-10-06"
+    "2026-10-08",
+    "2026-10-30",
+    "2026-11-21",
+    "2026-12-13",
+    "2027-01-05"
   ],
-  "_forecast_note": "22 is the team's stated 26.4 epic target, set by Kobi on 2026-08-06. It is NOT derived: Jira shows 26 epics on fixVersion 26.4 (1 of them Removed), and Ascenders has only one full release of PMN history (13 delivered in 26.3, 1 in 26.2, nothing before), so a 5-release regression over four zeros would be meaningless.",
-  "forecast_override": 22,
-  "forecast_basis": "the team's 26.4 epic target",
+  "_forecast_note": "26.4 closed at exactly 22 -- hit the target on the nose. History (0, 0, 1, 13, 22) still shows a ramp, decelerating (diffs +12, +9), so the trend continuation for 27.1 is ~28. Capped per Kobi's 2026-10-07 rule at 125% of 26.4's actual (22 * 1.25 = 27.5), so 27 is used instead of the uncapped 28.",
+  "forecast_override": 27,
+  "forecast_basis": "decelerating-ramp trend (~28), capped at 125% of 26.4's actual (22)",
   "release_history": {
-    "25.3": 0,
     "25.4": 0,
     "26.1": 0,
     "26.2": 1,
-    "26.3": 13
+    "26.3": 13,
+    "26.4": 22
   },
   "release_order": [
-    "25.3",
     "25.4",
     "26.1",
     "26.2",
-    "26.3"
+    "26.3",
+    "26.4"
   ],
   "_recipients_note": "Recipient addresses are NOT in this file -- the repo is public. They come from the ASCENDERS_DASHBOARD_RECIPIENTS secret (semicolon-separated); the test audience comes from PMN_DASHBOARD_TEST_RECIPIENT.",
   "recipients_env": "ASCENDERS_DASHBOARD_RECIPIENTS",

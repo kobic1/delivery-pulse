@@ -2,7 +2,7 @@
   "project": "PMN",
   "project_label": "PMN (Performance Management Native)",
   "powerbi_snapshot": "powerbi_snapshot.json",
-  "release": "26.4",
+  "release": "27.1",
   "subject_prefix": "PMN Release Status — Fellowship Team",
   "_team_scope_note": "PMN records the team in two different fields depending on issue type: cf[10040] 'Epic Team' is set on epics, cf[10098] 'Team Name' on stories/bugs/tasks. The real Jira value is \"The Fellowship of Metrics\" -- a plain 'Fellowship' search returns 0. any_clause is the union (168 via cf[10040], 974 via cf[10098], 1120 union); bug_clause is what bugs actually carry -- confirmed 0 bugs have cf[10040] set, matching the Ascenders pattern.",
   "team_scope": {
@@ -10,31 +10,31 @@
     "any_clause": "(cf[10040] = \"The Fellowship of Metrics\" OR cf[10098] = \"The Fellowship of Metrics\")",
     "bug_clause": "cf[10098] = \"The Fellowship of Metrics\""
   },
-  "release_start_date": "2026-07-15",
-  "release_end_date": "2026-10-06",
+  "release_start_date": "2026-10-08",
+  "release_end_date": "2027-01-05",
   "sprint_boundaries": [
-    "2026-07-15",
-    "2026-08-05",
-    "2026-08-26",
-    "2026-09-16",
-    "2026-10-06"
+    "2026-10-08",
+    "2026-10-30",
+    "2026-11-21",
+    "2026-12-13",
+    "2027-01-05"
   ],
-  "_forecast_note": "Kobi asked (2026-08-30) for a forecast based on the last 2 releases only, not the full 5-release regression: 25.3/25.4/26.1 were all 0 for this team, so including them would dilute the trend into meaninglessness (same reasoning already applied to CXCO and Ascenders). Linear fit over just 26.2 (8) and 26.3 (17): slope +9/release, forecast for 26.4 = 26.",
-  "forecast_override": 26,
-  "forecast_basis": "linear extrapolation over the last 2 releases (26.2 to 26.3)",
+  "_forecast_note": "26.4 closed at only 8 -- a sharp drop from 17, well under the 26 forecast that assumed the prior growth trend would continue. History is now 0, 0, 8, 17, 8: too volatile for a linear fit, so 27.1 uses the average of the last 2 releases (17, 8 -> 12.5 ~ 12) instead of assuming renewed growth. Capped per Kobi's 2026-10-07 rule at 125% of 26.4's actual (8 * 1.25 = 10), so 10 is used instead of the uncapped 12.",
+  "forecast_override": 10,
+  "forecast_basis": "average of the last 2 releases (17, 8), capped at 125% of 26.4's actual (8)",
   "release_history": {
-    "25.3": 0,
     "25.4": 0,
     "26.1": 0,
     "26.2": 8,
-    "26.3": 17
+    "26.3": 17,
+    "26.4": 8
   },
   "release_order": [
-    "25.3",
     "25.4",
     "26.1",
     "26.2",
-    "26.3"
+    "26.3",
+    "26.4"
   ],
   "_recipients_note": "Recipient addresses are NOT in this file -- the repo is public. They come from the FELLOWSHIP_DASHBOARD_RECIPIENTS secret (semicolon-separated); the test audience comes from PMN_DASHBOARD_TEST_RECIPIENT.",
   "recipients_env": "FELLOWSHIP_DASHBOARD_RECIPIENTS",

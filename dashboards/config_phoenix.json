@@ -2,7 +2,7 @@
   "project": "PMN",
   "project_label": "PMN (Performance Management Native)",
   "powerbi_snapshot": "powerbi_snapshot.json",
-  "release": "26.4",
+  "release": "27.1",
   "subject_prefix": "PMN Release Status — Phoenix Team",
   "_team_scope_note": "PMN records the team in two different fields depending on issue type: cf[10040] 'Epic Team' is set on epics, cf[10098] 'Team Name' on stories/bugs/tasks. any_clause is the union (112 issues total via either field); bug_clause is what bugs actually carry -- confirmed 0 bugs have cf[10040] set, matching the CV-Tech/Ascenders/Fellowship pattern.",
   "team_scope": {
@@ -10,31 +10,31 @@
     "any_clause": "(cf[10040] = \"Phoenix\" OR cf[10098] = \"Phoenix\")",
     "bug_clause": "cf[10098] = \"Phoenix\""
   },
-  "release_start_date": "2026-07-15",
-  "release_end_date": "2026-10-06",
+  "release_start_date": "2026-10-08",
+  "release_end_date": "2027-01-05",
   "sprint_boundaries": [
-    "2026-07-15",
-    "2026-08-05",
-    "2026-08-26",
-    "2026-09-16",
-    "2026-10-06"
+    "2026-10-08",
+    "2026-10-30",
+    "2026-11-21",
+    "2026-12-13",
+    "2027-01-05"
   ],
-  "_forecast_note": "Phoenix has 0 delivered epics in every one of the last 5 releases (25.3/25.4/26.1/26.2/26.3) -- a brand-new team, only active starting 26.4, where it has delivered 5 so far. With no history at all, neither a regression nor a %-over-last-release approach applies (last release was 0), so Kobi gave the team's actual stated target directly (2026-09-15): 8 epics.",
-  "forecast_override": 8,
-  "forecast_basis": "the team's stated 26.4 epic target",
+  "_forecast_note": "26.4 closed at 9, just over the team's own 8 target -- their first real release. History is now 0, 0, 0, 0, 9: still only one real data point, so 27.1 assumes modest continued ramp (~12) rather than a confident trend. Capped per Kobi's 2026-10-07 rule at 125% of 26.4's actual (9 * 1.25 = 11.25), so 11 is used instead of the uncapped 12. Low confidence either way with only one release of history -- revisit once 27.1 gives a second data point.",
+  "forecast_override": 11,
+  "forecast_basis": "modest continued ramp (~12), capped at 125% of 26.4's actual (9)",
   "release_history": {
-    "25.3": 0,
     "25.4": 0,
     "26.1": 0,
     "26.2": 0,
-    "26.3": 0
+    "26.3": 0,
+    "26.4": 9
   },
   "release_order": [
-    "25.3",
     "25.4",
     "26.1",
     "26.2",
-    "26.3"
+    "26.3",
+    "26.4"
   ],
   "_recipients_note": "Recipient addresses are NOT in this file -- the repo is public. They come from the PHOENIX_DASHBOARD_RECIPIENTS secret (semicolon-separated); the test audience comes from PMN_DASHBOARD_TEST_RECIPIENT. cc_env is optional and only applied on a real 'managers' send, never on a test/personal copy.",
   "recipients_env": "PHOENIX_DASHBOARD_RECIPIENTS",

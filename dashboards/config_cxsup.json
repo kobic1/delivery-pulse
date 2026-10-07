@@ -2,33 +2,33 @@
   "project": "CXSUP",
   "project_label": "CXSUP (CXone Supervisor)",
   "powerbi_snapshot": "powerbi_snapshot_cxsup.json",
-  "release": "26.4",
+  "release": "27.1",
   "subject_prefix": "CXSUP Release Status",
-  "release_start_date": "2026-07-15",
-  "release_end_date": "2026-10-06",
+  "release_start_date": "2026-10-08",
+  "release_end_date": "2027-01-05",
   "sprint_boundaries": [
-    "2026-07-15",
-    "2026-08-05",
-    "2026-08-26",
-    "2026-09-16",
-    "2026-10-06"
+    "2026-10-08",
+    "2026-10-30",
+    "2026-11-21",
+    "2026-12-13",
+    "2027-01-05"
   ],
-  "_forecast_note": "Kobi first asked (2026-09-03) for 20% above the last release (73 * 1.2 = 88), then corrected (2026-09-04) to the team's actual stated target of 146. The plain 5-release regression (74/35/58/54/73) would give only 64, well under either -- history has real variance and CXSUP was already at 113 delivered by day ~50 of the release.",
-  "forecast_override": 146,
-  "forecast_basis": "the team's stated 26.4 epic target",
+  "_forecast_note": "26.4 closed at 210 -- massively over its own 146 target (+44%) and nearly 3x the prior release (73). History is now 74/35/58/54/73/210, too volatile for a trend line (a naive continuation of the last jump would be absurd). Used the average of the last 2 releases (73, 210 -> 141.5 ~ 142) as the 27.1 prediction, per Kobi's 2026-10-07 instruction to predict from history; this is well under the 125%-of-26.4 cap (262.5), so no capping applied. No team-stated target has been given for 27.1 yet -- replace this with the team's real number once they have one, the same way 146 replaced the regression for 26.4.",
+  "forecast_override": 142,
+  "forecast_basis": "average of the last 2 releases (73, 210)",
   "release_history": {
-    "25.3": 74,
     "25.4": 35,
     "26.1": 58,
     "26.2": 54,
-    "26.3": 73
+    "26.3": 73,
+    "26.4": 210
   },
   "release_order": [
-    "25.3",
     "25.4",
     "26.1",
     "26.2",
-    "26.3"
+    "26.3",
+    "26.4"
   ],
   "recipients_env": "CXSUP_DASHBOARD_RECIPIENTS",
   "_recipients_note": "Recipient addresses are NOT in this file -- the repo is public. Managers come from the CXSUP_DASHBOARD_RECIPIENTS secret (semicolon-separated); the test audience comes from PMN_DASHBOARD_TEST_RECIPIENT.",

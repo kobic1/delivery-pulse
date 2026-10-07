@@ -2,37 +2,37 @@
   "project": "PMN",
   "project_label": "PMN (Performance Management Native)",
   "powerbi_snapshot": "powerbi_snapshot.json",
-  "release": "26.4",
+  "release": "27.1",
   "subject_prefix": "PMN Release Status",
-  "release_start_date": "2026-07-15",
-  "release_end_date": "2026-10-06",
+  "release_start_date": "2026-10-08",
+  "release_end_date": "2027-01-05",
   "sprint_boundaries": [
-    "2026-07-15",
-    "2026-08-05",
-    "2026-08-26",
-    "2026-09-16",
-    "2026-10-06"
+    "2026-10-08",
+    "2026-10-30",
+    "2026-11-21",
+    "2026-12-13",
+    "2027-01-05"
   ],
-  "_forecast_note": "forecast_override is the committed-scope forecast (73), used instead of the 5-release regression because the Bugs Bunnies + Guardians teams left. Set to null to fall back to the regression.",
-  "forecast_override": 73,
+  "_forecast_note": "26.4 closed at 87 (vs the 73 HC-loss-adjusted forecast) -- the last 3 releases (82, 85, 87) are stable, so the old capacity discount looks outdated; the team has adapted. forecast_override is the average of those 3, capped per Kobi's 2026-10-07 rule (27.1 forecast must not exceed 125% of 26.4's actual, 108.75) -- 87 is already under that cap. Set to null to fall back to the regression.",
+  "forecast_override": 87,
   "release_history": {
-    "25.3": 34,
     "25.4": 38,
     "26.1": 29,
     "26.2": 82,
-    "26.3": 85
+    "26.3": 85,
+    "26.4": 87
   },
   "release_order": [
-    "25.3",
     "25.4",
     "26.1",
     "26.2",
-    "26.3"
+    "26.3",
+    "26.4"
   ],
   "_first_send_date_note": "Manager sends are suppressed before this date. Kobi asked for the distribution to start Mon Aug 10 2026; the cron alone would have fired Thu Aug 6.",
   "first_send_date": "2026-08-10",
   "_recipients_note": "Recipient addresses are NOT in this file -- the repo is public. Managers come from the PMN_DASHBOARD_RECIPIENTS secret (semicolon-separated); the test audience comes from PMN_DASHBOARD_TEST_RECIPIENT.",
-  "forecast_basis": "capacity-adjusted for the departed teams",
+  "forecast_basis": "average of the last 3 releases (82, 85, 87) -- stable capacity post-HC-loss",
   "ai_epics_first_month": 1,
   "ai_epics_month_style": "short",
   "sections": {

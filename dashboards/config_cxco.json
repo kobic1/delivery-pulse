@@ -2,33 +2,33 @@
   "project": "CXCO",
   "project_label": "CXCO (CXone Coaching)",
   "powerbi_snapshot": "powerbi_snapshot_cxco.json",
-  "release": "26.4",
+  "release": "27.1",
   "subject_prefix": "CXCO Release Status",
-  "release_start_date": "2026-07-15",
-  "release_end_date": "2026-10-06",
+  "release_start_date": "2026-10-08",
+  "release_end_date": "2027-01-05",
   "sprint_boundaries": [
-    "2026-07-15",
-    "2026-08-05",
-    "2026-08-26",
-    "2026-09-16",
-    "2026-10-06"
+    "2026-10-08",
+    "2026-10-30",
+    "2026-11-21",
+    "2026-12-13",
+    "2027-01-05"
   ],
-  "_forecast_note": "CXCO ramped from a near-zero baseline (3/1/2/11/35 epics per release), so the 5-release regression under-predicts (it gives 33). Kobi set the forecast to committed 26.4 scope = 43.",
-  "forecast_override": 43,
-  "forecast_basis": "committed scope",
+  "_forecast_note": "26.4 closed at 57, beating even the committed-scope forecast of 43. CXCO is still accelerating (diffs 1,2,11,35,57 -> +1,+9,+24,+22), which a linear trend puts at ~80 for 27.1 -- but Kobi's 2026-10-07 rule caps any 27.1 forecast at 125% of 26.4's actual (57 * 1.25 = 71.25), so 71 is used instead of the uncapped trend projection. No committed-scope number was given for 27.1, so this reverts to a capped trend basis rather than Kobi's prior 'committed scope' convention -- revisit if/when a committed number is set.",
+  "forecast_override": 71,
+  "forecast_basis": "trend projection (~80), capped at 125% of 26.4's actual (57)",
   "release_history": {
-    "25.3": 3,
     "25.4": 1,
     "26.1": 2,
     "26.2": 11,
-    "26.3": 35
+    "26.3": 35,
+    "26.4": 57
   },
   "release_order": [
-    "25.3",
     "25.4",
     "26.1",
     "26.2",
-    "26.3"
+    "26.3",
+    "26.4"
   ],
   "_bug_exclusions_note": "A batch of 65 accessibility defects labelled DWP_Accessibility_Defect was filed on 2026-08-04. They are excluded to stay on the same basis as this chart's [Accessibility] summary exclusion -- counting them read 76 open instead of 11. `OR labels is EMPTY` matters: a bare `labels !=` also drops every issue with no labels at all.",
   "bug_exclusions": "AND (labels != DWP_Accessibility_Defect OR labels is EMPTY)",
