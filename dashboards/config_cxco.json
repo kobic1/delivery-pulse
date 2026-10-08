@@ -13,9 +13,9 @@
     "2026-12-13",
     "2027-01-05"
   ],
-  "_forecast_note": "26.4 closed at 57, beating even the committed-scope forecast of 43. CXCO is still accelerating (diffs 1,2,11,35,57 -> +1,+9,+24,+22), which a linear trend puts at ~80 for 27.1 -- but Kobi's 2026-10-07 rule caps any 27.1 forecast at 125% of 26.4's actual (57 * 1.25 = 71.25), so 71 is used instead of the uncapped trend projection. No committed-scope number was given for 27.1, so this reverts to a capped trend basis rather than Kobi's prior 'committed scope' convention -- revisit if/when a committed number is set.",
-  "forecast_override": 71,
-  "forecast_basis": "trend projection (~80), capped at 125% of 26.4's actual (57)",
+  "_forecast_note": "26.4 closed at 57, beating even the committed-scope forecast of 43. CXCO is still accelerating (diffs 1,2,11,35,57 -> +1,+9,+24,+22), which a linear trend puts at ~80 for 27.1 -- but Kobi's 2026-10-07 rule caps any 27.1 forecast at 125% of 26.4's actual (57 * 1.25 = 71.25), so 71 is used instead of the uncapped trend projection. No committed-scope number was given for 27.1, so this reverts to a capped trend basis rather than Kobi's prior 'committed scope' convention -- revisit if/when a committed number is set. 2026-10-08 India-festival adjustment: the team reported 29 leaves last quarter vs 87 this quarter (+58 leave-days). Against an estimated ~11 core contributors (distinct people closing 3+ issues in the last 90 days) that is a 9.2% capacity loss on a like-for-like 60-weekday window (58 / (11*60 - 29)), so the capped 71 becomes 64. If the 29/87 figures cover CXCO and Ascenders combined (~30 people) the loss is only 3.3% and the target would be 69 -- the lower number is used because the aim is to avoid an over-high target.",
+  "forecast_override": 64,
+  "forecast_basis": "capped trend (71), reduced 9.2% for India-festival leave (29 -> 87 days)",
   "release_history": {
     "25.4": 1,
     "26.1": 2,

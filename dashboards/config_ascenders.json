@@ -19,9 +19,9 @@
     "2026-12-13",
     "2027-01-05"
   ],
-  "_forecast_note": "26.4 closed at exactly 22 -- hit the target on the nose. History (0, 0, 1, 13, 22) still shows a ramp, decelerating (diffs +12, +9), so the trend continuation for 27.1 is ~28. Capped per Kobi's 2026-10-07 rule at 125% of 26.4's actual (22 * 1.25 = 27.5), so 27 is used instead of the uncapped 28.",
-  "forecast_override": 27,
-  "forecast_basis": "decelerating-ramp trend (~28), capped at 125% of 26.4's actual (22)",
+  "_forecast_note": "26.4 closed at exactly 22 -- hit the target on the nose. History (0, 0, 1, 13, 22) still shows a ramp, decelerating (diffs +12, +9), so the trend continuation for 27.1 is ~28. Capped per Kobi's 2026-10-07 rule at 125% of 26.4's actual (22 * 1.25 = 27.5), so 27 is used instead of the uncapped 28. 2026-10-08 India-festival adjustment: the team reported 29 leaves last quarter vs 87 this quarter (+58 leave-days). Against an estimated ~19 core contributors (distinct people closing 3+ issues in the last 90 days) that is a 5.2% capacity loss on a like-for-like 60-weekday window (58 / (19*60 - 29)), so the capped 27 becomes 26 (25.6 rounded). If the 29/87 figures cover Ascenders and CXCO combined (~30 people) the loss is 3.3% and the target is still 26.",
+  "forecast_override": 26,
+  "forecast_basis": "capped trend (27), reduced 5.2% for India-festival leave (29 -> 87 days)",
   "release_history": {
     "25.4": 0,
     "26.1": 0,
