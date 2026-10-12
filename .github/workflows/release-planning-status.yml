@@ -53,6 +53,10 @@ jobs:
           JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
           POWER_AUTOMATE_EMAIL_URL: ${{ secrets.POWER_AUTOMATE_EMAIL_URL }}
           RELEASE_PLANNING_RECIPIENTS: ${{ secrets.RELEASE_PLANNING_RECIPIENTS }}
+          ASCENDERS_DASHBOARD_RECIPIENTS: ${{ secrets.ASCENDERS_DASHBOARD_RECIPIENTS }}
+          CV_TECH_DASHBOARD_RECIPIENTS: ${{ secrets.CV_TECH_DASHBOARD_RECIPIENTS }}
+          PHOENIX_DASHBOARD_RECIPIENTS: ${{ secrets.PHOENIX_DASHBOARD_RECIPIENTS }}
+          FELLOWSHIP_DASHBOARD_RECIPIENTS: ${{ secrets.FELLOWSHIP_DASHBOARD_RECIPIENTS }}
           IN_CONFIG: ${{ github.event.inputs.config }}
           IN_SCOPE: ${{ github.event.inputs.scope }}
           IN_TEAM: ${{ github.event.inputs.team }}

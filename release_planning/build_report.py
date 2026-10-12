@@ -285,16 +285,21 @@ def recipients(cfg: dict, key: str, audience: str, to: str | None) -> str:
         if not to:
             sys.exit("--audience test needs --to.")
         return to
-    raw = os.environ.get("RELEASE_PLANNING_RECIPIENTS", "")
     try:
-        return json.loads(raw).get(key, "")
+        found = json.loads(os.environ.get("RELEASE_PLANNING_RECIPIENTS", "") or "{}").get(key, "")
     except ValueError:
-        return ""
+        found = ""
+    if found:
+        return found
+    team = key.split(":", 1)[1] if ":" in key else None
+    env = (cfg.get("team_recipients_env") or {}).get(team or "")
+    return os.environ.get(env, "") if env else ""
 
 
 def deliver(cfg: dict, key: str, subject: str, path: Path, audience: str, to: str | None) -> None:
     if audience == "none":
-        print(f"built {path.name} (not sent)")
+        n = len([a for a in recipients(cfg, key, "managers", None).split(";") if a.strip()])
+        print(f"built {path.name} (not sent) -- would go to {n} recipient(s)")
         return
     rcpt = recipients(cfg, key, audience, to)
     if not rcpt:
