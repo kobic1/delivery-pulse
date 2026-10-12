@@ -1,0 +1,56 @@
+{
+  "project": "PMN",
+  "project_label": "PMN (Performance Management Native)",
+  "powerbi_snapshot": "powerbi_snapshot.json",
+  "release": "27.1",
+  "subject_prefix": "PMN Release Status — CV-Integration and CV-Services",
+  "_team_scope_note": "One report covering two PMN teams, replacing the separate CV-Integration and CV-Services dashboards (Kobi, 2026-10-12). Both teams record the team in the usual two fields (cf[10040] 'Epic Team' on epics, cf[10098] 'Team Name' on stories/bugs/tasks), so any_clause is the union of both teams across both fields and bug_clause is cf[10098] only -- confirmed 0 bugs carry either team on cf[10040]. It is a union, not a sum: one epic is tagged to both teams and is counted once.",
+  "team_scope": {
+    "name": "CV-Integration and CV-Services",
+    "any_clause": "(cf[10040] in (\"CV-Integration\", \"CV-Services\") OR cf[10098] in (\"CV-Integration\", \"CV-Services\"))",
+    "bug_clause": "cf[10098] in (\"CV-Integration\", \"CV-Services\")"
+  },
+  "release_start_date": "2026-10-08",
+  "release_end_date": "2027-01-05",
+  "sprint_boundaries": [
+    "2026-10-08",
+    "2026-10-30",
+    "2026-11-21",
+    "2026-12-13",
+    "2027-01-05"
+  ],
+  "_forecast_note": "Combined history (25.4 -> 26.4, deduplicated) is 11, 3, 39, 22, 41 -- volatile, so 27.1 uses the average of the last 3 releases (39, 22, 41 -> 34). Kobi's standing rule (2026-10-07) caps any 27.1 forecast at 125% of 26.4's actual (41 * 1.25 = 51.25), so 34 is well under it. The two separate forecasts sent earlier the same day (CV-Integration 31 + CV-Services 4) sum to 35; the 1-epic gap is the combined series being deduplicated. No India-festival leave adjustment has been applied: the 2026-10-08 feedback named only CXCO and Ascenders, and these teams' location is unconfirmed.",
+  "forecast_override": 34,
+  "forecast_basis": "average of the last 3 combined releases (39, 22, 41)",
+  "release_history": {
+    "25.4": 11,
+    "26.1": 3,
+    "26.2": 39,
+    "26.3": 22,
+    "26.4": 41
+  },
+  "release_order": [
+    "25.4",
+    "26.1",
+    "26.2",
+    "26.3",
+    "26.4"
+  ],
+  "_recipients_note": "Recipient addresses are NOT in this file -- the repo is public. They come from the CV_COMBINED_DASHBOARD_RECIPIENTS secret (semicolon-separated); the test audience comes from PMN_DASHBOARD_TEST_RECIPIENT.",
+  "recipients_env": "CV_COMBINED_DASHBOARD_RECIPIENTS",
+  "ai_epics_first_month": 1,
+  "ai_epics_month_style": "short",
+  "sections": {
+    "ai_fields_adoption": true,
+    "edct": true,
+    "ai_metrics_table": true
+  },
+  "edct_source": "jira",
+  "edct_ai_only": true,
+  "edct_first_month": 4,
+  "manager_send_days": [
+    0,
+    3
+  ],
+  "daily_personal_copy": false
+}
