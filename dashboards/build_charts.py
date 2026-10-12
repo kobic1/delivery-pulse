@@ -193,8 +193,23 @@ def chart_delivery(d, outpath):
             "slope": slope, "intercept": intercept}
 
 
+_MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+def short_month_label(label):
+    """One month vocabulary across every chart. The three series arrive as '2026/04',
+    'April' and 'Apr' (with a trailing '*' on the partial month), which read as three
+    different systems side by side in the same email. Always 'Apr' / 'Oct*'."""
+    star = "*" if str(label).endswith("*") else ""
+    body = str(label).rstrip("*")
+    if "/" in body:
+        return _MONTHS_SHORT[int(body.split("/")[1]) - 1] + star
+    return body[:3] + star
+
+
 def chart_edct(d, outpath):
-    months = d["months"]
+    months = [short_month_label(m) for m in d["months"]]
     values = d["values"]
     target_all = d.get("target_all", 16)
     # target_ai is optional: when the report exposes only a single blended target
@@ -259,7 +274,7 @@ def chart_quality(d, outpath):
 
 
 def chart_ai_epics_pct(d, outpath):
-    months = d["months"]
+    months = [short_month_label(m) for m in d["months"]]
     total_epics = d["total_epics"]
     ai_epics = d["ai_epics"]
     pct = [100.0 * a / t if t else 0.0 for a, t in zip(ai_epics, total_epics)]
@@ -303,7 +318,7 @@ def chart_ai_epics_pct(d, outpath):
 
 
 def chart_ai_fields_adoption(d, outpath):
-    months = d["months"]
+    months = [short_month_label(m) for m in d["months"]]
     marked_ai = d["marked_ai"]
     new_metrics = d["new_metrics"]
     pct = [100.0 * n / m if m else 0.0 for n, m in zip(new_metrics, marked_ai)]

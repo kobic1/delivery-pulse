@@ -567,12 +567,12 @@ def build_meta(data: dict, cfg: dict, snapshot: dict, today: dt.date) -> dict:
     sections = [{
         "file": "chart_delivery.png", "rail": "#1F3A5F", "tint": "rgba(31,58,95,0.06)",
         "seclabel": "Delivery",
-        "title": "Epic Delivery &mdash; Actual vs. " + ("Target" if team else "Expected"),
+        "title": "Epic Delivery: Actual vs. " + ("Target" if team else "Expected"),
         "caption": (f"{dl['current_delivered']} delivered on day {day_of_release} of the release, "
                     f"against {forecast} ({cfg.get('forecast_basis', 'committed scope')})."
                     + (f" Last epic closed {last_close.strftime('%b %-d')}."
                        if dl["days_into_release_delivered"] else "")
-                    + scope_bit + f" Live from {proj} Jira."),
+                    + scope_bit),
     }]
     if ed:
         sections.append({
@@ -585,16 +585,16 @@ def build_meta(data: dict, cfg: dict, snapshot: dict, today: dt.date) -> dict:
                         # "closed at" is wrong once ed_closed is the still-running current
                         # month -- say "stands at ... month-to-date" instead, same distinction
                         # as the AI captions above.
-                        + (f"{ed['months'][ed_closed]} stands at {ed['values'][ed_closed]} days "
+                        + (f"{short_month(ed['months'][ed_closed])} stands at {ed['values'][ed_closed]} days "
                            f"month-to-date. "
                            if ed_closed == len(ed["months"]) - 1 and str(ed["months"][-1]).endswith("*")
-                           else f"{ed['months'][ed_closed]} closed at {ed['values'][ed_closed]} days. ")
-                        + (f"Computed live from Jira changelogs &mdash; average calendar days in "
+                           else f"{short_month(ed['months'][ed_closed])} closed at {ed['values'][ed_closed]} days. ")
+                        + (f"Computed live from Jira changelogs: average calendar days in "
                            f"In Progress or Validation, excluding flagged days and "
                            f"Maintenance-category epics. Reconciles with the R&amp;D Efficiency "
                            f"report's KPI-TREND row."
                            if cfg.get("edct_source") == "jira" else
-                           (f"<b>Carried forward &mdash; as of {ed['as_of']}.</b> EDCT comes from the "
+                           (f"<b>Carried forward, as of {ed['as_of']}.</b> EDCT comes from the "
                             f"R&amp;D Efficiency Power BI report, which needs an interactive "
                             f"sign-in and cannot be refreshed by this automated run; every other "
                             f"section below is live. "
@@ -604,53 +604,52 @@ def build_meta(data: dict, cfg: dict, snapshot: dict, today: dt.date) -> dict:
     sections.append({
         "file": "chart_quality.png", "rail": "#2E9E4F", "tint": "rgba(46,158,79,0.06)",
         "seclabel": "Quality",
-        "title": f"Open Bugs Trend &mdash; {team}" if team else "Open Bugs Trend &mdash; Full Backlog",
+        "title": f"Open Bugs Trend: {team}" if team else "Open Bugs Trend: Full Backlog",
         "caption": (f"{ql['open_trend'][-1]} open "
                     + (f"{team} bugs (excl. Accessibility" if team
                        else "in the full-project backlog (excl. Accessibility")
                     + (f"; {cfg['bug_exclusions_note']}" if cfg.get("bug_exclusions_note") else "")
-                    + f") &mdash; against a {peak_week} peak of {peak}. The week of "
+                    + f"), against a {peak_week} peak of {peak}. The week of "
                     f"{ql['weeks'][-1]} is still running ({ql['created'][-1]} opened, "
-                    f"{ql['resolved'][-1]} closed). Live from {proj} Jira."),
+                    f"{ql['resolved'][-1]} closed)."),
     })
     sections.append({
         "file": "chart_ai_epics_pct.png", "rail": "#7B4FC7", "tint": "rgba(123,79,199,0.06)",
         "seclabel": "AI Adoption", "title": "% Epics Developed by AI Agents",
         "caption": (f"{ae_pct_closed:.0f}% of epics AI-developed in {ae['months'][closed]} "
-                    f"({ae['ai_epics'][closed]} of {ae['total_epics'][closed]}); "
+                    f"({ae['ai_epics'][closed]} of {ae['total_epics'][closed]}). "
                     # A month with no resolved epics has no rate -- "0 of 0 (0%)" reads as a
                     # collapse in adoption when it only means nothing has closed yet. And once
                     # headline_index() has already picked the current month (closed == -1), a
                     # second "month-to-date" sentence about that same month would just repeat
                     # the first one -- only add it when it's telling you about a DIFFERENT month.
                     + ("" if closed == len(ae["months"]) - 1 else
-                       f"no epics resolved yet in {ae['months'][-1]}. "
+                       f"No epics resolved yet in {ae['months'][-1]}. "
                        if not ae["total_epics"][-1] else
                        f"{ae['months'][-1]} stands at {ae['ai_epics'][-1]} of "
                        f"{ae['total_epics'][-1]} ({ae_cur:.0f}%) month-to-date. ")
-                    + f"Counted the way the report counts it &mdash; "
-                    f"the Implemented-by-AI-Agent field, not the AGENTIC_AI_CODE label. "
-                    f"Live from {proj} Jira."),
+                    + f"Counted the way the report counts it: "
+                    f"the Implemented-by-AI-Agent field, not the AGENTIC_AI_CODE label."),
     })
     if af:
         sections.append({
             "file": "chart_ai_fields_adoption.png", "rail": "#7B4FC7", "tint": "rgba(123,79,199,0.06)",
             "seclabel": "AI Adoption", "title": "AI Fields Adoption (All Issue Types)",
             "caption": (f"{af_pct_closed:.1f}% of AI-marked issues have an AI Model Used value in "
-                        f"{af['months'][af_closed]} ({af['new_metrics'][af_closed]} of "
-                        f"{af['marked_ai'][af_closed]}); "
+                        f"{short_month(af['months'][af_closed])} ({af['new_metrics'][af_closed]} of "
+                        f"{af['marked_ai'][af_closed]}). "
                         # Denominator can legitimately be 0 early in a month, which would
                         # otherwise print an impossible "1 of 0". And skip the second sentence
                         # entirely once af_closed already IS the current month -- see the
                         # matching comment on the % Epics by AI caption above.
                         + ("" if af_closed == len(af["months"]) - 1 else
-                           f"no AI-marked issues resolved yet in {af['months'][-1]}. "
+                           f"No AI-marked issues resolved yet in {short_month(af['months'][-1])}. "
                            if not af["marked_ai"][-1] else
-                           f"{af_cur:.1f}% in {af['months'][-1]} so far "
+                           f"{af_cur:.1f}% in {short_month(af['months'][-1])} so far "
                            f"({af['new_metrics'][-1]} of {af['marked_ai'][-1]}). ")
                         + f"Scope matches the "
-                        f"report's AI Fields Adaption page &mdash; all issue types and statuses by "
-                        f"resolved date. Live from {proj} Jira."),
+                        f"report's AI Fields Adaption page: all issue types and statuses by "
+                        f"resolved date."),
         })
     live = "Delivery, Quality and both AI sections" if af else "Delivery, Quality and % Epics by AI"
     scope_label = (f"{cfg.get('project_label', proj)} Jira, {team} team"
