@@ -1,0 +1,77 @@
+name: Release Planning Status
+
+# On-demand only (workflow_dispatch) -- no cron. Builds the release planning status report
+# straight from the Jira REST API and emails it through the Power Automate flow. No LLM is
+# involved, so a send costs no tokens.
+#
+#   scope=project    -> one project-level report (audience key 'PMN')
+#   scope=all-teams  -> one report per epic team (audience keys 'PMN:<team name>')
+#   scope=team       -> a single team (give 'team')
+#
+# audience=test-only sends only to the 'test_to' address you type (default and safest);
+# managers uses the RELEASE_PLANNING_RECIPIENTS secret (JSON map, see config_pmn.json).
+
+on:
+  workflow_dispatch:
+    inputs:
+      config:
+        description: 'Project config file in release_planning/'
+        default: config_pmn.json
+      scope:
+        type: choice
+        default: project
+        options: [project, all-teams, team]
+      team:
+        description: 'Epic team name (only for scope=team)'
+        required: false
+      audience:
+        type: choice
+        default: test-only
+        options: [test-only, managers, build-only]
+      test_to:
+        description: 'Recipient for audience=test-only'
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: dashboards/requirements.txt
+      - run: pip install requests
+      - name: Build and send
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          POWER_AUTOMATE_EMAIL_URL: ${{ secrets.POWER_AUTOMATE_EMAIL_URL }}
+          RELEASE_PLANNING_RECIPIENTS: ${{ secrets.RELEASE_PLANNING_RECIPIENTS }}
+          IN_CONFIG: ${{ github.event.inputs.config }}
+          IN_SCOPE: ${{ github.event.inputs.scope }}
+          IN_TEAM: ${{ github.event.inputs.team }}
+          IN_AUDIENCE: ${{ github.event.inputs.audience }}
+          IN_TO: ${{ github.event.inputs.test_to }}
+        run: |
+          case "$IN_AUDIENCE" in
+            managers)   AUD=managers ;;
+            build-only) AUD=none ;;
+            *)          AUD=test ;;
+          esac
+          ARGS=(--config "$IN_CONFIG" --scope "$IN_SCOPE" --audience "$AUD")
+          [ -n "$IN_TEAM" ] && ARGS+=(--team "$IN_TEAM")
+          [ -n "$IN_TO" ] && ARGS+=(--to "$IN_TO")
+          python release_planning/build_report.py "${ARGS[@]}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-planning-${{ github.run_id }}
+          path: release_planning/build/*.html
+          if-no-files-found: warn
+          retention-days: 14
