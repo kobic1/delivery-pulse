@@ -1,0 +1,29 @@
+{
+  "project": "CXSUP",
+  "project_label": "CXSUP (CXone Supervisor)",
+  "release": "27.1",
+  "subject_prefix": "CXSUP 27.1 Release Planning Status",
+  "milestones": {
+    "1st milestone": [
+      "197",
+      "198"
+    ],
+    "2nd milestone": [
+      "199",
+      "200"
+    ]
+  },
+  "sprint_release_token": "27.1",
+  "current_sprint_label": "CX.27.1.197",
+  "pod_label_regex": "(?<![A-Za-z])pod(?![A-Za-z])",
+  "excluded_statuses": [
+    "Removed"
+  ],
+  "fields": {
+    "commitment_type": "customfield_10094",
+    "story_points": "customfield_10038",
+    "target_sprint": "customfield_12697",
+    "epic_team": "customfield_10040"
+  },
+  "_recipients_note": "Addresses are NOT in this file -- the repo is public. They come from the RELEASE_PLANNING_RECIPIENTS secret: a JSON map, key 'CXSUP' for the project report and 'CXSUP:<team name>' for a team report; values are semicolon-separated addresses."
+}
