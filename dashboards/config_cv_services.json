@@ -1,0 +1,56 @@
+{
+  "project": "PMN",
+  "project_label": "PMN (Performance Management Native)",
+  "powerbi_snapshot": "powerbi_snapshot.json",
+  "release": "27.1",
+  "subject_prefix": "PMN Release Status — CV-Services Team",
+  "_team_scope_note": "PMN records the team in two different fields depending on issue type: cf[10040] 'Epic Team' is set on epics, cf[10098] 'Team Name' on stories/bugs/tasks. any_clause is the union (15 via cf[10040], 11 via cf[10098], 24 union); bug_clause is what bugs actually carry -- confirmed 0 bugs have cf[10040] set, matching the other team cuts. The exact value is \"CV-Services\"; a JQL '~' search chokes on the hyphen, so use '='.",
+  "team_scope": {
+    "name": "CV-Services",
+    "any_clause": "(cf[10040] = \"CV-Services\" OR cf[10098] = \"CV-Services\")",
+    "bug_clause": "cf[10098] = \"CV-Services\""
+  },
+  "release_start_date": "2026-10-08",
+  "release_end_date": "2027-01-05",
+  "sprint_boundaries": [
+    "2026-10-08",
+    "2026-10-30",
+    "2026-11-21",
+    "2026-12-13",
+    "2027-01-05"
+  ],
+  "_forecast_note": "A small team with a steady ramp: 0, 0, 3, 3, 4 epics (25.4 -> 26.4). The last-3 average (3.3) would sit below the latest release for a team whose trend is flat to slightly up, so 27.1 holds 26.4's level: 4. That is under Kobi's 2026-10-07 cap of 125% of 26.4's actual (4 * 1.25 = 5). At this size one epic is a 25% swing, so treat the number as a rough guide. No India-festival leave adjustment has been applied: the 2026-10-08 feedback named only CXCO and Ascenders as affected, and this team's location has not been confirmed.",
+  "forecast_override": 4,
+  "forecast_basis": "holds the 26.4 level (4) -- flat-to-slightly-up trend",
+  "release_history": {
+    "25.4": 0,
+    "26.1": 0,
+    "26.2": 3,
+    "26.3": 3,
+    "26.4": 4
+  },
+  "release_order": [
+    "25.4",
+    "26.1",
+    "26.2",
+    "26.3",
+    "26.4"
+  ],
+  "_recipients_note": "Recipient addresses are NOT in this file -- the repo is public. They come from the CV_SERVICES_DASHBOARD_RECIPIENTS secret (semicolon-separated); the test audience comes from PMN_DASHBOARD_TEST_RECIPIENT.",
+  "recipients_env": "CV_SERVICES_DASHBOARD_RECIPIENTS",
+  "ai_epics_first_month": 1,
+  "ai_epics_month_style": "short",
+  "sections": {
+    "ai_fields_adoption": true,
+    "edct": true,
+    "ai_metrics_table": true
+  },
+  "edct_source": "jira",
+  "edct_ai_only": true,
+  "edct_first_month": 4,
+  "manager_send_days": [
+    0,
+    3
+  ],
+  "daily_personal_copy": false
+}
