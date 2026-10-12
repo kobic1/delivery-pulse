@@ -15,3 +15,19 @@ python3 release_planning/build_report.py --config config_pmn.json --scope all-te
 Sends on demand from GitHub: Actions -> "Release Planning Status" -> Run workflow.
 Recipients come from the `RELEASE_PLANNING_RECIPIENTS` secret, never from this repo.
 Next release: edit `release`, `milestones`, `sprint_release_token` in the config.
+
+## Layouts
+
+`--style` picks the email layout (workflow input `style`). Default is **b**.
+
+| Style | Layout |
+|---|---|
+| b | Default. Matches the release-status emails: summary strip, white card, progress bars |
+| a | The original first version |
+| c | Heat map: cells shaded by completeness |
+| d | Action-led: a card per team with a "To do" list |
+| e | Readiness: ready / partly planned / not started bars |
+| f | Milestones: 1st / 2nd / not scheduled bars |
+
+Code: `model.py` (Jira fetch and stats, shared), `style_<letter>.py` (one renderer each),
+`build_report.py` (CLI and sending).

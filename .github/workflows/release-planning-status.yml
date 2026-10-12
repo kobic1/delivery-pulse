@@ -24,6 +24,11 @@ on:
       team:
         description: 'Epic team name (only for scope=team)'
         required: false
+      style:
+        description: 'Email layout (b is the chosen default)'
+        type: choice
+        default: b
+        options: [b, a, c, d, e, f]
       audience:
         type: choice
         default: test-only
@@ -61,6 +66,7 @@ jobs:
           IN_SCOPE: ${{ github.event.inputs.scope }}
           IN_TEAM: ${{ github.event.inputs.team }}
           IN_AUDIENCE: ${{ github.event.inputs.audience }}
+          IN_STYLE: ${{ github.event.inputs.style }}
           IN_TO: ${{ github.event.inputs.test_to }}
         run: |
           case "$IN_AUDIENCE" in
@@ -68,7 +74,7 @@ jobs:
             build-only) AUD=none ;;
             *)          AUD=test ;;
           esac
-          ARGS=(--config "$IN_CONFIG" --scope "$IN_SCOPE" --audience "$AUD")
+          ARGS=(--config "$IN_CONFIG" --scope "$IN_SCOPE" --audience "$AUD" --style "${IN_STYLE:-b}")
           [ -n "$IN_TEAM" ] && ARGS+=(--team "$IN_TEAM")
           [ -n "$IN_TO" ] && ARGS+=(--to "$IN_TO")
           python release_planning/build_report.py "${ARGS[@]}"
