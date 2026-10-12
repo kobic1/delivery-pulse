@@ -194,10 +194,13 @@ def row_cells(es: list[dict], s: dict, bold: bool, pod_override=None) -> str:
     return out + full_cell(s["full"], s["full_n"], s["n"], [e for e in es if not e["full"]])
 
 
-def kpi(label: str, value: str) -> str:
+def kpi(label: str, value: str, es: list[dict] | None = None, color: str = "#222") -> str:
+    """Summary tile; the number links to the epics it counts."""
+    if es:
+        value = jira_link(es[0]["base"], [e["key"] for e in es], value, color)
     return (f'<td style="padding:10px 14px;background:{ROWBG};border-right:6px solid #fff;" width="25%">'
             f'<div style="font-size:12px;color:{MUTED};">{label}</div>'
-            f'<div style="font-size:24px;font-weight:bold;color:#222;">{value}</div></td>')
+            f'<div style="font-size:24px;font-weight:bold;color:{color};">{value}</div></td>')
 
 
 def table(epics: list[dict], teams: list[str], with_pods: bool) -> str:
@@ -260,9 +263,11 @@ def render(cfg: dict, epics: list[dict], scope_team: str | None) -> str:
     title = f'{cfg["project"]} &middot; Release {cfg["release"]} planning status'
     if scope_team:
         title += f' &middot; {html.escape(scope_team)}'
-    kp = (kpi("Epics", str(s["n"])) +
-          kpi("All 4 filled", f'<span style="color:{fg};">{s["full"]}%</span>') +
-          kpi("1st milestone", str(ms["1st milestone"])) + kpi("2nd milestone", str(ms["2nd milestone"])))
+    m1, m2 = cfg["milestones"]
+    in_ms = lambda m: [e for e in epics if e["milestone"] == m]
+    kp = (kpi("Epics", str(s["n"]), epics) +
+          kpi("All 4 filled", f'{s["full"]}%', [e for e in epics if not e["full"]], fg) +
+          kpi(m1.capitalize(), str(ms[m1]), in_ms(m1)) + kpi(m2.capitalize(), str(ms[m2]), in_ms(m2)))
     body = (f'<div style="font-family:Segoe UI,Arial,sans-serif;color:#222;max-width:760px;">'
             f'<div style="font-size:20px;font-weight:bold;">{title}</div>'
             f'<div style="margin:0 0 14px;"></div>'
