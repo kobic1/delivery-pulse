@@ -5,7 +5,7 @@ One report per Jira project (no cross-project roll-up). Hierarchy: Project -> Ep
 An epic is "fully planned" when it has all four of:
     Commitment type, Story points, a Pod label (a label containing "POD"),
     and a Target sprint inside this release's two milestones.
-Done epics count as fully planned. Cancelled epics (excluded_statuses) are left out.
+Epics with a status in excluded_statuses (Done, Removed) are left out of every figure.
 
 Reads only Jira; sending goes through dashboards/send_email.py. Nothing here calls an LLM,
 so a send costs no tokens.
