@@ -14,7 +14,7 @@ Usage:
     python3 release_planning/build_report.py --config config_pmn.json --scope project
     python3 release_planning/build_report.py --config config_pmn.json --scope team --team Ascenders
     python3 release_planning/build_report.py --config config_pmn.json --scope all-teams
-    ... --style a|b|c|d|e|f   (visual layout; default b; a = original, b = restyled, c = heat map, d = action-led, e = readiness, f = milestones, t = Teams paste)
+    ... --style a|b|c|d|e|f   (visual layout; default a = original; b = restyled, c = heat map, d = action-led, e = readiness, f = milestones, t = Teams paste)
     ... --audience none|test|managers   (none = build only; test = --to only; managers = secret)
 
 Env: JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN; for sending POWER_AUTOMATE_EMAIL_URL and,
@@ -79,7 +79,7 @@ def main() -> None:
     ap.add_argument("--team")
     ap.add_argument("--audience", choices=["none", "test", "managers"], default="none")
     ap.add_argument("--to", help="recipient for --audience test")
-    ap.add_argument("--style", choices=STYLES, default="b", help="visual layout (default b)")
+    ap.add_argument("--style", choices=STYLES, default="a", help="visual layout (default a)")
     ap.add_argument("--out", help="output folder (default release_planning/build)")
     a = ap.parse_args()
     cfg = json.loads((HERE / a.config).read_text())

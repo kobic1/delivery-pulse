@@ -18,12 +18,12 @@ Next release: edit `release`, `milestones`, `sprint_release_token` in the config
 
 ## Layouts
 
-`--style` picks the email layout (workflow input `style`). Default is **b**.
+`--style` picks the email layout (workflow input `style`). Default is **a**.
 
 | Style | Layout |
 |---|---|
-| b | Default. Matches the release-status emails: summary strip, white card, progress bars |
-| a | The original first version |
+| a | Default. The original layout |
+| b | Restyled to match the release-status emails: summary strip, white card, progress bars |
 | c | Heat map: cells shaded by completeness |
 | d | Action-led: a card per team with a "To do" list |
 | e | Readiness: ready / partly planned / not started bars |
