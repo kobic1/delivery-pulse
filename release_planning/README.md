@@ -28,6 +28,7 @@ Next release: edit `release`, `milestones`, `sprint_release_token` in the config
 | d | Action-led: a card per team with a "To do" list |
 | e | Readiness: ready / partly planned / not started bars |
 | f | Milestones: 1st / 2nd / not scheduled bars |
+| t | Teams paste: plain table, colored text and links only (Teams strips backgrounds). Open the HTML, copy, paste into Teams |
 
 Code: `model.py` (Jira fetch and stats, shared), `style_<letter>.py` (one renderer each),
 `build_report.py` (CLI and sending).

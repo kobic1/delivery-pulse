@@ -28,7 +28,7 @@ on:
         description: 'Email layout (b is the chosen default)'
         type: choice
         default: b
-        options: [b, a, c, d, e, f]
+        options: [b, a, c, d, e, f, t]
       audience:
         type: choice
         default: test-only

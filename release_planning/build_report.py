@@ -14,7 +14,7 @@ Usage:
     python3 release_planning/build_report.py --config config_pmn.json --scope project
     python3 release_planning/build_report.py --config config_pmn.json --scope team --team Ascenders
     python3 release_planning/build_report.py --config config_pmn.json --scope all-teams
-    ... --style a|b|c|d|e|f   (visual layout; default b; a = original, b = restyled, c = heat map, d = action-led, e = readiness, f = milestones)
+    ... --style a|b|c|d|e|f   (visual layout; default b; a = original, b = restyled, c = heat map, d = action-led, e = readiness, f = milestones, t = Teams paste)
     ... --audience none|test|managers   (none = build only; test = --to only; managers = secret)
 
 Env: JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN; for sending POWER_AUTOMATE_EMAIL_URL and,
@@ -34,7 +34,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from model import BUILD, HERE, NO_TEAM, build_model  # noqa: E402
 
-STYLES = ["a", "b", "c", "d", "e", "f"]
+STYLES = ["a", "b", "c", "d", "e", "f", "t"]
 
 
 def renderer(style: str):
