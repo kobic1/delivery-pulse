@@ -34,7 +34,10 @@ on:
         default: test-only
         options: [test-only, managers, build-only]
       test_to:
-        description: 'Recipient for audience=test-only'
+        description: 'Recipient(s) for audience=test-only, semicolon-separated'
+        required: false
+      test_cc:
+        description: 'CC for audience=test-only, semicolon-separated'
         required: false
 
 permissions:
@@ -68,6 +71,7 @@ jobs:
           IN_AUDIENCE: ${{ github.event.inputs.audience }}
           IN_STYLE: ${{ github.event.inputs.style }}
           IN_TO: ${{ github.event.inputs.test_to }}
+          IN_CC: ${{ github.event.inputs.test_cc }}
         run: |
           case "$IN_AUDIENCE" in
             managers)   AUD=managers ;;
@@ -77,6 +81,7 @@ jobs:
           ARGS=(--config "$IN_CONFIG" --scope "$IN_SCOPE" --audience "$AUD" --style "${IN_STYLE:-a}")
           [ -n "$IN_TEAM" ] && ARGS+=(--team "$IN_TEAM")
           [ -n "$IN_TO" ] && ARGS+=(--to "$IN_TO")
+          [ -n "$IN_CC" ] && ARGS+=(--cc "$IN_CC")
           python release_planning/build_report.py "${ARGS[@]}"
       - uses: actions/upload-artifact@v4
         if: always()

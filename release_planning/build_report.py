@@ -59,7 +59,7 @@ def recipients(cfg: dict, key: str, audience: str, to: str | None) -> str:
     return os.environ.get(env, "") if env else ""
 
 
-def deliver(cfg: dict, key: str, subject: str, path: Path, audience: str, to: str | None) -> None:
+def deliver(cfg: dict, key: str, subject: str, path: Path, audience: str, to: str | None, cc: str | None = None) -> None:
     if audience == "none":
         n = len([a for a in recipients(cfg, key, "managers", None).split(";") if a.strip()])
         print(f"built {path.name} (not sent) -- would go to {n} recipient(s)")
@@ -68,8 +68,11 @@ def deliver(cfg: dict, key: str, subject: str, path: Path, audience: str, to: st
     if not rcpt:
         print(f"SKIP {key}: no recipients configured")
         return
-    subprocess.run([sys.executable, str(HERE.parent / "dashboards" / "send_email.py"),
-                    "--to", rcpt, "--subject", subject, "--body-file", str(path)], check=True)
+    cmd = [sys.executable, str(HERE.parent / "dashboards" / "send_email.py"),
+           "--to", rcpt, "--subject", subject, "--body-file", str(path)]
+    if cc and audience == "test":
+        cmd += ["--cc", cc]
+    subprocess.run(cmd, check=True)
 
 
 def main() -> None:
@@ -78,7 +81,8 @@ def main() -> None:
     ap.add_argument("--scope", choices=["project", "team", "all-teams"], default="project")
     ap.add_argument("--team")
     ap.add_argument("--audience", choices=["none", "test", "managers"], default="none")
-    ap.add_argument("--to", help="recipient for --audience test")
+    ap.add_argument("--to", help="recipient(s) for --audience test, semicolon-separated")
+    ap.add_argument("--cc", help="CC for --audience test, semicolon-separated")
     ap.add_argument("--style", choices=STYLES, default="a", help="visual layout (default a)")
     ap.add_argument("--out", help="output folder (default release_planning/build)")
     a = ap.parse_args()
@@ -100,7 +104,7 @@ def main() -> None:
         subject = cfg["subject_prefix"] + (f" — {team}" if team else "")
         path = out / (re.sub(r"[^A-Za-z0-9]+", "_", key) + f"_{a.style}.html")
         path.write_text(render(cfg, epics, team), encoding="utf-8")
-        deliver(cfg, key, subject, path, a.audience, a.to)
+        deliver(cfg, key, subject, path, a.audience, a.to, a.cc)
 
 
 if __name__ == "__main__":
