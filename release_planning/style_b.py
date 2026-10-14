@@ -108,6 +108,10 @@ def table(epics: list[dict], teams: list[str], with_pods: bool) -> str:
                             f'{html.escape(r["name"])}</td>'
                             + row_cells(r["es"], r, False, pod_cell).replace(
                                 f'style="{TD}', f'style="{TD}border-bottom:1px solid {LINE};') + "</tr>")
+    if len(teams) > 1:   # totals across all teams; each epic is counted once
+        rows.append(f'<tr bgcolor="{TEAMBG}" style="background:{TEAMBG};"><td style="{TD}font-weight:600;color:{NAVY};'
+                    f'border-top:2px solid {LINE};">Total (all teams)</td>'
+                    + row_cells(epics, stats(epics), True).replace(f'style="{TD}', f'style="{TD}border-top:2px solid {LINE};') + "</tr>")
     return (f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="{CARD}" '
             f'style="background:{CARD};border:1px solid {LINE};border-radius:8px;border-collapse:separate;">'
             f'<tr><td style="padding:6px 8px 10px;"><table role="presentation" width="100%" cellpadding="0" '

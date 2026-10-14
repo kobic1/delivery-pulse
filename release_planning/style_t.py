@@ -62,6 +62,8 @@ def render(cfg: dict, epics: list[dict], scope_team: str | None) -> str:
                 un = r["name"] == UNASSIGNED_POD
                 pc = pct(r["pod"], [e for e in r["es"] if not e["ok"]["pod"]]) if un else "&ndash;"
                 rows.append(row(r["name"], r["es"], r, False, pc))
+    if len(teams) > 1:
+        rows.append(row("Total (all teams)", epics, s, True))
     lines = []
     for k, _ in CRITERIA:
         miss = [e for e in epics if not e["ok"][k]]
