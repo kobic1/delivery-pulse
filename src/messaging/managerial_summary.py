@@ -46,8 +46,10 @@ class ManagerialSummaryReporter:
         state_path: str = ".managerial_cache.json",
         force: bool = False,
         project_filter: list[str] | None = None,
+        custom_views: list[dict] | None = None,
     ):
         self._engine = engine
+        self._custom_views = [v for v in (custom_views or []) if v.get("recipient")]
         self._formatter = formatter
         self._sender = sender
         self._registry = registry
@@ -120,6 +122,55 @@ class ManagerialSummaryReporter:
         logger.info("Managerial summary complete: %s", stats)
         return stats
 
+    def run_custom_views(self) -> dict:
+        """Send each custom view: one message for one recipient, limited to the
+        view's own projects and rule ids (e.g. a QA lead who only wants the
+        production-bug rules across many projects)."""
+        views = self._custom_views
+        if not views:
+            logger.warning("Managerial custom views: none configured — nothing to send")
+            return {"subscribers": 0, "sent": 0, "failed": 0, "alerts_total": 0}
+
+        wanted_rules = {rid for v in views for rid in v.get("rule_ids", [])}
+        by_project, rule_lookup, total = self._collect_matches(only_rule_ids=wanted_rules or None)
+        now = datetime.utcnow()
+        date_str = now.strftime("%a %d %b %Y")
+        today = now.strftime("%Y-%m-%d")
+
+        guarded = not self._override and not self._force
+        state = self._load_state() if guarded else {}
+        stats = {"subscribers": len(views), "sent": 0, "failed": 0, "skipped": 0, "alerts_total": total}
+
+        for view in views:
+            email = view["recipient"].lower()
+            projects = list(view.get("projects", []))
+            rule_ids = set(view.get("rule_ids", []))
+            state_key = f"custom:{email}"
+            if guarded and state.get(state_key) == today:
+                stats["skipped"] += 1
+                logger.info("Custom view already sent to %s today — skipping", email)
+                continue
+            view_matches = {
+                proj: {rid: ms for rid, ms in by_project.get(proj, {}).items() if not rule_ids or rid in rule_ids}
+                for proj in projects
+            }
+            person = self._registry.find_by_email(email)
+            name = person.display_name if person else email.split("@")[0].replace(".", " ").title()
+            html = self._build_html(name, projects, view_matches, rule_lookup, date_str)
+            target = self._override or email
+            if self._sender.send({"message": html}, recipient_email=target):
+                stats["sent"] += 1
+                logger.info("Custom view sent → %s (projects=%s)", target, projects)
+                if guarded:
+                    state[state_key] = today
+                    self._save_state(state)
+            else:
+                stats["failed"] += 1
+                logger.error("Custom view FAILED → %s", target)
+
+        logger.info("Managerial custom views complete: %s", stats)
+        return stats
+
     # ------------------------------------------------------------------
     # Once-a-day state (separate from the alert dedup store)
     # ------------------------------------------------------------------
@@ -144,18 +195,19 @@ class ManagerialSummaryReporter:
     # Data collection
     # ------------------------------------------------------------------
 
-    def _active_rules(self) -> list:
+    def _active_rules(self, only_rule_ids: set[str] | None = None) -> list:
         rules = load_rules(self._rules_path)
         return [
             r for r in rules
-            if r.enabled
+            if (only_rule_ids is None or r.id in only_rule_ids)
+            and r.enabled
             and r.status.lower() == "live"
             and _SEV_RANKS.get(r.severity.value, 1) >= self._min_rank
         ]
 
-    def _collect_matches(self):
+    def _collect_matches(self, only_rule_ids: set[str] | None = None):
         """Evaluate live rules and bucket unique matches by project -> rule_id -> [matches]."""
-        groups = self._engine.evaluate_all(self._active_rules())
+        groups = self._engine.evaluate_all(self._active_rules(only_rule_ids))
         seen: set[tuple[str, str]] = set()
         by_project: dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(list))
         rule_lookup: dict[str, object] = {}

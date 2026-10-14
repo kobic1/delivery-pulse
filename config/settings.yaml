@@ -108,6 +108,16 @@ managerial_summary:
     CXWFM:
       - sampada.bhonsale@nice.com
       - noa.ayalon@nice.com
+  # custom_views — one recipient, own project list AND own rule list, sent as a single
+  # combined message by its own run (--managerial-custom-views). These recipients are
+  # NOT in subscribers_by_project, so they never get the full rollup as well.
+  custom_views:
+    - recipient: tomer.daniel@nice.com
+      projects: [PMN, WFM, CXWFM, CXINT, EEM, WFMDEVOPS, CXCO, CXSUP]
+      rule_ids:
+        - cfb_regression_field_empty
+        - prod_bugs_sla_warning
+        - prod_bugs_sla_breached
 
 logging:
   level: "INFO"

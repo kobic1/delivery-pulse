@@ -178,6 +178,7 @@ def build_managerial_reporter(
     override_recipient: str | None = None,
     force: bool = False,
     project_filter: list[str] | None = None,
+    custom_views_only: bool = False,
 ) -> ManagerialSummaryReporter:
     """Construct the per-project managerial summary reporter from settings."""
     jira_cfg = settings["jira"]
@@ -196,7 +197,11 @@ def build_managerial_reporter(
 
     subscribers_by_project = ms_cfg.get("subscribers_by_project", {}) or {}
     # CLI --project overrides the subscriber list; fall back to all subscribed projects.
+    custom_views = ms_cfg.get("custom_views", []) or []
     effective_projects = project_filter or sorted(subscribers_by_project.keys())
+    if custom_views_only:
+        subscribers_by_project = {}
+        effective_projects = sorted({p for v in custom_views for p in v.get("projects", [])})
 
     engine = RuleEngine(
         jira_client=jira_client,
@@ -218,6 +223,7 @@ def build_managerial_reporter(
         state_path=alerting_cfg.get("managerial_cache_file", ".managerial_cache.json"),
         force=force,
         project_filter=project_filter,
+        custom_views=custom_views if custom_views_only else None,
     )
 
 
@@ -362,6 +368,14 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--managerial-custom-views",
+        action="store_true",
+        help=(
+            "Send the per-recipient custom views in settings.managerial_summary.custom_views "
+            "(own project list + own rule list). Combine with --managerial-summary-to to test."
+        ),
+    )
+    parser.add_argument(
         "--managerial-force",
         action="store_true",
         help=(
@@ -379,7 +393,7 @@ def main() -> None:
         settings.setdefault("alerting", {})["dry_run"] = True
 
     # Managerial summary: run once and exit (independent of the alert pipeline).
-    if args.managerial_summary or args.managerial_summary_to:
+    if args.managerial_summary or args.managerial_summary_to or args.managerial_custom_views:
         reporter = build_managerial_reporter(
             settings,
             rules_path=args.rules,
@@ -387,8 +401,9 @@ def main() -> None:
             override_recipient=args.managerial_summary_to,
             force=args.managerial_force,
             project_filter=args.projects or None,
+            custom_views_only=args.managerial_custom_views,
         )
-        stats = reporter.run()
+        stats = reporter.run_custom_views() if args.managerial_custom_views else reporter.run()
         print(f"\nDone: {stats}")
         return 1 if stats.get("failed", 0) else 0
 
