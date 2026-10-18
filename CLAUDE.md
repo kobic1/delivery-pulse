@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A rule-driven pipeline that queries Jira, evaluates configurable rules, and delivers
+The repo is named `delivery-pulse` (formerly `jira-alerting`; the local folder keeps the old name). Beyond alerting it also holds the release status dashboards, release planning status and release closure summary reports.
+
+The core is a rule-driven pipeline that queries Jira, evaluates configurable rules, and delivers
 personalized Microsoft Teams DMs (bug/epic alerts). Rules live in YAML — most changes
 are config, not code.
 

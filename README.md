@@ -1,4 +1,14 @@
-# Jira Alerting System
+# Delivery Pulse
+
+Jira-based delivery signals for R&D leadership, delivered to Teams and email:
+
+- **Alerts**: rule-driven bug and epic alerts to Microsoft Teams (the original system, described below).
+- **Release status dashboards**: per-team release status emails (`dashboards/`).
+- **Release planning status**: how complete epic planning is for the next release (`release_planning/`).
+- **Release closure summary**: throughput, cycle time, predictability, coverage and bug backlog per release (`release_closure/`).
+- **Management views**: on-demand views such as completed epics awaiting closure.
+
+## Jira alerting system
 
 A modular, rule-driven alerting system that queries Jira via REST API, evaluates configurable rules, and delivers personalized alerts to Microsoft Teams.
 
