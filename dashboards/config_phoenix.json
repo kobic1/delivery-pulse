@@ -19,9 +19,9 @@
     "2026-12-13",
     "2027-01-05"
   ],
-  "_forecast_note": "26.4 closed at 9, just over the team's own 8 target -- their first real release. History is now 0, 0, 0, 0, 9: still only one real data point, so 27.1 assumes modest continued ramp (~12) rather than a confident trend. Capped per Kobi's 2026-10-07 rule at 125% of 26.4's actual (9 * 1.25 = 11.25), so 11 is used instead of the uncapped 12. Low confidence either way with only one release of history -- revisit once 27.1 gives a second data point.",
-  "forecast_override": 11,
-  "forecast_basis": "modest continued ramp (~12), capped at 125% of 26.4's actual (9)",
+  "_forecast_note": "26.4 closed at 9, just over the team's own 8 target -- their first real release. History is now 0, 0, 0, 0, 9: still only one real data point, so 27.1 assumes modest continued ramp (~12) rather than a confident trend. Capped per Kobi's 2026-10-07 rule at 125% of 26.4's actual (9 * 1.25 = 11.25), so 11 is used instead of the uncapped 12. Low confidence either way with only one release of history -- revisit once 27.1 gives a second data point. 2026-10-14: Kobi asked for the target to match the epics currently assigned to the release, excluding Removed. fixVersion 27.1 holds 5 such epics (0 more are Removed), so the target is 5. This supersedes the history-based figure and the 125%-of-26.4 cap above, and it is scope, not a delivery prediction: it moves as epics are added to or removed from 27.1. 2026-10-18: Kobi changed the rule to epics on the release with Commitment Type = Committed or empty, excluding Stretch (and Removed). fixVersion 27.1 currently has 1 Committed + 2 with no value = 3 (0 Stretch and 2 Removed left out), so the target is 3. This replaces the all-epics figure from 2026-10-14. It is scope, not a delivery prediction: it moves as epics are added, removed or classified.",
+  "forecast_override": 3,
+  "forecast_basis": "epics on 27.1 that are Committed or have no Commitment Type, excluding Stretch and Removed (3)",
   "release_history": {
     "25.4": 0,
     "26.1": 0,

@@ -13,9 +13,9 @@
     "2026-12-13",
     "2027-01-05"
   ],
-  "_forecast_note": "26.4 closed at 210 -- massively over its own 146 target (+44%) and nearly 3x the prior release (73). History is now 74/35/58/54/73/210, too volatile for a trend line (a naive continuation of the last jump would be absurd). Used the average of the last 2 releases (73, 210 -> 141.5 ~ 142) as the 27.1 prediction, per Kobi's 2026-10-07 instruction to predict from history; this is well under the 125%-of-26.4 cap (262.5), so no capping applied. No team-stated target has been given for 27.1 yet -- replace this with the team's real number once they have one, the same way 146 replaced the regression for 26.4.",
-  "forecast_override": 142,
-  "forecast_basis": "average of the last 2 releases (73, 210)",
+  "_forecast_note": "26.4 closed at 210 -- massively over its own 146 target (+44%) and nearly 3x the prior release (73). History is now 74/35/58/54/73/210, too volatile for a trend line (a naive continuation of the last jump would be absurd). Used the average of the last 2 releases (73, 210 -> 141.5 ~ 142) as the 27.1 prediction, per Kobi's 2026-10-07 instruction to predict from history; this is well under the 125%-of-26.4 cap (262.5), so no capping applied. No team-stated target has been given for 27.1 yet -- replace this with the team's real number once they have one, the same way 146 replaced the regression for 26.4. 2026-10-14: Kobi asked for the target to match the epics currently assigned to the release, excluding Removed. fixVersion 27.1 holds 177 such epics (10 more are Removed), so the target is 177. This supersedes the history-based figure and the 125%-of-26.4 cap above, and it is scope, not a delivery prediction: it moves as epics are added to or removed from 27.1. 2026-10-18: Kobi changed the rule to epics on the release with Commitment Type = Committed or empty, excluding Stretch (and Removed). fixVersion 27.1 currently has 135 Committed + 35 with no value = 170 (6 Stretch and 10 Removed left out), so the target is 170. This replaces the all-epics figure from 2026-10-14. It is scope, not a delivery prediction: it moves as epics are added, removed or classified.",
+  "forecast_override": 170,
+  "forecast_basis": "epics on 27.1 that are Committed or have no Commitment Type, excluding Stretch and Removed (170)",
   "release_history": {
     "25.4": 35,
     "26.1": 58,

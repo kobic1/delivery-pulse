@@ -19,9 +19,9 @@
     "2026-12-13",
     "2027-01-05"
   ],
-  "_forecast_note": "Combined history (25.4 -> 26.4, deduplicated) is 11, 3, 39, 22, 41 -- volatile, so 27.1 uses the average of the last 3 releases (39, 22, 41 -> 34). Kobi's standing rule (2026-10-07) caps any 27.1 forecast at 125% of 26.4's actual (41 * 1.25 = 51.25), so 34 is well under it. The two separate forecasts sent earlier the same day (CV-Integration 31 + CV-Services 4) sum to 35; the 1-epic gap is the combined series being deduplicated. No India-festival leave adjustment has been applied: the 2026-10-08 feedback named only CXCO and Ascenders, and these teams' location is unconfirmed.",
-  "forecast_override": 34,
-  "forecast_basis": "average of the last 3 combined releases (39, 22, 41)",
+  "_forecast_note": "Combined history (25.4 -> 26.4, deduplicated) is 11, 3, 39, 22, 41 -- volatile, so 27.1 uses the average of the last 3 releases (39, 22, 41 -> 34). Kobi's standing rule (2026-10-07) caps any 27.1 forecast at 125% of 26.4's actual (41 * 1.25 = 51.25), so 34 is well under it. The two separate forecasts sent earlier the same day (CV-Integration 31 + CV-Services 4) sum to 35; the 1-epic gap is the combined series being deduplicated. No India-festival leave adjustment has been applied: the 2026-10-08 feedback named only CXCO and Ascenders, and these teams' location is unconfirmed. 2026-10-14: Kobi asked for the target to match the epics currently assigned to the release, excluding Removed. fixVersion 27.1 holds 17 such epics (2 more are Removed), so the target is 17. This supersedes the history-based figure and the 125%-of-26.4 cap above, and it is scope, not a delivery prediction: it moves as epics are added to or removed from 27.1. 2026-10-18: Kobi changed the rule to epics on the release with Commitment Type = Committed or empty, excluding Stretch (and Removed). fixVersion 27.1 currently has 8 Committed + 15 with no value = 23 (3 Stretch and 2 Removed left out), so the target is 23. This replaces the all-epics figure from 2026-10-14. It is scope, not a delivery prediction: it moves as epics are added, removed or classified.",
+  "forecast_override": 23,
+  "forecast_basis": "epics on 27.1 that are Committed or have no Commitment Type, excluding Stretch and Removed (23)",
   "release_history": {
     "25.4": 11,
     "26.1": 3,

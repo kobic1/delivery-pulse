@@ -13,8 +13,8 @@
     "2026-12-13",
     "2027-01-05"
   ],
-  "_forecast_note": "26.4 closed at 87 (vs the 73 HC-loss-adjusted forecast) -- the last 3 releases (82, 85, 87) are stable, so the old capacity discount looks outdated; the team has adapted. forecast_override is the average of those 3, capped per Kobi's 2026-10-07 rule (27.1 forecast must not exceed 125% of 26.4's actual, 108.75) -- 87 is already under that cap. 2026-10-08 India-festival adjustment: Ascenders (part of PMN, India-based) had its 27.1 target cut 27 -> 26 for leave (29 -> 87 days), and it delivered 22 of PMN's 87 epics in 26.4 (~25%), so the cut carries through: 87 - 1 = 86 (the same -1 results from applying Ascenders' 5.2% capacity loss to its ~22-epic share). The other PMN teams are US/IL and unaffected. Set to null to fall back to the regression.",
-  "forecast_override": 86,
+  "_forecast_note": "26.4 closed at 87 (vs the 73 HC-loss-adjusted forecast) -- the last 3 releases (82, 85, 87) are stable, so the old capacity discount looks outdated; the team has adapted. forecast_override is the average of those 3, capped per Kobi's 2026-10-07 rule (27.1 forecast must not exceed 125% of 26.4's actual, 108.75) -- 87 is already under that cap. 2026-10-08 India-festival adjustment: Ascenders (part of PMN, India-based) had its 27.1 target cut 27 -> 26 for leave (29 -> 87 days), and it delivered 22 of PMN's 87 epics in 26.4 (~25%), so the cut carries through: 87 - 1 = 86 (the same -1 results from applying Ascenders' 5.2% capacity loss to its ~22-epic share). The other PMN teams are US/IL and unaffected. Set to null to fall back to the regression. 2026-10-14: Kobi asked for the target to match the epics currently assigned to the release, excluding Removed. fixVersion 27.1 holds 103 such epics (15 more are Removed), so the target is 103. This supersedes the history-based figure and the 125%-of-26.4 cap above, and it is scope, not a delivery prediction: it moves as epics are added to or removed from 27.1. 2026-10-18: Kobi changed the rule to epics on the release with Commitment Type = Committed or empty, excluding Stretch (and Removed). fixVersion 27.1 currently has 55 Committed + 30 with no value = 85 (23 Stretch and 17 Removed left out), so the target is 85. This replaces the all-epics figure from 2026-10-14. It is scope, not a delivery prediction: it moves as epics are added, removed or classified.",
+  "forecast_override": 85,
   "release_history": {
     "25.4": 38,
     "26.1": 29,
@@ -32,7 +32,7 @@
   "_first_send_date_note": "Manager sends are suppressed before this date. Kobi asked for the distribution to start Mon Aug 10 2026; the cron alone would have fired Thu Aug 6.",
   "first_send_date": "2026-08-10",
   "_recipients_note": "Recipient addresses are NOT in this file -- the repo is public. Managers come from the PMN_DASHBOARD_RECIPIENTS secret (semicolon-separated); the test audience comes from PMN_DASHBOARD_TEST_RECIPIENT.",
-  "forecast_basis": "average of the last 3 releases (82, 85, 87), less 1 epic for Ascenders' India-festival leave",
+  "forecast_basis": "epics on 27.1 that are Committed or have no Commitment Type, excluding Stretch and Removed (85)",
   "ai_epics_first_month": 1,
   "ai_epics_month_style": "short",
   "sections": {
