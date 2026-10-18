@@ -179,6 +179,7 @@ def build_managerial_reporter(
     force: bool = False,
     project_filter: list[str] | None = None,
     custom_views_only: bool = False,
+    view_recipient: str | None = None,
 ) -> ManagerialSummaryReporter:
     """Construct the per-project managerial summary reporter from settings."""
     jira_cfg = settings["jira"]
@@ -198,6 +199,8 @@ def build_managerial_reporter(
     subscribers_by_project = ms_cfg.get("subscribers_by_project", {}) or {}
     # CLI --project overrides the subscriber list; fall back to all subscribed projects.
     custom_views = ms_cfg.get("custom_views", []) or []
+    if view_recipient:
+        custom_views = [v for v in custom_views if v.get("recipient", "").lower() == view_recipient.lower()]
     effective_projects = project_filter or sorted(subscribers_by_project.keys())
     if custom_views_only:
         subscribers_by_project = {}
@@ -376,6 +379,11 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--managerial-view-only",
+        metavar="EMAIL",
+        help="With --managerial-custom-views: run only the custom view of this recipient.",
+    )
+    parser.add_argument(
         "--managerial-force",
         action="store_true",
         help=(
@@ -402,6 +410,7 @@ def main() -> None:
             force=args.managerial_force,
             project_filter=args.projects or None,
             custom_views_only=args.managerial_custom_views,
+            view_recipient=args.managerial_view_only,
         )
         stats = reporter.run_custom_views() if args.managerial_custom_views else reporter.run()
         print(f"\nDone: {stats}")

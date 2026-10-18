@@ -118,6 +118,12 @@ managerial_summary:
         - cfb_regression_field_empty
         - prod_bugs_sla_warning
         - prod_bugs_sla_breached
+    - recipient: cade.rasmussen@nice.com
+      projects: [PMN]
+      rule_ids:
+        - cfb_regression_field_empty
+        - prod_bugs_sla_warning
+        - prod_bugs_sla_breached
 
 logging:
   level: "INFO"
