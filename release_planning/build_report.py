@@ -23,6 +23,7 @@ for --audience managers, RELEASE_PLANNING_RECIPIENTS (JSON map, see config note)
 from __future__ import annotations
 
 import argparse
+import html
 import importlib
 import json
 import os
@@ -83,6 +84,7 @@ def main() -> None:
     ap.add_argument("--audience", choices=["none", "test", "managers"], default="none")
     ap.add_argument("--to", help="recipient(s) for --audience test, semicolon-separated")
     ap.add_argument("--cc", help="CC for --audience test, semicolon-separated")
+    ap.add_argument("--intro", help="plain text shown above the report (a short note to readers)")
     ap.add_argument("--style", choices=STYLES, default="a", help="visual layout (default a)")
     ap.add_argument("--out", help="output folder (default release_planning/build)")
     a = ap.parse_args()
@@ -103,7 +105,12 @@ def main() -> None:
     for key, team in jobs:
         subject = cfg["subject_prefix"] + (f" — {team}" if team else "")
         path = out / (re.sub(r"[^A-Za-z0-9]+", "_", key) + f"_{a.style}.html")
-        path.write_text(render(cfg, epics, team), encoding="utf-8")
+        body = render(cfg, epics, team)
+        if a.intro:
+            note = (f'<div style="font-family:\'Segoe UI\',Arial,sans-serif;font-size:15px;line-height:22px;color:#1A1A1A;'
+                    f'max-width:720px;margin:0 auto;padding:16px 12px 0;"><b>{html.escape(a.intro)}</b></div>')
+            body = note + body
+        path.write_text(body, encoding="utf-8")
         deliver(cfg, key, subject, path, a.audience, a.to, a.cc)
 
 
