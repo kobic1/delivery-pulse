@@ -42,7 +42,7 @@ def tone(p, good, warn):
 
 
 def pct(n, d):
-    return round(100 * n / d) if d else 0
+    return int(100 * n / d + 0.5) if d else 0   # half-up, so 12.5% shows as 13% like a reader expects
 
 
 def link(href, text, color=LINK):
@@ -122,7 +122,7 @@ def cycle_time(rel):
         v = r["cycle_avg"]
         rows.append((f'<td style="{REL}">{r["name"]}</td>', pct(v or 0, mx), NAVY,
                      f'<td width="34%" align="right" style="{TD}padding-right:6px;white-space:nowrap;"><span style="font-weight:600;">{v if v is not None else "&ndash;"} days</span>'
-                     f'<span style="color:{SUBTLE};font-size:12px;"> &nbsp;median {r["cycle_med"]} &middot; {r["cycle_n"]} epics</span></td>'))
+                     f'<span style="color:{SUBTLE};font-size:12px;"> &nbsp;median {r["cycle_med"] if r["cycle_med"] is not None else "&ndash;"} &middot; {r["cycle_n"]} epics</span></td>'))
     heads = [f'<td align="left" style="{TH}padding-left:6px;">Release</td>',
              f'<td align="left" style="{TH}padding-left:24px;">Average cycle time (days)</td>', f'<td style="{TH}"></td>']
     return bar_rows(rows, heads, ["58%"])
@@ -156,7 +156,7 @@ def predictability(base, rel):
     for r in rel:
         vals = delivered_pct(r)
         final = pct(r["done"], r["baseline"])
-        rows.append((r["name"], link(jql_href(base, r["baseline_jql"]), str(r["baseline"])), pct_cells(vals),
+        rows.append((r["name"], link(jql_href(base, r["baseline_jql"]), str(r["baseline"])) if r["baseline_jql"] else str(r["baseline"]), pct_cells(vals),
                      f'<span style="font-weight:600;color:{NAVY};">{final}%</span>'))
     return grid(rows, WEEKS, "Scope<br>(epics)", "After<br>release")
 
@@ -210,9 +210,12 @@ def render_email(cfg, base, rel, overall) -> str:
     rng = f'{rel[0]["name"]}&ndash;{rel[-1]["name"]}'
     first, last = rel[0], rel[-1]
     tests_on = cfg.get("test_coverage", True)
-    deliv = pct(last["done"], last["baseline"])
-    lede = (f'Throughput grew from {first["done"]} to {last["done"]} epics per release. {last["name"]} delivered {deliv}% of the epics in scope '
-            f'at the end of W1, with an average cycle time of {last["cycle_avg"]} days')
+    deliv = delivered_pct(last)[-1]
+    trend = "grew" if last["done"] > first["done"] else "fell" if last["done"] < first["done"] else "held steady"
+    trend_txt = (f'from {first["done"]} to {last["done"]}' if trend != "held steady" else f'at {last["done"]}')
+    cyc = f', with an average cycle time of {last["cycle_avg"]} days' if last["cycle_avg"] is not None else ""
+    lede = (f'Throughput {trend} {trend_txt} epics per release. {last["name"]} delivered {deliv}% of the epics in scope '
+            f'at the end of W1 by its release date{cyc}')
     sq = cfg.get("sonarqube")
     if tests_on:
         lede += f', and {pct(last["auto"], last["tests"])}% of its regression tests are automated.'
@@ -223,7 +226,7 @@ def render_email(cfg, base, rel, overall) -> str:
         lede += "."
 
     sections = [
-        ("Throughput", "Epics Done per release, and how many were already Done on the release date.", throughput(base, rel)),
+        ("Throughput", "Epics Done per release, and what share of them were already Done on the release date.", throughput(base, rel)),
         ("Cycle time", "Average calendar days a Done epic spent in In Progress or Validation, excluding flagged days and Maintenance epics. A few long-running epics lift the average above the median.", cycle_time(rel)),
         ("Predictability", "Epics delivered so far as a <b>percentage</b> of the scope at the end of W1 (the Scope column is a count). "
                            "100% means the W1 scope has been delivered; above 100% means more was delivered than planned.", predictability(base, rel)),
@@ -237,19 +240,19 @@ def render_email(cfg, base, rel, overall) -> str:
         a, z = sq["monthly"][0], sq["monthly"][-1]
         sections.append(("Code coverage", f'SonarQube coverage by month, as a <b>percentage</b> of lines to cover. It moved from {a["coverage"]:.1f}% to {z["coverage"]:.1f}% while lines to cover grew from {a["lines"]:,} to {z["lines"]:,}.',
                          sonar_coverage(cfg)))
-    sections.append(("Gating bugs backlog", "Open P1 to P3 bugs at the end of each week. These are <b>counts</b> of bugs, not percentages; "
-                                             "the last column is the change over the release.", bugs_backlog(base, rel)))
+    sections.append(("Gating bugs backlog", "Open P1 to P3 bugs at the end of each week, excluding Accessibility bugs. These are <b>counts</b> of bugs, not percentages; "
+                                             "the last column is the change from the end of W1 to the end of W12.", bugs_backlog(base, rel)))
 
     multi = cfg.get("projects")
     weeks_note = ", ".join(f'{r["name"]} {r["dev_start"]:%d %b}&ndash;{r["end"]:%d %b %Y}' for r in rel)
     windows = ("Each project uses its own Jira release dates, and weeks are counted from its first delivery week" if multi else f"Delivery windows: {weeks_note}")
     foot = (f'Each release has an IP (planning) week followed by 12 delivery weeks (4 sprints) up to the release date; W1 is the first delivery week. '
-            f'{windows}. Epics Done during the IP week count from W1; Done date is the last move into Done. '
+            f'{windows}. Epics Done during the IP week count from W1; Done date is the last move into Done; cycle time does not count the Done day itself (as in the R&D efficiency report). '
             f'Scope is the epics in the release at the end of W1 with Commitment Type Committed or empty, excluding Stretch and any that are or became Removed; Stretch epics and epics added later raise the percentage above 100. '
-            f'Bugs exclude [Accessibility] items. Throughput colour: green 90% or more Done by the release date, amber 75% or more.')
+            f'Bugs whose summary mentions Accessibility are excluded, as on the PMN dashboard; a bug that was reopened counts as open since it was created. Throughput colour: green 90% or more of Done epics were Done by the release date, amber 75% or more.')
     if multi:
         per_rel = "; ".join(f'{r["name"]}: {", ".join(r["projects"])}' for r in rel)
-        foot += f' Combined across projects on the 26.x release train ({per_rel}). ' + cfg.get("scope_note", "")
+        foot += f' Combined across projects on the quarterly release train ({per_rel}). ' + cfg.get("scope_note", "")
     if sq:
         foot += " Code coverage is SonarQube data supplied by month; the latest month is to date."
     if tests_on:

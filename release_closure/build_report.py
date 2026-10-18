@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import statistics
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
@@ -90,6 +91,46 @@ def epic_facts(base, s, key, category):
     return done, E.edct_days(E.epic_events(hs), end=done)
 
 
+def scope_keys(base, s, p, name, dev, excl_statuses):
+    """Epics that were in release `name` at the end of W1, rebuilt from each epic's change history.
+
+    JQL `fixVersion WAS ... ON` drops epics that a bulk edit removed and re-added in the same minute
+    (they never left the release), which understated PMN's scope. Rules: created by the end of W1; in the
+    release then (an edit that removes and re-adds it nets to still in; a first edit that only removes it
+    means it was in from creation); not Removed then; not Removed or Stretch today."""
+    cut = datetime.combine(dev + timedelta(days=6), datetime.max.time())
+    cands = search(base, s, f'project = {p} AND issuetype = Epic AND fixVersion was "{name}"',
+                   ["status", "customfield_10094", "fixVersions", "created"])
+
+    def one(i):
+        if datetime.strptime(i["fields"]["created"][:19], "%Y-%m-%dT%H:%M:%S") > cut:
+            return None
+        fv, st = [], []
+        for h in histories(base, s, i["key"]):
+            t = datetime.strptime(h["created"][:19], "%Y-%m-%dT%H:%M:%S")
+            items = [x for x in h["items"] if x["field"] == "Fix Version" and name in (x.get("fromString"), x.get("toString"))]
+            if items:
+                added = any(x.get("toString") == name for x in items)
+                removed = any(x.get("fromString") == name for x in items)
+                fv.append((t, True if (added and removed) else not added, added or not removed))   # (time, in before, in after)
+            st += [(t, x.get("fromString"), x.get("toString")) for x in h["items"] if x["field"] == "status"]
+        fv.sort(key=lambda x: x[0])
+        st.sort(key=lambda x: x[0])
+        if not fv:
+            was_in = any(v["name"] == name for v in i["fields"]["fixVersions"])
+        else:
+            before = [e for e in fv if e[0] <= cut]
+            was_in = before[-1][2] if before else fv[0][1]
+        b4 = [e for e in st if e[0] <= cut]
+        status_then = b4[-1][2] if b4 else (st[0][1] if st else i["fields"]["status"]["name"])
+        cur = i["fields"]["status"]["name"]
+        stretch = (i["fields"].get("customfield_10094") or {}).get("value") == "Stretch"
+        return i["key"] if (was_in and status_then not in excl_statuses and cur not in excl_statuses and not stretch) else None
+
+    with ThreadPoolExecutor(8) as ex:
+        return sorted(k for k in ex.map(one, cands) if k)
+
+
 def release_windows(base, s, cfg):
     """{release: (start, end)} from the Jira version's own dates."""
     vers = {v["name"]: v for v in s.get(f"{base}/rest/api/3/project/{cfg['project']}/versions").json()}
@@ -131,9 +172,10 @@ def collect(cfg):
             else:
                 buckets[min(WEEKS, (dd - dev).days // 7 + 1)] += 1
         cyc = [c for _, c in facts if c is not None]
-        scope_jql = (f'project = {p} AND issuetype = Epic AND fixVersion WAS "{name}" ON "{w1_end}" '
-                     f'AND NOT status WAS Removed ON "{w1_end}" AND status != Removed '
-                     f'AND (cf[10094] is EMPTY OR cf[10094] != Stretch)')
+        if (end - dev).days != 7 * WEEKS - 1:
+            print(f"WARNING {p} {name}: delivery window is {(end - dev).days + 1} days, not {7 * WEEKS}; W12 will not end on the release date", file=sys.stderr)
+        sk = scope_keys(base, s, p, name, dev, set(cfg["excluded_epic_statuses"]))
+        scope_jql = f'key in ({", ".join(sk)}) ORDER BY key' if 0 < len(sk) <= 120 else ""
         open_wk = []
         for w in range(1, WEEKS + 1):
             e = dev + timedelta(days=7 * w)
@@ -141,10 +183,10 @@ def collect(cfg):
         row = {
             "name": name, "start": start, "dev_start": dev, "end": end, "weeks": WEEKS,
             "done": len(done), "done_jql": base_jql + " AND status = Done", "buckets": buckets,
-            "baseline": count(base, s, scope_jql), "baseline_jql": scope_jql,
+            "baseline": len(sk), "baseline_jql": scope_jql,
             "cycle_vals": cyc,
-            "cycle_avg": round(sum(cyc) / len(cyc)) if cyc else None, "cycle_n": len(cyc),
-            "cycle_med": round(sorted(cyc)[len(cyc) // 2] if len(cyc) % 2 else sum(sorted(cyc)[len(cyc) // 2 - 1:len(cyc) // 2 + 1]) / 2) if cyc else None,
+            "cycle_avg": int(sum(cyc) / len(cyc) + 0.5) if cyc else None, "cycle_n": len(cyc),
+            "cycle_med": int(statistics.median(cyc) + 0.5) if cyc else None,
             "bugs_weekly": open_wk,
             "bugs_end_jql": bug_scope + f' AND created < "{dev + timedelta(days=7 * WEEKS)}" AND (resolutiondate is EMPTY OR resolutiondate >= "{dev + timedelta(days=7 * WEEKS)}")',
             "tests": 0, "auto": 0, "auto_weekly": [0] * WEEKS, "tests_jql": "", "auto_jql": "",
@@ -195,9 +237,9 @@ def merge(cfg, per_project):
         out.append({
             "name": name, "start": first["start"], "dev_start": first["dev_start"], "end": first["end"], "weeks": WEEKS,
             "done": sum(r["done"] for _, r in rows), "done_jql": swap(first["done_jql"]), "buckets": buckets,
-            "baseline": sum(r["baseline"] for _, r in rows), "baseline_jql": swap(first["baseline_jql"]),
-            "cycle_vals": cyc, "cycle_avg": round(sum(cyc) / len(cyc)) if cyc else None, "cycle_n": len(cyc),
-            "cycle_med": round(statistics.median(cyc)) if cyc else None,
+            "baseline": sum(r["baseline"] for _, r in rows), "baseline_jql": "",
+            "cycle_vals": cyc, "cycle_avg": int(sum(cyc) / len(cyc) + 0.5) if cyc else None, "cycle_n": len(cyc),
+            "cycle_med": int(statistics.median(cyc) + 0.5) if cyc else None,
             "bugs_weekly": [sum(r["bugs_weekly"][w] for _, r in rows) for w in range(WEEKS)],
             "bugs_end_jql": "", "projects": projs,
             "tests": 0, "auto": 0, "auto_weekly": [0] * WEEKS, "tests_jql": "", "auto_jql": "",
@@ -218,6 +260,7 @@ def main():
         else:
             print(f"note: {sq_path.name} not found, skipping the code coverage section")
     if cfg.get("projects"):
+        cfg["test_coverage"] = False
         per_project, base = {}, None
         for spec in cfg["projects"]:
             sub = {k: v for k, v in cfg.items() if k != "projects"}
