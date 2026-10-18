@@ -1,0 +1,26 @@
+{
+  "project": "PMN",
+  "project_label": "PMN (Performance Management Native)",
+  "title": "Release Closure Summary",
+  "first_release": "26.1",
+  "releases": [
+    "26.1",
+    "26.2",
+    "26.3",
+    "26.4"
+  ],
+  "test_labels": [
+    "PM_Regression",
+    "PM_Localization",
+    "PM_Permissions"
+  ],
+  "test_priorities": [
+    "P1",
+    "P2"
+  ],
+  "automated_clause": "\"Automated[Dropdown]\" = Yes",
+  "excluded_epic_statuses": [
+    "Removed"
+  ],
+  "test_coverage": false
+}

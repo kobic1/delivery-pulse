@@ -10,3 +10,7 @@ dashboards/build/
 
 # Release planning report build output (internal figures — never commit)
 release_planning/build/
+
+# Release closure summary: build output and SonarQube figures (internal -- never commit)
+release_closure/build/
+release_closure/sonarqube_*.json
