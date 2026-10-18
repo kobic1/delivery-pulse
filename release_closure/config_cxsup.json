@@ -1,0 +1,20 @@
+{
+  "project": "CXSUP",
+  "project_label": "CXSUP (CXone Supervisor)",
+  "title": "Release Closure Summary",
+  "first_release": "26.1",
+  "releases": [
+    "26.1",
+    "26.2",
+    "26.3",
+    "26.4"
+  ],
+  "test_coverage": false,
+  "test_labels": [],
+  "test_priorities": [],
+  "automated_clause": "\"Automated[Dropdown]\" = Yes",
+  "excluded_epic_statuses": [
+    "Removed"
+  ],
+  "sonarqube_file": "sonarqube_cxsup.json"
+}
