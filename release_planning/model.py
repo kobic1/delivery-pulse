@@ -112,11 +112,17 @@ def stats(epics: list[dict]) -> dict:
 def team_rows(epics: list[dict], team: str) -> list[dict]:
     """Pod rows under one team. Epics with no POD label go to 'Unassigned pod'."""
     mine = [e for e in epics if team in e["teams"]]
-    by_pod: OrderedDict[str, list] = OrderedDict()
+    by_pod: OrderedDict[str, list] = OrderedDict()   # keyed case-insensitively: 'Pod-X' and 'pod-x' are one pod
+    shown: dict[str, str] = {}
     for e in mine:
+        seen: set[str] = set()
         for p in e["pods"] or [UNASSIGNED_POD]:
-            by_pod.setdefault(p, []).append(e)
-    return sorted(({"name": p, "es": es, **stats(es)} for p, es in by_pod.items()),
+            k = p.lower()
+            shown.setdefault(k, p)
+            if k not in seen:                    # an epic carrying both spellings still counts once
+                seen.add(k)
+                by_pod.setdefault(k, []).append(e)
+    return sorted(({"name": shown[k], "es": es, **stats(es)} for k, es in by_pod.items()),
                   key=lambda r: (r["name"] == UNASSIGNED_POD, r["name"].lower()))
 
 

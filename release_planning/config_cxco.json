@@ -15,7 +15,7 @@
   },
   "sprint_release_token": "27.1",
   "current_sprint_label": "CX.27.1.197",
-  "pod_label_regex": "(?<![A-Za-z])pod(?![A-Za-z])",
+  "pod_label_regex": "pod",
   "excluded_statuses": [
     "Removed",
     "Done"
