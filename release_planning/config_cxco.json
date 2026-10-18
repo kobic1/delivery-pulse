@@ -15,7 +15,7 @@
   },
   "sprint_release_token": "27.1",
   "current_sprint_label": "CX.27.1.197",
-  "pod_label_regex": "pod",
+  "pod_label_regex": "pod|^CXCO-[A-Za-z]+-\\d+$",
   "excluded_statuses": [
     "Removed",
     "Done"
@@ -26,5 +26,6 @@
     "target_sprint": "customfield_12697",
     "epic_team": "customfield_10040"
   },
-  "_recipients_note": "Addresses are NOT in this file -- the repo is public. They come from the RELEASE_PLANNING_RECIPIENTS secret: a JSON map, key 'CXCO' for the project report and 'CXCO:<team name>' for a team report; values are semicolon-separated addresses."
+  "_recipients_note": "Addresses are NOT in this file -- the repo is public. They come from the RELEASE_PLANNING_RECIPIENTS secret: a JSON map, key 'CXCO' for the project report and 'CXCO:<team name>' for a team report; values are semicolon-separated addresses.",
+  "_pod_note": "Pod = a label containing 'pod' OR named CXCO-<Team>-<number> (e.g. CXCO-Thunderbirds-2), the naming CXCO teams use without the word POD."
 }
