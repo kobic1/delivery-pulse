@@ -240,11 +240,16 @@ def render_email(cfg, base, rel, overall) -> str:
     sections.append(("Gating bugs backlog", "Open P1 to P3 bugs at the end of each week. These are <b>counts</b> of bugs, not percentages; "
                                              "the last column is the change over the release.", bugs_backlog(base, rel)))
 
+    multi = cfg.get("projects")
     weeks_note = ", ".join(f'{r["name"]} {r["dev_start"]:%d %b}&ndash;{r["end"]:%d %b %Y}' for r in rel)
+    windows = ("Each project uses its own Jira release dates, and weeks are counted from its first delivery week" if multi else f"Delivery windows: {weeks_note}")
     foot = (f'Each release has an IP (planning) week followed by 12 delivery weeks (4 sprints) up to the release date; W1 is the first delivery week. '
-            f'Delivery windows: {weeks_note}. Epics Done during the IP week count from W1; Done date is the last move into Done. '
+            f'{windows}. Epics Done during the IP week count from W1; Done date is the last move into Done. '
             f'Scope is the epics in the release at the end of W1 with Commitment Type Committed or empty, excluding Stretch and any that are or became Removed; Stretch epics and epics added later raise the percentage above 100. '
             f'Bugs exclude [Accessibility] items. Throughput colour: green 90% or more Done by the release date, amber 75% or more.')
+    if multi:
+        per_rel = "; ".join(f'{r["name"]}: {", ".join(r["projects"])}' for r in rel)
+        foot += f' Combined across projects on the 26.x release train ({per_rel}). ' + cfg.get("scope_note", "")
     if sq:
         foot += " Code coverage is SonarQube data supplied by month; the latest month is to date."
     if tests_on:

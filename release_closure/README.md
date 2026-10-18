@@ -19,3 +19,11 @@ styles). Nothing is sent; send the file with any HTML email sender.
 - **Gating bugs backlog**: open P1-P3 bugs at each week end, excluding [Accessibility].
 - `test_coverage: false` turns the Jira test section off; `sonarqube_file` points at a local,
   gitignored JSON of monthly SonarQube figures (`{"monthly": [{"month", "coverage", "lines", "projects"}]}`).
+
+## Combined report across projects
+
+`config_wfm_org.json` lists several projects under `projects` and produces one aggregate report
+(`build/WFM_ORG_release_closure_email.html`): counts and bug backlogs are summed, cycle time is pooled
+across all epics. Only projects on the 26.x release train apply; a project without a dated Jira version
+for a release is skipped for it. Per-project overrides: `bugs: false` leaves a project out of the bug
+backlog, `bug_exclusions` adds JQL.

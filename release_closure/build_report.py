@@ -94,7 +94,8 @@ def release_windows(base, s, cfg):
     """{release: (start, end)} from the Jira version's own dates."""
     vers = {v["name"]: v for v in s.get(f"{base}/rest/api/3/project/{cfg['project']}/versions").json()}
     d = lambda x: datetime.strptime(x, "%Y-%m-%d").date()
-    return {n: (d(vers[n]["startDate"]), d(vers[n]["releaseDate"])) for n in cfg["releases"]}
+    return {n: (d(vers[n]["startDate"]), d(vers[n]["releaseDate"])) for n in cfg["releases"]
+            if n in vers and vers[n].get("startDate") and vers[n].get("releaseDate")}
 
 
 def collect(cfg):
@@ -105,11 +106,13 @@ def collect(cfg):
     tclause = (f'labels in ({", ".join(cfg["test_labels"])}) AND priority in ({", ".join(cfg["test_priorities"])})') if with_tests else ""
     bug_scope = (f'project = {p} AND issuetype = Bug AND priority in (P1, P2, P3) '
                  f'AND summary !~ "\\"[Accessibility]*\\"" {cfg.get("bug_exclusions", "")}')
+    if not wins:
+        return base, [], {}
     first_dev = min(w[0] for w in wins.values()) + timedelta(days=IP_DAYS)
     bugs = [(datetime.strptime(i["fields"]["created"][:10], "%Y-%m-%d").date(),
              datetime.strptime(i["fields"]["resolutiondate"][:10], "%Y-%m-%d").date() if i["fields"]["resolutiondate"] else None)
-            for i in search(base, s, bug_scope + f' AND (created >= "{first_dev}" OR resolution is EMPTY OR resolutiondate >= "{first_dev}")',
-                            ["created", "resolutiondate"])]
+            for i in (search(base, s, bug_scope + f' AND (created >= "{first_dev}" OR resolution is EMPTY OR resolutiondate >= "{first_dev}")',
+                            ["created", "resolutiondate"]) if cfg.get("bugs", True) else [])]
     rel = []
     for name, (start, end) in wins.items():
         dev = start + timedelta(days=IP_DAYS)
@@ -139,6 +142,7 @@ def collect(cfg):
             "name": name, "start": start, "dev_start": dev, "end": end, "weeks": WEEKS,
             "done": len(done), "done_jql": base_jql + " AND status = Done", "buckets": buckets,
             "baseline": count(base, s, scope_jql), "baseline_jql": scope_jql,
+            "cycle_vals": cyc,
             "cycle_avg": round(sum(cyc) / len(cyc)) if cyc else None, "cycle_n": len(cyc),
             "cycle_med": round(sorted(cyc)[len(cyc) // 2] if len(cyc) % 2 else sum(sorted(cyc)[len(cyc) // 2 - 1:len(cyc) // 2 + 1]) / 2) if cyc else None,
             "bugs_weekly": open_wk,
@@ -173,6 +177,34 @@ def collect(cfg):
     return base, rel, overall
 
 
+def merge(cfg, per_project):
+    """Combine per-project release rows into one row per release (sums, pooled cycle times)."""
+    import re
+    import statistics
+    out = []
+    for name in cfg["releases"]:
+        rows = [(p, {r["name"]: r for r in rr}[name]) for p, rr in per_project.items() if name in {r["name"] for r in rr}]
+        if not rows:
+            continue
+        projs = [p for p, _ in rows]
+        first = rows[0][1]
+        plist = "project in (" + ", ".join(projs) + ")"
+        swap = lambda j: re.sub(r"project = \w+", plist, j, count=1)
+        buckets = {k: sum(r["buckets"][k] for _, r in rows) for k in first["buckets"]}
+        cyc = [v for _, r in rows for v in r["cycle_vals"]]
+        out.append({
+            "name": name, "start": first["start"], "dev_start": first["dev_start"], "end": first["end"], "weeks": WEEKS,
+            "done": sum(r["done"] for _, r in rows), "done_jql": swap(first["done_jql"]), "buckets": buckets,
+            "baseline": sum(r["baseline"] for _, r in rows), "baseline_jql": swap(first["baseline_jql"]),
+            "cycle_vals": cyc, "cycle_avg": round(sum(cyc) / len(cyc)) if cyc else None, "cycle_n": len(cyc),
+            "cycle_med": round(statistics.median(cyc)) if cyc else None,
+            "bugs_weekly": [sum(r["bugs_weekly"][w] for _, r in rows) for w in range(WEEKS)],
+            "bugs_end_jql": "", "projects": projs,
+            "tests": 0, "auto": 0, "auto_weekly": [0] * WEEKS, "tests_jql": "", "auto_jql": "",
+        })
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True)
@@ -185,10 +217,21 @@ def main():
             cfg["sonarqube"] = json.loads(sq_path.read_text())
         else:
             print(f"note: {sq_path.name} not found, skipping the code coverage section")
-    base, rel, overall = collect(cfg)
+    if cfg.get("projects"):
+        per_project, base = {}, None
+        for spec in cfg["projects"]:
+            sub = {k: v for k, v in cfg.items() if k != "projects"}
+            sub.update(spec)
+            sub["test_coverage"] = False
+            base, rr, _ = collect(sub)
+            per_project[spec["project"]] = rr
+            print(f'{spec["project"]}: {[r["name"] for r in rr]}', file=sys.stderr)
+        rel, overall = merge(cfg, per_project), {"tests": 0, "auto": 0, "tests_jql": "", "auto_jql": ""}
+    else:
+        base, rel, overall = collect(cfg)
     out = Path(a.out) if a.out else HERE / "build"
     out.mkdir(parents=True, exist_ok=True)
-    stem = out / f'{cfg["project"]}_release_closure'
+    stem = out / f'{cfg.get("slug", cfg["project"])}_release_closure'
     Path(f"{stem}_email.html").write_text(render_email(cfg, base, rel, overall), encoding="utf-8")
     Path(f"{stem}.json").write_text(json.dumps(
         {"releases": [{**r, "start": str(r["start"]), "dev_start": str(r["dev_start"]), "end": str(r["end"]),
