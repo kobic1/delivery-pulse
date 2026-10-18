@@ -26,13 +26,15 @@ def bold(n) -> str:
 
 
 def row(name: str, es: list[dict], s: dict, team: bool, pod_cell: str | None = None) -> str:
-    miss = lambda k: [e for e in es if not e["ok"][k]]
+    # Pod rows carry no links: 80 full-length Jira links push the message past Teams' ~28 KB paste limit.
+    miss = (lambda k: [e for e in es if not e["ok"][k]]) if team else (lambda k: [])
     nm = "<b>" + html.escape(name) + "</b>" if team else "&nbsp;&nbsp;&nbsp;&nbsp;" + html.escape(name)
     cells = ""
     for k, _ in CRITERIA:
         cells += "<td>" + (pod_cell if (k == "pod" and pod_cell is not None) else pct(s[k], miss(k))) + "</td>"
-    not_full = [e for e in es if not e["full"]]
-    return ("<tr><td>" + nm + "</td><td>" + keys_link(es, str(len(es)), LINK) + "</td>" + cells
+    not_full = [e for e in es if not e["full"]] if team else []
+    count = keys_link(es, str(len(es)), LINK) if team else str(len(es))
+    return ("<tr><td>" + nm + "</td><td>" + count + "</td>" + cells
             + "<td>" + pct(s["full"], not_full) + "</td></tr>")
 
 
@@ -60,7 +62,7 @@ def render(cfg: dict, epics: list[dict], scope_team: str | None) -> str:
         if not all(r["name"] == UNASSIGNED_POD for r in rt):
             for r in rt:
                 un = r["name"] == UNASSIGNED_POD
-                pc = pct(r["pod"], [e for e in r["es"] if not e["ok"]["pod"]]) if un else "&ndash;"
+                pc = pct(r["pod"]) if un else "&ndash;"
                 rows.append(row(r["name"], r["es"], r, False, pc))
     if len(teams) > 1:
         rows.append(row("Total (all teams)", epics, s, True))
