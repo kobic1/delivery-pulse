@@ -98,17 +98,17 @@ def bar_rows(rows, head_cols, widths):
     return card(f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">{head}{body}</table>')
 
 
-def throughput(base, rel):
+def throughput(base, rel, done_key="done", buckets_key="buckets", jql_key="done_jql"):
     rows = []
     for r in rel:
-        by = closed_by_release(r)
-        p = pct(by, r["done"])
+        by = sum(v for k, v in r[buckets_key].items() if k != "post")
+        p = pct(by, r[done_key])
         fg = tone(p, 90, 75)
-        rows.append((f'<td style="{REL}">{r["name"]}</td><td align="right" style="{TD}font-weight:600;">{link(jql_href(base, r["done_jql"]), str(r["done"]))}</td>',
+        rows.append((f'<td style="{REL}">{r["name"]}</td><td align="right" style="{TD}font-weight:600;">{link(jql_href(base, r[jql_key]), str(r[done_key]))}</td>',
                      p, fg,
                      f'<td width="22%" align="right" style="{TD}padding-right:6px;white-space:nowrap;"><span style="color:{fg};font-weight:600;">{p}%</span>'
-                     f'<span style="color:{SUBTLE};font-size:12px;"> &nbsp;{by} of {r["done"]}</span></td>'))
-    heads = [f'<td align="left" style="{TH}padding-left:6px;">Release</td>', f'<td align="right" style="{TH}">Done epics</td>',
+                     f'<span style="color:{SUBTLE};font-size:12px;"> &nbsp;{by} of {r[done_key]}</span></td>'))
+    heads = [f'<td align="left" style="{TH}padding-left:6px;">Release</td>', f'<td align="right" style="{TH}">{"Done epics" if done_key == "done" else "Done capabilities"}</td>',
              f'<td align="left" style="{TH}padding-left:24px;" colspan="2">Done by the release date</td>']
     # bar_rows puts the bar between the first two cells and the label; reorder head accordingly
     return bar_rows(rows, heads, ["38%"])
@@ -226,7 +226,10 @@ def render_email(cfg, base, rel, overall) -> str:
         lede += "."
 
     sections = [
-        ("Throughput", "Epics Done per release, and what share of them were already Done on the release date.", throughput(base, rel)),
+        (cfg.get("throughput_title", "Throughput"), "Epics Done per release, and what share of them were already Done on the release date.", throughput(base, rel)),
+    ] + ([(cfg.get("capability_throughput_title", "Throughput Capabilities"),
+           "Capabilities Done per release, and what share of them were already Done on the release date.",
+           throughput(base, rel, "cap_done", "cap_buckets", "cap_done_jql"))] if cfg.get("capabilities") else []) + [
         ("Cycle time", "Average calendar days a Done epic spent in In Progress or Validation, excluding flagged days and Maintenance epics. A few long-running epics lift the average above the median.", cycle_time(rel)),
         ("Predictability", "Epics delivered so far as a <b>percentage</b> of the scope at the end of W1 (the Scope column is a count). "
                            "100% means the W1 scope has been delivered; above 100% means more was delivered than planned.", predictability(base, rel)),
@@ -240,7 +243,7 @@ def render_email(cfg, base, rel, overall) -> str:
         a, z = sq["monthly"][0], sq["monthly"][-1]
         sections.append(("Code coverage", f'SonarQube coverage by month, as a <b>percentage</b> of lines to cover. It moved from {a["coverage"]:.1f}% to {z["coverage"]:.1f}% while lines to cover grew from {a["lines"]:,} to {z["lines"]:,}.',
                          sonar_coverage(cfg)))
-    sections.append(("Gating bugs backlog", "Open P1 to P3 bugs at the end of each week, excluding Accessibility bugs. These are <b>counts</b> of bugs, not percentages; "
+    sections.append((cfg.get("bugs_title", "Gating bugs backlog"), "Open P1 to P3 bugs at the end of each week, excluding Accessibility bugs. These are <b>counts</b> of bugs, not percentages; "
                                              "the last column is the change from the end of W1 to the end of W12.", bugs_backlog(base, rel)))
 
     multi = cfg.get("projects")

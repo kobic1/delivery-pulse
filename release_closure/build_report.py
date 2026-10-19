@@ -39,6 +39,10 @@ def session():
         sys.exit("Set JIRA_BASE_URL, JIRA_EMAIL and JIRA_API_TOKEN.")
     s = requests.Session()
     s.auth = (email, token)
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
+    s.mount("https://", HTTPAdapter(max_retries=Retry(total=5, backoff_factor=2, status_forcelist=[429, 500, 502, 503, 504],
+                                                      allowed_methods=["GET", "POST"])))   # ride out transient Jira 5xx
     return base, s
 
 
@@ -91,7 +95,7 @@ def epic_facts(base, s, key, category):
     return done, E.edct_days(E.epic_events(hs), end=done)
 
 
-def scope_keys(base, s, p, name, dev, excl_statuses):
+def scope_keys(base, s, p, name, dev, excl_statuses, issuetype="Epic"):
     """Epics that were in release `name` at the end of W1, rebuilt from each epic's change history.
 
     JQL `fixVersion WAS ... ON` drops epics that a bulk edit removed and re-added in the same minute
@@ -99,7 +103,7 @@ def scope_keys(base, s, p, name, dev, excl_statuses):
     release then (an edit that removes and re-adds it nets to still in; a first edit that only removes it
     means it was in from creation); not Removed then; not Removed or Stretch today."""
     cut = datetime.combine(dev + timedelta(days=6), datetime.max.time())
-    cands = search(base, s, f'project = {p} AND issuetype = Epic AND fixVersion was "{name}"',
+    cands = search(base, s, f'project = {p} AND issuetype = {issuetype} AND fixVersion was "{name}"',
                    ["status", "customfield_10094", "fixVersions", "created"])
 
     def one(i):
@@ -129,6 +133,19 @@ def scope_keys(base, s, p, name, dev, excl_statuses):
 
     with ThreadPoolExecutor(8) as ex:
         return sorted(k for k in ex.map(one, cands) if k)
+
+
+def week_buckets(dates, dev, end):
+    """Done dates -> {'pre': before W1 (IP week), 1..12: delivery weeks, 'post': after the release date}."""
+    b = {"pre": 0, "post": 0, **{w: 0 for w in range(1, WEEKS + 1)}}
+    for dd in dates:
+        if dd is None or dd < dev:
+            b["pre"] += 1
+        elif dd > end:
+            b["post"] += 1
+        else:
+            b[min(WEEKS, (dd - dev).days // 7 + 1)] += 1
+    return b
 
 
 def release_windows(base, s, cfg):
@@ -191,6 +208,14 @@ def collect(cfg):
             "bugs_end_jql": bug_scope + f' AND created < "{dev + timedelta(days=7 * WEEKS)}" AND (resolutiondate is EMPTY OR resolutiondate >= "{dev + timedelta(days=7 * WEEKS)}")',
             "tests": 0, "auto": 0, "auto_weekly": [0] * WEEKS, "tests_jql": "", "auto_jql": "",
         }
+        if cfg.get("capabilities"):   # same logic as epics, on Capability issues
+            cap_base = f'project = {p} AND issuetype = Capability AND fixVersion = "{name}"'
+            caps = search(base, s, cap_base + f" AND status not in ({excl})", ["status"])
+            cap_done = [c["key"] for c in caps if c["fields"]["status"]["name"] == "Done"]
+            with ThreadPoolExecutor(8) as ex:
+                cap_dates = [d for d, _ in ex.map(lambda k: epic_facts(base, s, k, None), cap_done)]
+            row.update(cap_done=len(cap_done), cap_buckets=week_buckets(cap_dates, dev, end),
+                       cap_done_jql=cap_base + " AND status = Done")
         if with_tests:
             tj = f'project = {p} AND issuetype = Test AND fixVersion = "{name}" AND {tclause}'
             aj = tj + " AND " + cfg["automated_clause"]
@@ -278,7 +303,8 @@ def main():
     Path(f"{stem}_email.html").write_text(render_email(cfg, base, rel, overall), encoding="utf-8")
     Path(f"{stem}.json").write_text(json.dumps(
         {"releases": [{**r, "start": str(r["start"]), "dev_start": str(r["dev_start"]), "end": str(r["end"]),
-                       "buckets": {str(k): v for k, v in r["buckets"].items()}} for r in rel], "overall": overall}, indent=1))
+                       "buckets": {str(k): v for k, v in r["buckets"].items()},
+                       **({"cap_buckets": {str(k): v for k, v in r["cap_buckets"].items()}} if "cap_buckets" in r else {})} for r in rel], "overall": overall}, indent=1))
     print(f"{stem}_email.html")
 
 

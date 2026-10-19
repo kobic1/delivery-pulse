@@ -16,5 +16,8 @@
   "excluded_epic_statuses": [
     "Removed"
   ],
-  "sonarqube_file": "sonarqube_cxwfm.json"
+  "capabilities": true,
+  "bugs_title": "Bugs backlog (P1-P3)",
+  "throughput_title": "Throughput Epics",
+  "capability_throughput_title": "Throughput Capabilities"
 }
