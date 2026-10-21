@@ -88,6 +88,16 @@ When a browser is available (Chromium is typically pre-installed with Playwright
 - Clear primary task path and decision points; preservation of user effort.
 - No dead ends, hidden prerequisites, or unexplained state changes.
 
+## Content and capitalization checklist (house style — treat as a stated requirement)
+Check every visible piece of UI text against these rules. A deviation is a **Visual/UI Defect** or **Confirmed Defect** (cite this rule as the expected-behavior source), normally Low severity / P2 unless it appears in a highly visible place (page title, email subject, headline KPI label), then Medium.
+- **Title Case for titles:** page/report titles, section and card headings, widget titles, tab and nav labels, table column headers, button labels, dialog titles, email/Teams message subject lines, and chart titles. Correct: `Subject: New Great Agent`; incorrect: `Subject: New great agent`. The word after a colon in a title is capitalized.
+- **Title Case mechanics:** capitalize first and last words and all principal words (nouns, verbs, adjectives, adverbs, pronouns). Short articles, conjunctions and prepositions (a, an, the, and, but, or, of, in, on, at, to, for, by, with) stay lowercase unless first or last. Hyphenated terms capitalize each principal part (`End-to-End Report`).
+- **Preserve:** acronyms and initialisms stay uppercase (QA, UI, SLA, PMN); product, project, team and proper names keep their official casing (Jira, Teams, CXone); Jira keys and IDs are never altered.
+- **Consistency:** the same label must use the same casing everywhere it appears (heading vs. tab vs. breadcrumb vs. export vs. notification). Flag mixed casing across sibling items (e.g., one tab `Open Bugs`, another `Closed bugs`).
+- **Sentence case** is expected for running body text, descriptions, tooltips and error/help messages unless the supplied style guide says otherwise.
+- **Evidence handling:** compare the visible rendered text. If the source text is lowercase but CSS `text-transform` capitalizes it (or the reverse), report both the source and the rendered result and state which was inspected; screen readers and copied text follow the source. Also check typos, spelling, double spaces and trailing punctuation in titles.
+- If a supplied design system or style guide contradicts this default, follow the supplied guide and record the conflict as an Assumption.
+
 ## Visual UI checklist
 - Hierarchy and prominence of primary actions; alignment, spacing, rhythm, grouping, density.
 - Typography hierarchy, readability, wrapping, truncation.
@@ -144,7 +154,7 @@ P0 stop release / immediate remediation · P1 fix before release or broad enable
 1. Executive verdict.
 2. Scope and evidence boundary (inputs, environment, what was actually executed, limitations).
 3. Requirements and derived acceptance criteria.
-4. Scenario coverage table: Pass / Fail / Not Tested / Not Applicable / Needs Verification, with evidence column.
+4. Scenario coverage table: Pass / Fail / Not Tested / Not Applicable / Needs Verification, with evidence column. Always include a row for "Title Case and content consistency".
 5. Findings ordered by severity, then priority.
 6. UX and accessibility recommendations not classified as defects.
 7. Manual or tool-assisted verification required.
