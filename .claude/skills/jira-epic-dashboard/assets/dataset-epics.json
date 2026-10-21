@@ -1,0 +1,16 @@
+{
+  "title": "Epics from Jira",
+  "description": "Jira epics for the dashboard scope. Reads Jira project PMN.",
+  "source": {
+    "kind": "query",
+    "connector": "Atlassian",
+    "tool": "searchJiraIssuesUsingJql",
+    "args": {
+      "cloudId": "nice-ce-cxone-prod.atlassian.net",
+      "jql": "<SAME JQL AS CONFIG.jql IN THE PAGE>",
+      "maxResults": 100,
+      "searchResultMode": "issues",
+      "fields": ["summary", "status", "assignee", "labels", "updated", "duedate", "parent", "priority", "customfield_10040", "customfield_10094", "customfield_10139"]
+    }
+  }
+}

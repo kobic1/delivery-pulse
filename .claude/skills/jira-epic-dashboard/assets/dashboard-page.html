@@ -1,0 +1,375 @@
+<style>
+.nfr{--ink:#1E1B4B;--ink2:#4B5275;--ink3:#7C82A3;--line:#E4E1F5;--panel:#fff;--bg:#F5F3FF;--ind:#4F46E5;--vio:#7C3AED;--sky:#0EA5E9;--done:#16A34A;--prog:#F59E0B;--todo:#6366F1;--bad:#DC2626;
+  --color-fg:var(--ink);--color-fg-muted:var(--ink2);--color-bg:#fff;--color-panel:#fff;--color-border-line:var(--line);
+  background:var(--bg);color:var(--ink);border-radius:14px;overflow:hidden;font-family:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;font-size:14px;line-height:1.45;max-width:84rem;margin-inline:auto}
+.nfr *{box-sizing:border-box}
+.nfr button{font:inherit;color:inherit}
+.nfr .hero{background:linear-gradient(120deg,#4F46E5 0%,#7C3AED 55%,#0EA5E9 120%);color:#fff;padding:26px clamp(16px,3vw,36px) 22px;display:flex;flex-wrap:wrap;gap:20px 40px;align-items:center;justify-content:space-between}
+.nfr .hero h1{margin:0;font-size:24px;font-weight:700;letter-spacing:-.4px}
+.nfr .hero .sub{margin:4px 0 0;font-size:13px;opacity:.85}
+.nfr .hero .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.nfr .hbtn{display:inline-block;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.35);color:#fff;border-radius:999px;padding:5px 14px;font-size:12px;text-decoration:none;cursor:pointer}
+.nfr .hbtn:hover{background:rgba(255,255,255,.28)}
+.nfr .rings{display:flex;gap:22px;flex-wrap:wrap}
+.nfr .ring{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:5.5rem}
+.nfr .ring svg{width:88px;height:88px;display:block}
+.nfr .ring .rl{font-size:12px;font-weight:600}
+.nfr .ring .rc{font-size:11px;opacity:.8}
+.nfr .tabs{position:sticky;top:0;z-index:5;background:#fff;border-bottom:1px solid var(--line);display:flex;gap:2px;overflow-x:auto;padding:0 clamp(8px,2vw,28px)}
+.nfr .tab{background:none;border:0;border-bottom:3px solid transparent;padding:12px 14px;font-weight:500;font-size:13px;color:var(--ink2);cursor:pointer;white-space:nowrap}
+.nfr .tab:hover{color:var(--ind)}
+.nfr .tab[aria-selected=true]{color:var(--ind);border-bottom-color:var(--ind);font-weight:600}
+.nfr .main{padding:20px clamp(16px,3vw,36px) 28px;display:flex;flex-direction:column;gap:18px}
+.nfr .fbar{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 3px rgba(79,70,229,.08)}
+.nfr .frow{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.nfr .flab{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);width:6.5rem;flex:none}
+.nfr .pill{display:inline-flex;gap:6px;align-items:center;background:#fff;border:1px solid var(--line);border-radius:999px;padding:3px 11px;font-size:12px;cursor:pointer;max-width:20rem}
+.nfr .pill span.t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nfr .pill b{font-weight:600;color:var(--ink3);font-variant-numeric:tabular-nums}
+.nfr .pill:hover{border-color:var(--ind)}
+.nfr .pill[aria-pressed=true]{background:var(--ind);border-color:var(--ind);color:#fff}
+.nfr .pill[aria-pressed=true] b{color:#fff;opacity:.85}
+.nfr .pill[data-zero=true]{opacity:.45}
+.nfr .srch{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.nfr .srch input{flex:1 1 16rem;min-width:0;font:inherit;border:1px solid var(--line);border-radius:999px;padding:7px 14px;background:#fff;color:var(--ink)}
+.nfr .srch input:focus-visible,.nfr button:focus-visible,.nfr a:focus-visible{outline:2px solid var(--ind);outline-offset:2px}
+.nfr .showing{font-size:12px;color:var(--ink2)}
+.nfr .linkbtn{background:none;border:0;color:var(--ind);cursor:pointer;font-size:12px;text-decoration:underline;padding:0}
+.nfr .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,11rem),1fr));gap:14px}
+.nfr .kpi{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--c,var(--ind));border-radius:12px;padding:14px 16px;box-shadow:0 1px 3px rgba(79,70,229,.08)}
+.nfr .kpi .v{font-size:28px;font-weight:700;line-height:1.1;font-variant-numeric:tabular-nums}
+.nfr .kpi .l{font-size:12px;color:var(--ink2);margin-top:4px}
+.nfr .sec{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;box-shadow:0 1px 3px rgba(79,70,229,.08);min-width:0}
+.nfr .sec h2{margin:0 0 2px;font-size:15px;font-weight:600}
+.nfr .sec .nt{margin:0 0 12px;font-size:12px;color:var(--ink3)}
+.nfr .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,22rem),1fr));gap:18px}
+.nfr .gcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,17rem),1fr));gap:14px}
+.nfr .gcard{display:flex;flex-direction:column;gap:8px;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;cursor:pointer;box-shadow:0 1px 3px rgba(79,70,229,.08);min-width:0}
+.nfr .gcard:hover{border-color:var(--ind);box-shadow:0 4px 14px rgba(79,70,229,.16)}
+.nfr .gcard .gt{font-weight:600;font-size:14px;overflow-wrap:anywhere}
+.nfr .gcard .gn{font-size:12px;color:var(--ink2)}
+.nfr .gcard .gtop{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.nfr .gcard .gbig{font-size:26px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums;color:var(--ind)}
+.nfr .stack{display:flex;height:8px;border-radius:99px;overflow:hidden;background:#EEEAFB}
+.nfr .stack i{display:block;height:100%}
+.nfr .i-done{background:var(--done)}.nfr .i-prog{background:var(--prog)}.nfr .i-todo{background:var(--todo)}
+.nfr .leg{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--ink2)}
+.nfr .leg i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:5px}
+.nfr .cbar{display:grid;grid-template-columns:7rem 1fr 6.5rem;gap:10px;align-items:center;margin:8px 0;font-size:13px}
+.nfr .cbar .r{text-align:right;font-size:12px;color:var(--ink2);font-variant-numeric:tabular-nums}
+.nfr .dq{border:1px solid #FCD9A8;background:#FFF8EC;border-radius:12px;padding:14px 18px}
+.nfr .dq h2{margin:0 0 6px;font-size:14px;color:#92400E}
+.nfr .dq ul{margin:0;padding-left:18px;color:#78350F;font-size:13px}
+.nfr .crumb{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px}
+.nfr .crumb strong{font-weight:600}
+.nfr .tw{overflow:auto;max-height:46rem;border:1px solid var(--line);border-radius:12px;background:#fff}
+.nfr table{width:100%;border-collapse:collapse;min-width:62rem}
+.nfr th{position:sticky;top:0;background:#EEEAFB;text-align:left;padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--ink2);white-space:nowrap}
+.nfr th button{all:unset;cursor:pointer}
+.nfr th[aria-sort=ascending] button:after{content:" ▲";font-size:9px}
+.nfr th[aria-sort=descending] button:after{content:" ▼";font-size:9px}
+.nfr td{padding:9px 12px;border-top:1px solid var(--line);font-size:13px;vertical-align:top}
+.nfr td.k a{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12px;color:var(--ind);text-decoration:none;font-weight:500;white-space:nowrap}
+.nfr td.k a:hover{text-decoration:underline}
+.nfr td.sm{min-width:15rem}
+.nfr .chip{display:inline-block;border-radius:999px;padding:1px 10px;font-size:11px;font-weight:600;white-space:nowrap}
+.nfr .c-done{background:#DCFCE7;color:#166534}.nfr .c-prog{background:#FEF3C7;color:#92400E}.nfr .c-todo{background:#E0E7FF;color:#3730A3}
+.nfr .tag{display:inline-block;border-radius:6px;padding:1px 8px;font-size:11px;font-weight:600;background:#F3F0FF;color:#5B21B6}
+.nfr .tag.s{background:#E0F2FE;color:#075985}.nfr .tag.u{background:#F3F4F6;color:#6B7280}
+.nfr .ai{display:inline-block;border-radius:6px;padding:1px 8px;font-size:11px;font-weight:700;background:linear-gradient(90deg,#7C3AED,#0EA5E9);color:#fff}
+.nfr .mute{color:var(--ink3)}
+.nfr .foot{font-size:12px;color:var(--ink3);display:flex;flex-direction:column;gap:4px}
+.nfr .foot code{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;background:#fff;border:1px solid var(--line);border-radius:6px;padding:2px 6px;overflow-wrap:anywhere}
+.nfr .fail{display:flex;align-items:center;justify-content:center;gap:6px;color:var(--ink2);font-size:12px;min-height:5rem}
+.nfr .fail:before{content:"";width:6px;height:6px;border-radius:50%;background:var(--bad)}
+.nfr .empty{padding:28px;text-align:center;color:var(--ink3)}
+[data-dash-source-state=refreshing]{opacity:.55;transition:opacity var(--cds-dur-slow)}
+.nfr a.fig{color:inherit;text-decoration:underline dotted;text-underline-offset:3px;text-decoration-thickness:1px}
+.nfr a.fig:hover{color:var(--ind);text-decoration-style:solid}
+.nfr .hero a.fig:hover{color:#fff}
+.nfr .gcard .gt{background:none;border:0;padding:0;text-align:left;cursor:pointer;font:inherit;font-weight:600}
+.nfr .gcard .gt:hover{color:var(--ind)}
+.nfr .gcard{cursor:pointer}
+@media(max-width:720px){.nfr .tabs{position:static}.nfr .flab{width:100%}.nfr .cbar{grid-template-columns:5rem 1fr}.nfr .cbar .r{display:none}}
+</style>
+
+<div class="nfr" id="nfr">
+  <div class="hero">
+    <div>
+      <h1>{{TITLE}}</h1>
+      <p class="sub" id="sub">Loading epics from Jira…</p>
+      <div class="acts">
+        <button class="hbtn" id="refresh" type="button">Refresh from Jira</button>
+        <a class="hbtn" target="_blank" rel="noopener" href="{{JIRA_ISSUES_URL}}">Open in Jira ↗</a>
+      </div>
+    </div>
+    <div class="rings" id="rings" aria-label="Completion of epics in scope"></div>
+  </div>
+  <div class="tabs" id="tabs" role="tablist">
+    <button class="tab" role="tab" data-tab="overview" type="button">Overview</button>
+    <button class="tab" role="tab" data-tab="commit" type="button">By commitment</button>
+    <button class="tab" role="tab" data-tab="cap" type="button">By capability</button>
+    <button class="tab" role="tab" data-tab="pod" type="button">By team / pod</button>
+    <button class="tab" role="tab" data-tab="cat" type="button">By category</button>
+    <button class="tab" role="tab" data-tab="all" type="button">All epics</button>
+  </div>
+  <div class="main">
+    <div class="fbar" id="fbar">
+      <div class="srch">
+        <input id="q" type="search" placeholder="Search key, title or assignee   ( / )" aria-label="Search epics">
+        <span class="showing" id="showing"></span>
+        <button class="linkbtn" id="reset" type="button">Reset filters</button>
+      </div>
+    </div>
+    <div id="view"></div>
+    <div class="foot">
+      <div>Query: <code>{{JQL}}</code></div>
+      <div id="stamp">Read-only view of Jira. Nothing here changes Jira.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ---- CONFIG: the only part to edit per dashboard (also edit the HTML title/JQL text and the dataset's args) ----
+const CONFIG = {
+  site: 'https://nice-ce-cxone-prod.atlassian.net',
+  jql: 'project = PMN AND issuetype = Epic AND labels = NFR AND status != Removed AND fixVersion = "27.1"',
+  fields: { commitment: 'customfield_10094', pod: 'customfield_10040', workcat: 'customfield_10139' }, // Jira custom field ids
+  jqlFields: { commitment: 'cf[10094]', pod: 'cf[10040]', cat: 'cf[10139]' },                          // same fields in JQL form
+  aiLabels: /^(AI-Generated|AGENTIC_AI_CODE)$/i,
+  aiJql: 'labels in (AI-Generated, AGENTIC_AI_CODE)',
+};
+dash.loader('epics', {
+  description: 'Jira search result flattened to one row per epic',
+  fn: ({ answer }) => {
+    const unwrap = (a) => {
+      if (typeof a === 'string') { try { return unwrap(JSON.parse(a)); } catch (e) { return {}; } }
+      if (a && Array.isArray(a.content)) { const t = a.content.find((c) => c && typeof c.text === 'string'); if (t) return unwrap(t.text); }
+      if (a && a.structuredContent) return unwrap(a.structuredContent);
+      return a || {};
+    };
+    const o = unwrap(answer);
+    const nodes = Array.isArray(o) ? o : ((o.issues && (o.issues.nodes || o.issues)) || o.nodes || []);
+    if (!Array.isArray(nodes)) throw new Error('Unexpected Jira answer, keys: ' + Object.keys(o).join(', '));
+    return nodes.map((n) => {
+      const f = n.fields || {};
+      const labels = f.labels || [];
+      return {
+        key: n.key,
+        summary: String(f.summary || '').trim(),
+        status: f.status ? f.status.name : '',
+        category: f.status && f.status.statusCategory ? f.status.statusCategory.key : '',
+        commitment: f[CONFIG.fields.commitment] ? f[CONFIG.fields.commitment].value : 'Unspecified',
+        pod: [].concat(f[CONFIG.fields.pod] || []).map((t) => t.value).join(', ') || 'No Pod Assigned',
+        capability: f.parent && f.parent.fields ? f.parent.fields.summary : 'No Capability Assigned',
+        capkey: f.parent ? f.parent.key : '',
+        workcat: f[CONFIG.fields.workcat] ? f[CONFIG.fields.workcat].value : 'Uncategorized',
+        assignee: f.assignee ? f.assignee.displayName : '',
+        due: f.duedate || '',
+        ai: labels.some((l) => CONFIG.aiLabels.test(l)) ? 'AI' : '',
+        url: n.webUrl || (CONFIG.site + '/browse/' + n.key),
+      };
+    });
+  },
+});
+
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, ...kids) => { const e = document.createElement(tag); if (cls) e.className = cls; kids.forEach((k) => { if (k != null) e.append(k); }); return e; };
+const DIMS = [
+  { id: 'commit', label: 'Commitment', f: 'commitment', order: ['Committed', 'Stretch', 'Unspecified'] },
+  { id: 'status', label: 'Status', f: 'status', order: ['New', 'In Definition', 'In Progress', 'Done'] },
+  { id: 'cap', label: 'Capability', f: 'capability' },
+  { id: 'pod', label: 'Team / pod', f: 'pod' },
+  { id: 'cat', label: 'Work category', f: 'workcat' },
+];
+const TABS = { commit: 'commit', cap: 'cap', pod: 'pod', cat: 'cat' };
+const st = { tab: 'overview', q: '', f: Object.fromEntries(DIMS.map((d) => [d.id, new Set()])), drill: null, sort: 'key', dir: 1 };
+let ROWS = [];
+
+const match = (r, skip) => {
+  if (st.q) { const q = st.q.toLowerCase(); if (!(r.key + ' ' + r.summary + ' ' + r.assignee).toLowerCase().includes(q)) return false; }
+  return DIMS.every((d) => d.id === skip || !st.f[d.id].size || st.f[d.id].has(r[d.f]));
+};
+const inScope = () => ROWS.filter((r) => match(r) && (!st.drill || r[DIMS.find((d) => d.id === st.drill.dim).f] === st.drill.value));
+const split = (rs) => ({ total: rs.length, done: rs.filter((r) => r.category === 'done').length, prog: rs.filter((r) => r.category === 'indeterminate').length, todo: rs.filter((r) => r.category !== 'done' && r.category !== 'indeterminate').length });
+const pct = (a, b) => (b ? Math.round(a / b * 100) : 0);
+
+const JBASE = CONFIG.jql;
+const catCond = { done: 'statusCategory = Done', prog: 'statusCategory = "In Progress"', todo: 'statusCategory = "To Do"' };
+const q = (v) => '"' + String(v).replace(/"/g, '\\"') + '"';
+const dimCond = (dimId, v) => {
+  const none = { commit: 'Unspecified', cap: 'No Capability Assigned', pod: 'No Pod Assigned', cat: 'Uncategorized' };
+  const field = { commit: CONFIG.jqlFields.commitment, pod: CONFIG.jqlFields.pod, cat: CONFIG.jqlFields.cat };
+  if (dimId === 'status') return 'status = ' + q(v);
+  if (dimId === 'cap') { if (v === none.cap) return 'parent is EMPTY'; const r = ROWS.find((x) => x.capability === v); return r && r.capkey ? 'parent = ' + r.capkey : 'parent is EMPTY'; }
+  return v === none[dimId] ? field[dimId] + ' is EMPTY' : field[dimId] + ' = ' + q(v);
+};
+const baseConds = () => (st.drill ? [dimCond(st.drill.dim, st.drill.value)] : []);
+const jiraUrl = (conds) => CONFIG.site + '/issues?jql=' + encodeURIComponent([JBASE, ...conds].join(' AND ') + ' ORDER BY created DESC');
+const fig = (text, conds, global) => { const a = el('a', 'fig'); a.href = jiraUrl([...(global ? [] : baseConds()), ...conds]); a.target = '_blank'; a.rel = 'noopener'; a.title = 'Open these epics in Jira'; a.textContent = String(text); return a; };
+const failLine = (target) => target.replaceChildren(el('div', 'fail', 'Failed to load'));
+
+const drawRings = (rs) => {
+  const s = split(rs), C = 2 * Math.PI * 42;
+  const mk = (label, n, color, key) => {
+    const p = pct(n, s.total);
+    const ring = el('div', 'ring');
+    ring.innerHTML = '<svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,.22)" stroke-width="10"></circle><circle cx="50" cy="50" r="42" fill="none" stroke-width="10" stroke-linecap="round" transform="rotate(-90 50 50)"></circle><text x="50" y="56" text-anchor="middle" fill="#fff" font-size="22" font-weight="700"></text></svg>';
+    const c = ring.querySelectorAll('circle')[1];
+    c.setAttribute('stroke', color); c.setAttribute('stroke-dasharray', (C * p / 100) + ' ' + C);
+    ring.querySelector('text').textContent = p + '%';
+    ring.append(el('div', 'rl', label), el('div', 'rc', fig(n, [catCond[key]]), ' of ', fig(s.total, [])));
+    return ring;
+  };
+  $('rings').replaceChildren(mk('Done', s.done, '#86EFAC', 'done'), mk('In progress', s.prog, '#FCD34D', 'prog'), mk('To do', s.todo, '#C7D2FE', 'todo'));
+};
+
+const drawPills = () => {
+  const box = $('pills'); box.replaceChildren();
+  DIMS.forEach((d) => {
+    const vals = [...new Set(ROWS.map((r) => r[d.f]))];
+    if (d.order) vals.sort((a, b) => (d.order.indexOf(a) + 100) % 100 - (d.order.indexOf(b) + 100) % 100); else vals.sort((a, b) => ROWS.filter((r) => r[d.f] === b).length - ROWS.filter((r) => r[d.f] === a).length || a.localeCompare(b));
+    const row = el('div', 'frow'); row.append(el('span', 'flab', d.label));
+    vals.forEach((v) => {
+      const n = ROWS.filter((r) => match(r, d.id) && r[d.f] === v).length;
+      const b = el('button', 'pill'); b.type = 'button';
+      b.setAttribute('aria-pressed', st.f[d.id].has(v) ? 'true' : 'false'); b.dataset.zero = n === 0 && !st.f[d.id].has(v);
+      b.title = v; b.append(el('span', 't', v), el('b', '', String(n)));
+      b.addEventListener('click', () => { const s = st.f[d.id]; if (s.has(v)) s.delete(v); else s.add(v); st.drill = null; draw(); });
+      row.append(b);
+    });
+    box.append(row);
+  });
+};
+
+const stackBar = (s) => { const b = el('div', 'stack'); [['i-done', s.done], ['i-prog', s.prog], ['i-todo', s.todo]].forEach(([c, n]) => { const i = el('i', c); i.style.width = (s.total ? n / s.total * 100 : 0) + '%'; b.append(i); }); return b; };
+const legend = () => { const l = el('div', 'leg'); l.innerHTML = '<span><i class="i-done"></i>Done</span><span><i class="i-prog"></i>In progress</span><span><i class="i-todo"></i>To do</span>'; return l; };
+
+const groupCards = (dimId, rs) => {
+  const d = DIMS.find((x) => x.id === dimId);
+  const groups = [...new Set(rs.map((r) => r[d.f]))];
+  groups.sort((a, b) => (d.order ? d.order.indexOf(a) - d.order.indexOf(b) : rs.filter((r) => r[d.f] === b).length - rs.filter((r) => r[d.f] === a).length) || a.localeCompare(b));
+  if (!groups.length) return el('div', 'empty', 'No epics match the current filters.');
+  const wrap = el('div', 'gcards');
+  groups.forEach((g) => {
+    const s = split(rs.filter((r) => r[d.f] === g));
+    const c = el('div', 'gcard');
+    const open = el('button', 'gt', g); open.type = 'button';
+    const dc = dimCond(dimId, g);
+    const gn = el('div', 'gn', fig(s.done, [dc, catCond.done]), ' done · ', fig(s.prog, [dc, catCond.prog]), ' in progress · ', fig(s.todo, [dc, catCond.todo]), ' to do');
+    c.append(el('div', 'gtop', open, el('div', 'gbig', fig(s.total, [dc]))), stackBar(s), gn);
+    const go = () => { st.drill = { dim: dimId, value: g }; draw(); window.scrollTo(0, 0); };
+    open.addEventListener('click', (ev) => { ev.stopPropagation(); go(); });
+    c.addEventListener('click', (ev) => { if (!ev.target.closest('a')) go(); });
+    wrap.append(c);
+  });
+  return wrap;
+};
+
+const cmpRows = (a, b) => {
+  const k = st.sort; let r;
+  if (k === 'key') r = a.key.localeCompare(b.key, 'en', { numeric: true });
+  else r = String(a[k] || '').localeCompare(String(b[k] || ''), 'en', { numeric: true });
+  return (r * st.dir) || a.key.localeCompare(b.key, 'en', { numeric: true });
+};
+const COLS = [['key', 'Epic'], ['summary', 'Title'], ['status', 'Status'], ['commitment', 'Commitment'], ['pod', 'Team / pod'], ['capability', 'Capability'], ['workcat', 'Category'], ['assignee', 'Assignee'], ['due', 'Due'], ['ai', 'AI']];
+const fmtDue = d3.utcFormat('%b %-d, %Y');
+
+const epicTable = (rs) => {
+  const t = el('table'); t.dataset.source = 'epics'; t.dataset.rowKey = 'key';
+  const tr = el('tr');
+  COLS.forEach(([k, label]) => {
+    const th = el('th'); th.dataset.field = k;
+    th.setAttribute('aria-sort', st.sort === k ? (st.dir > 0 ? 'ascending' : 'descending') : 'none');
+    const b = el('button', '', label); b.type = 'button';
+    b.addEventListener('click', () => { if (st.sort === k) st.dir = -st.dir; else { st.sort = k; st.dir = 1; } drawView(); });
+    th.append(b); tr.append(th);
+  });
+  t.append(el('thead', '', tr));
+  const tb = el('tbody');
+  [...rs].sort(cmpRows).forEach((r) => {
+    const row = el('tr'); row.dataset.key = r.key;
+    const a = el('a'); a.href = r.url; a.target = '_blank'; a.rel = 'noopener'; a.textContent = r.key;
+    const cls = r.category === 'done' ? 'c-done' : r.category === 'indeterminate' ? 'c-prog' : 'c-todo';
+    const cm = el('span', 'tag ' + (r.commitment === 'Stretch' ? 's' : r.commitment === 'Unspecified' ? 'u' : ''), r.commitment);
+    const mut = (v, empty) => (v ? v : el('span', 'mute', empty));
+    const ai = r.ai ? el('span', 'ai', r.ai) : el('span', 'mute', '');
+    const cells = [el('td', 'k', a), el('td', 'sm', r.summary), el('td', '', el('span', 'chip ' + cls, r.status)), el('td', '', cm), el('td', '', r.pod), el('td', '', r.capability),
+      el('td', '', r.workcat), el('td', '', r.assignee), el('td', '', r.due), el('td', '', ai)];
+    row.append(...cells); tb.append(row);
+  });
+  t.append(tb);
+  const w = el('div', 'tw'); w.append(t); return w;
+};
+
+const kpi = (v, l, c, conds) => { const k = el('div', 'kpi'); k.style.setProperty('--c', c); k.append(el('div', 'v', fig(v, conds)), el('div', 'l', l)); return k; };
+
+const drawView = () => {
+  const v = $('view'), rs = inScope();
+  v.replaceChildren();
+  if (st.drill) {
+    const d = DIMS.find((x) => x.id === st.drill.dim);
+    const back = el('button', 'linkbtn', '← Back to groups'); back.type = 'button';
+    back.addEventListener('click', () => { st.drill = null; draw(); });
+    v.append(el('div', 'crumb', back, el('span', 'mute', '/'), el('span', '', d.label + ': '), el('strong', '', st.drill.value), el('span', 'mute', '(', fig(rs.length, []), ' epics)')), el('div', '', ''));
+    v.lastChild.style.height = '10px';
+    v.append(rs.length ? epicTable(rs) : el('div', 'empty', 'No epics match the current filters.'));
+    return;
+  }
+  if (st.tab === 'all') { v.append(rs.length ? epicTable(rs) : el('div', 'empty', 'No epics match the current filters.')); return; }
+  if (TABS[st.tab]) {
+    const sec = el('div', 'sec');
+    const d = DIMS.find((x) => x.id === st.tab);
+    sec.append(el('h2', '', 'Epics by ' + d.label.toLowerCase()), el('p', 'nt', 'Select a card to see its epics.'), legend(), el('div', ''), groupCards(st.tab, rs));
+    sec.children[3].style.height = '12px';
+    v.append(sec); return;
+  }
+  const s = split(rs);
+  const cr = (name) => { const x = split(rs.filter((r) => r.commitment === name)); return pct(x.done, x.total); };
+  const dueMissing = rs.filter((r) => !r.due).length;
+  const kp = el('div', 'kpis');
+  kp.append(kpi(s.total, 'Epics in scope', 'var(--ind)', []), kpi(s.done, 'Done', 'var(--done)', [catCond.done]), kpi(s.prog, 'In progress', 'var(--prog)', [catCond.prog]), kpi(s.todo, 'To do', 'var(--todo)', [catCond.todo]),
+    kpi(cr('Committed') + '%', 'Committed epics done', 'var(--vio)', [dimCond('commit', 'Committed')]), kpi(cr('Stretch') + '%', 'Stretch epics done', 'var(--sky)', [dimCond('commit', 'Stretch')]),
+    kpi(rs.filter((r) => r.ai).length, 'AI-assisted epics', 'var(--vio)', [CONFIG.aiJql]), kpi(dueMissing, 'Epics without a due date', 'var(--bad)', ['duedate is EMPTY']));
+  const cs = el('div', 'sec'); cs.append(el('h2', '', 'Committed vs stretch'), el('p', 'nt', 'Done, in progress and to do within each commitment type.'));
+  ['Committed', 'Stretch', 'Unspecified'].forEach((n) => {
+    const x = split(rs.filter((r) => r.commitment === n)); if (!x.total) return;
+    const row = el('div', 'cbar'); const cc = dimCond('commit', n);
+    row.append(el('span', '', n), stackBar(x), el('span', 'r', fig(x.done, [cc, catCond.done]), '/', fig(x.total, [cc]), ' done'));
+    cs.append(row);
+  });
+  cs.append(legend());
+  const gaps = [['no capability', rs.filter((r) => r.capability === 'No Capability Assigned').length, 'parent is EMPTY'], ['no work category', rs.filter((r) => r.workcat === 'Uncategorized').length, CONFIG.jqlFields.cat + ' is EMPTY'],
+    ['no due date', dueMissing, 'duedate is EMPTY'], ['no commitment type', rs.filter((r) => r.commitment === 'Unspecified').length, CONFIG.jqlFields.commitment + ' is EMPTY'], ['no pod', rs.filter((r) => r.pod === 'No Pod Assigned').length, CONFIG.jqlFields.pod + ' is EMPTY']].filter((g) => g[1]);
+  const dq = el('div', 'dq'); dq.append(el('h2', '', 'Data quality'));
+  if (gaps.length) { const ul = el('ul'); gaps.forEach(([l, n, c]) => ul.append(el('li', '', fig(n, [c]), ' of ', fig(s.total, []), ' epics have ' + l))); dq.append(ul); }
+  else dq.append(el('div', '', 'No gaps in the epics in scope.'));
+  const two = el('div', 'cols'); two.append(cs, dq);
+  const cap = el('div', 'sec'); cap.append(el('h2', '', 'Capabilities'), el('p', 'nt', 'Parent epics behind this release’s NFR work. Select one to see its epics.'), groupCards('cap', rs));
+  v.append(kp, two, cap);
+};
+
+const draw = () => {
+  const e = dash.data('epics');
+  if (['error', 'connect', 'declined'].includes(e.status)) { $('sub').textContent = 'The epics could not be loaded from Jira.'; failLine($('view')); return; }
+  if (e.status !== 'ok') return;
+  ROWS = e.data;
+  const rs = inScope(), s = split(rs);
+  $('sub').replaceChildren(fig(ROWS.length, [], true), ' epics in scope · ', fig(split(ROWS).done, [catCond.done], true), ' done');
+  $('showing').textContent = 'Showing ' + rs.length + ' of ' + ROWS.length + ' epics';
+  $('stamp').textContent = 'Retrieved from Jira ' + new Date().toLocaleString() + '. Read-only view; nothing here changes Jira.';
+  document.querySelectorAll('#tabs .tab').forEach((t) => t.setAttribute('aria-selected', t.dataset.tab === st.tab ? 'true' : 'false'));
+  drawRings(rs); drawView();
+};
+
+dash.onData(draw);
+document.querySelectorAll('#tabs .tab').forEach((t) => t.addEventListener('click', () => { st.tab = t.dataset.tab; st.drill = null; draw(); }));
+$('q').addEventListener('input', (ev) => { st.q = ev.target.value.trim(); draw(); });
+$('reset').addEventListener('click', () => { st.q = ''; $('q').value = ''; DIMS.forEach((d) => st.f[d.id].clear()); st.drill = null; draw(); });
+$('refresh').addEventListener('click', () => dash.refresh('epics'));
+document.addEventListener('keydown', (ev) => {
+  const t = ev.target, typing = t && ['INPUT', 'SELECT', 'TEXTAREA'].includes(t.tagName);
+  if (ev.key === '/' && !typing) { ev.preventDefault(); $('q').focus(); }
+  else if (ev.key === 'Escape' && t === $('q')) { $('q').value = ''; st.q = ''; $('q').blur(); draw(); }
+});
+</script>
