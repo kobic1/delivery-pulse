@@ -26,7 +26,6 @@ import requests
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "dashboards"))
 import edct_from_jira as E  # noqa: E402  (EDCT: the cycle-time definition the dashboards already use)
-from email_style import render_email  # noqa: E402
 
 IP_DAYS = 7
 WEEKS = 12
@@ -162,15 +161,54 @@ def collect(cfg):
     excl = ", ".join(f'"{x}"' for x in cfg["excluded_epic_statuses"])
     with_tests = cfg.get("test_coverage", True)
     tclause = (f'labels in ({", ".join(cfg["test_labels"])}) AND priority in ({", ".join(cfg["test_priorities"])})') if with_tests else ""
-    bug_scope = (f'project = {p} AND issuetype = Bug AND priority in (P1, P2, P3) '
+    acc_jqls = cfg.get("bug_accessibility_jqls")
+    bug_scope = (f'project = {p} AND issuetype = Bug AND priority in (P1, P2, P3) {cfg.get("bug_exclusions", "")}' if acc_jqls else
+                 f'project = {p} AND issuetype = Bug AND priority in (P1, P2, P3) '
                  f'AND summary !~ "\\"[Accessibility]*\\"" {cfg.get("bug_exclusions", "")}')
     if not wins:
         return base, [], {}
     first_dev = min(w[0] for w in wins.values()) + timedelta(days=IP_DAYS)
-    bugs = [(datetime.strptime(i["fields"]["created"][:10], "%Y-%m-%d").date(),
-             datetime.strptime(i["fields"]["resolutiondate"][:10], "%Y-%m-%d").date() if i["fields"]["resolutiondate"] else None)
-            for i in (search(base, s, bug_scope + f' AND (created >= "{first_dev}" OR resolution is EMPTY OR resolutiondate >= "{first_dev}")',
-                            ["created", "resolutiondate"]) if cfg.get("bugs", True) else [])]
+    acc_keys = set()
+    if acc_jqls and cfg.get("bugs", True):   # each rule alone: a combined NOT (a OR b OR c) mishandles empty fields in Jira
+        for clause in acc_jqls:
+            acc_keys |= {i["key"] for i in search(base, s, bug_scope + f" AND ({clause})", ["created"])}
+        print(f"{p}: {len(acc_keys)} accessibility bugs excluded from the backlog", file=sys.stderr)
+    raw_bugs = ([i for i in search(base, s, bug_scope + f' AND (created >= "{first_dev}" OR resolution is EMPTY OR resolutiondate >= "{first_dev}")',
+                                   ["created", "resolutiondate", "status"]) if i["key"] not in acc_keys] if cfg.get("bugs", True) else [])
+    day = lambda x: datetime.strptime(x[:10], "%Y-%m-%d").date()
+
+    def closed_at(i):
+        """Date the bug stopped being open. Some bugs sit in a Done status with no resolution date (CXWFM has hundreds),
+        so fall back to the day they last moved into their current Done status."""
+        f = i["fields"]
+        if f["resolutiondate"]:
+            return day(f["resolutiondate"])
+        if f["status"]["statusCategory"]["key"] == "done":
+            moves = [h["created"] for h in histories(base, s, i["key"]) for x in h["items"]
+                     if x["field"] == "status" and x.get("toString") == f["status"]["name"]]
+            return day(max(moves)) if moves else day(f["created"])
+        return None
+
+    with ThreadPoolExecutor(8) as ex:
+        closed = list(ex.map(closed_at, raw_bugs))
+    bugs = [(day(i["fields"]["created"]), c) for i, c in zip(raw_bugs, closed)]
+    fallback = sum(1 for i in raw_bugs if not i["fields"]["resolutiondate"] and i["fields"]["status"]["statusCategory"]["key"] == "done")
+    if fallback:
+        print(f"{p}: {fallback} bugs are Done without a resolution date; closed date taken from their status history", file=sys.stderr)
+    foreign_caps = {}   # capability key -> (status, releases in which it has Done CXWFM epics as children)
+    if cfg.get("capabilities") and cfg.get("capabilities_from_other_projects"):
+        kids = search(base, s, f'project = {p} AND issuetype = Epic AND status = Done AND fixVersion in ({", ".join(chr(34) + n + chr(34) for n in wins)})',
+                      ["parent", "fixVersions"])
+        child_rel = {}
+        for k in kids:
+            par = (k.get("fields") or {}).get("parent")
+            if par and not par["key"].startswith(p + "-"):
+                child_rel.setdefault(par["key"], set()).update(v["name"] for v in k["fields"]["fixVersions"] if v["name"] in wins)
+        pkeys = sorted(child_rel)
+        for i in range(0, len(pkeys), 80):
+            for c in search(base, s, "key in (" + ",".join(pkeys[i:i + 80]) + ")", ["status", "issuetype"]):
+                if c["fields"]["issuetype"]["name"] == "Capability":
+                    foreign_caps[c["key"]] = (c["fields"]["status"]["name"], child_rel[c["key"]])
     rel = []
     for name, (start, end) in wins.items():
         dev = start + timedelta(days=IP_DAYS)
@@ -189,6 +227,8 @@ def collect(cfg):
             else:
                 buckets[min(WEEKS, (dd - dev).days // 7 + 1)] += 1
         cyc = [c for _, c in facts if c is not None]
+        tp_excl = set(cfg.get("throughput_exclude_categories", []))
+        tp_dates = [d for (_, cat), (d, _) in zip(done, facts) if cat not in tp_excl]
         if (end - dev).days != 7 * WEEKS - 1:
             print(f"WARNING {p} {name}: delivery window is {(end - dev).days + 1} days, not {7 * WEEKS}; W12 will not end on the release date", file=sys.stderr)
         sk = scope_keys(base, s, p, name, dev, set(cfg["excluded_epic_statuses"]))
@@ -201,21 +241,24 @@ def collect(cfg):
             "name": name, "start": start, "dev_start": dev, "end": end, "weeks": WEEKS,
             "done": len(done), "done_jql": base_jql + " AND status = Done", "buckets": buckets,
             "baseline": len(sk), "baseline_jql": scope_jql,
+            "tp_done": len(tp_dates), "tp_buckets": week_buckets(tp_dates, dev, end),
+            "tp_jql": base_jql + " AND status = Done" + (
+                f' AND ("Issue Category[Dropdown]" is EMPTY OR "Issue Category[Dropdown]" not in ({", ".join(sorted(tp_excl))}))' if tp_excl else ""),
             "cycle_vals": cyc,
             "cycle_avg": int(sum(cyc) / len(cyc) + 0.5) if cyc else None, "cycle_n": len(cyc),
             "cycle_med": int(statistics.median(cyc) + 0.5) if cyc else None,
             "bugs_weekly": open_wk,
-            "bugs_end_jql": bug_scope + f' AND created < "{dev + timedelta(days=7 * WEEKS)}" AND (resolutiondate is EMPTY OR resolutiondate >= "{dev + timedelta(days=7 * WEEKS)}")',
             "tests": 0, "auto": 0, "auto_weekly": [0] * WEEKS, "tests_jql": "", "auto_jql": "",
         }
         if cfg.get("capabilities"):   # same logic as epics, on Capability issues
             cap_base = f'project = {p} AND issuetype = Capability AND fixVersion = "{name}"'
             caps = search(base, s, cap_base + f" AND status not in ({excl})", ["status"])
             cap_done = [c["key"] for c in caps if c["fields"]["status"]["name"] == "Done"]
+            cap_done += sorted(k for k, (st, fvs) in foreign_caps.items() if st == "Done" and name in fvs and k not in cap_done)
             with ThreadPoolExecutor(8) as ex:
                 cap_dates = [d for d, _ in ex.map(lambda k: epic_facts(base, s, k, None), cap_done)]
             row.update(cap_done=len(cap_done), cap_buckets=week_buckets(cap_dates, dev, end),
-                       cap_done_jql=cap_base + " AND status = Done")
+                       cap_done_jql=f'key in ({", ".join(cap_done)}) ORDER BY key' if 0 < len(cap_done) <= 120 else cap_base + " AND status = Done")
         if with_tests:
             tj = f'project = {p} AND issuetype = Test AND fixVersion = "{name}" AND {tclause}'
             aj = tj + " AND " + cfg["automated_clause"]
@@ -299,11 +342,16 @@ def main():
         base, rel, overall = collect(cfg)
     out = Path(a.out) if a.out else HERE / "build"
     out.mkdir(parents=True, exist_ok=True)
+    if cfg.get("email_theme") == "aurora":   # the newer look, used only where a config opts in (CXCO for now)
+        from email_style_aurora import render_email
+    else:
+        from email_style import render_email
     stem = out / f'{cfg.get("slug", cfg["project"])}_release_closure'
     Path(f"{stem}_email.html").write_text(render_email(cfg, base, rel, overall), encoding="utf-8")
     Path(f"{stem}.json").write_text(json.dumps(
         {"releases": [{**r, "start": str(r["start"]), "dev_start": str(r["dev_start"]), "end": str(r["end"]),
                        "buckets": {str(k): v for k, v in r["buckets"].items()},
+                       **({"tp_buckets": {str(k): v for k, v in r["tp_buckets"].items()}} if "tp_buckets" in r else {}),
                        **({"cap_buckets": {str(k): v for k, v in r["cap_buckets"].items()}} if "cap_buckets" in r else {})} for r in rel], "overall": overall}, indent=1))
     print(f"{stem}_email.html")
 

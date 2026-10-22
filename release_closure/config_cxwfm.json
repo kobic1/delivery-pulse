@@ -19,5 +19,17 @@
   "capabilities": true,
   "bugs_title": "Bugs backlog (P1-P3)",
   "throughput_title": "Throughput Epics",
-  "capability_throughput_title": "Throughput Capabilities"
+  "capability_throughput_title": "Throughput Capabilities",
+  "throughput_exclude_categories": [
+    "Maintenance",
+    "SOW"
+  ],
+  "capabilities_from_other_projects": true,
+  "bug_accessibility_jqls": [
+    "\"Accessibility Impact[Dropdown]\" = Yes",
+    "summary ~ \"Accessibility\"",
+    "labels = \"WFM_E2E_Accessibility\""
+  ],
+  "bug_exclusion_note": "Bugs are excluded as Accessibility when Accessibility Impact is Yes, the summary mentions Accessibility, or the label WFM_E2E_Accessibility is present",
+  "footnote_extra": "Throughput Epics excludes epics with Issue Category Maintenance or SOW; Predictability and cycle time are computed as described above. Throughput Capabilities counts Done capabilities in CXWFM by their own fix version, plus Done capabilities in other projects in each release where they have Done CXWFM epics as children."
 }

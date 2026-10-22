@@ -95,7 +95,7 @@ def bar_rows(rows, head_cols, widths):
                f'<td width="{max(p, 3)}%" height="6" bgcolor="{color}" style="height:6px;line-height:6px;font-size:0;">&nbsp;</td>'
                f'<td height="6" bgcolor="{LINE}" style="height:6px;line-height:6px;font-size:0;">&nbsp;</td></tr></table>')
         body += f'<tr>{name}<td width="{widths[0]}" style="{TD}padding-left:24px;">{bar}</td>{label}</tr>'
-    return card(f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">{head}{body}</table>')
+    return card(f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr>{head}</tr>{body}</table>')
 
 
 def throughput(base, rel, done_key="done", buckets_key="buckets", jql_key="done_jql"):
@@ -108,7 +108,7 @@ def throughput(base, rel, done_key="done", buckets_key="buckets", jql_key="done_
                      p, fg,
                      f'<td width="22%" align="right" style="{TD}padding-right:6px;white-space:nowrap;"><span style="color:{fg};font-weight:600;">{p}%</span>'
                      f'<span style="color:{SUBTLE};font-size:12px;"> &nbsp;{by} of {r[done_key]}</span></td>'))
-    heads = [f'<td align="left" style="{TH}padding-left:6px;">Release</td>', f'<td align="right" style="{TH}">{"Done epics" if done_key == "done" else "Done capabilities"}</td>',
+    heads = [f'<td align="left" style="{TH}padding-left:6px;">Release</td>', f'<td align="right" style="{TH}">{"Done capabilities" if done_key == "cap_done" else "Done epics"}</td>',
              f'<td align="left" style="{TH}padding-left:24px;" colspan="2">Done by the release date</td>']
     # bar_rows puts the bar between the first two cells and the label; reorder head accordingly
     return bar_rows(rows, heads, ["38%"])
@@ -211,8 +211,9 @@ def render_email(cfg, base, rel, overall) -> str:
     first, last = rel[0], rel[-1]
     tests_on = cfg.get("test_coverage", True)
     deliv = delivered_pct(last)[-1]
-    trend = "grew" if last["done"] > first["done"] else "fell" if last["done"] < first["done"] else "held steady"
-    trend_txt = (f'from {first["done"]} to {last["done"]}' if trend != "held steady" else f'at {last["done"]}')
+    dk = "tp_done" if cfg.get("throughput_exclude_categories") else "done"
+    trend = "grew" if last[dk] > first[dk] else "fell" if last[dk] < first[dk] else "held steady"
+    trend_txt = (f'from {first[dk]} to {last[dk]}' if trend != "held steady" else f'at {last[dk]}')
     cyc = f', with an average cycle time of {last["cycle_avg"]} days' if last["cycle_avg"] is not None else ""
     lede = (f'Throughput {trend} {trend_txt} epics per release. {last["name"]} delivered {deliv}% of the epics in scope '
             f'at the end of W1 by its release date{cyc}')
@@ -226,9 +227,13 @@ def render_email(cfg, base, rel, overall) -> str:
         lede += "."
 
     sections = [
-        (cfg.get("throughput_title", "Throughput"), "Epics Done per release, and what share of them were already Done on the release date.", throughput(base, rel)),
+        (cfg.get("throughput_title", "Throughput"),
+         "Epics Done per release" + (f", excluding {' and '.join(cfg['throughput_exclude_categories'])} epics" if cfg.get("throughput_exclude_categories") else "")
+         + ", and what share of them were already Done on the release date.",
+         throughput(base, rel, *(("tp_done", "tp_buckets", "tp_jql") if cfg.get("throughput_exclude_categories") else ()))),
     ] + ([(cfg.get("capability_throughput_title", "Throughput Capabilities"),
-           "Capabilities Done per release, and what share of them were already Done on the release date.",
+           "Capabilities Done per release" + (", including Done capabilities from other projects that have Done CXWFM epics" if cfg.get("capabilities_from_other_projects") else "")
+           + ", and what share of them were already Done on the release date.",
            throughput(base, rel, "cap_done", "cap_buckets", "cap_done_jql"))] if cfg.get("capabilities") else []) + [
         ("Cycle time", "Average calendar days a Done epic spent in In Progress or Validation, excluding flagged days and Maintenance epics. A few long-running epics lift the average above the median.", cycle_time(rel)),
         ("Predictability", "Epics delivered so far as a <b>percentage</b> of the scope at the end of W1 (the Scope column is a count). "
@@ -252,7 +257,9 @@ def render_email(cfg, base, rel, overall) -> str:
     foot = (f'Each release has an IP (planning) week followed by 12 delivery weeks (4 sprints) up to the release date; W1 is the first delivery week. '
             f'{windows}. Epics Done during the IP week count from W1; Done date is the last move into Done; cycle time does not count the Done day itself (as in the R&D efficiency report). '
             f'Scope is the epics in the release at the end of W1 with Commitment Type Committed or empty, excluding Stretch and any that are or became Removed; Stretch epics and epics added later raise the percentage above 100. '
-            f'Bugs whose summary mentions Accessibility are excluded, as on the PMN dashboard; a bug that was reopened counts as open since it was created. Throughput colour: green 90% or more of Done epics were Done by the release date, amber 75% or more.')
+            f'{cfg.get("bug_exclusion_note", "Bugs whose summary mentions Accessibility are excluded, as on the PMN dashboard")}; a bug that was reopened counts as open since it was created. Throughput colour: green 90% or more of Done epics were Done by the release date, amber 75% or more.')
+    if cfg.get("footnote_extra"):
+        foot += " " + cfg["footnote_extra"]
     if multi:
         per_rel = "; ".join(f'{r["name"]}: {", ".join(r["projects"])}' for r in rel)
         foot += f' Combined across projects on the quarterly release train ({per_rel}). ' + cfg.get("scope_note", "")

@@ -2,19 +2,46 @@
   "project": "WFM Organization",
   "slug": "WFM_ORG",
   "title": "Release Closure Summary",
-  "releases": ["26.1", "26.2", "26.3", "26.4"],
+  "releases": [
+    "26.1",
+    "26.2",
+    "26.3",
+    "26.4"
+  ],
   "test_coverage": false,
   "test_labels": [],
   "test_priorities": [],
   "automated_clause": "\"Automated[Dropdown]\" = Yes",
-  "excluded_epic_statuses": ["Removed"],
-  "projects": [
-    {"project": "PMN"},
-    {"project": "CXWFM"},
-    {"project": "CXINT"},
-    {"project": "CXCO", "bug_exclusions": "AND (labels != DWP_Accessibility_Defect OR labels is EMPTY)"},
-    {"project": "CXSUP"},
-    {"project": "WFM", "bugs": false}
+  "excluded_epic_statuses": [
+    "Removed"
   ],
-  "scope_note": "EEM and WFMDEVOPS are not included because they do not ship on the 26.x release train. WFM is included from 26.3, when it adopted 26.x releases, and is left out of the bug backlog, whose legacy P1 to P3 backlog is not tied to those releases."
+  "projects": [
+    {
+      "project": "PMN"
+    },
+    {
+      "project": "CXWFM",
+      "bug_accessibility_jqls": [
+        "\"Accessibility Impact[Dropdown]\" = Yes",
+        "summary ~ \"Accessibility\"",
+        "labels = \"WFM_E2E_Accessibility\""
+      ]
+    },
+    {
+      "project": "CXINT"
+    },
+    {
+      "project": "CXCO",
+      "bug_exclusions": "AND (labels != DWP_Accessibility_Defect OR labels is EMPTY)"
+    },
+    {
+      "project": "CXSUP"
+    },
+    {
+      "project": "WFM",
+      "bugs": false
+    }
+  ],
+  "scope_note": "EEM and WFMDEVOPS are not included because they do not ship on the 26.x release train. WFM is included from 26.3, when it adopted 26.x releases, and is left out of the bug backlog, whose legacy P1 to P3 backlog is not tied to those releases.",
+  "bug_exclusion_note": "Accessibility bugs are excluded: for CXWFM when Accessibility Impact is Yes, the summary mentions Accessibility or the label WFM_E2E_Accessibility is present; for the other projects when the summary mentions Accessibility"
 }
