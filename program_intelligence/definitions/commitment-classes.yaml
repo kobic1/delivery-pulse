@@ -6,7 +6,7 @@ classes:
   committed: {definition: "committed for the release", jira_field: "Commitment Type (customfield_10094), value Committed"}
   stretch:   {definition: "stretch for the release", jira_field: "Commitment Type (customfield_10094), value Stretch"}
 hygiene:
-  empty_value_is_a_gap: true   # PMN 27.1 epics on 2026-10-22: 71 Committed, 28 Stretch, 26 empty (of 125)
+  empty_value_is_a_gap: true   # PMN 27.1 epics on 2026-10-22, Removed excluded: 67 Committed, 23 Stretch, 17 empty (of 107)
   jql_example: 'cf[10094] = Committed'
   note: "Older notes call this 'Release Commitment' (e.g. '26.4 Committed'); the Jira field name is Commitment Type."
   mvp:       {status: not_in_use}

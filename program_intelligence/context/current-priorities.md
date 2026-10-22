@@ -15,11 +15,12 @@ Verified against live Jira on 2026-10-22 where stated; everything else comes fro
 ## Scope and status semantics (Kobi 2026-10-22)
 - Scope = Fix Version + Commitment Type. Status does not represent scoping.
 - "In Definition" usually means R&D did not update the status: treat it as a status-hygiene signal, not as work being scoped.
-- Known and acknowledged: 26 PMN 27.1 epics had no Commitment Type; Kobi is chasing the teams. Track the count, do not alert on it as new.
+- Standing rule: Removed is excluded from all analysis and reports.
+- Known and acknowledged: 17 active PMN 27.1 epics have no Commitment Type (26 including Removed); Kobi is chasing the teams. Track the count, do not alert on it as new.
 
 ## Release state from Jira (2026-10-22)
-- PMN epics with Fix Version 26.4: 130, all in Done category (0 open) -> 26.4 is closed. The 2026-09-10 RED flag is historical, not current.
-- PMN epics with Fix Version 27.1: 125, of which 33 Done (26%) at the start of Delivery Cycle 1. Commitment Type on those 125: 71 Committed, 28 Stretch, 26 empty. CXCO 27.1 items and CXCROSS items (13 on 26.4, 18 on 27.1, 31 "Future Release") also exist.
+- PMN epics with Fix Version 26.4: 130 (97 Done + 33 Removed), 0 open -> 26.4 is closed. The 2026-09-10 RED flag is historical, not current.
+- PMN epics with Fix Version 27.1, Removed excluded: 107, of which 15 Done (14%) at the start of Delivery Cycle 1 (an earlier "33 Done" figure wrongly counted 18 Removed epics). Commitment Type on the 107: 67 Committed, 23 Stretch, 17 empty. Forecast (Committed + empty) = 84; the dashboard showed 85, so check snapshot timing. CXCO 27.1 items and CXCROSS items (13 on 26.4, 18 on 27.1, 31 "Future Release") also exist.
 - Recent PMN epic mix (100 latest-updated): 67 on 27.1, 16 on 27.2, 9 on 26.4. A 27.2 version already holds work.
 
 ## Top watch items from the second brain (2026-09-14, re-verify before use)

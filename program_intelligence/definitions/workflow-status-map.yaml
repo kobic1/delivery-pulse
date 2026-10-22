@@ -16,7 +16,10 @@ classes:
   validation: [Validation]
   release_wait: [Ready for Deploy]
   done:       [Done]
-  excluded:   [Removed]        # not completed work: exclude from throughput and cycle time
+  excluded:   [Removed]        # STANDING RULE (Kobi 2026-10-22): Removed is excluded from ALL analysis and reports: counts, denominators, percentages, trends, hygiene gaps, scope. Never show it as Done.
+standing_rules:
+  - "Exclude status Removed from every query and figure (add `AND status != Removed`). Do not mention Removed items except to say they were excluded, or in a data-quality note if a source figure includes them."
+  - "Never use Jira statusCategory = Done as 'completed': it includes Removed (and Ready for Deploy on stories/bugs). Filter by status name."
 cycle_time:                    # confirmed by Kobi 2026-10-22
   start: In Progress
   end: Done

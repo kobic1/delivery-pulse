@@ -36,6 +36,13 @@ metrics:
   redo_rate: {definition: TODO, owner: TODO}
   design_redo_rate: {definition: TODO, owner: TODO}
 
+release_forecast:                # Kobi 2026-10-22, interim definition
+  definition: "epics with Fix Version = release AND status != Removed AND (Commitment Type = Committed OR Commitment Type is EMPTY); Stretch excluded"
+  rationale: "empty Commitment Type is presumed committed until the teams fill it in"
+  pmn_27_1_value: {date: "2026-10-22", committed: 67, empty: 17, stretch: 23, forecast: 84, dashboard_showed: 85, note: "off by one: confirm snapshot timing"}
+  jql: 'project = PMN AND issuetype = Epic AND fixVersion = "27.1" AND status != Removed AND (cf[10094] = Committed OR cf[10094] is EMPTY)'
+  review: "revisit when Commitment Type is complete; then forecast = Committed only"
+
 delivery_cycle:
   length_weeks: 6          # = 2 sprints of 3 weeks
   sprint_length_weeks: 3

@@ -2,9 +2,9 @@
 meta: {owner: kobi.cohen@nice.com, version: 0.1, effective: 2026-10-22, next_review: 2026-11-22}
 known_conditions:              # acknowledged by Kobi: show as tracked trend, never as a new alert
   - id: pmn-27.1-missing-commitment-type
-    jql: 'project = PMN AND issuetype = Epic AND fixVersion = "27.1" AND cf[10094] is EMPTY'
+    jql: 'project = PMN AND issuetype = Epic AND fixVersion = "27.1" AND status != Removed AND cf[10094] is EMPTY'
     state: acknowledged
-    note: "Kobi is chasing the teams to fill these (2026-10-22; 26 of 125 at that time). Report current count and change since 26; escalate only if the count rises or a new epic joins"
+    note: "Kobi is chasing the teams to fill these (2026-10-22; 17 active gaps once Removed is excluded; 26 was the earlier figure including 9 Removed). Report current count and change since 17; escalate only if the count rises or a new epic joins"
 fire_only_on: [new, materially_changed, escalated, unsnoozed]
 group_symptoms_per_jira_item: true
 weak_signal_requires_persistence_runs: 2   # TODO calibrate
