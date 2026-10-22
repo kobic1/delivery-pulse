@@ -10,4 +10,7 @@ hygiene:
   jql_example: 'cf[10094] = Committed'
   note: "Older notes call this 'Release Commitment' (e.g. '26.4 Committed'); the Jira field name is Commitment Type."
   mvp:       {status: not_in_use}
+scope_signal:                  # confirmed by Kobi 2026-10-22
+  in_scope_for_release: "Fix Version + Commitment Type. Status (incl. In Definition) does not represent scoping"
+  scope_change: "change of Fix Version or Commitment Type after the baseline; never infer from status"
 sizing: {status: none}   # S/M/L not tracked; do not segment by size or report size-based forecasts

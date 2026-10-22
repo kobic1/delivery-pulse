@@ -10,7 +10,7 @@ observed:
   CXCO_Test_Execution: [Design, Open]   # test artefacts: exclude from flow metrics
 classes:
   intake:     [Candidate, New]
-  definition: [In Definition]
+  definition: [In Definition]   # NOT a scoping signal: usually means R&D did not update the status (Kobi 2026-10-22). Flag as status hygiene, never as "still being scoped"
   ready:      [Ready for Dev]   # = enough information to start; says nothing about when work starts. Never counted in cycle time
   active:     [In Progress]
   validation: [Validation]

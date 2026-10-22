@@ -12,6 +12,11 @@ Verified against live Jira on 2026-10-22 where stated; everything else comes fro
 - Release dates (deploy dates) are not readable through the Jira tools available here: take them from the R&D Release Milestone Calendar (Confluence).
 - Kobi availability: reserve duty from 2026-09-23 per the second brain; unconfirmed whether still ongoing.
 
+## Scope and status semantics (Kobi 2026-10-22)
+- Scope = Fix Version + Commitment Type. Status does not represent scoping.
+- "In Definition" usually means R&D did not update the status: treat it as a status-hygiene signal, not as work being scoped.
+- Known and acknowledged: 26 PMN 27.1 epics had no Commitment Type; Kobi is chasing the teams. Track the count, do not alert on it as new.
+
 ## Release state from Jira (2026-10-22)
 - PMN epics with Fix Version 26.4: 130, all in Done category (0 open) -> 26.4 is closed. The 2026-09-10 RED flag is historical, not current.
 - PMN epics with Fix Version 27.1: 125, of which 33 Done (26%) at the start of Delivery Cycle 1. Commitment Type on those 125: 71 Committed, 28 Stretch, 26 empty. CXCO 27.1 items and CXCROSS items (13 on 26.4, 18 on 27.1, 31 "Future Release") also exist.
