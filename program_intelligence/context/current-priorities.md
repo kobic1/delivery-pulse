@@ -6,13 +6,15 @@ Verified against live Jira on 2026-10-22 where stated; everything else comes fro
 - Sprint = 3 weeks, numbered. **Delivery Cycle = 6 weeks = 2 sprints. Release = 12 weeks = 2 Delivery Cycles = 4 sprints**, named `27.x`. An IP week precedes each release's first sprint.
 - **27.1** (current): IP 07-13 Oct 2026; sprint 197 (CX.27.1.197) 14 Oct - 03 Nov, active. Delivery Cycle 1 = sprints 197-198 (to ~24 Nov, projected). Delivery Cycle 2 = sprints 199-200 (~25 Nov - ~05 Jan, projected).
 - **26.4** (previous): sprints 193-196; 194: 05-25 Aug, 195: 26 Aug-15 Sep, 196: 16 Sep-06 Oct. Closed.
-- Commitment type is set per release, not per cycle. MVP is not used. No S/M/L sizing.
+- Commitment type (Jira field "Commitment Type": Committed / Stretch) is set per release, not per cycle. MVP is not used. No S/M/L sizing.
+- Planning: SCRUM to PODs transition is under way and not finalised. Legacy practice was a full IP week between releases. Under the POD SDLC the first 2 days of each Delivery Cycle complete the plan, so scope added after that point is churn to examine, not assumed to be a problem.
+- Cycle time = In Progress to Done only. Ready for Dev only means a ticket has enough information to start.
 - Release dates (deploy dates) are not readable through the Jira tools available here: take them from the R&D Release Milestone Calendar (Confluence).
 - Kobi availability: reserve duty from 2026-09-23 per the second brain; unconfirmed whether still ongoing.
 
 ## Release state from Jira (2026-10-22)
 - PMN epics with Fix Version 26.4: 130, all in Done category (0 open) -> 26.4 is closed. The 2026-09-10 RED flag is historical, not current.
-- PMN epics with Fix Version 27.1: 125, of which 33 Done (26%) at the start of Delivery Cycle 1. CXCO 27.1 items and CXCROSS items (13 on 26.4, 18 on 27.1, 31 "Future Release") also exist.
+- PMN epics with Fix Version 27.1: 125, of which 33 Done (26%) at the start of Delivery Cycle 1. Commitment Type on those 125: 71 Committed, 28 Stretch, 26 empty. CXCO 27.1 items and CXCROSS items (13 on 26.4, 18 on 27.1, 31 "Future Release") also exist.
 - Recent PMN epic mix (100 latest-updated): 67 on 27.1, 16 on 27.2, 9 on 26.4. A 27.2 version already holds work.
 
 ## Top watch items from the second brain (2026-09-14, re-verify before use)

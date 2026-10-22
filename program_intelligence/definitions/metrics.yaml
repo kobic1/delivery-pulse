@@ -17,7 +17,7 @@ percentiles: [50, 75, 85, 95]
 
 metrics:
   cycle_time:
-    definition: calendar time between configured workflow states (see workflow-status-map.yaml)
+    definition: calendar time from first In Progress to Done (Ready for Dev and earlier states excluded; see workflow-status-map.yaml)
     segment_by: [issue_type]   # never mix stories, bugs, epics; no S/M/L sizing in use as of 2026-10-22
   edct:
     definition: Epic Development Cycle Time = In Progress time; Validation reported separately
@@ -41,7 +41,12 @@ delivery_cycle:
   sprint_length_weeks: 3
   release_length_weeks: 12 # = 2 delivery cycles = 4 sprints; named 27.x
   epic_sizes: []           # sizing not in use
-  events: [ip_week, weekly_progress_review, cycle_end_review]   # Planning Day dates: TODO confirm
+  transition: "SCRUM -> PODs in progress (2026-10); definitions below are provisional and not finalised"
+  planning:
+    legacy: "one full IP week between releases"
+    pod_sdlc: "first 2 days of each Delivery Cycle complete the plan (Kobi 2026-10-22; not finalised)"
+    plan_complete_by: "start of cycle + 2 working days"
+  events: [cycle_planning_first_2_days, weekly_progress_review, cycle_end_review]
   sprint_naming: "CX.<release>.<sprint number> (<start date>), IP sprint = CX.<release>.IP"
   calendar:                # verified from Jira sprint field 2026-10-22; later dates are PROJECTED
     - {release: "26.4", sprints: [193, 194, 195, 196], ip_after: "2026-10-07 .. 2026-10-13 labelled CX.27.1.IP", verified: "194: 05Aug-25Aug, 195: 26Aug-15Sep, 196: 16Sep-06Oct"}

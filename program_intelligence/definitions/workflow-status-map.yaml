@@ -1,7 +1,7 @@
 # Map Jira statuses to analytical classes. Review after any Jira workflow change.
 # Verified from live Jira (nice-ce-cxone-prod) 2026-10-22 by sampling recent issues; statuses not yet seen are missing.
 meta: {owner: kobi.cohen@nice.com, version: 0.2, effective: 2026-10-22, next_review: 2026-11-22}
-# Statuses observed per project and type (class assignment below is a PROPOSAL: confirm with Kobi).
+# Statuses observed per project and type (cycle-time boundaries confirmed; other class names are a proposal).
 observed:
   PMN_Epic:      [New, In Definition, Ready for Dev, In Progress, Validation, Done, Removed]
   PMN_Story_Bug: [New, In Progress, Validation, Ready for Deploy, Done, Removed]
@@ -11,13 +11,17 @@ observed:
 classes:
   intake:     [Candidate, New]
   definition: [In Definition]
-  ready:      [Ready for Dev]
+  ready:      [Ready for Dev]   # = enough information to start; says nothing about when work starts. Never counted in cycle time
   active:     [In Progress]
   validation: [Validation]
   release_wait: [Ready for Deploy]
   done:       [Done]
   excluded:   [Removed]        # not completed work: exclude from throughput and cycle time
+cycle_time:                    # confirmed by Kobi 2026-10-22
+  start: In Progress
+  end: Done
+  note: "Only In Progress until Done counts. Report time spent in Validation as a sub-interval so it can be shown separately."
 exclude_issue_types: [Test, Test Execution]
 notes:
   - Existing dashboards define EDCT as In Progress time with Validation separate (see metrics.yaml).
-  - Whether Ready for Dev counts as waiting or committed is a decision for Kobi.
+  - Ready for Dev is excluded from cycle time (Kobi 2026-10-22).

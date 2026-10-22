@@ -3,7 +3,11 @@ meta: {owner: kobi.cohen@nice.com, version: 0.2, effective: 2026-10-22, next_rev
 # Per Kobi 2026-10-22: commitment type is per RELEASE (12 weeks), not per Delivery Cycle. MVP is not in use. No S/M/L sizing at present.
 level: release
 classes:
-  committed: {definition: "per-release commitment", jira_field: "Release Commitment (e.g. '26.4 Committed') -- VERIFY exact field name and values"}
-  stretch:   {definition: TODO confirm it still exists, jira_field: TODO}
+  committed: {definition: "committed for the release", jira_field: "Commitment Type (customfield_10094), value Committed"}
+  stretch:   {definition: "stretch for the release", jira_field: "Commitment Type (customfield_10094), value Stretch"}
+hygiene:
+  empty_value_is_a_gap: true   # PMN 27.1 epics on 2026-10-22: 71 Committed, 28 Stretch, 26 empty (of 125)
+  jql_example: 'cf[10094] = Committed'
+  note: "Older notes call this 'Release Commitment' (e.g. '26.4 Committed'); the Jira field name is Commitment Type."
   mvp:       {status: not_in_use}
 sizing: {status: none}   # S/M/L not tracked; do not segment by size or report size-based forecasts

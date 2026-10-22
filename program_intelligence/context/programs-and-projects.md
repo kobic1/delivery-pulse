@@ -10,11 +10,11 @@ Source: Kobi's "My Second Brain" (OneDrive: about-me.md, MEMORY.md through 2026-
 | CXCROSS | R&D-wide cross-CX initiatives (not a product) | e.g. CXCROSS-288 Customer-Centric SLI/SLO (Resiliency 2026), CXCROSS-266 DocPulse, CXCROSS-22 Angular 21 upgrade, secrets-management kickoff. Often tracked at Capability level |
 | Adjacent (seen in threads) | PMSTND (PM Standalone, being decommissioned), CXDV (Data Viz), CXWFM, CXSUP, CXINT, EEM, WFMDEVOPS, ESP | In scope only when linked from PMN/CXCO/CXCROSS or an exception cites them. Note: Jira tickets created in the wrong project (CXDV instead of PMSTND) have occurred |
 
-Owner context: Kobi owns engineering delivery for PM and Data Visualization (DV) in the CXone suite; reports to Ben Johnson (Director, Analytics Applications). Tools: Jira, Confluence, Teams, Outlook, SharePoint/OneNote.
+Owner context: Kobi is a Senior Program Manager, CX (confirmed 2026-10-22). Older second-brain notes call him Engineering Director because he does more than the role requires: do not assume engineering ownership or authority. PM and Data Visualization (DV) are the products in focus; the manager is Ben Johnson (Director, Analytics Applications). Tools: Jira, Confluence, Teams, Outlook, SharePoint/OneNote.
 
 ## Work hierarchy and fields
 - Hierarchy used in reporting: Initiative > Capability > Epic > Story/Bug. Fix Version is used on Epics and Capabilities.
-- Labels seen: `POD` labels, `AGENTIC_AI_CODE`; field "Release Commitment" (e.g. "26.4 Committed"); "CXone Offering"; Impact Assessment Status (Lyra).
+- Labels seen: `POD` labels, `AGENTIC_AI_CODE`; field "Commitment Type" (customfield_10094; Committed / Stretch); "CXone Offering"; Impact Assessment Status (Lyra).
 - Capability IDs: no separate field found. **VERIFY**: capability is a Jira issue type (key e.g. CXCROSS-288, PMN-28368), not a free-form ID.
 - Release names: `26.x`, `27.1` (current), `27.2` (planned). Fix Version values also include `CX.26.4.193` (sprint-named versions), `Future Release` and `Future release `. See current-priorities.md for the calendar.
 - Statuses (verified in Jira 2026-10-22): see `definitions/workflow-status-map.yaml`. PMN epics: New, In Definition, Ready for Dev, In Progress, Validation, Done, Removed. PMN stories/bugs add Ready for Deploy. CXCROSS adds Candidate.
