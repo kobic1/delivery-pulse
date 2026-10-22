@@ -16,9 +16,11 @@ Owner context: Kobi owns engineering delivery for PM and Data Visualization (DV)
 - Hierarchy used in reporting: Initiative > Capability > Epic > Story/Bug. Fix Version is used on Epics and Capabilities.
 - Labels seen: `POD` labels, `AGENTIC_AI_CODE`; field "Release Commitment" (e.g. "26.4 Committed"); "CXone Offering"; Impact Assessment Status (Lyra).
 - Capability IDs: no separate field found. **VERIFY**: capability is a Jira issue type (key e.g. CXCROSS-288, PMN-28368), not a free-form ID.
-- Release names: `26.1, 26.2, 26.3, 26.4` (current), `27.1` (intent). Development window for 26.4 runs to ~2026-10-02 (stated 2026-07-20). **VERIFY** current release state; 26.4 FTs were being enabled across clusters in early Sep.
+- Release names: `26.x`, `27.1` (current), `27.2` (planned). Fix Version values also include `CX.26.4.193` (sprint-named versions), `Future Release` and `Future release `. See current-priorities.md for the calendar.
+- Statuses (verified in Jira 2026-10-22): see `definitions/workflow-status-map.yaml`. PMN epics: New, In Definition, Ready for Dev, In Progress, Validation, Done, Removed. PMN stories/bugs add Ready for Deploy. CXCROSS adds Candidate.
+- Issue types seen: PMN Epic/Story/Bug; CXCROSS Initiative/Capability/Epic; CXCO Capability/Epic/Bug/Task plus Test and Test Execution (exclude from flow metrics).
 
-## 26.4 roadmap priorities (stated order)
+## 26.4 roadmap priorities (stated order; 26.4 is now closed, carry-over goes to 27.1)
 1. Tenant Segmentation (PMN-16279)
 2. No ACD support / OOTB Data Integrations (PMN-15048 fix version 26.4)
 3. Complex Hierarchies Phase 2

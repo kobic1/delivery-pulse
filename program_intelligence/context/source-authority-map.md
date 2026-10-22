@@ -20,3 +20,9 @@ In scope sources: Jira (PMN, CXCO, CXCROSS), Confluence, Outlook email, Teams ch
 - Email and Confluence notification noise (R&D Release Milestone Calendar, QReport comments, Sys Ops Critical Updates Calendar) dominates date-range searches. Use sender or keyword queries and exact Jira keys.
 - Teams search hits Graph 429 throttling regularly; report partial coverage ("N of M chats scanned") instead of implying completeness.
 - Names for routing and attribution only. The 2026-09 memory log includes people-heavy notes: never use them to evaluate anyone.
+
+## Scan scope (Kobi 2026-10-22: "all, scan as much of my work as possible")
+- Teams: all chats and channels the user can read. Always report coverage as "N of M chats scanned"; Graph throttling (429) is expected, so retry in smaller batches and never imply completeness.
+- Email: whole mailbox including shared mailboxes the user can read. Filter notification noise (Confluence calendar/QReport/Jira digests) by sender, and query by Jira key.
+- Confluence: all spaces the user can read; prioritise release calendar, risk registers, trackers.
+- Anything found is evidence only if it can be tied to PMN, CXCO or CXCROSS by an identifier; unrelated material is not reported.

@@ -1,9 +1,23 @@
 # Map Jira statuses to analytical classes. Review after any Jira workflow change.
-meta: {owner: kobi.cohen@nice.com, version: 0.1, effective: 2026-10-22, next_review: 2026-11-22}
-# TODO: verify against the real PMN / PMSTND / CXCO workflows before trusting any cycle-time output.
+# Verified from live Jira (nice-ce-cxone-prod) 2026-10-22 by sampling recent issues; statuses not yet seen are missing.
+meta: {owner: kobi.cohen@nice.com, version: 0.2, effective: 2026-10-22, next_review: 2026-11-22}
+# Statuses observed per project and type (class assignment below is a PROPOSAL: confirm with Kobi).
+observed:
+  PMN_Epic:      [New, In Definition, Ready for Dev, In Progress, Validation, Done, Removed]
+  PMN_Story_Bug: [New, In Progress, Validation, Ready for Deploy, Done, Removed]
+  CXCO_Epic_Capability_Bug: [New, In Definition, Ready for Dev, In Progress, Validation, Done]
+  CXCROSS_Initiative_Capability_Epic: [Candidate, New, In Definition, Ready for Dev, In Progress, Done, Removed]
+  CXCO_Test_Execution: [Design, Open]   # test artefacts: exclude from flow metrics
 classes:
-  waiting:  [Open, To Do, Backlog, Ready]
-  active:   [In Progress]
-  validation: [Validation, In Review, In Test]
-  blocked:  [Blocked, On Hold]
-  done:     [Done, Closed, Resolved]
+  intake:     [Candidate, New]
+  definition: [In Definition]
+  ready:      [Ready for Dev]
+  active:     [In Progress]
+  validation: [Validation]
+  release_wait: [Ready for Deploy]
+  done:       [Done]
+  excluded:   [Removed]        # not completed work: exclude from throughput and cycle time
+exclude_issue_types: [Test, Test Execution]
+notes:
+  - Existing dashboards define EDCT as In Progress time with Validation separate (see metrics.yaml).
+  - Whether Ready for Dev counts as waiting or committed is a decision for Kobi.

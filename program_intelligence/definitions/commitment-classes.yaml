@@ -1,6 +1,9 @@
 # Do not combine categories with different definitions.
-meta: {owner: kobi.cohen@nice.com, version: 0.1, effective: 2026-10-22, next_review: 2026-11-22}
+meta: {owner: kobi.cohen@nice.com, version: 0.2, effective: 2026-10-22, next_review: 2026-11-22}
+# Per Kobi 2026-10-22: commitment type is per RELEASE (12 weeks), not per Delivery Cycle. MVP is not in use. No S/M/L sizing at present.
+level: release
 classes:
-  committed: {definition: TODO, jira_field: TODO}
-  stretch:   {definition: TODO, jira_field: TODO}
-  mvp:       {definition: TODO, jira_field: TODO}
+  committed: {definition: "per-release commitment", jira_field: "Release Commitment (e.g. '26.4 Committed') -- VERIFY exact field name and values"}
+  stretch:   {definition: TODO confirm it still exists, jira_field: TODO}
+  mvp:       {status: not_in_use}
+sizing: {status: none}   # S/M/L not tracked; do not segment by size or report size-based forecasts

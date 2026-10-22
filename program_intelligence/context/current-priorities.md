@@ -1,13 +1,21 @@
 # Current priorities and calendar
 
-Source: second brain MEMORY.md, last entry 2026-09-14. Today is later than that: treat all as **stale until re-checked**. Auto-memory is never an authoritative source of program facts.
+Verified against live Jira on 2026-10-22 where stated; everything else comes from the second brain (last entry 2026-09-14) and is **stale until re-checked**. Auto-memory is never an authoritative source of program facts.
 
-## Cadence
-- Quarterly releases `YY.Q`; sprints numbered (sprint 193, 194 ... 199+). **VERIFY**: the requirements doc describes six-week Delivery Cycles with Planning Day and Cycle-End Review; the second brain mentions sprints, IP week and quarterly planning. Dates for the current cycle are not in the second brain.
-- Meetings: Executive Steering (monthly), Wide Forum Steering (weekly), Team Status (twice weekly), Product Review (quarterly), scrum ceremonies, release planning/kickoff/retro (quarterly).
-- Kobi availability: reserve duty starting 2026-09-23; coverage plan unconfirmed.
+## Cadence (confirmed by Kobi 2026-10-22, dates from the Jira sprint field)
+- Sprint = 3 weeks, numbered. **Delivery Cycle = 6 weeks = 2 sprints. Release = 12 weeks = 2 Delivery Cycles = 4 sprints**, named `27.x`. An IP week precedes each release's first sprint.
+- **27.1** (current): IP 07-13 Oct 2026; sprint 197 (CX.27.1.197) 14 Oct - 03 Nov, active. Delivery Cycle 1 = sprints 197-198 (to ~24 Nov, projected). Delivery Cycle 2 = sprints 199-200 (~25 Nov - ~05 Jan, projected).
+- **26.4** (previous): sprints 193-196; 194: 05-25 Aug, 195: 26 Aug-15 Sep, 196: 16 Sep-06 Oct. Closed.
+- Commitment type is set per release, not per cycle. MVP is not used. No S/M/L sizing.
+- Release dates (deploy dates) are not readable through the Jira tools available here: take them from the R&D Release Milestone Calendar (Confluence).
+- Kobi availability: reserve duty from 2026-09-23 per the second brain; unconfirmed whether still ongoing.
 
-## Top watch items (as of 2026-09-14)
+## Release state from Jira (2026-10-22)
+- PMN epics with Fix Version 26.4: 130, all in Done category (0 open) -> 26.4 is closed. The 2026-09-10 RED flag is historical, not current.
+- PMN epics with Fix Version 27.1: 125, of which 33 Done (26%) at the start of Delivery Cycle 1. CXCO 27.1 items and CXCROSS items (13 on 26.4, 18 on 27.1, 31 "Future Release") also exist.
+- Recent PMN epic mix (100 latest-updated): 67 on 27.1, 16 on 27.2, 9 on 26.4. A 27.2 version already holds work.
+
+## Top watch items from the second brain (2026-09-14, re-verify before use)
 1. **26.4 delivery risk**: PMN Release 26.4 flagged RED on 2026-09-10 (Fellowship team 5 of 26 target epics at day 57); CXCO 26.4 Yellow. 26.4 capacity contested (Cade Rasmussen, No ACD vs Hierarchies vs Lyra).
 2. **Complex Hierarchies gap**: product expectation vs delivery; Edward Jones concern (no suite-data hierarchies even by 27.1 per Ben Johnson); UHG wants 4-5 levels.
 3. **Accessibility / DWP ACR** due 2026-09-28; fixed bugs still reproducing on staging (CXDV-78069, CXDV-78119, PMN-21746).
