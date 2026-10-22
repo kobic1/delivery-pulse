@@ -1,0 +1,19 @@
+# Alert-fatigue controls and prioritisation. Deterministic rule firing stays in config/rules.yaml.
+meta: {owner: kobi.cohen@nice.com, version: 0.1, effective: 2026-10-22, next_review: 2026-11-22}
+fire_only_on: [new, materially_changed, escalated, unsnoozed]
+group_symptoms_per_jira_item: true
+weak_signal_requires_persistence_runs: 2   # TODO calibrate
+cooldown_days: 3                            # TODO calibrate
+states: [open, acknowledged, snoozed, resolved]
+priority_order:
+  - customer_or_production_impact
+  - sla_proximity
+  - release_criticality
+  - dependency_blast_radius
+  - change_since_prior_run
+  - evidence_strength
+  - actionability
+every_alert_shows: [why_it_fired, what_changed]
+monthly_precision_review: [accepted, useful, duplicate, false_positive, stale, unactionable]
+per_program_thresholds: true
+preview_before_activation: true

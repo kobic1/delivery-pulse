@@ -1,0 +1,6 @@
+# Do not combine categories with different definitions.
+meta: {owner: kobi.cohen@nice.com, version: 0.1, effective: 2026-10-22, next_review: 2026-11-22}
+classes:
+  committed: {definition: TODO, jira_field: TODO}
+  stretch:   {definition: TODO, jira_field: TODO}
+  mvp:       {definition: TODO, jira_field: TODO}

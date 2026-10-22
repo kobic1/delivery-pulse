@@ -1,0 +1,9 @@
+# Map Jira statuses to analytical classes. Review after any Jira workflow change.
+meta: {owner: kobi.cohen@nice.com, version: 0.1, effective: 2026-10-22, next_review: 2026-11-22}
+# TODO: verify against the real PMN / PMSTND / CXCO workflows before trusting any cycle-time output.
+classes:
+  waiting:  [Open, To Do, Backlog, Ready]
+  active:   [In Progress]
+  validation: [Validation, In Review, In Test]
+  blocked:  [Blocked, On Hold]
+  done:     [Done, Closed, Resolved]

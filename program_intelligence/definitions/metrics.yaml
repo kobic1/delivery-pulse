@@ -1,0 +1,42 @@
+# Metric definitions. Thresholds are configuration, never silent assumptions.
+# NiCE Pod Model thresholds are still evolving: calibrate on historical data.
+meta:
+  owner: kobi.cohen@nice.com
+  version: 0.1
+  effective: 2026-10-22
+  next_review: 2026-11-22
+
+guardrails:
+  min_sample_for_trend: 5          # comparable completed items
+  partial_period_label: provisional
+  alert_on_single_partial_week: false
+  distribution: robust             # median/MAD or IQR before z-scores
+  forecast: empirical_range        # no point forecasts, no Monte Carlo yet
+
+percentiles: [50, 75, 85, 95]
+
+metrics:
+  cycle_time:
+    definition: calendar time between configured workflow states (see workflow-status-map.yaml)
+    segment_by: [issue_type, size]   # never mix stories, bugs, epics
+  edct:
+    definition: Epic Development Cycle Time = In Progress time; Validation reported separately
+  aging_wip:
+    definition: current age vs historical percentile of comparable completed items
+    note: risk signal, not proof of delay
+  throughput:
+    definition: completed items per week or Delivery Cycle, by size and type
+    size_weighted: true
+  blocked_time:
+    definition: sum of explicit blocked-state intervals or flags from changelog
+    caveat: missing block flags understate waiting
+  scope_stability:
+    definition: added/removed/reclassified after baseline
+    baseline_date: TODO   # explicit per cycle (cycle start / Planning Day)
+  redo_rate: {definition: TODO, owner: TODO}
+  design_redo_rate: {definition: TODO, owner: TODO}
+
+delivery_cycle:
+  length_weeks: 6
+  epic_sizes: [S, M, L]
+  events: [planning_day, weekly_progress_review, cycle_end_review]

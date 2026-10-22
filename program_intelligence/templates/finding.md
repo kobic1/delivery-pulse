@@ -1,0 +1,11 @@
+### [Concise title]
+- Program impact:
+- Observation (directly supported fact):
+- Interpretation:
+- Hypothesis (unconfirmed):
+- Recommendation (next investigation / clarification / process action):
+- Evidence: [source URI, type, event time, retrieval time, excerpt/field]
+- Confidence: [Confirmed | Corroborated | Single-source | Weak signal | Unknown]
+- What changed since last run:
+- Data-quality limitation:
+- Suppression / follow-up state:

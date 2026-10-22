@@ -1,0 +1,11 @@
+meta: {owner: kobi.cohen@nice.com, version: 0.1, effective: 2026-10-22, next_review: 2026-11-22}
+levels:
+  Confirmed:     direct structured system fact, or explicit decision in an authoritative artifact, with identifier and timestamp
+  Corroborated:  two independent sources support the same claim
+  Single-source: one explicit source supports the claim
+  Weak signal:   indirect language, discussion, sentiment or semantic similarity without a stable identifier
+  Unknown:       missing, inaccessible, contradictory or insufficient evidence
+matching_strength:
+  strongest: exact Jira key
+  strong: exact capability plus release
+  weak: semantic similarity alone (never sufficient to link items)
