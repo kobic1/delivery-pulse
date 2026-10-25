@@ -340,6 +340,9 @@ def main():
         rel, overall = merge(cfg, per_project), {"tests": 0, "auto": 0, "tests_jql": "", "auto_jql": ""}
     else:
         base, rel, overall = collect(cfg)
+        if cfg.get("cfb_reporter") and rel:   # customer-found bugs section (CFB, Regressions, PQCR)
+            import cfb_kpis
+            overall["cfb"] = cfb_kpis.attach(cfg, base, session()[1], rel)
     out = Path(a.out) if a.out else HERE / "build"
     out.mkdir(parents=True, exist_ok=True)
     if cfg.get("email_theme") == "aurora":   # the newer look, used only where a config opts in (CXCO for now)

@@ -7,6 +7,7 @@ the navy ramp; counts are plain numbers (the bug backlog uses an amber ramp)."""
 from __future__ import annotations
 
 import html
+import sys
 from urllib.parse import quote
 
 FONT = "'Segoe UI',Inter,Arial,sans-serif"
@@ -251,6 +252,11 @@ def render_email(cfg, base, rel, overall) -> str:
     sections.append((cfg.get("bugs_title", "Gating bugs backlog"), "Open P1 to P3 bugs at the end of each week, excluding Accessibility bugs. These are <b>counts</b> of bugs, not percentages; "
                                              "the last column is the change from the end of W1 to the end of W12.", bugs_backlog(base, rel)))
 
+    cfb_on = bool(rel and rel[0].get("cfb"))
+    if cfb_on:   # customer-found bugs sit directly below the bugs backlog
+        import cfb_kpis
+        sections.append((cfb_kpis.TITLE, cfb_kpis.SUB, cfb_kpis.table(sys.modules[__name__], base, rel, overall["cfb"])))
+
     multi = cfg.get("projects")
     weeks_note = ", ".join(f'{r["name"]} {r["dev_start"]:%d %b}&ndash;{r["end"]:%d %b %Y}' for r in rel)
     windows = ("Each project uses its own Jira release dates, and weeks are counted from its first delivery week" if multi else f"Delivery windows: {weeks_note}")
@@ -258,6 +264,8 @@ def render_email(cfg, base, rel, overall) -> str:
             f'{windows}. Epics Done during the IP week count from W1; Done date is the last move into Done; cycle time does not count the Done day itself (as in the R&D efficiency report). '
             f'Scope is the epics in the release at the end of W1 with Commitment Type Committed or empty, excluding Stretch and any that are or became Removed; Stretch epics and epics added later raise the percentage above 100. '
             f'{cfg.get("bug_exclusion_note", "Bugs whose summary mentions Accessibility are excluded, as on the PMN dashboard")}; a bug that was reopened counts as open since it was created. Throughput colour: green 90% or more of Done epics were Done by the release date, amber 75% or more.')
+    if cfb_on:
+        foot += " " + __import__("cfb_kpis").NOTE
     if cfg.get("footnote_extra"):
         foot += " " + cfg["footnote_extra"]
     if multi:

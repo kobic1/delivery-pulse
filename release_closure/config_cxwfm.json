@@ -31,5 +31,6 @@
     "labels = \"WFM_E2E_Accessibility\""
   ],
   "bug_exclusion_note": "Bugs are excluded as Accessibility when Accessibility Impact is Yes, the summary mentions Accessibility, or the label WFM_E2E_Accessibility is present",
-  "footnote_extra": "Throughput Epics excludes epics with Issue Category Maintenance or SOW; Predictability and cycle time are computed as described above. Throughput Capabilities counts Done capabilities in CXWFM by their own fix version, plus Done capabilities in other projects in each release where they have Done CXWFM epics as children."
+  "footnote_extra": "Throughput Epics excludes epics with Issue Category Maintenance or SOW; Predictability and cycle time are computed as described above. Throughput Capabilities counts Done capabilities in CXWFM by their own fix version, plus Done capabilities in other projects in each release where they have Done CXWFM epics as children.",
+  "cfb_reporter": "557058:3e2ef232-d5c4-4c0e-94b0-977a305ebaae"
 }

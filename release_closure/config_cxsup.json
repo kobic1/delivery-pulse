@@ -16,5 +16,12 @@
   "excluded_epic_statuses": [
     "Removed"
   ],
-  "sonarqube_file": "sonarqube_cxsup.json"
+  "sonarqube_file": "sonarqube_cxsup.json",
+  "email_theme": "aurora",
+  "display_name": "CXone Supervisor",
+  "lean_copy": true,
+  "bugs_title": "Bugs Backlog: P1-P3",
+  "bug_exclusion_note": "Bugs whose summary mentions Accessibility are excluded",
+  "summary_note": "Strong progress: throughput jumped in 26.4 while cycle time dropped sharply, nearly everything closed by the release date, and code coverage keeps climbing. One to watch: the bug backlog peaks during the release before coming back down.",
+  "cfb_reporter": "557058:3e2ef232-d5c4-4c0e-94b0-977a305ebaae"
 }

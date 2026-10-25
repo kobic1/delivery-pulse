@@ -24,5 +24,6 @@
   "display_name": "CXone Coaching",
   "bug_exclusion_note": "Bugs whose summary mentions Accessibility, or that carry the DWP_Accessibility_Defect label, are excluded",
   "lean_copy": true,
-  "summary_note": "Great progress by the team: throughput has grown with every release while cycle time keeps shrinking, and the last three releases closed on time. Quality is holding too, with the bug backlog down and code coverage still climbing."
+  "summary_note": "Great progress by the team: throughput has grown with every release while cycle time keeps shrinking, and the last three releases closed on time. Quality is holding too, with the bug backlog down and code coverage still climbing.",
+  "cfb_reporter": "557058:3e2ef232-d5c4-4c0e-94b0-977a305ebaae"
 }

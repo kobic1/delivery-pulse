@@ -22,5 +22,12 @@
   "excluded_epic_statuses": [
     "Removed"
   ],
-  "test_coverage": false
+  "test_coverage": false,
+  "email_theme": "aurora",
+  "display_name": "PMN",
+  "lean_copy": true,
+  "bugs_title": "Bugs Backlog: P1-P3",
+  "bug_exclusion_note": "Bugs whose summary mentions Accessibility are excluded",
+  "summary_note": "Solid progress: throughput keeps growing, cycle time has dropped sharply over the last two releases and the bug backlog is at its lowest. One to watch: 26.4 planned a much larger scope and delivered a smaller share of it than 26.3.",
+  "cfb_reporter": "557058:3e2ef232-d5c4-4c0e-94b0-977a305ebaae"
 }

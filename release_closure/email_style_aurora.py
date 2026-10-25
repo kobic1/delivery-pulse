@@ -7,6 +7,7 @@ the navy ramp; counts are plain numbers (the bug backlog uses an amber ramp)."""
 from __future__ import annotations
 
 import html
+import sys
 from urllib.parse import quote
 
 FONT = "'Segoe UI',Inter,Arial,sans-serif"
@@ -402,6 +403,11 @@ def render_email(cfg, base, rel, overall) -> str:
     sections.append((cfg.get("bugs_title", "Gating bugs backlog"), "Bugs in the P1-P3 backlog at the end of each week, excluding Accessibility bugs. These are <b>counts</b> of bugs, not percentages; "
                                              "the last column is the change from the end of W1 to the end of W12.", bugs_backlog(base, rel)))
 
+    cfb_on = bool(rel and rel[0].get("cfb"))
+    if cfb_on:   # customer-found bugs sit directly below the bugs backlog
+        import cfb_kpis
+        sections.append((cfb_kpis.TITLE, cfb_kpis.SUB, cfb_kpis.table(sys.modules[__name__], base, rel, overall["cfb"])))
+
     multi = cfg.get("projects")
     weeks_note = ", ".join(f'{r["name"]} {r["dev_start"].day} {r["dev_start"]:%b %Y}&ndash;{r["end"].day} {r["end"]:%b %Y}' for r in rel)
     windows = ("Each project uses its own Jira release dates, and weeks are counted from its first delivery week" if multi else f"Delivery windows: {weeks_note}")
@@ -410,6 +416,8 @@ def render_email(cfg, base, rel, overall) -> str:
             f'Scope is the epics in the release at the end of W1 with Commitment Type Committed or empty, excluding Stretch and any that are or became Removed; Stretch epics and epics added later raise the percentage above 100. '
             f'{cfg.get("bug_exclusion_note", "Bugs whose summary mentions Accessibility are excluded, as on the PMN dashboard")}; a bug that was reopened counts as open since it was created. Throughput colour: green 90% or more of done epics were done by the release date, amber 75% or more.')
     foot += " Final (today) in Predictability is the share delivered as of the send date, including epics done after the release date."
+    if cfb_on:
+        foot += "<br>" + __import__("cfb_kpis").NOTE
     if cfg.get("footnote_extra"):
         foot += " " + cfg["footnote_extra"]
     if multi:
@@ -442,6 +450,7 @@ def render_email(cfg, base, rel, overall) -> str:
                 'Scope is the epics in the release at the end of W1 (Committed or empty, excluding Stretch and Removed). '
                 'Final (today) includes epics done after the release date. Cycle time excludes Maintenance epics and flagged days.<br>'
                 + cfg.get("bug_exclusion_note", "Accessibility bugs are excluded") + '.'
+                + ('<br>' + __import__("cfb_kpis").NOTE if cfb_on else "")
                 + ('<br>Code coverage: SonarQube, latest month to date.' if cfg.get("sonarqube") else ""))
     body = "".join(spacer(28 if i else 20) + heading(t, sub) + content for i, (t, sub, content) in enumerate(sections))
     return (f'<table role="presentation" lang="en" width="100%" cellpadding="0" cellspacing="0" bgcolor="{PAGE}" style="background:{PAGE};">'
