@@ -14,3 +14,6 @@ release_planning/build/
 # Release closure summary: build output and SonarQube figures (internal -- never commit)
 release_closure/build/
 release_closure/sonarqube_*.json
+
+# Program dashboard build output and Jira pull (epic titles, internal figures -- never commit)
+program_dashboard/build/

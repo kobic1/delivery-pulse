@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Program Dashboard</title>
+<style>
+:root {
+  --navy:#1F3A5F; --navy-soft:#C9D3E6; --purple:#7B4FC7; --amber:#C77700; --green:#2E7D4F;
+  --ink:#1A1A1A; --muted:#5F6368; --line:#E4E4E7; --bg:#F6F7FB; --card:#FFFFFF;
+  --radius:8px;
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--ink);
+  font-family:'Inter','Segoe UI',-apple-system,Arial,sans-serif; font-size:14px; line-height:1.45; }
+a { color:var(--navy); }
+.num, td.n, th.n { font-variant-numeric:tabular-nums; }
+header.top { max-width:1240px; margin:0 auto; padding:26px 24px 8px; display:flex; flex-wrap:wrap; gap:8px 16px; align-items:baseline; }
+header.top h1 { margin:0; font-size:22px; }
+header.top .meta { color:var(--muted); font-size:12.5px; }
+.badge { font-size:11px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; padding:2px 8px;
+  border-radius:99px; background:#EEE6FC; color:#5B2FB0; }
+.wrap { max-width:1240px; margin:0 auto; padding:0 24px 48px; }
+
+.filters { position:sticky; top:0; z-index:20; background:var(--bg); padding:10px 0 12px; }
+.filters .bar { background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+  padding:12px 14px; display:flex; flex-wrap:wrap; gap:14px 22px; align-items:flex-end; }
+.fg { display:flex; flex-direction:column; gap:5px; min-width:0; }
+.fg > label, .fg > .lbl { font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+select, input[type=search], button.btn { font:inherit; padding:6px 9px; border:1px solid #CFCFD6; border-radius:6px; background:#fff; color:var(--ink); }
+input[type=search] { width:200px; }
+select:focus-visible, input:focus-visible, button:focus-visible, summary:focus-visible { outline:2px solid var(--navy); outline-offset:1px; }
+.chips { display:flex; flex-wrap:wrap; gap:6px; }
+.chip { display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border:1px solid #CFCFD6; border-radius:99px;
+  background:#fff; cursor:pointer; user-select:none; font-size:13px; }
+.chip input { margin:0; accent-color:var(--navy); }
+.chip.on { border-color:var(--navy); background:#EEF2F9; }
+button.btn { cursor:pointer; }
+button.btn.link { border:none; background:none; color:var(--navy); text-decoration:underline; padding:6px 2px; }
+.teamsel { position:relative; }
+.teampanel { position:absolute; top:calc(100% + 4px); left:0; width:330px; max-height:360px; overflow:auto; background:#fff;
+  border:1px solid #CFCFD6; border-radius:8px; box-shadow:0 8px 24px rgba(31,58,95,.16); padding:8px; display:none; }
+.teampanel.open { display:block; }
+.teampanel .row { display:flex; align-items:center; gap:8px; padding:4px 6px; border-radius:5px; cursor:pointer; }
+.teampanel .row:hover { background:#F3F5FA; }
+.teampanel .row .c { margin-left:auto; color:var(--muted); font-variant-numeric:tabular-nums; }
+.teampanel input[type=search] { width:100%; margin-bottom:6px; }
+.teampanel .acts { display:flex; gap:12px; padding:2px 4px 6px; }
+
+.banner { margin:6px 0 14px; padding:9px 14px; border-radius:var(--radius); background:#FFF6E5; border:1px solid #F0D9A8; color:#6B4A00; font-size:13px; }
+
+.kpis { display:grid; grid-template-columns:repeat(6,1fr); gap:12px; margin:4px 0 20px; }
+@media (max-width:1100px){ .kpis { grid-template-columns:repeat(3,1fr); } }
+@media (max-width:620px){ .kpis { grid-template-columns:repeat(2,1fr); } }
+.kpi { background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:13px 15px; }
+.kpi .v { font-size:28px; font-weight:700; color:var(--navy); line-height:1.15; font-variant-numeric:tabular-nums; }
+.kpi .v a { text-decoration:none; border-bottom:1px dotted var(--navy); color:inherit; }
+.kpi .l { font-size:12.5px; color:var(--ink); margin-top:2px; }
+.kpi .s { font-size:12px; color:var(--muted); margin-top:3px; }
+
+section.sec { background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:16px 18px 18px; margin-bottom:18px; }
+section.sec h2 { margin:0 0 3px; font-size:16px; }
+section.sec .sub { color:var(--muted); font-size:12.5px; margin-bottom:12px; }
+.charts { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; }
+@media (max-width:1100px){ .charts { grid-template-columns:1fr; } }
+.chart h3 { margin:0 0 4px; font-size:13.5px; }
+.chart .cap { font-size:12px; color:var(--muted); margin-top:4px; }
+svg text { font-family:inherit; }
+
+.tablewrap { overflow-x:auto; }
+table { border-collapse:collapse; width:100%; }
+th, td { padding:7px 10px; text-align:left; border-bottom:1px solid #EFEFF2; white-space:nowrap; }
+td.title { white-space:normal; min-width:260px; max-width:520px; }
+th { font-size:11.5px; text-transform:uppercase; letter-spacing:.04em; color:#555; font-weight:600; background:#FAFAFC; position:sticky; top:0; }
+th.n, td.n { text-align:right; }
+th.sortable { cursor:pointer; }
+th.sortable:hover { color:var(--navy); }
+tr.total td { font-weight:700; border-top:2px solid var(--line); background:#FAFAFC; }
+td a { text-decoration:none; border-bottom:1px dotted #8aa; }
+.tag { display:inline-block; padding:1px 8px; border-radius:99px; font-size:11.5px; background:#F0F1F5; color:#444; }
+.tag.done { background:#E4F3EA; color:#1F6B40; }
+.tag.flight { background:#E6EDF8; color:#1F3A5F; }
+.tag.stretch { background:#F1E9FB; color:#5B2FB0; }
+.tag.unset { background:#FFF1D6; color:#7A5200; }
+.muted { color:var(--muted); }
+.dq { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:12px; }
+.dq .item { border:1px solid var(--line); border-radius:8px; padding:11px 13px; }
+.dq .item .v { font-size:22px; font-weight:700; font-variant-numeric:tabular-nums; color:var(--navy); }
+.dq .item .d { font-size:12.5px; color:var(--muted); }
+.empty { padding:22px; text-align:center; color:var(--muted); }
+footer.f { max-width:1240px; margin:0 auto; padding:0 24px 40px; color:var(--muted); font-size:12px; line-height:1.6; }
+footer.f b { color:var(--ink); }
+.visually-hidden { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Program Dashboard</h1>
+  <span class="badge">Snapshot</span>
+  <span class="meta" id="meta"></span>
+</header>
+
+<div class="wrap">
+  <div class="filters">
+    <div class="bar" id="filterbar">
+      <div class="fg"><label for="f-release">Release</label><select id="f-release"></select></div>
+      <div class="fg"><span class="lbl">Projects</span><div class="chips" id="f-projects"></div></div>
+      <div class="fg teamsel"><span class="lbl">Teams</span>
+        <button class="btn" id="f-teams-btn" aria-haspopup="listbox" aria-expanded="false">All teams</button>
+        <div class="teampanel" id="f-teams-panel" role="listbox" aria-label="Teams">
+          <input type="search" id="f-teams-search" placeholder="Find a team" aria-label="Find a team">
+          <div class="acts"><button class="btn link" id="f-teams-all">All</button><button class="btn link" id="f-teams-none">Clear</button></div>
+          <div id="f-teams-list"></div>
+        </div>
+      </div>
+      <div class="fg"><span class="lbl">Commitment type</span><div class="chips" id="f-commit"></div></div>
+      <div class="fg"><label for="f-def">Cycle time basis</label>
+        <select id="f-def">
+          <option value="edct">EDCT (as in the weekly email)</option>
+          <option value="cal">Calendar, first In Progress to Done</option>
+        </select></div>
+      <div class="fg"><label for="f-q">Search epics</label><input type="search" id="f-q" placeholder="Key or title"></div>
+      <div class="fg"><span class="lbl">&nbsp;</span><button class="btn link" id="f-reset">Reset filters</button></div>
+    </div>
+  </div>
+
+  <div id="banner"></div>
+  <div class="kpis" id="kpis"></div>
+
+  <section class="sec">
+    <h2>Trend by release</h2>
+    <div class="sub" id="trend-sub"></div>
+    <div class="charts" id="charts"></div>
+  </section>
+
+  <section class="sec">
+    <h2>By project</h2>
+    <div class="sub">Epics on the selected release. Every number opens the matching Jira issues.</div>
+    <div class="tablewrap" id="tbl-projects"></div>
+  </section>
+
+  <section class="sec">
+    <h2>By team</h2>
+    <div class="sub">Listed alphabetically. This view reports scope and status, not performance. An epic that lists several teams counts under each of them; the total row counts it once.</div>
+    <div class="tablewrap" id="tbl-teams"></div>
+  </section>
+
+  <section class="sec">
+    <h2>Data quality</h2>
+    <div class="sub">Gaps in Jira that make the numbers above less reliable. Not a ranking of anyone.</div>
+    <div class="dq" id="dq"></div>
+  </section>
+
+  <section class="sec">
+    <h2>Epics <span class="muted" id="epic-count"></span></h2>
+    <div class="sub">Click a column to sort. Keys open in Jira.</div>
+    <div class="tablewrap" id="tbl-epics"></div>
+  </section>
+</div>
+
+<footer class="f" id="footer"></footer>
+
+<script>
+const DATA = /*__DATA__*/null;
+
+// ---------------------------------------------------------------- definitions
+const BASE = DATA.jiraBase;
+const COMMIT = ["Committed", "Not set", "Stretch"];
+const DEFAULT_COMMIT = ["Committed", "Not set"];            // standing rule: Stretch excluded from the target
+const CLASS = {                                              // workflow-status-map.yaml, by status NAME
+  done: ["Done"],
+  flight: ["In Progress", "Validation"],
+  notStarted: ["Candidate", "New", "In Definition", "Ready for Dev"],
+};
+const MIN_N = 5;                                             // no percentile or trend under 5 items
+const NO_TEAM = "(No team)";
+const projectsAll = DATA.projects;
+
+const cls = s => CLASS.done.includes(s) ? "done" : CLASS.flight.includes(s) ? "flight"
+               : CLASS.notStarted.includes(s) ? "notStarted" : "other";
+const commitOf = e => e.c || "Not set";
+const teamsOf = e => e.tm && e.tm.length ? e.tm : [NO_TEAM];
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt = n => n == null ? "–" : (Math.round(n * 10) / 10).toString();
+const pct = (a, b) => b ? Math.round(100 * a / b) : null;
+
+// ---------------------------------------------------------------- state
+const state = {
+  release: DATA.current, projects: new Set(projectsAll), teams: new Set(),
+  commit: new Set(DEFAULT_COMMIT), def: "edct", q: "", sort: {key: "k", dir: -1}, showAll: false,
+};
+function readHash() {
+  const h = new URLSearchParams(location.hash.slice(1));
+  const list = k => h.has(k) ? h.get(k).split("|").map(decodeURIComponent).filter(Boolean) : null;
+  if (h.get("r") && DATA.releases.includes(h.get("r"))) state.release = h.get("r");
+  const p = list("p"); if (p) state.projects = new Set(p.filter(x => projectsAll.includes(x)));
+  const t = list("t"); if (t) state.teams = new Set(t);
+  const c = list("c"); if (c) state.commit = new Set(c.filter(x => COMMIT.includes(x)));
+  if (h.get("d") === "cal") state.def = "cal";
+  if (h.get("q")) state.q = h.get("q");
+}
+function writeHash() {
+  const h = new URLSearchParams();
+  h.set("r", state.release);
+  if (state.projects.size !== projectsAll.length) h.set("p", [...state.projects].map(encodeURIComponent).join("|"));
+  if (state.teams.size) h.set("t", [...state.teams].map(encodeURIComponent).join("|"));
+  if ([...state.commit].sort().join() !== [...DEFAULT_COMMIT].sort().join()) h.set("c", [...state.commit].map(encodeURIComponent).join("|"));
+  if (state.def !== "edct") h.set("d", state.def);
+  if (state.q) h.set("q", state.q);
+  history.replaceState(null, "", "#" + h.toString());
+}
+
+// ---------------------------------------------------------------- filtering
+const inTeams = e => !state.teams.size || teamsOf(e).some(t => state.teams.has(t));
+const matchesQ = e => !state.q || (e.k + " " + e.t).toLowerCase().includes(state.q.toLowerCase());
+// base = project + team + search, release and commitment applied by the caller
+const base = e => state.projects.has(e.p) && inTeams(e) && matchesQ(e);
+const inRelease = (e, r) => e.fv.includes(r);
+const scopeOf = (r, opts = {}) => DATA.epics.filter(e =>
+  base(e) && inRelease(e, r) && (opts.anyCommit || state.commit.has(commitOf(e))));
+const cycleOf = e => state.def === "cal" ? e.cal : e.edct;
+
+function percentile(sorted, p) {
+  if (!sorted.length) return null;
+  const i = (sorted.length - 1) * p, lo = Math.floor(i), hi = Math.ceil(i);
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (i - lo);
+}
+function cycleStats(list) {
+  const vals = list.filter(e => cls(e.s) === "done").map(cycleOf).filter(v => v != null).sort((a, b) => a - b);
+  return {n: vals.length, ok: vals.length >= MIN_N,
+          p50: percentile(vals, .5), p75: percentile(vals, .75), p85: percentile(vals, .85), p95: percentile(vals, .95)};
+}
+function counts(list) {
+  const c = {scope: list.length, done: 0, flight: 0, notStarted: 0, other: 0, ai: 0};
+  for (const e of list) { const k = cls(e.s); c[k]++; if (k === "done" && e.ai) c.ai++; }
+  return c;
+}
+
+// ---------------------------------------------------------------- jira links
+const q = s => `"${String(s).replace(/"/g, '\\"')}"`;
+function commitClause(set) {
+  if (set.size === 3) return "";
+  const parts = [];
+  if (set.has("Committed")) parts.push("cf[10094] = Committed");
+  if (set.has("Stretch")) parts.push("cf[10094] = Stretch");
+  if (set.has("Not set")) parts.push("cf[10094] is EMPTY");
+  return parts.length ? ` AND (${parts.join(" OR ")})` : " AND cf[10094] = NONE_SELECTED";
+}
+function teamClause(teams) {
+  if (!teams || !teams.size) return "";
+  const named = [...teams].filter(t => t !== NO_TEAM).map(q);
+  const parts = [];
+  if (named.length) parts.push(`cf[10040] in (${named.join(", ")}) OR cf[10098] in (${named.join(", ")})`);
+  if (teams.has(NO_TEAM)) parts.push("(cf[10040] is EMPTY AND cf[10098] is EMPTY)");
+  return ` AND (${parts.join(" OR ")})`;
+}
+function jira(o = {}) {
+  const projects = o.projects || [...state.projects];
+  const teams = o.teams === undefined ? state.teams : o.teams;
+  let jql = `project in (${projects.join(", ")}) AND issuetype = Epic AND status != Removed AND fixVersion = ${q(o.release || state.release)}`;
+  jql += teamClause(teams);
+  jql += commitClause(o.commit || state.commit);
+  if (o.kind === "done") jql += ` AND status = Done`;
+  if (o.kind === "flight") jql += ` AND status in (${CLASS.flight.map(q).join(", ")})`;
+  if (o.kind === "notStarted") jql += ` AND status in (${CLASS.notStarted.map(q).join(", ")})`;
+  if (o.extra) jql += ` AND ${o.extra}`;
+  return `${BASE}/issues/?jql=${encodeURIComponent(jql)}`;
+}
+const link = (text, href) => `<a href="${href}" target="_blank" rel="noopener">${text}</a>`;
+
+// ---------------------------------------------------------------- rendering
+const isProv = r => DATA.provisional.includes(r);
+
+function renderKpis() {
+  const list = scopeOf(state.release), c = counts(list), cy = cycleStats(list);
+  const aiPct = pct(c.ai, c.done);
+  const all = scopeOf(state.release, {anyCommit: true});
+  const notSet = all.filter(e => commitOf(e) === "Not set").length;
+  const defLabel = state.def === "cal" ? "calendar days" : "EDCT days";
+  const cards = [
+    {v: link(c.scope, jira()), l: "Epics in scope", s: `${[...state.commit].join(" + ") || "no commitment type selected"}`},
+    {v: link(c.done, jira({kind: "done"})), l: "Done", s: c.scope ? `${pct(c.done, c.scope)}% of scope` : "nothing in scope"},
+    {v: link(c.flight, jira({kind: "flight"})), l: "In flight", s: "In Progress or Validation"},
+    {v: link(c.notStarted, jira({kind: "notStarted"})), l: "Not started", s: "New, In Definition, Ready for Dev"},
+    {v: cy.ok ? `${fmt(cy.p50)} <span class="muted" style="font-size:16px;font-weight:500">/ ${fmt(cy.p85)}</span>` : "–",
+     l: `Cycle time P50 / P85`, s: cy.ok ? `${defLabel}, ${cy.n} Done epics` : `${defLabel}: only ${cy.n} Done epics, need ${MIN_N}`},
+    {v: aiPct == null ? "–" : `${aiPct}%`, l: "Developed by AI agents", s: c.done ? `${c.ai} of ${c.done} Done epics` : "no Done epics yet"},
+  ];
+  document.getElementById("kpis").innerHTML = cards.map(k =>
+    `<div class="kpi"><div class="v">${k.v}</div><div class="l">${k.l}</div><div class="s">${k.s}</div></div>`).join("");
+  document.getElementById("banner").innerHTML = isProv(state.release)
+    ? `<div class="banner"><b>${esc(state.release)} is provisional.</b> The release is still running, so scope and Done counts will keep moving.</div>` : "";
+  return {notSet};
+}
+
+// ----- charts (inline SVG)
+const W = 360, H = 230, PAD = {l: 34, r: 10, t: 22, b: 46};
+function axisX(rels) {
+  const step = (W - PAD.l - PAD.r) / rels.length;
+  return {step, x: i => PAD.l + step * i + step / 2};
+}
+function yAxis(max, fmtv = v => v) {
+  const ticks = 4, out = [];
+  for (let i = 0; i <= ticks; i++) {
+    const v = max * i / ticks, y = H - PAD.b - (H - PAD.b - PAD.t) * i / ticks;
+    out.push(`<line x1="${PAD.l}" x2="${W - PAD.r}" y1="${y}" y2="${y}" stroke="#ECECF0"/>` +
+             `<text x="${PAD.l - 6}" y="${y + 4}" text-anchor="end" font-size="10.5" fill="#777">${fmtv(Math.round(v))}</text>`);
+  }
+  return out.join("");
+}
+const yOf = (v, max) => H - PAD.b - (H - PAD.b - PAD.t) * (max ? v / max : 0);
+function relLabel(r, x) {
+  return `<text x="${x}" y="${H - PAD.b + 16}" text-anchor="middle" font-size="11" fill="#444">${esc(r)}${isProv(r) ? "*" : ""}</text>`;
+}
+
+function chartDelivery(rels) {
+  const rows = rels.map(r => counts(scopeOf(r)));
+  const max = Math.max(5, ...rows.map(c => c.scope));
+  const {step, x} = axisX(rels), bw = Math.min(30, step * .6);
+  let s = yAxis(max);
+  rows.forEach((c, i) => {
+    const r = rels[i], cx = x(i), yDone = yOf(c.done, max), yTop = yOf(c.scope, max);
+    const dash = isProv(r) ? ' stroke="#1F3A5F" stroke-dasharray="3 2"' : "";
+    s += `<rect x="${cx - bw / 2}" y="${yTop}" width="${bw}" height="${H - PAD.b - yTop}" fill="#C9D3E6"${dash}><title>${r}: ${c.scope} in scope, ${c.done} Done</title></rect>`;
+    s += `<rect x="${cx - bw / 2}" y="${yDone}" width="${bw}" height="${H - PAD.b - yDone}" fill="#1F3A5F"><title>${r}: ${c.done} Done</title></rect>`;
+    s += `<text x="${cx}" y="${yTop - 5}" text-anchor="middle" font-size="11" font-weight="600" fill="#1F3A5F">${c.scope}</text>`;
+    s += relLabel(r, cx);
+  });
+  return {svg: s, cap: "Navy = Done, light = still open. Label = epics in scope."};
+}
+function chartCycle(rels) {
+  const rows = rels.map(r => cycleStats(scopeOf(r)));
+  const max = Math.max(10, ...rows.filter(c => c.ok).map(c => c.p85));
+  const {x} = axisX(rels);
+  let s = yAxis(max);
+  rows.forEach((c, i) => {
+    const r = rels[i], cx = x(i);
+    if (c.ok) {
+      s += `<line x1="${cx}" x2="${cx}" y1="${yOf(c.p50, max)}" y2="${yOf(c.p85, max)}" stroke="#C77700" stroke-width="3" stroke-linecap="round"/>`;
+      s += `<circle cx="${cx}" cy="${yOf(c.p50, max)}" r="5" fill="#C77700"><title>${r} P50 ${fmt(c.p50)} (n=${c.n})</title></circle>`;
+      s += `<circle cx="${cx}" cy="${yOf(c.p85, max)}" r="5" fill="#fff" stroke="#C77700" stroke-width="2"><title>${r} P85 ${fmt(c.p85)} (n=${c.n})</title></circle>`;
+      s += `<text x="${cx + 9}" y="${yOf(c.p50, max) + 4}" font-size="10.5" fill="#8A5200">${fmt(c.p50)}</text>`;
+      s += `<text x="${cx + 9}" y="${yOf(c.p85, max) + 4}" font-size="10.5" fill="#8A5200">${fmt(c.p85)}</text>`;
+    } else {
+      s += `<text x="${cx}" y="${H - PAD.b - 8}" text-anchor="middle" font-size="10.5" fill="#999">n&lt;${MIN_N}</text>`;
+    }
+    s += relLabel(r, cx);
+    s += `<text x="${cx}" y="${H - PAD.b + 30}" text-anchor="middle" font-size="10" fill="#888">n=${c.n}</text>`;
+  });
+  return {svg: s, cap: "Filled dot = P50, hollow = P85, Done epics only. A release with fewer than 5 Done epics is not plotted."};
+}
+function chartAI(rels) {
+  const rows = rels.map(r => counts(scopeOf(r)));
+  const {step, x} = axisX(rels), bw = Math.min(30, step * .6);
+  let s = yAxis(100, v => v + "%");
+  rows.forEach((c, i) => {
+    const r = rels[i], cx = x(i), p = pct(c.ai, c.done);
+    if (p == null) {
+      s += `<text x="${cx}" y="${H - PAD.b - 8}" text-anchor="middle" font-size="10.5" fill="#999">–</text>`;
+    } else {
+      const y = yOf(p, 100), faded = c.done < MIN_N;
+      s += `<rect x="${cx - bw / 2}" y="${y}" width="${bw}" height="${H - PAD.b - y}" fill="#7B4FC7" opacity="${faded ? .4 : 1}"><title>${r}: ${c.ai} of ${c.done} Done epics</title></rect>`;
+      s += `<text x="${cx}" y="${y - 5}" text-anchor="middle" font-size="11" font-weight="600" fill="#5B2FB0">${p}%</text>`;
+    }
+    s += relLabel(r, cx);
+    s += `<text x="${cx}" y="${H - PAD.b + 30}" text-anchor="middle" font-size="10" fill="#888">n=${c.done}</text>`;
+  });
+  return {svg: s, cap: "Share of Done epics with Implemented by AI Agent = Yes. Faded bar = fewer than 5 Done epics."};
+}
+function renderCharts() {
+  const rels = DATA.releases;
+  const defs = [["Epics per release", chartDelivery(rels)], ["Cycle time per release", chartCycle(rels)], ["AI-developed share", chartAI(rels)]];
+  document.getElementById("charts").innerHTML = defs.map(([t, c]) =>
+    `<div class="chart"><h3>${t}</h3><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${t}">${c.svg}</svg><div class="cap">${c.cap}</div></div>`).join("");
+  document.getElementById("trend-sub").textContent =
+    `Uses the project, team, commitment and search filters; * marks releases that are still provisional (${DATA.provisional.join(", ")}).`;
+}
+
+// ----- breakdown tables
+function breakdownRow(label, list, jiraOpts, anyList) {
+  const c = counts(list), all = anyList || [];
+  const comp = k => all.filter(e => commitOf(e) === k).length;
+  const cell = (n, kind) => `<td class="n">${n ? link(n, jira({...jiraOpts, kind})) : `<span class="muted">0</span>`}</td>`;
+  return `<tr><td>${label}</td>${cell(c.scope, "")}${cell(c.done, "done")}${cell(c.flight, "flight")}${cell(c.notStarted, "notStarted")}` +
+    `<td class="n">${c.scope ? pct(c.done, c.scope) + "%" : "–"}</td>` +
+    `<td class="n">${comp("Committed")}</td><td class="n">${comp("Not set")}</td><td class="n">${comp("Stretch")}</td></tr>`;
+}
+const BREAKDOWN_HEAD = `<thead><tr><th></th><th class="n">In scope</th><th class="n">Done</th><th class="n">In flight</th>
+  <th class="n">Not started</th><th class="n">% Done</th><th class="n">Committed</th><th class="n">Not set</th><th class="n">Stretch</th></tr></thead>`;
+function renderBreakdowns() {
+  const r = state.release;
+  const projRows = projectsAll.filter(p => state.projects.has(p)).map(p => {
+    const filter = e => e.p === p;
+    return breakdownRow(p, scopeOf(r).filter(filter), {projects: [p]}, scopeOf(r, {anyCommit: true}).filter(filter));
+  });
+  const totalAny = scopeOf(r, {anyCommit: true});
+  const total = breakdownRow("All selected", scopeOf(r), {}, totalAny).replace("<tr>", '<tr class="total">');
+  document.getElementById("tbl-projects").innerHTML = projRows.length
+    ? `<table>${BREAKDOWN_HEAD}<tbody>${projRows.join("")}${total}</tbody></table>` : `<div class="empty">No project selected.</div>`;
+
+  const names = new Set();
+  scopeOf(r, {anyCommit: true}).forEach(e => teamsOf(e).forEach(t => names.add(t)));
+  const teamRows = [...names].sort((a, b) => a === NO_TEAM ? 1 : b === NO_TEAM ? -1 : a.localeCompare(b)).map(t => {
+    const filter = e => teamsOf(e).includes(t);
+    return breakdownRow(esc(t), scopeOf(r).filter(filter), {teams: new Set([t])}, scopeOf(r, {anyCommit: true}).filter(filter));
+  });
+  document.getElementById("tbl-teams").innerHTML = teamRows.length
+    ? `<table>${BREAKDOWN_HEAD}<tbody>${teamRows.join("")}${total.replace("All selected", "All selected (each epic once)")}</tbody></table>`
+    : `<div class="empty">No epics for this selection.</div>`;
+}
+
+// ----- data quality
+function renderDQ(extra) {
+  const r = state.release, all = scopeOf(r, {anyCommit: true});
+  const notSet = all.filter(e => commitOf(e) === "Not set");
+  const inDef = all.filter(e => e.s === "In Definition");
+  const done = all.filter(e => cls(e.s) === "done");
+  const noCycle = done.filter(e => cycleOf(e) == null || e.edct === 0);
+  const items = [
+    {v: notSet.length, d: "epics with no Commitment Type. Counted as committed in the target until teams fill it in.",
+     href: jira({commit: new Set(COMMIT), extra: "cf[10094] is EMPTY"})},
+    {v: inDef.length, d: "epics still in In Definition. Usually means the status was not updated, not that scoping is ongoing.",
+     href: jira({commit: new Set(COMMIT), extra: 'status = "In Definition"'})},
+    {v: noCycle.length, d: "Done epics with no measurable In Progress time (went straight to Done, or no history).", href: null},
+    {v: DATA.quality.cycleTimeErrors.length, d: "epics whose changelog could not be read at build time. Excluded from cycle time.", href: null},
+  ];
+  document.getElementById("dq").innerHTML = items.map(i =>
+    `<div class="item"><div class="v">${i.href && i.v ? link(i.v, i.href) : i.v}</div><div class="d">${i.d}</div></div>`).join("");
+}
+
+// ----- epic table
+const COLS = [
+  {key: "k", label: "Key", get: e => +e.k.split("-")[1] },
+  {key: "t", label: "Epic", get: e => e.t.toLowerCase()},
+  {key: "p", label: "Project", get: e => e.p},
+  {key: "tm", label: "Team", get: e => teamsOf(e).join(", ").toLowerCase()},
+  {key: "s", label: "Status", get: e => e.s},
+  {key: "c", label: "Commitment", get: e => commitOf(e)},
+  {key: "ai", label: "AI", get: e => e.ai ? 1 : 0},
+  {key: "cy", label: "Cycle (days)", n: true, get: e => cycleOf(e) ?? -1},
+  {key: "rd", label: "Resolved", get: e => e.rd || ""},
+];
+function renderEpics() {
+  const list = scopeOf(state.release);
+  const col = COLS.find(c => c.key === state.sort.key) || COLS[0], dir = state.sort.dir;
+  const rows = [...list].sort((a, b) => {
+    const x = col.get(a), y = col.get(b);
+    return (x < y ? -1 : x > y ? 1 : 0) * dir || a.k.localeCompare(b.k);
+  });
+  const shown = state.showAll ? rows : rows.slice(0, 120);
+  document.getElementById("epic-count").textContent = `(${list.length})`;
+  const head = COLS.map(c => `<th class="sortable${c.n ? " n" : ""}" data-key="${c.key}" aria-sort="${c.key === state.sort.key ? (dir > 0 ? "ascending" : "descending") : "none"}">${c.label}${c.key === state.sort.key ? (dir > 0 ? " ▲" : " ▼") : ""}</th>`).join("");
+  const tag = e => { const k = cls(e.s); return `<span class="tag ${k === "done" ? "done" : k === "flight" ? "flight" : ""}">${esc(e.s)}</span>`; };
+  const body = shown.map(e => `<tr>
+    <td>${link(esc(e.k), `${BASE}/browse/${e.k}`)}</td><td class="title">${esc(e.t)}</td><td>${e.p}</td>
+    <td>${esc(teamsOf(e).join(", "))}</td><td>${tag(e)}</td>
+    <td><span class="tag ${commitOf(e) === "Stretch" ? "stretch" : commitOf(e) === "Not set" ? "unset" : ""}">${commitOf(e)}</span></td>
+    <td>${e.ai ? "Yes" : ""}</td><td class="n">${cls(e.s) === "done" ? fmt(cycleOf(e)) : ""}</td><td>${e.rd || ""}</td></tr>`).join("");
+  const more = rows.length > shown.length
+    ? `<div class="empty"><button class="btn" id="show-all">Show all ${rows.length} epics</button></div>` : "";
+  document.getElementById("tbl-epics").innerHTML = rows.length
+    ? `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>${more}` : `<div class="empty">No epics match these filters.</div>`;
+  document.querySelectorAll("#tbl-epics th.sortable").forEach(th => th.onclick = () => {
+    const k = th.dataset.key;
+    state.sort = {key: k, dir: state.sort.key === k ? -state.sort.dir : 1};
+    renderEpics();
+  });
+  const sa = document.getElementById("show-all"); if (sa) sa.onclick = () => { state.showAll = true; renderEpics(); };
+}
+
+// ----- filters UI
+function buildFilters() {
+  const rel = document.getElementById("f-release");
+  rel.innerHTML = DATA.releases.slice().reverse().map(r => `<option value="${r}">${r}${isProv(r) ? " (provisional)" : ""}</option>`).join("");
+  rel.onchange = () => { state.release = rel.value; update(); };
+
+  const pc = document.getElementById("f-projects");
+  pc.innerHTML = projectsAll.map(p => `<label class="chip"><input type="checkbox" value="${p}"> ${p}</label>`).join("");
+  pc.onchange = e => { e.target.checked ? state.projects.add(e.target.value) : state.projects.delete(e.target.value); update(); };
+
+  const cc = document.getElementById("f-commit");
+  cc.innerHTML = COMMIT.map(c => `<label class="chip"><input type="checkbox" value="${c}"> ${c}</label>`).join("");
+  cc.onchange = e => { e.target.checked ? state.commit.add(e.target.value) : state.commit.delete(e.target.value); update(); };
+
+  document.getElementById("f-def").onchange = e => { state.def = e.target.value; update(); };
+  document.getElementById("f-q").oninput = e => { state.q = e.target.value.trim(); update(); };
+  document.getElementById("f-reset").onclick = () => {
+    state.projects = new Set(projectsAll); state.teams = new Set(); state.commit = new Set(DEFAULT_COMMIT);
+    state.q = ""; state.def = "edct"; state.release = DATA.current; syncControls(); update();
+  };
+
+  const btn = document.getElementById("f-teams-btn"), panel = document.getElementById("f-teams-panel");
+  btn.onclick = e => { e.stopPropagation(); const open = !panel.classList.contains("open");
+    panel.classList.toggle("open", open); btn.setAttribute("aria-expanded", open); if (open) document.getElementById("f-teams-search").focus(); };
+  panel.onclick = e => e.stopPropagation();
+  document.addEventListener("click", () => { panel.classList.remove("open"); btn.setAttribute("aria-expanded", "false"); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") panel.classList.remove("open"); });
+  document.getElementById("f-teams-search").oninput = renderTeamList;
+  document.getElementById("f-teams-all").onclick = () => { state.teams = new Set(); update(); };
+  document.getElementById("f-teams-none").onclick = () => { state.teams = new Set(); update(); };
+}
+function teamCounts() {
+  // team list reflects the selected release and project filter only, so a team never disappears while you pick it
+  const m = new Map();
+  DATA.epics.filter(e => state.projects.has(e.p) && inRelease(e, state.release)).forEach(e =>
+    teamsOf(e).forEach(t => m.set(t, (m.get(t) || 0) + 1)));
+  return m;
+}
+function renderTeamList() {
+  const needle = document.getElementById("f-teams-search").value.toLowerCase();
+  const m = teamCounts();
+  const names = [...m.keys()].filter(t => t.toLowerCase().includes(needle))
+    .sort((a, b) => a === NO_TEAM ? 1 : b === NO_TEAM ? -1 : a.localeCompare(b));
+  document.getElementById("f-teams-list").innerHTML = names.map((t, i) =>
+    `<label class="row"><input type="checkbox" data-t="${esc(t)}" ${state.teams.has(t) ? "checked" : ""}> <span>${esc(t)}</span><span class="c">${m.get(t)}</span></label>`).join("")
+    || `<div class="empty">No team matches.</div>`;
+  document.querySelectorAll("#f-teams-list input").forEach(cb => cb.onchange = () => {
+    const t = cb.dataset.t.replace(/&amp;/g, "&");
+    cb.checked ? state.teams.add(t) : state.teams.delete(t); update(false);
+  });
+}
+function syncControls() {
+  document.getElementById("f-release").value = state.release;
+  document.getElementById("f-def").value = state.def;
+  document.getElementById("f-q").value = state.q;
+  document.querySelectorAll("#f-projects input").forEach(i => { i.checked = state.projects.has(i.value); i.parentElement.classList.toggle("on", i.checked); });
+  document.querySelectorAll("#f-commit input").forEach(i => { i.checked = state.commit.has(i.value); i.parentElement.classList.toggle("on", i.checked); });
+  const n = state.teams.size;
+  document.getElementById("f-teams-btn").textContent = n === 0 ? "All teams" : n === 1 ? [...state.teams][0] : `${n} teams`;
+  renderTeamList();
+}
+
+function update(rebuildTeams = true) {
+  syncControls(); writeHash();
+  const {notSet} = renderKpis();
+  renderCharts(); renderBreakdowns(); renderDQ(); renderEpics();
+}
+
+// ---------------------------------------------------------------- boot
+document.getElementById("meta").textContent =
+  `Jira snapshot taken ${new Date(DATA.generated).toLocaleString([], {dateStyle: "medium", timeStyle: "short"})} · ${DATA.epics.length} epics · PMN, CXCO, CXSUP`;
+document.getElementById("footer").innerHTML = `
+<b>How to read this.</b> Scope is Fix Version plus Commitment Type; status never defines scope. The default view counts epics that are
+<b>Committed or have no Commitment Type</b>, and leaves out Stretch. <b>Removed epics are excluded from every number.</b> Done means the status
+named Done, not Jira's Done category.
+<br><b>Cycle time.</b> EDCT matches the weekly email: calendar days an epic ended in In Progress or Validation, flagged days excluded.
+The calendar basis counts days from the first In Progress to the resolution date. No figure is shown for fewer than ${MIN_N} Done epics.
+<br><b>Snapshot, not live.</b> Numbers were read from Jira once, at the time shown above, and are baked into this file. Rebuild to refresh.
+<br><b>Scope of use.</b> Counts describe programs, releases and teams. Nothing here ranks or scores a team or a person.
+<br>Epics listing several teams count under each. Definitions follow the Program Intelligence Agent (workflow-status-map, commitment-classes, metrics).`;
+readHash(); buildFilters(); update();
+</script>
+</body>
+</html>
