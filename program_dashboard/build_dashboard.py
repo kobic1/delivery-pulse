@@ -15,6 +15,10 @@ program_intelligence/definitions/*.yaml), restated here so this file stands on i
     are labelled provisional.
   * no ranking, scoring or per-person view of any team or person (rules/no-employee-evaluation.md).
 
+Burnup: Done is cumulative by resolution date; scope is cumulative by the date each epic was
+added to the release (from its Fix Version history), judged on today's Commitment Type and with
+epics later Removed left out. No projection line is drawn (agent rule: no point forecasts).
+
 The page is a snapshot: Jira is read once at build time and the numbers are baked in, so the
 output (epic titles, internal figures) lives in program_dashboard/build/, which is git-ignored.
 """
@@ -24,6 +28,7 @@ import argparse
 import datetime as dt
 import json
 import os
+import re
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -32,7 +37,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "dashboards"))     # reuse the weekly emails' Jira client + EDCT
 import edct_from_jira as E  # noqa: E402
 
-PROJECTS = ["PMN", "CXCO", "CXSUP"]
+PROJECTS = ["PMN", "CXCO", "CXSUP", "CXWFM", "WFM", "CXINT"]
 RELEASES = ["25.4", "26.1", "26.2", "26.3", "26.4", "27.1", "27.2"]
 CURRENT_RELEASE = "27.1"
 PROVISIONAL = ["27.1", "27.2"]          # still running or planned
@@ -45,9 +50,31 @@ FIELDS = ["summary", "status", "fixVersions", "created", "resolutiondate",
           "customfield_10099",   # Closed
           "customfield_10139"]   # Issue Category
 
+DEP_TYPES = {"Dependency", "Blocks"}       # Jira link types that mean "this epic needs that one"
+BUG_SINCE = "2025-07-09"                 # start of the first release window (25.4): bugs open then or later
+BUG_FIELDS = ["summary", "status", "priority", "created", "resolutiondate", "resolution", "reporter",
+              "customfield_10098",       # Team Name
+              "customfield_10055",       # Regression
+              "customfield_10068"]       # Number of Incidents (PQCR)
+# The weekly emails drop these from the backlog; the JQL is theirs, so the flag matches them exactly.
+AX_JQL = '(summary ~ "\\"[Accessibility]*\\"" OR labels = DWP_Accessibility_Defect)'
+CFB_ACCOUNT = json.loads((HERE.parent / "release_closure" / "config_pmn.json").read_text())["cfb_reporter"]
+
 DATA_PATH = HERE / "build" / "program_data.json"
 TEMPLATE = HERE / "dashboard.template.html"
-OUT = HERE / "build" / "Program Dashboard.html"
+OUT = HERE / "build" / "Delivery Pulse.html"                      # standalone file, open in a browser
+OUT_ARTIFACT = HERE / "build" / "Delivery Pulse (artifact).html"  # body-only page for the Artifact tool
+
+
+def cloud_id() -> str:
+    """Atlassian site id that the live refresh queries. Read from JIRA_CLOUD_ID or from the site's public tenant_info
+    endpoint; it is deliberately not stored in the repository."""
+    if os.environ.get("JIRA_CLOUD_ID"):
+        return os.environ["JIRA_CLOUD_ID"]
+    import requests
+    r = requests.get(os.environ["JIRA_BASE_URL"].rstrip("/") + "/_edge/tenant_info", timeout=30)
+    r.raise_for_status()
+    return r.json()["cloudId"]
 
 
 def val(x):
@@ -85,14 +112,278 @@ def day_counts(events, end: dt.date):
     return ip, vl
 
 
-def epic_metrics(j, key: str, resolved: dt.date):
-    events = E.epic_events(j.changelog(key))
-    ip, vl = day_counts(events, resolved)
-    pipeline = E.edct_days(events, end=resolved, count_done_day=False)
-    first_ip = next((e[0].date() for e in sorted(events, key=lambda e: e[0])
-                     if e[1] == "status" and e[2] == "In Progress"), None)
-    return {"ip": ip, "vl": vl, "edct": ip + vl, "pipeline_edct": pipeline,
-            "cal": (resolved - first_ip).days if first_ip else None}
+def release_added_dates(histories, created: str, releases: list[str]) -> dict:
+    """Date each current release membership began: the latest 'Fix Version' history item that
+    added it, or the creation date when it never changed (created with the version)."""
+    added = {}
+    items = []
+    for h in histories:
+        when = h["created"][:10]
+        for it in h.get("items", []):
+            if it.get("fieldId") == "fixVersions" or it.get("field") == "Fix Version":
+                items.append((h["created"], when, it.get("fromString"), it.get("toString")))
+    items.sort(key=lambda t: t[0])          # timestamp only: the other fields can be None
+    for r in releases:
+        last_add = None
+        for _, when, frm, to in items:
+            if to == r:
+                last_add = when
+            elif frm == r:
+                last_add = None
+        added[r] = last_add or created
+    return added
+
+
+def analyse(j, e: dict):
+    """One changelog request per epic: cycle time for Done epics, release join dates for all."""
+    histories = j.changelog(e["k"])
+    out = {"ad": release_added_dates(histories, e["cr"], e["fv"])}
+    if e["s"] == "Done" and e["rd"]:
+        events = E.epic_events(histories)
+        resolved = dt.date.fromisoformat(e["rd"])
+        ip, vl = day_counts(events, resolved)
+        first_ip = next((x[0].date() for x in sorted(events, key=lambda x: x[0])
+                         if x[1] == "status" and x[2] == "In Progress"), None)
+        out.update({"ip": ip, "vl": vl, "edct": ip + vl,
+                    "pipeline_edct": E.edct_days(events, end=resolved, count_done_day=False),
+                    "cal": (resolved - first_ip).days if first_ip else None})
+    return out
+
+
+def bug_record(i: dict, proj: str, ax_keys: set) -> dict:
+    """Compact bug row; absent keys mean false / empty. cfb = reported by the CFB account."""
+    f = i["fields"]
+    b = {"k": i["key"], "p": proj, "cr": (f.get("created") or "")[:10],
+         "s": (f.get("status") or {}).get("name")}
+    for key, v in (("pr", (f.get("priority") or {}).get("name")),
+                   ("rd", (f.get("resolutiondate") or "")[:10]),
+                   ("rs", (f.get("resolution") or {}).get("name")),
+                   ("tm", val(f.get("customfield_10098")))):
+        if v:
+            b[key] = v
+    if i["key"] in ax_keys:
+        b["ax"] = 1
+    if (f.get("reporter") or {}).get("accountId") == CFB_ACCOUNT:
+        b["cfb"] = 1
+    if val(f.get("customfield_10055")) == "Yes":
+        b["rg"] = 1
+    if f.get("customfield_10068"):
+        b["inc"] = f["customfield_10068"]
+    return b
+
+
+def fetch_windows(j) -> dict:
+    """Release start/end from the Jira versions (same source as release_closure). The three
+    projects run the same release train, so the first project that has a dated version wins."""
+    out = {}
+    for proj in PROJECTS:
+        vers = {v["name"]: v for v in j.s.get(f"{j.base}/rest/api/3/project/{proj}/versions", timeout=60).json()}
+        for r in RELEASES:
+            v = vers.get(r)
+            if r not in out and v and v.get("startDate") and v.get("releaseDate"):
+                out[r] = [v["startDate"], v["releaseDate"]]
+    return out
+
+
+PLAN_FIELDS = ["updated", "duedate", "customfield_12697"]      # Last update, Due date, Target Sprint
+SPRINT_RE = re.compile(r"^CX\.(\d+\.\d+)\.(\d+) \((\d{1,2})([A-Za-z]{3})(\d{2})\)$")
+OPEN_SLA_EXCLUDED = ("Ready for Deploy", "Done", "Closed", "Resolved", "Removed")
+
+
+def plan_record(f) -> dict:
+    """Planning facts on an epic: due date (dd), Target Sprint label (ts), last update (ud). Absent means empty."""
+    out = {}
+    if f.get("duedate"):
+        out["dd"] = f["duedate"][:10]
+    ts = val(f.get("customfield_12697"))
+    if ts:
+        out["ts"] = ts
+    if f.get("updated"):
+        out["ud"] = f["updated"][:10]
+    return out
+
+
+def sprint_calendar(labels) -> list:
+    """Sprint windows. The numbering is regular: three-week (21-day) sprints, four per release, plus a seven-day IP week
+    after every fourth sprint (sprint 197 starts 2026-10-14 and opens release 27.1). The calendar is generated from the
+    numbering, so a sprint that nobody has planned work in is still on it, and checked against the Target Sprint labels
+    ("CX.27.1.197 (14Oct26)": the label date is the sprint start); a label that disagrees keeps its own date."""
+    anchor, anchor_no = dt.date(2026, 10, 14), 197
+    seen = {}
+    for lab in labels:
+        m = SPRINT_RE.match(lab or "")
+        if m:
+            seen[int(m[2])] = (lab, dt.datetime.strptime(f"{m[3]}{m[4]}{m[5]}", "%d%b%y").date())
+    if not seen:
+        return []
+    out = []
+    for n in range(min(seen), max(seen) + 1):
+        k = (n - anchor_no) // 4
+        start = anchor + dt.timedelta(days=21 * (n - anchor_no) + 7 * k)
+        lab = None
+        if n in seen:
+            lab, labelled = seen[n]
+            if labelled != start:
+                start = labelled
+        rel = f"{27 + k // 4}.{k % 4 + 1}"
+        out.append({"n": lab or f"CX.{rel}.{n} ({start.strftime('%d%b%y')})", "rel": rel, "no": n, "start": start.isoformat(),
+                    "end": (start + dt.timedelta(days=20)).isoformat(), "real": n in seen})
+    return out
+
+
+def collect_status_since(j, epics) -> int:
+    """Date each in-flight epic entered its current status (Validation or In Progress), from its changelog."""
+    todo = [e for e in epics if e["s"] in ("Validation", "In Progress")]
+
+    def work(e):
+        try:
+            ev = E.epic_events(j.changelog(e["k"]))
+            when = [x[0] for x in ev if x[1] == "status" and x[2] == e["s"]]
+            return e["k"], max(when).date().isoformat() if when else None
+        except Exception:
+            return e["k"], None
+    got = 0
+    by_key = {e["k"]: e for e in epics}
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        for k, d in pool.map(work, todo):
+            if d:
+                by_key[k]["ss"] = d
+                got += 1
+    return got
+
+
+def collect_bug_updates(j, bugs) -> int:
+    """Last update date of open customer-found bugs, for the no-activity insight."""
+    by = {b["k"]: b for b in bugs}
+    n = 0
+    for proj in PROJECTS:
+        for i in j.search(f'project = {proj} AND issuetype = Bug AND reporter = {CFB_ACCOUNT} AND resolution is EMPTY', ["updated"]):
+            if i["key"] in by and i["fields"].get("updated"):
+                by[i["key"]]["ud"] = i["fields"]["updated"][:10]
+                n += 1
+    return n
+
+
+HIER_FIELDS = ["summary", "status", "issuetype", "fixVersions", "parent", "project", "duedate", "customfield_12697",
+               "updated", "customfield_10040", "customfield_10098", "customfield_10094"]
+
+
+def hier_record(i) -> dict:
+    f = i["fields"]
+    teams = [t for t in (val(f.get("customfield_10040")) or []) if t]
+    tn = val(f.get("customfield_10098"))
+    if tn and tn not in teams:
+        teams.append(tn)
+    par = f.get("parent")
+    rec = {"ty": (f.get("issuetype") or {}).get("name"), "t": f["summary"], "s": (f.get("status") or {}).get("name"),
+           "fv": [v["name"] for v in f.get("fixVersions") or []], "p": (f.get("project") or {}).get("key") or i["key"].split("-")[0]}
+    if par:
+        rec["par"] = par["key"]
+    if teams:
+        rec["tm"] = teams
+    c = val(f.get("customfield_10094"))
+    if c:
+        rec["c"] = c
+    rec.update(plan_record(f))
+    return rec
+
+
+def collect_hier(j, epics, caps) -> dict:
+    """The Initiative > Capability > Epic hierarchy behind the CXCROSS view: every CXCROSS issue (Initiatives,
+    Capabilities and CXCROSS-owned Epics), every Capability our epics point to, and the Initiatives above them."""
+    hier = {}
+    for i in j.search("project = CXCROSS AND status != Removed", HIER_FIELDS):
+        hier[i["key"]] = hier_record(i)
+    for _ in range(2):                                   # capabilities of our epics, then the parents we do not hold yet
+        want = sorted(({e.get("cp") for e in epics if e.get("cp")} | {r.get("par") for r in hier.values() if r.get("par")}) - set(hier) - {None})
+        for n in range(0, len(want), 80):
+            for i in j.search(f'key in ({", ".join(want[n:n + 80])})', HIER_FIELDS):
+                hier[i["key"]] = hier_record(i)
+    kinds = {}
+    for r in hier.values():
+        kinds[r["ty"]] = kinds.get(r["ty"], 0) + 1
+    print(f"hierarchy: {len(hier)} issues {kinds}", flush=True)
+    return {"hier": hier}
+
+
+def planning(j, epics, bugs, links) -> dict:
+    """Everything the planning and insight views need beyond the basic pull."""
+    labels = {e.get("ts") for e in epics} | {x.get("ts") for x in links["ext"].values()}
+    got = collect_status_since(j, epics)
+    nb = collect_bug_updates(j, bugs)
+    sprints = sprint_calendar(labels)
+    print(f"planning: {sum(1 for e in epics if e.get('dd'))} epics with a due date, {sum(1 for e in epics if e.get('ts'))} with a target sprint, "
+          f"{len(sprints)} sprints, status-since for {got} in-flight epics, last update for {nb} open CFB bugs", flush=True)
+    return {"sprints": sprints}
+
+
+def dep_pair(key, link):
+    """For an epic-to-epic Dependency or Blocks link return (dependent, provider, type, other end), else None.
+    Dependency: outward "depends on", inward "is needed by". Blocks: outward "blocks", inward "is blocked by"."""
+    t = link["type"]["name"]
+    if t not in DEP_TYPES:
+        return None
+    out, inn = link.get("outwardIssue"), link.get("inwardIssue")
+    other = out or inn
+    if not other or (other["fields"].get("issuetype") or {}).get("name") != "Epic":
+        return None
+    ok = other["key"]
+    if t == "Dependency":
+        dependent, provider = (key, ok) if out else (ok, key)
+    else:
+        dependent, provider = (ok, key) if out else (key, ok)
+    return dependent, provider, t, other
+
+
+def collect_links(j, epics) -> dict:
+    """Dependencies between epics, and each epic's parent Capability. Epics at the far end of a link that are not in
+    `epics` (other projects, other releases) are read once so the page can show their status, release and team."""
+    by_key = {e["k"]: e for e in epics}
+    quoted = ", ".join(f'"{r}"' for r in RELEASES)
+    pairs, caps, dropped = set(), {}, {"removed": 0}
+    for proj in PROJECTS:
+        jql = f'project = {proj} AND issuetype = Epic AND status != Removed AND fixVersion in ({quoted})'
+        for i in j.search(jql, ["issuelinks", "parent"] + PLAN_FIELDS):
+            f = i["fields"]
+            if i["key"] in by_key:
+                by_key[i["key"]].update(plan_record(f))
+            par = f.get("parent")
+            if par and (par["fields"].get("issuetype") or {}).get("name") == "Capability":
+                caps[par["key"]] = par["fields"]["summary"]
+                if i["key"] in by_key:                      # epics created after the snapshot are not in the data yet
+                    by_key[i["key"]]["cp"] = par["key"]
+            for link in f.get("issuelinks") or []:
+                r = dep_pair(i["key"], link)
+                if not r:
+                    continue
+                d, p, t, other = r
+                if (other["fields"].get("status") or {}).get("name") == "Removed":
+                    dropped["removed"] += 1
+                    continue
+                pairs.add((d, p, t))
+    outside = sorted({k for d, p, t in pairs for k in (d, p)} - set(by_key))
+    ext = {}
+    for n in range(0, len(outside), 80):
+        chunk = outside[n:n + 80]
+        for i in j.search(f'key in ({", ".join(chunk)})',
+                          ["summary", "status", "fixVersions", "parent", "customfield_10040", "customfield_10098", "project"] + PLAN_FIELDS):
+            f = i["fields"]
+            teams = [t for t in (val(f.get("customfield_10040")) or []) if t]
+            tn = val(f.get("customfield_10098"))
+            if tn and tn not in teams:
+                teams.append(tn)
+            rec = {"p": (f.get("project") or {}).get("key") or i["key"].split("-")[0], "t": f["summary"],
+                   "s": (f.get("status") or {}).get("name"), "fv": [v["name"] for v in f.get("fixVersions") or []], "tm": teams,
+                   **plan_record(f)}
+            par = f.get("parent")
+            if par and (par["fields"].get("issuetype") or {}).get("name") == "Capability":
+                caps[par["key"]] = par["fields"]["summary"]
+                rec["cp"] = par["key"]
+            ext[i["key"]] = rec
+    print(f"links: {len(pairs)} epic-to-epic dependencies ({dropped['removed']} to Removed epics left out), "
+          f"{len(outside)} epics outside the release data, {len(caps)} capabilities", flush=True)
+    return {"deps": sorted([d, p, "D" if t == "Dependency" else "B"] for d, p, t in pairs),
+            "ext": ext, "capabilities": caps, "depsDropped": dropped}
 
 
 def fetch() -> dict:
@@ -120,59 +411,121 @@ def fetch() -> dict:
                 "tm": teams,
                 "ai": "Yes" in ai if isinstance(ai, list) else ai == "Yes",
                 "m": val(f.get("customfield_15264")),
-                "rd": resolved,
+                "rd": resolved, "cr": (f.get("created") or "")[:10],
                 "cat": val(f.get("customfield_10139")),
             })
 
-    done = [e for e in epics if e["s"] == "Done" and e["rd"]]
-    print(f"computing cycle time for {len(done)} Done epics ...", flush=True)
+    bugs = []
+    for proj in PROJECTS:
+        base = (f'project = {proj} AND issuetype = Bug AND (created >= "{BUG_SINCE}" '
+                f'OR resolutiondate >= "{BUG_SINCE}" OR resolution is EMPTY)')
+        ax_keys = {i["key"] for i in j.search(f"{base} AND {AX_JQL}", ["summary"])}
+        got = j.search(base, BUG_FIELDS)
+        bugs += [bug_record(i, proj, ax_keys) for i in got]
+        print(f"{proj}: {len(got)} bugs ({len(ax_keys)} accessibility)", flush=True)
+
+    print(f"reading the changelog of {len(epics)} epics (cycle time + release join dates) ...", flush=True)
 
     def work(e):
         try:
-            return e["k"], epic_metrics(j, e["k"], dt.date.fromisoformat(e["rd"]))
+            return e["k"], analyse(j, e)
         except Exception as exc:                                  # one bad epic must not sink the build
             return e["k"], {"error": str(exc)[:80]}
 
     results = {}
     with ThreadPoolExecutor(max_workers=6) as pool:
-        for n, (k, m) in enumerate(pool.map(work, done), 1):
+        for n, (k, m) in enumerate(pool.map(work, epics), 1):
             results[k] = m
-            if n % 100 == 0:
-                print(f"  {n}/{len(done)}", flush=True)
+            if n % 200 == 0:
+                print(f"  {n}/{len(epics)}", flush=True)
     errors = [k for k, m in results.items() if "error" in m]
     drift = [k for k, m in results.items() if "edct" in m and m["edct"] != m["pipeline_edct"]]
-    print(f"cycle time done: {len(results) - len(errors)} ok, {len(errors)} errors, "
-          f"{len(drift)} differ from the email pipeline's EDCT", flush=True)
+    print(f"changelogs done: {len(results) - len(errors)} ok, {len(errors)} errors, "
+          f"{len(drift)} cycle times differ from the email pipeline's EDCT", flush=True)
     for e in epics:
         m = results.get(e["k"])
-        if m and "edct" in m:
-            e["ip"], e["vl"], e["edct"], e["cal"] = m["ip"], m["vl"], m["edct"], m["cal"]
+        if m and "error" not in m:
+            e["ad"] = m["ad"]
+            if "edct" in m:
+                e["ip"], e["vl"], e["edct"], e["cal"] = m["ip"], m["vl"], m["edct"], m["cal"]
 
-    return {"generated": dt.datetime.now().astimezone().isoformat(timespec="minutes"),
+    links = collect_links(j, epics)
+    plan = planning(j, epics, bugs, links)
+    plan.update(collect_hier(j, epics, links["capabilities"]))
+    return {"generated": dt.datetime.now().astimezone().isoformat(timespec="minutes"), **links, **plan,
             "jiraBase": os.environ["JIRA_BASE_URL"].rstrip("/"),
             "projects": PROJECTS, "releases": RELEASES, "current": CURRENT_RELEASE,
-            "provisional": PROVISIONAL, "epics": epics,
+            "windows": fetch_windows(j),
+            "provisional": PROVISIONAL, "epics": epics, "bugs": bugs,
+            "cfbAccount": CFB_ACCOUNT, "bugSince": BUG_SINCE,
             "quality": {"cycleTimeErrors": errors, "edctDiffersFromEmail": drift}}
 
 
 def render(data: dict) -> None:
-    html = TEMPLATE.read_text(encoding="utf-8")
+    """The template is a body-only fragment (title, meta, style, markup, script), which is exactly what the
+    Artifact tool wants. The standalone file wraps the same fragment in a document and hoists title and meta."""
+    labels = {e.get("ts") for e in data["epics"]} | {x.get("ts") for x in (data.get("ext") or {}).values()}
+    data["sprints"] = sprint_calendar(labels) or data.get("sprints", [])
+    if not data.get("cloudId"):
+        try:
+            data["cloudId"] = cloud_id()
+        except Exception as exc:                                  # the page renders; only Refresh from Jira needs it
+            print(f"warning: could not read the Atlassian site id ({exc}); set JIRA_CLOUD_ID to enable Refresh", flush=True)
+            data["cloudId"] = ""
+    # an older pull may hold projects that have since been dropped from PROJECTS: keep only the current ones
+    data["projects"] = PROJECTS
+    data["epics"] = [e for e in data["epics"] if e["p"] in PROJECTS]
+    data["bugs"] = [b for b in data["bugs"] if b["p"] in PROJECTS]
+    fragment = TEMPLATE.read_text(encoding="utf-8")
     payload = json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
-    OUT.write_text(html.replace("/*__DATA__*/null", payload), encoding="utf-8")
-    print(f"wrote {OUT} ({OUT.stat().st_size // 1024} KB, {len(data['epics'])} epics)")
+    assert fragment.count("/*__DATA__*/null") == 1
+    fragment = fragment.replace("/*__DATA__*/null", payload)
+    OUT_ARTIFACT.write_text(fragment, encoding="utf-8")
+
+    head = ""
+    for pattern in (r"<title>.*?</title>\s*", r'<meta name="claude:viewport-fit-sides"[^>]*>\s*'):
+        m = re.search(pattern, fragment, re.S)
+        head += m.group(0)
+        fragment = fragment.replace(m.group(0), "", 1)
+    OUT.write_text('<!DOCTYPE html>\n<html lang="en"><head><meta charset="UTF-8">'
+                   '<meta name="viewport" content="width=device-width, initial-scale=1">'
+                   f"{head}</head><body>\n{fragment}\n</body></html>", encoding="utf-8")
+    print(f"wrote {OUT} and {OUT_ARTIFACT.name} ({OUT.stat().st_size // 1024} KB, "
+          f"{len(data['epics'])} epics, {len(data['bugs'])} bugs)")
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--reuse", action="store_true", help="render from build/program_data.json")
+    ap.add_argument("--add-hier", action="store_true", help="add the CXCROSS Initiative > Capability hierarchy to build/program_data.json, then render")
+    ap.add_argument("--add-planning", action="store_true", help="add due dates, target sprints, sprint calendar, status-since and bug updates to build/program_data.json, then render")
+    ap.add_argument("--add-deps", action="store_true", help="read dependency links and capabilities into build/program_data.json (no changelog calls), then render")
     args = ap.parse_args()
     DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
-    if args.reuse:
+    if args.add_hier:
+        data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
+        data.update(collect_hier(E.Jira(), [e for e in data["epics"] if e["p"] in PROJECTS], data.get("capabilities", {})))
+        DATA_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    elif args.add_planning:
+        data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
+        eps = [e for e in data["epics"] if e["p"] in PROJECTS]
+        data.update(collect_links(E.Jira(), eps))
+        j = E.Jira()
+        data.update(planning(j, eps, [b for b in data["bugs"] if b["p"] in PROJECTS], data))
+        DATA_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    elif args.add_deps:
+        data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
+        data.update(collect_links(E.Jira(), [e for e in data["epics"] if e["p"] in PROJECTS]))
+        DATA_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    elif args.reuse:
         data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
     else:
         data = fetch()
         DATA_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    had_cloud_id = bool(data.get("cloudId"))
     render(data)
+    if not had_cloud_id and data.get("cloudId"):                  # keep it in the saved (git-ignored) data so offline re-renders still work
+        DATA_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     return 0
 
 
