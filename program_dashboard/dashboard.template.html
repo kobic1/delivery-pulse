@@ -57,7 +57,7 @@ header.top h1 { margin:0; font-size:var(--t-sub); font-weight:600; }
 .dataunit.nowhy .why { display:none !important; }
 @media (max-width:560px) { .dataunit { margin-left:0; width:100%; justify-content:space-between; } .asof { min-width:0; white-space:normal; text-align:left; } #refresh { height:44px; } }
 .badge { display:none; }                          /* the header text beside it already says Snapshot or Refreshed */
-.page { padding-bottom:48px; }
+.page { padding-bottom:48px; overflow-anchor:none; }
 .st-row { display:flex; flex-wrap:wrap; align-items:baseline; gap:8px 24px; margin:22px 0 14px; }
 .st-h { margin:0; display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 14px; min-width:0; }
 .st-h .rel { font-size:var(--t-fig); font-weight:600; line-height:1.2; }
@@ -169,7 +169,7 @@ tbody tr:hover > * { background:var(--panel); }
 @media (max-width:1100px) { .kpis, .kpis.five { grid-template-columns:repeat(3,minmax(0,1fr)); } .kpis.four { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media (max-width:620px) { .kpis, .kpis.five { grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 20px; } }
 .kpi { border-top:2px solid var(--kc,var(--line)); padding:10px 0 12px; min-width:0; }
-.kpi.d { --kc:var(--blue); } .kpi.e { --kc:var(--teal); } .kpi.q { --kc:var(--emerald); } .kpi.cx { --kc:var(--blue-ink); } .kpi.x { --kc:var(--coral); } .kpi.a { --kc:var(--indigo); }
+.kpi.d { --kc:var(--blue); } .kpi.e { --kc:var(--teal); } .kpi.q { --kc:var(--emerald); } .kpi.cx { --kc:var(--blue-ink); } .kpi.nf { --kc:var(--ctl); } .kpi.x { --kc:var(--coral); } .kpi.a { --kc:var(--indigo); }
 .kpi .k { font-size:var(--t-xs); font-weight:600; color:var(--muted); margin-bottom:2px; }
 .kpi .v { font-size:var(--t-title); font-weight:600; color:var(--ink); line-height:1.15; font-variant-numeric:tabular-nums; }
 .kpis > .kpi:first-child .v { font-size:var(--t-fig); }
@@ -189,6 +189,7 @@ section.sec.q { --acc:var(--emerald); --acc-ink:var(--green-ink); }
 section.sec.x { --acc:var(--coral); --acc-ink:var(--coral-ink); }
 section.sec.n { --acc:var(--ink); --acc-ink:var(--ink); }
 section.sec.cx { --acc:var(--blue-ink); --acc-ink:var(--blue-ink); }
+section.sec.nf { --acc:var(--ctl); --acc-ink:var(--ink); }
 section.sec.plain { border-left:0; padding-left:0; }
 section.sec h2 { margin:0 0 3px; font-size:var(--t-sub); font-weight:600; }
 section.sec .sub { color:var(--muted); font-size:var(--t-cap); margin-bottom:12px; }
@@ -208,6 +209,27 @@ svg text { font-family:inherit; }
 .pwrap .yax { flex:none; display:block; }
 .pwrap .chartscroll { flex:1 1 auto; min-width:0; }
 .nw { white-space:nowrap; }
+.tabs { display:flex; gap:2px; overflow-x:auto; border-bottom:1px solid var(--line); margin:10px 0 12px; max-width:100%; }
+.tab { flex:none; background:none; border:0; border-bottom:3px solid transparent; padding:8px 14px 7px; margin-bottom:-1px; font:inherit; font-weight:600; color:var(--muted); cursor:pointer; white-space:nowrap; }
+.tab:hover { color:var(--ink); background:var(--panel); }
+.tab[aria-selected="true"] { color:var(--blue-ink); border-bottom-color:var(--blue); }
+.scrollcue { display:none; font-size:var(--t-xs); color:var(--muted); margin:2px 0; }
+@media (max-width:760px) {
+  .scrollcue { display:block; }
+  .cxtable th:first-child, .nfrtable th:first-child { min-width:150px; position:sticky; left:0; background:var(--bg); z-index:2; box-shadow:1px 0 0 var(--line); }
+  .cxtable thead th:first-child, .nfrtable thead th:first-child { z-index:3; }
+  .nfrtable tfoot th:first-child { background:var(--panel); }
+}
+/* The sticky filter bar must not push the page when one of its own controls takes focus, so <html> has no scroll padding.
+   Jump targets and every focusable control in the content keep clear of the bar through scroll-margin instead. */
+main > section, main > h2, main h3, .agrp, .bpanel { scroll-margin-top:var(--stick, 0px); }
+main :where(a[href], button, summary, input, select, textarea, [tabindex], .cl):not(#filters *) { scroll-margin-top:var(--stick, 0px); }
+g.cl:focus-visible { outline:2px solid var(--blue-ink); outline-offset:1px; }
+.tt { text-decoration:underline dotted 1px; text-underline-offset:3px; }
+.nfr2 { margin-top:14px; }
+.nfr2 > div { margin-bottom:18px; }
+.nfrtable th[scope="row"] { white-space:normal; min-width:150px; }
+.nfrtable tfoot th, .nfrtable tfoot td { background:var(--panel); font-weight:600; }
 details.vd { margin-top:4px; font-size:var(--t-cap); }
 details.vd summary { cursor:pointer; color:var(--blue-ink); padding:3px 0; width:max-content; max-width:100%; }
 details.vd .tablewrap { max-height:340px; overflow:auto; margin-top:6px; }
@@ -244,11 +266,14 @@ td a { text-decoration:none; border-bottom:1px dotted #7C8794; }
 .attn-head h2 { margin:0; }
 .attn-ctl { display:inline-flex; gap:14px; align-items:center; }
 .attn-sum { margin:0; font-size:var(--t-body); display:flex; flex-wrap:wrap; gap:4px 20px; align-items:center; }
-.attn-sumbtn { width:100%; display:flex; align-items:center; justify-content:space-between; gap:14px; text-align:left; font:inherit; color:var(--ink); background:#fff; border:1px solid var(--ctl); border-radius:var(--radius-s); padding:10px 14px; margin:8px 0 0; cursor:pointer; }
-.attn-sumbtn:hover:not([disabled]) { background:var(--panel); }
-.attn-sumbtn[disabled] { cursor:default; color:var(--muted); }
+.attn-sumbtn { display:flex; align-items:center; justify-content:space-between; gap:14px; background:#fff; border:1px solid var(--ctl); border-radius:var(--radius-s); padding:8px 10px 8px 8px; margin:8px 0 0; }
 .attn-act { display:inline-flex; align-items:center; gap:8px; font-weight:600; white-space:nowrap; flex:none; }
-.attn-sumbtn[aria-expanded="true"] .chev { transform:rotate(90deg); }
+.attn-act[aria-expanded="true"] .chev { transform:rotate(90deg); }
+.achip { display:inline-flex; align-items:center; gap:6px; font:inherit; font-size:var(--t-body); color:var(--ink); background:none; border:1px solid transparent; border-radius:var(--radius-s); padding:2px 6px; cursor:pointer; text-align:left; }
+.achip:hover { background:var(--panel); border-color:var(--line); }
+.achip .flag { margin:0; }
+.attn-plus { color:var(--muted); }
+@media (max-width:560px) { .attn-sumbtn { flex-direction:column; align-items:stretch; } .attn-sum { gap:2px 6px; } .attn-act { align-self:flex-start; } }
 .aseg { display:inline-flex; align-items:center; gap:6px; }
 .aseg .flag { margin:0; }
 .agrp { border-top:1px solid var(--line); }
@@ -286,8 +311,11 @@ td a { text-decoration:none; border-bottom:1px dotted #7C8794; }
 .bq { font-size:var(--t-xs); color:var(--muted); margin-top:2px; font-style:italic; }
 .blk { font-size:var(--t-xs); margin-top:5px; overflow-wrap:anywhere; }
 .blk .bl { color:var(--muted); }
+.bwith { font-size:var(--t-xs); margin-top:6px; }
+.bwith a { color:var(--muted); }
 .bempty { font-size:var(--t-cap); color:var(--muted); padding:4px 2px; }
 .cxtable th:first-child { min-width:240px; white-space:normal; }
+.cxtable thead th:first-child { white-space:normal; }
 .cxtable th.cxc, .cxtable td.cxc { text-align:left; white-space:nowrap; min-width:92px; vertical-align:top; }
 .cxtable td.fvc { white-space:normal; min-width:130px; font-size:var(--t-cap); vertical-align:top; }
 .cxtable th[scope="row"] { vertical-align:top; }
@@ -373,13 +401,13 @@ footer.f b { color:var(--ink); }
   <h2 class="sr">Delivery, Efficiency, Quality &amp; AI Adoption</h2>
   <div class="st-row">
     <h2 class="st-h"><span class="rel" id="st-rel"></span><span class="rest" id="st-rest"></span><span class="state" id="st-state" hidden>In Progress</span></h2>
-    <nav class="jump" aria-label="Jump to a section"><a href="#h-attn" data-jump="h-attn">Needs Attention</a><a href="#h-burnup" data-jump="h-burnup">Delivery</a><a href="#h-eff" data-jump="h-eff">Efficiency</a><a href="#h-ai" data-jump="h-ai">AI Adoption</a><a href="#h-bugs" data-jump="h-bugs">Quality</a><a href="#h-deps" data-jump="h-deps">Dependencies</a><a href="#h-cx" data-jump="h-cx">CXCROSS</a><a href="#h-analysis" data-jump="h-analysis">Release Analysis</a></nav>
+    <nav class="jump" aria-label="Jump to a section"><a href="#h-attn" data-jump="h-attn">Needs Attention</a><a href="#h-burnup" data-jump="h-burnup">Delivery</a><a href="#h-eff" data-jump="h-eff">Efficiency</a><a href="#h-ai" data-jump="h-ai">AI Adoption</a><a href="#h-bugs" data-jump="h-bugs">Quality</a><a href="#h-deps" data-jump="h-deps">Dependencies</a><a href="#h-cx" data-jump="h-cx">CXCROSS</a><a href="#h-nfr" data-jump="h-nfr">NFRs</a><a href="#h-analysis" data-jump="h-analysis">Release Analysis</a></nav>
   </div>
   <div class="kpis" id="kpis"></div>
 
   <section class="sec n attn" id="attn" aria-labelledby="h-attn">
     <div class="attn-head"><h2 id="h-attn" tabindex="-1">Needs Attention</h2><span class="attn-ctl"><button type="button" class="btn link" id="attn-all" hidden>Expand All</button></span></div>
-    <button type="button" class="attn-sumbtn" id="attn-toggle" aria-expanded="false" aria-controls="attn-body"><span class="attn-sum" id="attn-sum"></span><span class="attn-act"><span id="attn-act">Show Details</span><svg class="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2l5 4-5 4z"/></svg></span></button>
+    <div class="attn-sumbtn"><div class="attn-sum" id="attn-sum"></div><button type="button" class="btn attn-act" id="attn-toggle" aria-expanded="false" aria-controls="attn-body"><span id="attn-act">Show Details</span><svg class="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2l5 4-5 4z"/></svg></button></div>
     <div id="attn-body" hidden></div>
   </section>
 
@@ -507,6 +535,16 @@ footer.f b { color:var(--ink); }
     <div id="cx-dq"></div>
   </section>
 
+  <section class="sec nf" aria-labelledby="h-nfr">
+    <div class="seclabel">NFRs <span class="state" id="nfr-state" hidden>In Progress</span></div>
+    <h2 id="h-nfr" tabindex="-1">NFR Epics (Label or Category)</h2>
+    <div class="sub" id="nfr-sub"></div>
+    <div class="kpis five" id="nfr-kpis"></div>
+    <div class="cap" id="nfr-facts"></div>
+    <div id="nfr-cap"></div>
+    <div id="nfr-body"></div>
+  </section>
+
   <h2 class="divider" id="h-analysis" tabindex="-1">Release Analysis</h2>
   <div class="sub">Detail behind the status above, for the selected release and filters.</div>
   <div class="anrow" id="an-kpis"></div>
@@ -539,6 +577,7 @@ footer.f b { color:var(--ink); }
     <div class="dq" id="dq"></div>
   </section>
 
+  <div id="anchor-spacer" aria-hidden="true" style="height:0"></div>
 </main>
 
 <div class="gtip" id="gtip" role="tooltip"></div>
@@ -567,16 +606,19 @@ const PRI_ALL = [...PRIORITIES, "Other"];                    // Other = any othe
 const priOf = b => PRIORITIES.includes(b.pr) ? b.pr : "Other";
 const DAY = 86400000;
 // Every threshold of the Needs Attention panel, with where it came from. Change a number here and the panel, its hover text and its notes follow.
+// The Issue Category values (field 10139) that make an epic an NFR epic, in addition to the label NFR.
+const NFR_CATEGORIES = ["R&D - 3rd party upgrades", "R&D - Arch/infra refactoring", "R&D Infra", "R&D - Low env. cost optimization"];
 const CFG = {
   asOf: "the snapshot date (asOfDay), not the clock",
   sla: {p1: 3, regression: 7, p2: 14, other: 30, source: "owner-confirmed SLA rules (alert pipeline)"},     // whole calendar days from creation, no pause; P1 3; with regression 7; P2 without 14; P3 and P4 without 30
   dueSoonShare: 0.7, dueSoonSource: "live alert rule",
   noUpdateDays: 3, noUpdateSource: "alert rule",
   validationDays: 3, validationSource: "owner-supplied limit, counted in business days",
-  // Business days: ASSUMED working week Sunday to Thursday (weekend = Friday and Saturday, getUTCDay 5 and 6) and NO holiday calendar yet. Fill HOLIDAYS with YYYY-MM-DD dates.
+  // Business days: the weekend is Friday and Saturday (getUTCDay 5 and 6), and the Israeli public holidays below are not counted either (owner decision).
+  // HOLIDAYS is the one place for the holiday list: YYYY-MM-DD, Israeli public holidays 2025-06 to 2027-12 (python-holidays, country IL). Intermediate festival days such as Chol HaMoed are not in it.
   // Dates are Israel local dates as Jira returns them; no timezone shifting.
-  weekend: [5, 6], HOLIDAYS: [],
-  inProgressDays: 42, inProgressSource: "reference threshold from the disabled cycle-time-breach alert rule, not adopted by the owner",
+  holidaysThrough: "2027-12-31",                                 // the holiday list below covers up to this date
+  weekend: [5, 6], HOLIDAYS: ["2025-06-02", "2025-09-23", "2025-09-24", "2025-10-02", "2025-10-07", "2025-10-14", "2026-04-02", "2026-04-08", "2026-04-22", "2026-05-22", "2026-09-12", "2026-09-13", "2026-09-21", "2026-09-26", "2026-10-03", "2027-04-22", "2027-04-28", "2027-05-12", "2027-06-11", "2027-10-02", "2027-10-03", "2027-10-11", "2027-10-16", "2027-10-23"],
   prodDoneStatuses: ["Ready for Deploy", "Done", "Closed", "Resolved", "Removed"],
   rows: {first: 5, other: 10},
 };
@@ -609,7 +651,7 @@ DATA.epics.forEach(e => (e.tm || []).forEach(t => KNOWN_TEAMS.add(t)));
 DATA.bugs.forEach(b => { if (b.tm) KNOWN_TEAMS.add(b.tm); });
 
 // ---------------------------------------------------------------- state (kept in the URL when opened as a file, in browser storage in the viewer)
-const defaults = () => ({release: DATA.current, projects: new Set(projectsAll), teams: new Set(), commit: new Set(DEFAULT_COMMIT), ax: false, bugPri: new Set(PRI_ALL), cfb: "all", gran: "month", cfbGroup: "version", depFilter: "all"});
+const defaults = () => ({release: DATA.current, projects: new Set(projectsAll), teams: new Set(), commit: new Set(DEFAULT_COMMIT), ax: false, bugPri: new Set(PRI_ALL), cfb: "all", gran: "month", cfbGroup: "version", depFilter: "all", nfrTab: "project"});
 const state = {...defaults()};
 const resetFilters = () => Object.assign(state, defaults());
 function readParams(h) {
@@ -625,6 +667,7 @@ function readParams(h) {
   if (["week", "quarter"].includes(h.get("g"))) state.gran = h.get("g");
   if (["month", "quarter"].includes(h.get("cg"))) state.cfbGroup = h.get("cg");
   if (["overdue", "external", "unplanned"].includes(h.get("dp"))) state.depFilter = h.get("dp");
+  if (["category", "commitment", "capability", "team"].includes(h.get("nt"))) state.nfrTab = h.get("nt");
 }
 function serialize() {
   const h = new URLSearchParams();
@@ -638,12 +681,13 @@ function serialize() {
   if (state.gran !== "month") h.set("g", state.gran);
   if (state.cfbGroup !== "version") h.set("cg", state.cfbGroup);
   if (state.depFilter !== "all") h.set("dp", state.depFilter);
+  if (state.nfrTab !== "project") h.set("nt", state.nfrTab);
   return h.toString();
 }
 function loadState() {
   try {
     const fromHash = new URLSearchParams(location.hash.slice(1));
-    if (fromHash.has("r")) return readParams(fromHash);
+    if ([...fromHash.keys()].length) return readParams(fromHash);                 // any filter in the address is a view, with or without r=
     const saved = localStorage.getItem("delivery-pulse-filters");
     if (saved) readParams(new URLSearchParams(saved));
   } catch (e) { /* storage or hash unavailable: start from the defaults */ }
@@ -746,6 +790,7 @@ function jira(o = {}) {
   if (!projects.length || !commit.size) return null;
   const teams = o.teams === undefined ? state.teams : o.teams;
   let jql = `project in (${projects.join(", ")}) AND issuetype = Epic AND status != Removed AND fixVersion = ${q(o.release || state.release)}`;
+  if (o.wasOn) jql += ` AND fixVersion WAS ${q(o.wasOn.release)} ON ${q(o.wasOn.date)}`;       // epics that were in the release on that day and still are
   jql += teamClause(teams) + commitClause(commit);
   if (o.kind === "done") jql += ` AND status = Done`;
   if (o.kind === "flight") jql += ` AND status in (${CLASS.flight.map(q).join(", ")})`;
@@ -784,7 +829,7 @@ function kpiCards(el, cards) {
 const tipAttr = (t, href) => `data-tip="${esc(t)}" data-link="${href ? 1 : 0}"`;
 function ga(inner, href, tip) {
   return href ? `<a class="cl" href="${href}" target="_blank" rel="noopener" ${tipAttr(tip, href)} aria-label="${esc(tip.replace(/\n/g, ", "))}. Opens in Jira.">${inner}</a>`
-              : `<g class="cl" ${tipAttr(tip, "")}>${inner}</g>`;
+              : `<g class="cl" ${tipAttr(tip, "")} tabindex="0" role="img" aria-label="${esc(tip.replace(/\n/g, ", "))}">${inner}</g>`;
 }
 const gtip = () => document.getElementById("gtip");
 function showTip(el, x, y) {
@@ -817,8 +862,9 @@ document.addEventListener("click", ev => {
   h.focus({preventScroll: true});
 });
 // Every Jira link in a table, tile or key gets the same hover text: the number and what it counts, then "Click to open in Jira".
+const tipSpan = (text, tip) => `<span class="tt" ${tipAttr(tip, "")}>${text}</span>`;     // plain facts that count issues get hover text
 function nowrapDates() {
-  document.querySelectorAll(".board .bm, .board .bd, .board .bq, .cap, .sub, #bu-sub, #fsum, .attn-sum, .arow .a2, .a3 .flag, .asof, .legend, .notice, .status").forEach(root => {
+  document.querySelectorAll(".board .bm, .board .bd, .board .bq, .kpi .s, .kpi .x, .kpi .k, .key, .dq .d, .cap, .sub, #bu-sub, #fsum, .attn-sum, .arow .a2, .a3 .flag, .asof, .legend, .notice, .status").forEach(root => {
     const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT), nodes = []; while (w.nextNode()) nodes.push(w.currentNode);
     nodes.forEach(n => {
       if (!/\d{4}-\d{2}-\d{2}/.test(n.nodeValue) || (n.parentElement && n.parentElement.classList.contains("nw"))) return;
@@ -829,7 +875,7 @@ function nowrapDates() {
   });
 }
 function tipPass() {
-  document.querySelectorAll("#kpis a[href], .kpis a[href], .anrow a[href], table a[href], .key a[href], #bugs-sub a[href], #dep-sub a[href], #bu-cap a[href], #dq a[href], #cx-facts a[href], #cap-dq a[href]").forEach(a => {
+  document.querySelectorAll("#kpis a[href], .kpis a[href], .anrow a[href], table a[href], .key a[href], #bugs-sub a[href], #dep-sub a[href], #bu-cap a[href], #dq a[href], #cx-facts a[href], #cap-dq a[href], #nfr-facts a[href]").forEach(a => {
     if (a.hasAttribute("data-tip") || a.closest("svg") || a.classList.contains("skip")) return;
     const num = a.textContent.trim(), kpi = a.closest(".kpi"), cell = a.closest("td, th"), it = a.closest(".key .it"); let what = "";
     if (cell && cell.closest("table")) {
@@ -885,12 +931,12 @@ function lastMonths(n = 4) {
   const t = new Date(asOfDay()), y = t.getUTCFullYear(), m = t.getUTCMonth(), out = [];
   for (let i = n - 1; i >= 0; i--) {
     const s = Date.UTC(y, m - i, 1), e = Date.UTC(y, m - i + 1, 1);
-    out.push({s, e, mon: new Date(s).toLocaleDateString("en-US", {month: "short", timeZone: "UTC"}), label: iso(s).slice(0, 7) + (i === 0 ? "*" : "")});
+    out.push({s, e, mon: iso(s).slice(0, 7), label: iso(s).slice(0, 7) + (i === 0 ? "*" : "")});
   }
   return out;
 }
 const pname = mo => state.gran === "week" ? `Week of ${mo.label}` : mo.label;
-const pwords = mo => state.gran === "month" ? mo.mon : pname(mo).replace("*", "");      // prose: Oct, Week of 2026-10-19, 2026-Q4
+const pwords = mo => state.gran === "month" ? mo.mon : pname(mo).replace("*", "");      // prose: 2026-10, Week of 2026-10-19, 2026-Q4
 const GRAN = {week: {noun: "week", plural: "weeks", todate: "week-to-date", head: "Week Starting"},
   month: {noun: "month", plural: "months", todate: "month-to-date", head: "Month"},
   quarter: {noun: "quarter", plural: "quarters", todate: "quarter-to-date", head: "Quarter"}};
@@ -930,17 +976,29 @@ function weekOf(rel) {                                       // where the releas
   return `Week ${Math.min(weeks, Math.floor((snap - w1) / DAY / 7) + 1)} of ${weeks}`;
 }
 const isRunning = rel => isProv(rel) && !["", "Not Started", "Closed"].includes(weekOf(rel));   // the In Progress chip shows only while the release really runs
+// The single source of the target scope: the Committed + Not Set epics that were in the release on the first day of W1 (before W1, the target so far).
+// The Forecast Epics tile, the burnup scope, its label, tooltip, subtitle and caption, and the even-pace reference all read this one value.
+function targetBase(rel = state.release) {
+  const win = DATA.windows && DATA.windows[rel], tgt = targetOf(rel);
+  const w1 = win ? utc(win[0]) + 7 * DAY : null, base = win ? tgt.filter(e => utc((e.ad && e.ad[rel]) || win[0]) <= w1) : tgt;
+  const pre = !!win && asOfDay() < w1, N = base.length;
+  return {rel, win, w1, pre, N, today: tgt.length, added: tgt.length - N, tgt,
+    href: pre || !win ? jira({release: rel, commit: new Set(TARGET_COMMIT)}) : jira({release: rel, commit: new Set(TARGET_COMMIT), wasOn: {release: rel, date: iso(w1)}}),
+    hrefToday: jira({release: rel, commit: new Set(TARGET_COMMIT)}),
+    tip: !win ? `${tgt.length} target epics in ${rel} (Committed + Not Set)` : pre ? `${N} target epics so far in ${rel}; W1 starts ${shortDate(w1)}`
+      : `${N} epics were in ${rel} on ${shortDate(w1)}, the first day of W1 (Committed + Not Set).\nThe link opens them as Jira lists them now; ${tgt.length} are in the target today.`};
+}
 function paceFacts() {                                       // the same numbers the burnup draws: the target population only (Committed + Not Set)
   const rel = state.release, win = DATA.windows && DATA.windows[rel]; if (!win) return null;
   const target = targetOf(rel), w1 = utc(win[0]) + 7 * DAY, end = utc(win[1]), snap = asOfDay();
-  const N = target.filter(e => utc((e.ad && e.ad[rel]) || win[0]) <= w1).length;
+  const N = targetBase(rel).N;
   const D = Math.round((end - w1) / DAY), d = Math.min(D, Math.max(0, Math.round((snap - w1) / DAY)));
   return {N, D, d, w1, pre: snap < w1, doneNow: target.filter(e => cls(e.s) === "done").length, pace: D ? N * d / D : 0, closed: snap > end, targetSize: target.length};
 }
 function renderStatus() {
   const rel = state.release, list = scopeOf(rel), c = counts(list), mo = lastMonths(1)[0], ms = monthStats(mo), mname = mo.mon;
   const projLabel = state.projects.size === projectsAll.length ? "All Projects" : [...state.projects].join(", ") || "No project";
-  const wk = weekOf(rel), noProj = !state.projects.size, tgt = targetOf(rel), tDone = tgt.filter(e => cls(e.s) === "done").length;
+  const wk = weekOf(rel), noProj = !state.projects.size, TB = targetBase(rel), tgt = TB.tgt, tDone = tgt.filter(e => cls(e.s) === "done").length;
   document.getElementById("st-rel").textContent = `Release ${rel}`;
   document.getElementById("st-rest").textContent = `${projLabel}${state.teams.size ? " · " + [...state.teams].join(", ") : ""}${wk ? " · " + wk : ""}`;
   document.getElementById("st-state").hidden = !isRunning(rel);
@@ -950,13 +1008,15 @@ function renderStatus() {
     kpiCards(document.getElementById("kpis"), [["d", "Epics Delivered"], ["d", "Forecast Epics"], ["e", "EDCT Days"], ["q", "Open Bugs"], ["a", "Epics by AI"]].map(([c, l]) => ({c, v: "–", l, s: reason})));
     return;
   }
-  const tgtLine = tDone !== c.done ? `Target: ${tDone.toLocaleString("en-US")} of ${tgt.length.toLocaleString("en-US")} delivered (Committed + Not Set)` : "";
+  const tgtLine = `Target (Committed + Not Set): ${tDone.toLocaleString("en-US")} delivered${TB.win && !TB.pre ? `, scope ${TB.N.toLocaleString("en-US")} on first day of W1` : ""}`;
   kpiCards(document.getElementById("kpis"), [
     {k: `Release ${esc(rel)}`, c: "d", v: link(c.done, jira({kind: "done"})), l: "Epics Delivered", s: `of ${tlink(c.scope, jira(), `${c.scope} epics in scope (${state.commit.size === COMMIT.length ? "all commitment types" : "the selected types"})`)} in ${state.commit.size === COMMIT.length ? "all commitment types" : "the selected types"}`, x: [tgtLine, f.pace].filter(Boolean).join("<br>")},
-    {k: `Release ${esc(rel)}`, c: "d", v: link(tgt.length, jira({commit: new Set(TARGET_COMMIT)})), l: "Forecast Epics", s: "Target scope today: Committed + Not Set"},
+    {k: `Release ${esc(rel)}`, c: "d", v: tlink(TB.N, TB.href, TB.tip), l: "Forecast Epics",
+     s: !TB.win ? "Target scope: Committed + Not Set" : TB.pre ? `Target scope so far; W1 starts ${shortDate(TB.w1)}` : `Target scope on ${shortDate(TB.w1)}, first day of W1: Committed + Not Set`,
+     x: !TB.win || TB.pre ? "" : `${tipSpan(`${TB.added >= 0 ? "+" : "−"}${Math.abs(TB.added).toLocaleString("en-US")} ${TB.added >= 0 ? "added" : "removed"} since W1`, `${Math.abs(TB.added)} target epics ${TB.added >= 0 ? "were added to" : "left"} ${rel} after the first day of W1: ${TB.today} today minus ${TB.N} on ${shortDate(TB.w1)}`)} (${tlink(TB.today, TB.hrefToday, `${TB.today} epics are in the target today (Committed + Not Set)`)} today)`},
     {k: to, c: "e", v: ms.edctN >= MIN_N ? link(Math.round(ms.edctAvg), jiraMonth(mo, aiMonth)) : "–", l: "EDCT Days",
      s: ms.edctN >= MIN_N ? "average of AI-implemented epics" : `only ${ms.edctN} epics, need ${MIN_N}`, x: f.edct && f.edct.t, xc: f.edct && f.edct.c},
-    {k: "Today", c: "q", v: link(open.length, jiraBugs({extra: "resolution is EMPTY"})), l: "Open Bugs", s: filtered ? "Priority or CFB filter on" : "excluding accessibility bugs", x: f.bugs && f.bugs.t, xc: f.bugs && f.bugs.c},
+    {k: "Today", c: "q", v: link(open.length, jiraBugs({extra: "resolution is EMPTY"})), l: "Open Bugs", s: `${state.ax ? "including" : "excluding"} accessibility bugs${filtered ? "; Priority or CFB filter on" : ""}`, x: f.bugs && f.bugs.t, xc: f.bugs && f.bugs.c},
     {k: to, c: "a", v: ms.done >= MIN_N ? link(pct(ms.ai, ms.done) + "%", jiraMonth(mo, aiMonth)) : "–", l: "Epics by AI",
      s: ms.done ? `${tlink(ms.ai, jiraMonth(mo, aiMonth), `${ms.ai} epics implemented by AI, resolved in ${mname}`)} of ${tlink(ms.done, jiraMonth(mo), `${ms.done} epics resolved in ${mname}`)} epics resolved${ms.done < MIN_N ? ", too few for a share" : ""}` : "no epics resolved", x: f.ai},
   ]);
@@ -975,7 +1035,7 @@ function statusFacts(ms, mname) {
   if (cr + rs >= MIN_N && backlogBugs().filter(b => !b.rd).length >= MIN_N) out.bugs = net === 0 ? {t: "Unchanged over the last 4 weeks"}
     : {c: net > 0 ? "ok" : "watch", t: `${net > 0 ? "▼" : "▲"} ${Math.abs(net).toLocaleString("en-US")} ${net > 0 ? "fewer" : "more"} than 4 weeks ago`};
   const prev = lastMonths(2)[0], pm = monthStats(prev);                   // the previous full month, for comparison
-  if (ms.done >= MIN_N && pm.done >= MIN_N) out.ai = `${prev.mon} was ${pct(pm.ai, pm.done)}% (${pm.ai} of ${pm.done})`;
+  if (ms.done >= MIN_N && pm.done >= MIN_N) out.ai = `${prev.mon} was ${pct(pm.ai, pm.done)}% (${tlink(pm.ai, jiraMonth(prev, " AND cf[15229] = Yes"), `${pm.ai} epics implemented by AI, resolved in ${prev.mon}`)} of ${tlink(pm.done, jiraMonth(prev), `${pm.done} epics resolved in ${prev.mon}`)})`;
   return out;
 }
 function monthChart(hostId, capId, dataId, rows, o) {       // o: value(r), label(r), sc, fmtv, fill, target
@@ -1044,7 +1104,7 @@ function renderBurnup() {
   // (W1), after the IP week. Scope is the one number set on that day.
   const start = win ? utc(win[0]) : 0, w1 = start + 7 * DAY, end = win ? utc(win[1]) : 0, snap = asOfDay();
   const joinT = e => utc((e.ad && e.ad[rel]) || (win ? win[0] : "1970-01-01"));
-  const target = list, baseScope = win ? target.filter(e => joinT(e) <= w1).length : 0;
+  const target = list, TB = targetBase(rel), baseScope = TB.N;
   {
     const dn = list.filter(e => cls(e.s) === "done"), last = dn.map(e => e.rd).filter(Boolean).sort().pop(), wk = weekOf(rel);
     document.getElementById("bu-sub").textContent = list.length ? `${dn.length.toLocaleString("en-US")} of the target delivered (Committed + Not Set)${win ? ` · target scope ${baseScope.toLocaleString("en-US")} on ${shortDate(w1)}` : ""}${wk ? " · " + wk : ""}${last ? ` · last epic closed ${last}` : ""}` : "";
@@ -1088,7 +1148,7 @@ function renderBurnup() {
   g += `<path d="${doneLine}" fill="none" stroke="#025AFB" stroke-width="2.5"/>`;
   const yS = y(N), yD = y(finalDone), gap = Math.abs(yS - yD) < 15, pace = D ? N * snapD / D : 0, dv = Math.round(finalDone - pace);
   g += `<circle cx="${x(D)}" cy="${yS}" r="4" fill="#21212B" pointer-events="none"/><text pointer-events="none" x="${x(D) + 9}" y="${yS + 4 - (gap ? 8 : 0)}" font-size="12" font-weight="600" fill="#21212B">Scope ${N.toLocaleString("en-US")}</text>`;
-  if (!gap) g += `<text x="${x(D) + 9}" y="${yS + 18}" font-size="11" fill="#3B3F4A">${added >= 0 ? "+" : "−"}${Math.abs(added)} since W1</text>`;
+  if (!gap && !TB.pre) g += `<text x="${x(D) + 9}" y="${yS + 18}" font-size="11" fill="#3B3F4A">${added >= 0 ? "+" : "−"}${Math.abs(added)} since W1</text>`;
   const paceTxt = snap >= w1 && snapD < D && N >= MIN_N ? `${dv >= 0 ? "+" : "−"}${Math.abs(dv)} vs even pace` : "";
   const doneTxt = `Done ${finalDone.toLocaleString("en-US")}`, est = (narrow ? Math.max(doneTxt.length, paceTxt.length) : (doneTxt + " · " + paceTxt).length) * 6.6;
   const flip = snapD < D && x(snapD) + 7 + est > W - 4, tx = flip ? x(snapD) - 7 : x(snapD) + 7, ty = yD + 4 + (gap && snapD === D ? 8 : 0), anc = flip ? "end" : "start";
@@ -1096,9 +1156,8 @@ function renderBurnup() {
   if (paceTxt && narrow) g += `<text x="${tx}" text-anchor="${anc}" y="${ty + 15}" font-size="11" fill="#025AFB" stroke="#fff" stroke-width="3" paint-order="stroke">${paceTxt}</text>`;
   g += `<text x="${x(D * .64)}" y="${y(N * .64) - 8}" text-anchor="middle" font-size="11" fill="#5A5F6B">Even pace</text>`;
   g += `<line id="bu-cross" x1="0" x2="0" y1="${pt}" y2="${pt + ph}" stroke="#444" stroke-opacity=".45" style="display:none"/>`;
-  g += `<a id="bu-link" href="${jira({kind: "done"}) || ""}" target="_blank" rel="noopener" aria-label="Open the Done epics in Jira"><rect id="bu-hit" x="${pl}" y="${pt}" width="${pw}" height="${ph}" fill="transparent" style="touch-action:pan-y;cursor:pointer"/></a>`;
-  g += ga(`<circle cx="${x(D)}" cy="${yS}" r="9" fill="transparent" stroke="none"/><rect class="hit" x="${x(D) - 9}" y="${yS - 16}" width="${pr - 4}" height="34" fill="transparent"/>`, jira({commit: new Set(TARGET_COMMIT)}),
-    `Target scope ${N.toLocaleString("en-US")} on ${shortDate(w1)}\nCommitted + Not Set epics in the release on the first day of W1.\n${target.length.toLocaleString("en-US")} in the target today (the link opens it).`);
+  g += `<a id="bu-link" href="${jira({kind: "done", commit: new Set(TARGET_COMMIT)}) || ""}" target="_blank" rel="noopener" aria-label="Open the Done epics in Jira"><rect id="bu-hit" x="${pl}" y="${pt}" width="${pw}" height="${ph}" fill="transparent" style="touch-action:pan-y;cursor:pointer"/></a>`;
+  g += ga(`<circle cx="${x(D)}" cy="${yS}" r="9" fill="transparent" stroke="none"/><rect class="hit" x="${x(D) - 9}" y="${yS - 16}" width="${pr - 4}" height="34" fill="transparent"/>`, TB.href, `Target scope ${N.toLocaleString("en-US")} on ${shortDate(w1)}\n${TB.tip}`);
   el.innerHTML = `<div class="chartscroll"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Burnup for ${esc(rel)}, weeks 1 to ${weeks}: ${finalDone} epics Done against a scope of ${N}. Daily values are in the View Data table below.">${g}</svg></div><div class="bu-tip" id="bu-tip"></div>`;
 
   const svg = el.querySelector("svg"), tip = document.getElementById("bu-tip"), cross = document.getElementById("bu-cross");
@@ -1107,7 +1166,7 @@ function renderBurnup() {
   const dayAt = d => {                                          // the same tooltip for the pointer and for the keyboard
     const r = svg.getBoundingClientRect(), wr = el.getBoundingClientRect();
     cross.setAttribute("x1", x(d)); cross.setAttribute("x2", x(d)); cross.style.display = "";
-    lk.setAttribute("href", (d >= D ? jira({kind: "done"}) : jira({kind: "done", extra: `resolutiondate < "${iso(w1 + (d + 1) * DAY)}"`})) || "");
+    lk.setAttribute("href", (d >= D ? jira({kind: "done", commit: new Set(TARGET_COMMIT)}) : jira({kind: "done", commit: new Set(TARGET_COMMIT), extra: `resolutiondate < "${iso(w1 + (d + 1) * DAY)}"`})) || "");
     const pace = Math.round(D ? N * d / D : 0);
     lk.setAttribute("aria-label", `${shortDate(w1 + d * DAY)}, week ${Math.floor(d / 7) + 1}: scope ${N}, even pace ${pace}${d > snapD ? "" : `, done ${done[d]}`}. ${lkLabel}. Left and right arrow keys move the day.`);
     tip.innerHTML = `<b>${shortDate(w1 + d * DAY)}</b> (W${Math.floor(d / 7) + 1})<br>Scope ${N}<br>Even pace ${pace}` + (d > snapD ? "" : `<br>Done ${done[d]}<br>Remaining ${Math.max(0, N - done[d])}<br><span style="color:var(--muted)">Click to open the Done epics up to this day</span>`);
@@ -1129,8 +1188,8 @@ function renderBurnup() {
   });
 
   legend.innerHTML = "";
-  cap.innerHTML = `Scope ${N.toLocaleString("en-US")} on ${shortDate(w1)} (first day of W1), ${added >= 0 ? "+" : ""}${added.toLocaleString("en-US")} since; target scope today ${link(target.length, jira({commit: new Set(TARGET_COMMIT)}))}. The target is always Committed + Not Set, whatever the Commitment Type filter says. ` +
-    `${snapD < D ? (DATA.refreshedAt ? "Refreshed" : "Snapshot") : "Final"}: ${link(finalDone, jira({kind: "done"}))} done.` +
+  cap.innerHTML = (TB.pre ? `Target scope so far ${tlink(N, TB.href, TB.tip)}; W1 starts ${shortDate(w1)}; target scope today` : `Scope ${tlink(N, TB.href, TB.tip)} on ${shortDate(w1)} (first day of W1), ${added >= 0 ? "+" : ""}${added.toLocaleString("en-US")} since; target scope today`) + ` ${tlink(target.length, TB.hrefToday, `${target.length} epics are in the target today (Committed + Not Set)`)}. The target is always Committed + Not Set, whatever the Commitment Type filter says. ` +
+    `${snapD < D ? (DATA.refreshedAt ? "Refreshed" : "Snapshot") : "Final"}: ${link(finalDone, jira({kind: "done", commit: new Set(TARGET_COMMIT)}))} done (target epics: Committed + Not Set).` +
     `<details class="vd"><summary>How to Read This Chart</summary><div class="cap">Release ${esc(rel)}: ${weeks} delivery weeks, W1 (${shortDate(w1)}) to the release end (${shortDate(end)}), from the Jira version dates; the IP week before W1 is not drawn. ` +
     `Scope is the target epics in the release on the first day of W1. The dashed line is an even pace from zero to that scope, a reference and not a forecast. ` +
     `Done counts the target epics (Committed + Not Set) closed in the release, including ones added after W1, so Done, scope and the even-pace line always describe the same epics. ` +
@@ -1507,7 +1566,7 @@ function renderBreakdowns() {
   const teamRows = [...names].sort((a, b) => a === NO_TEAM ? 1 : b === NO_TEAM ? -1 : a.localeCompare(b)).map(t =>
     breakdownRow(esc(t), inScope.filter(e => teamsOf(e).includes(t)), {teams: new Set([t])}, any.filter(e => teamsOf(e).includes(t))));
   document.getElementById("tbl-teams").innerHTML = teamRows.length
-    ? `${note}<table><caption class="sr">Epics in scope for release ${esc(r)} by team, listed alphabetically, with status and Commitment Type counts</caption>${breakdownHead("Team")}<tbody>${teamRows.join("")}${total.replace("All Selected", "All Selected (each epic once)")}</tbody></table>`
+    ? `${note}<table><caption class="sr">Epics in scope for release ${esc(r)} by team, listed alphabetically, with status and Commitment Type counts</caption>${breakdownHead("Team")}<tbody>${teamRows.join("")}${total.replace("All Selected", "All Selected (Each Epic Once)")}</tbody></table>`
     : `<div class="empty">${whyEmpty("epics")}</div>`;
 }
 
@@ -1540,10 +1599,13 @@ function sprintOfDate(date) {                                  // the sprint tha
 }
 function plannedOf(r) {
   const byLabel = sprintList().find(s => s.n === r.ts) || null;
-  if (r.dd) { const s = sprintOfDate(r.dd); return s ? {sprint: s, how: "Due date", override: !!(byLabel && byLabel.n !== s.n), staleTs: false} : {sprint: null, how: "", override: false, outside: true}; }   // the due date is stronger: outside the calendar it is NOT replaced by the Target Sprint
+  if (r.dd) { const s = sprintOfDate(r.dd); return s ? {sprint: s, how: "Due date", override: !!(byLabel && byLabel.n !== s.n), tsSprint: byLabel, staleTs: false} : {sprint: null, how: "", override: false, outside: true}; }   // the due date is stronger: outside the calendar it is NOT replaced by the Target Sprint
   if (byLabel) return {sprint: byLabel, how: "Target Sprint", override: false};
   return {sprint: null, how: "", override: false, unknownTs: !!r.ts};
 }
+// Both values stay visible when the due date and the Target Sprint disagree: "Due 2026-09-04 (Sprint 195) overrides Target Sprint 199 (2026-11-25)"
+const overrideNote = (plan, dd) => `Due ${dd} (${sprintName(plan.sprint)}) overrides Target Sprint ${plan.tsSprint.no} (${plan.tsSprint.start})`;
+const tsText = r => { const s = sprintList().find(x => x.n === r.ts); return s ? `Sprint ${s.no} (${s.start})` : (r.ts || "–"); };
 const sprintName = s => s ? `Sprint ${s.no}` : "Not Planned";
 const sprintEnded = s => !!s && utc(s.end) < asOfDay();
 
@@ -1552,7 +1614,9 @@ function depModel() {
   const rel = state.release, scope = scopeOf(rel), inScope = new Set(scope.map(e => e.k));
   const map = new Map(DATA.epics.map(e => [e.k, e])), deps = DATA.deps || [];
   const involved = new Set(); deps.forEach(([a, b]) => { involved.add(a); involved.add(b); });
-  const inView = deps.filter(([a, b]) => inScope.has(a) || inScope.has(b)).map(([a, b, ty]) => {
+  const merged = new Map(); deps.forEach(([a, b, ty]) => { const k = a + "|" + b; merged.set(k, (merged.get(k) || "") + ty); });      // the same pair linked as Dependency and as Blocks counts once
+  const uniq = [...merged.entries()].map(([k, tys]) => { const [a, b] = k.split("|"); return [a, b, ["D", "B"].filter(c => tys.includes(c)).join("")]; });
+  const inView = uniq.filter(([a, b]) => inScope.has(a) || inScope.has(b)).map(([a, b, ty]) => {
     const d = epicRec(map, a), p = epicRec(map, b), plan = plannedOf(p);
     return {d, p, ty, dIn: inScope.has(a), pIn: inScope.has(b), plan, overdue: sprintEnded(plan.sprint), external: d.p !== p.p, unplanned: !plan.sprint,
       open: p.s !== "Done" && d.s !== "Done", outside: d.ext || p.ext};
@@ -1571,8 +1635,8 @@ function providerCards(pairs) {                                  // one card per
 }
 function cardTip(c) {
   const p = c.p, lines = [p.k, shortText(p.t, 100), `${p.s || "status unknown"} · ${p.p} · ${p.tm.length ? p.tm.join(", ") : "no team"}`,
-    `Due date: ${p.dd || "none"} · Target Sprint: ${p.ts || "none"}`,
-    c.plan.sprint ? `Planned: ${sprintName(c.plan.sprint)} (${c.plan.sprint.start} to ${c.plan.sprint.end}), from the ${c.plan.how}${c.plan.override ? "; the due date overrides the Target Sprint" : ""}` : c.plan.outside ? "Planned: none, the due date is outside the sprint calendar" : "Planned: none, no due date or Target Sprint",
+    `Due date: ${p.dd || "none"} · Target Sprint: ${p.ts ? tsText(p) : "none"}`,
+    c.plan.sprint ? `Planned: ${sprintName(c.plan.sprint)} (${c.plan.sprint.start} to ${c.plan.sprint.end}), from the ${c.plan.how}${c.plan.override ? "; " + overrideNote(c.plan, p.dd) : ""}` : c.plan.outside ? "Planned: none, the due date is outside the sprint calendar" : c.plan.unknownTs ? `Planned: none, Target Sprint ${p.ts} is not in the sprint calendar` : "Planned: none, no due date or Target Sprint",
     ...(c.overdue ? [`Overdue: the planned sprint ended ${c.plan.sprint.end} and this epic is not Done`] : []), ...(c.external ? [`External: ${p.p} differs from the dependent's project`] : [])];
   const bl = c.pairs.slice().sort((x, y) => x.d.k.localeCompare(y.d.k, "en", {numeric: true}));
   bl.slice(0, 6).forEach(x => lines.push(`Blocks: ${x.d.k} ${shortText(x.d.t, 60)} (${x.d.s}, ${x.d.p}, ${trainOf(x.d).join(", ") || "no release"}, ${x.dIn ? "in scope" : "outside scope"})`));
@@ -1627,7 +1691,7 @@ function boardHtml(shown, m) {
     const cs = by.get(s.n) || [], isEnded = sprintEnded(s), isCur = s.start <= iso(asOf) && iso(asOf) <= s.end;
     if (cs.length || (!isEnded && (s.rel === state.release || isCur))) cols.push({key: s.n, title: sprintName(s), sub: `${s.rel} · ${s.start} to ${s.end}`, state: isEnded ? "Ended" : isCur ? "Current" : "", cards: cs});
   });
-  cols.push({key: "none", title: "Not Planned", sub: "no due date or Target Sprint", state: "", cards: by.get("none") || []});
+  cols.push({key: "none", title: "Not Planned", sub: "no due date and no known Target Sprint", state: "", cards: by.get("none") || []});
   const nPairs = col => col.cards.reduce((a, c) => a + c.pairs.length, 0);
   const cardHtml = c => {
     const p = c.p, tip = cardTip(c), inS = c.pairs.filter(x => x.dIn).map(x => x.d), outS = c.pairs.filter(x => !x.dIn).map(x => x.d);
@@ -1635,9 +1699,10 @@ function boardHtml(shown, m) {
       return `<div class="blk"><span class="bl">${lbl}</span> ${u.slice(0, 3).map(keyLink).join(", ")}${u.length > 3 ? ` <span class="muted" title="${esc(u.slice(3).map(r => r.k).join(", "))}">and ${u.length - 3} more</span>` : ""}</div>`; };
     const keys = [p.k, ...c.pairs.map(x => x.d.k)];
     const flags = (c.overdue ? flagHtml("warn", "Overdue") : "") + (c.external ? flagHtml("ext", "External") : "");
-    return `<article class="bcard" ${tipAttr(tip, "")}><div class="bk"><a class="cl" href="${keyIn(keys)}" target="_blank" rel="noopener" ${tipAttr(tip, "x")} aria-label="${esc(p.k + ", " + shortText(p.t, 80) + ", blocks " + c.pairs.length + (c.pairs.length === 1 ? " epic" : " epics") + (c.overdue ? ", overdue" : "") + (c.external ? ", external" : ""))}. Opens the provider and the epics it blocks in Jira.">${esc(p.k)}</a><span class="bflags">${flags}</span></div>` +
+    return `<article class="bcard" ${tipAttr(tip, "")}><div class="bk"><a class="cl" href="${BASE}/browse/${esc(p.k)}" target="_blank" rel="noopener" ${tipAttr(tip, "x")} aria-label="${esc(p.k + ", " + shortText(p.t, 80) + ", blocks " + c.pairs.length + (c.pairs.length === 1 ? " epic" : " epics") + (c.overdue ? ", overdue" : "") + (c.external ? ", external" : ""))}. Opens the ticket in Jira.">${esc(p.k)}</a><span class="bflags">${flags}</span></div>` +
       `<div class="bt2" title="${esc(p.t)}">${esc(shortText(p.t, 90))}</div><div class="bm">${esc(p.s || "–")} · ${esc(p.p)}${p.dd ? ` · Due ${p.dd}` : c.plan.how === "Target Sprint" ? " · Target Sprint" : ""}</div>` +
-      (c.plan.override ? `<div class="bq">Due date overrides Target Sprint</div>` : "") + (c.plan.outside ? `<div class="bq">Due date outside the sprint calendar</div>` : "") + dl(inS, "Blocks in scope:") + dl(outS, "Also blocks outside scope:") + `</article>`;
+      (c.plan.override ? `<div class="bq">${esc(overrideNote(c.plan, p.dd))}</div>` : "") + (c.plan.outside ? `<div class="bq">Due date outside the sprint calendar</div>` : "") + (c.plan.unknownTs ? `<div class="bq">Target Sprint ${esc(p.ts)} is not in the sprint calendar</div>` : "") + dl(inS, "Blocks in scope:") + dl(outS, "Also blocks outside scope:") +
+      `<div class="bwith"><a href="${keyIn(keys)}" target="_blank" rel="noopener" ${tipAttr(`${keys.length} Jira issues\nThe provider ${p.k} and the ${c.pairs.length} ${c.pairs.length === 1 ? "epic" : "epics"} it blocks`, "x")} aria-label="${esc(p.k + " and the epics it blocks")}. Opens ${keys.length} issues in Jira.">Open with Dependents</a></div></article>`;
   };
   const colHtml = col => { const n = nPairs(col);
     return `<div class="bcol" role="group" aria-label="${esc(col.title)}${col.state ? ", " + col.state : ""}, ${n} open ${n === 1 ? "dependency" : "dependencies"}"><div class="bh"><div class="bn1">${esc(col.title)}${col.state ? ` <span class="bst ${col.state === "Ended" ? "ended" : ""}">${col.state}</span>` : ""}</div><div class="bd">${esc(col.sub)}</div><div class="bc">${n} ${n === 1 ? "dependency" : "dependencies"}</div></div>` +
@@ -1650,11 +1715,11 @@ function boardHtml(shown, m) {
 function depDataHtml(shown, m) {
   const host = document.getElementById("dep-body"), wasOpen = !!(host.querySelector("details.vd.dd") || {}).open;
   const rows = shown.map(x => {
-    const fl = [x.overdue ? flagHtml("warn", "Overdue") : "", x.external ? flagHtml("ext", "External") : "", x.plan.override ? "Due date overrides Target Sprint" : ""].filter(Boolean);
+    const fl = [x.overdue ? flagHtml("warn", "Overdue") : "", x.external ? flagHtml("ext", "External") : "", x.plan.override ? overrideNote(x.plan, x.p.dd) : ""].filter(Boolean);
     const cell = r => `<td class="title"><span class="k">${keyLink(r)}</span><span class="ttl" title="${esc(r.t)}">${esc(shortText(r.t, 56))}</span></td>`;
-    return `<tr>${cell(x.d)}<td>${esc(x.d.s || "–")}</td>${cell(x.p)}<td>${esc(x.p.s || "–")}</td><td>${esc(x.p.p)}</td><td>${x.plan.sprint ? esc(sprintName(x.plan.sprint)) + ` <span class="muted">(${esc(x.plan.sprint.rel)})</span>` : x.plan.outside ? "Due date outside the sprint calendar" : "Not Planned"}</td><td>${x.plan.how || "–"}</td><td>${x.p.dd || "–"}</td><td>${x.ty === "B" ? "Blocks" : "Dependency"}</td><td class="flags">${fl.length ? fl.map(f => f.startsWith("<") ? f : `<span class="flag info"><svg class="ic" viewBox="0 0 12 12" aria-hidden="true">${FLAG_ICON.info}</svg>${f}</span>`).join("") : '<span class="muted">None</span>'}</td></tr>`;
+    return `<tr>${cell(x.d)}<td>${esc(x.d.s || "–")}</td>${cell(x.p)}<td>${esc(x.p.s || "–")}</td><td>${esc(x.p.p)}</td><td>${x.plan.sprint ? esc(sprintName(x.plan.sprint)) + ` <span class="muted">(${esc(x.plan.sprint.rel)})</span>` : x.plan.outside ? "Due date outside the sprint calendar" : x.plan.unknownTs ? "Target Sprint not in the sprint calendar" : "Not Planned"}</td><td>${x.plan.how || "–"}</td><td>${x.p.dd || "–"}</td><td>${esc(tsText(x.p))}</td><td>${x.ty === "DB" ? "Dependency and Blocks" : x.ty === "B" ? "Blocks" : "Dependency"}</td><td class="flags">${fl.length ? fl.map(f => f.startsWith("<") ? f : `<span class="flag info"><svg class="ic" viewBox="0 0 12 12" aria-hidden="true">${FLAG_ICON.info}</svg>${f}</span>`).join("") : '<span class="muted">None</span>'}</td></tr>`;
   }).join("");
-  return `<details class="vd dd"${wasOpen ? " open" : ""}><summary>View Data</summary><div class="tablewrap tall"><table class="deptable"><caption class="sr">Open dependencies for release ${esc(m.rel)}, one row per pair, sorted by dependent epic key</caption><thead><tr><th scope="col">Dependent</th><th scope="col">Dependent Status</th><th scope="col">Provider</th><th scope="col">Provider Status</th><th scope="col">Provider Project</th><th scope="col">Planned Sprint</th><th scope="col">Derived From</th><th scope="col">Due Date</th><th scope="col">Link Type</th><th scope="col">Flags</th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
+  return `<details class="vd dd"${wasOpen ? " open" : ""}><summary>View Data</summary><div class="tablewrap tall"><table class="deptable"><caption class="sr">Open dependencies for release ${esc(m.rel)}, one row per pair, sorted by dependent epic key</caption><thead><tr><th scope="col">Dependent</th><th scope="col">Dependent Status</th><th scope="col">Provider</th><th scope="col">Provider Status</th><th scope="col">Provider Project</th><th scope="col">Planned Sprint</th><th scope="col">Derived From</th><th scope="col">Due Date</th><th scope="col">Target Sprint (Jira)</th><th scope="col">Link Type</th><th scope="col">Flags</th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
 }
 
 // ---- Capability view: a status matrix, grouped by the project of the Capability
@@ -1670,16 +1735,16 @@ function renderCapabilities(m) {
   const stat = list => ({ns: list.filter(e => cls(e.s) === "notStarted").length, ip: list.filter(e => e.s === "In Progress").length, val: list.filter(e => e.s === "Validation").length, done: list.filter(e => cls(e.s) === "done").length, total: list.length});
   const n = (v, extra, tip, kind) => v ? tlink(v, jira({kind, extra}), tip) : `<span class="muted">0</span>`;
   const bar = s => { if (s.total < MIN_N) return `<span class="muted" title="Fewer than ${MIN_N} epics, so no share is shown">–</span>`; const fl = s.ip + s.val, t = s.total || 1, w = v => (100 * v / t).toFixed(1) + "%";
-    return `<span class="mbar" ${tipAttr(`${s.total} epics\n${s.done} Done, ${fl} In Progress or Validation, ${s.ns} Not Started`, "")}><i style="width:${w(s.done)};background:#025AFB"></i><i style="width:${w(fl)};background:#3694FC"></i><i style="width:${w(s.ns)};background:#E3E0D8"></i></span>`; };
+    return `<span class="mbar" tabindex="0" role="img" aria-label="${s.total} epics: ${s.done} Done, ${fl} In Progress or Validation, ${s.ns} Not Started" ${tipAttr(`${s.total} epics\n${s.done} Done, ${fl} In Progress or Validation, ${s.ns} Not Started`, "")}><i style="width:${w(s.done)};background:#025AFB"></i><i style="width:${w(fl)};background:#3694FC"></i><i style="width:${w(s.ns)};background:#E3E0D8"></i></span>`; };
   const cells = (s, extra, label) => `<td class="n">${n(s.ns, extra, `${s.ns} Not Started\n${label}`, "notStarted")}</td><td class="n">${n(s.ip, `${extra ? extra + " AND " : ""}status = "In Progress"`, `${s.ip} In Progress\n${label}`)}</td><td class="n">${n(s.val, `${extra ? extra + " AND " : ""}status = Validation`, `${s.val} in Validation\n${label}`)}</td><td class="n">${n(s.done, extra, `${s.done} Done\n${label}`, "done")}</td><td class="n">${n(s.total, extra, `${s.total} epics in scope\n${label}`)}</td><td class="n">${s.total >= MIN_N ? pct(s.done, s.total) + "%" : "–"}</td><td class="shr">${bar(s)}</td>`;
   let body = "", noCapAll = 0; const allCaps = [];
   projs.forEach(p => {
     const g = groups.get(p), capKeys = [...g.caps].sort(), gs = stat(g.epics); noCapAll += g.none; allCaps.push(...capKeys);
     const ex = `(${capKeys.length ? `parent in (${capKeys.join(", ")})` : ""}${capKeys.length && g.none ? " OR " : ""}${g.none ? `(parent is EMPTY AND project = ${p})` : ""})`;
-    body += `<tr><th scope="row">${esc(p)}${g.none ? ` <span class="muted">${g.none} without a Capability</span>` : ""}</th><td class="n">${capKeys.length ? tlink(capKeys.length, keyIn(capKeys), `${capKeys.length} Capabilities of ${p} with epics in ${rel}`) : '<span class="muted">0</span>'}</td>${cells(gs, ex, `${p}, release ${rel}`)}</tr>`;
+    body += `<tr><th scope="row">${esc(p)}${g.none ? ` <span class="muted">(${g.none} Without a Capability)</span>` : ""}</th><td class="n">${capKeys.length ? tlink(capKeys.length, keyIn(capKeys), `${capKeys.length} Capabilities of ${p} with epics in ${rel}`) : '<span class="muted">0</span>'}</td>${cells(gs, ex, `${p}, release ${rel}`)}</tr>`;
   });
   const tot = stat(scope);
-  body += `<tr class="total"><th scope="row">All Selected (each epic once)</th><td class="n">${allCaps.length ? tlink(allCaps.length, keyIn(allCaps), `${allCaps.length} Capabilities with epics in ${rel}`) : '<span class="muted">0</span>'}</td>${cells(tot, "", `all epics in scope, release ${rel}`)}</tr>`;
+  body += `<tr class="total"><th scope="row">All Selected (Each Epic Once)</th><td class="n">${allCaps.length ? tlink(allCaps.length, keyIn(allCaps), `${allCaps.length} Capabilities with epics in ${rel}`) : '<span class="muted">0</span>'}</td>${cells(tot, "", `all epics in scope, release ${rel}`)}</tr>`;
   host.innerHTML = `<a class="skip" href="#h-cx" data-skip="h-cx">Skip to CXCROSS</a><div class="tablewrap"><table class="captable matrix"><caption class="sr">Epics in scope for release ${esc(rel)} by status, one row per project of the Capability</caption><thead><tr><th scope="col">Project</th><th class="n" scope="col">Capabilities</th><th class="n" scope="col">Not Started</th><th class="n" scope="col">In Progress</th><th class="n" scope="col">Validation</th><th class="n" scope="col">Done</th><th class="n" scope="col">Total</th><th class="n" scope="col">% Done</th><th scope="col">Share</th></tr></thead><tbody>${body}</tbody></table></div>` +
     `<div class="cap">One row per project of the Capability, alphabetical. Capabilities with no epics in scope are not counted. Epics with no Capability are included in the row of their own project. The bar shows Done, In Progress or Validation, and Not Started as shares of the row; the numbers are always printed.</div>`;
   document.getElementById("cap-dq").innerHTML = `${noCapAll ? `${tlink(noCapAll, jira({extra: "parent is EMPTY"}), `${noCapAll} epics in scope with no Capability\nOpens them in Jira.`)} of ${tot.total.toLocaleString("en-US")} epics in scope ${noCapAll === 1 ? "has" : "have"} no Capability.` : "Every epic in scope has a Capability."} ` +
@@ -1714,14 +1779,13 @@ function attentionModel() {
   const mk = (id, name, sev, conf) => (T[id] = {id, name, sev, conf, items: []});
   mk("bug-sla-breach", "Production Bugs Out of SLA", "High", "Confirmed");
   mk("bug-sla-due", "Production Bugs Due Soon", "Medium", "Confirmed");
-  mk("bug-no-progress", "Production Bugs With No Update", "Medium", "Single-source");
+  mk("bug-no-progress", "Production Bugs with No Update", "Medium", "Single-source");
   mk("dep-overdue", "Overdue Dependencies", "Medium", "Single-source");
   mk("epic-validation-age", `Epics in Validation More Than ${CFG.validationDays} Business Days`, "Medium", "Confirmed");
-  mk("epic-inprogress-age", `Epics In Progress More Than ${CFG.inProgressDays} Days (Reference Threshold)`, "Low", "Confirmed");
   mk("dep-external", "Open External Dependencies", "Info", "Confirmed");
   // ---- production bugs: customer-found, open, not yet ready to deploy; follows the Projects and Teams filters, not the release
   const prod = bugsBase().filter(b => b.cfb && !b.rd && !OPEN_BUG_SKIP().includes(b.s));
-  const bugItem = (b, extra) => ({key: b.k, kind: "bug", title: "", project: b.p, status: b.s, team: b.tm || "", href: `${BASE}/browse/${b.k}`, tier: 0, impact: 0, blast: 0, ...extra});
+  const bugItem = (b, extra) => ({key: b.k, kind: "bug", title: "", project: b.p, status: b.s, team: b.tm || "", href: `${BASE}/browse/${b.k}`, tier: 0, impact: 0, blast: 0, pr: b.pr, ...extra});
   prod.forEach(b => {
     const age = daysSince(b.cr), s = slaOf(b);
     const st = slaState(s, age);
@@ -1739,16 +1803,13 @@ function attentionModel() {
   const epicItem = (e, extra) => ({key: e.k, kind: "epic", title: e.t, project: e.p, status: e.s, team: (e.tm || []).join(", "), href: `${BASE}/browse/${e.k}`, tier: TIER(e), impact: 1, blast: openProv.get(e.k) || 0, slaKey: 0, ...extra});
   scope.filter(e => e.s === "Validation" && e.ss).forEach(e => { const d = daysSince(e.ss);
     const bd = businessDaysSince(e.ss);
-    if (bd > CFG.validationDays) { const r = {type: "epic-validation-age", text: `${bd} business days in Validation (limit ${CFG.validationDays}), ${d} calendar days`, rule: "Epic in Validation longer than the limit; the cause is not known, as no comments are held", value: `${bd} business days, ${d} calendar days in Validation (since ${e.ss}); working week assumed Sunday to Thursday, no holiday calendar`, threshold: `${CFG.validationDays} business days`, source: CFG.validationSource + "; weekend and holidays are assumptions to confirm", conf: "Confirmed", icon: "warn"};
+    if (bd > CFG.validationDays) { const r = {type: "epic-validation-age", text: `${bd} business days in Validation (limit ${CFG.validationDays}), ${d} calendar days`, rule: "Epic in Validation longer than the limit; the cause is not known, as no comments are held", value: `${bd} business days, ${d} calendar days in Validation (since ${e.ss}); Friday, Saturday and Israeli public holidays are not counted`, threshold: `${CFG.validationDays} business days`, source: CFG.validationSource + "; Friday, Saturday and Israeli public holidays are not counted", conf: "Confirmed", icon: "warn"};
       addReason(e.k, r); T["epic-validation-age"].items.push(epicItem(e, {age: d, why: r})); } });
-  scope.filter(e => e.s === "In Progress" && e.ss).forEach(e => { const d = daysSince(e.ss);
-    if (d > CFG.inProgressDays) { const r = {type: "epic-inprogress-age", text: `${d} days In Progress (reference limit ${CFG.inProgressDays})`, rule: "Epic In Progress longer than a reference limit that the owner has not adopted", value: `${d} calendar days since ${e.ss}`, threshold: `${CFG.inProgressDays} days`, source: CFG.inProgressSource, conf: "Confirmed", icon: "low"};
-      addReason(e.k, r); T["epic-inprogress-age"].items.push(epicItem(e, {age: d, why: r})); } });
   // ---- dependencies: one case per provider epic, with what it blocks
   const depCases = (pairs, id, mkReason) => providerCards(pairs).forEach(c => {
     const p = c.p, blocked = c.pairs.map(x => x.d), r = mkReason(c);
     addReason(p.k, r);
-    T[id].items.push({key: p.k, kind: "dep", title: p.t, project: p.p, status: p.s, team: (p.tm || []).join(", "), href: keyIn([p.k, ...blocked.map(d => d.k)]), tier: TIER(p), impact: 1, blast: openProv.get(p.k) || 0,
+    T[id].items.push({key: p.k, kind: "dep", title: p.t, project: p.p, status: p.s, team: (p.tm || []).join(", "), href: `${BASE}/browse/${p.k}`, tier: TIER(p), impact: 1, blast: openProv.get(p.k) || 0,
       slaKey: 0, age: c.plan.sprint ? daysSince(c.plan.sprint.end) : 0, why: r, card: c});
   });
   depCases(dm.open.filter(x => x.overdue), "dep-overdue", c => ({type: "dep-overdue", text: `Planned for ${sprintName(c.plan.sprint)}, which ended ${c.plan.sprint.end}; blocks ${c.pairs.length}`, rule: "Open dependency whose provider's planned sprint has ended and the provider is not Done", value: `${sprintName(c.plan.sprint)} ended ${c.plan.sprint.end}; planned from the ${c.plan.how}`, threshold: "planned sprint end before the snapshot date", source: "owner-supplied rule; the due date is stronger than the Target Sprint", conf: "Single-source", icon: "warn"}));
@@ -1760,14 +1821,15 @@ function attentionModel() {
   const noPri = prod.filter(b => !PRIORITIES.includes(b.pr)), doneNoEdct = scope.filter(e => cls(e.s) === "done" && e.edct == null);
   const pj = [...state.projects].join(", ");
   const hyg = [
-    {label: "Epics With No Commitment Type", n: noCommit.length, href: noCommit.length ? jira({commit: new Set(["Not Set"])}) : null, note: "in scope for the selected release"},
-    {label: "Epics With No Team", n: noTeam.length, href: noTeam.length ? jira({extra: "cf[10040] is EMPTY AND cf[10098] is EMPTY"}) : null, note: "in scope for the selected release"},
-    {label: "Epics With No Parent Capability", n: noCap.length, href: noCap.length ? jira({extra: "parent is EMPTY"}) : null, note: "in scope for the selected release"},
-    {label: "Open Customer-Found Bugs With No SLA", n: noPri.length, href: noPri.length && state.projects.size ? href(`project in (${pj}) AND issuetype = Bug AND resolution is EMPTY AND reporter = ${q(DATA.cfbAccount)} AND status not in (${CFG.prodDoneStatuses.map(q).join(", ")}) AND (priority is EMPTY OR priority not in (${PRIORITIES.join(", ")}))${bugTeamClause(state.teams)}`) : null, note: "no priority, or a priority outside P1 to P4, so no SLA applies"},
-    {label: "Done Epics With No EDCT", n: doneNoEdct.length, href: null, note: "read from change history, which Jira cannot search"},
+    {label: "Epics with No Commitment Type", n: noCommit.length, href: noCommit.length ? jira({commit: new Set(["Not Set"])}) : null, note: "in scope for the selected release"},
+    {label: "Epics with No Team", n: noTeam.length, href: noTeam.length ? jira({extra: "cf[10040] is EMPTY AND cf[10098] is EMPTY"}) : null, note: "in scope for the selected release"},
+    {label: "Epics with No Parent Capability", n: noCap.length, href: noCap.length ? jira({extra: "parent is EMPTY"}) : null, note: "in scope for the selected release"},
+    {label: "Open Customer-Found Bugs with No SLA", n: noPri.length, href: noPri.length && state.projects.size ? href(`project in (${pj}) AND issuetype = Bug AND resolution is EMPTY AND reporter = ${q(DATA.cfbAccount)} AND status not in (${CFG.prodDoneStatuses.map(q).join(", ")}) AND (priority is EMPTY OR priority not in (${PRIORITIES.join(", ")}))${bugTeamClause(state.teams)}`) : null, note: "no priority, or a priority outside P1 to P4, so no SLA applies"},
+    {label: "Done Epics with No EDCT", n: doneNoEdct.length, href: null, note: "read from change history, which Jira cannot search"},
   ];
+  const holidayStale = asOfDay() > utc(CFG.holidaysThrough); if (holidayStale && !window.__holidayWarned) { window.__holidayWarned = true; console.warn(`The holiday list ends ${CFG.holidaysThrough}; Validation business days after it are not adjusted for holidays.`); }
   const checked = {bugs: prod.length, validation: scope.filter(e => e.s === "Validation").length, deps: dm.open.length, proj: (state.projects.size === projectsAll.length ? "All Projects" : pj || "no project") + (state.teams.size ? `, teams ${[...state.teams].join(", ")}` : "")};
-  return {T, order: Object.keys(T), reasons, hyg, hygTotal: hyg.reduce((a, h) => a + h.n, 0), hygChecks: hyg.filter(h => h.n).length, checked, asOfTxt};
+  return {holidayStale, T, order: Object.keys(T), reasons, hyg, hygTotal: hyg.reduce((a, h) => a + h.n, 0), hygChecks: hyg.filter(h => h.n).length, checked, asOfTxt};
 }
 function attnTip(it, reasons, onlyFirst) {
   const lines = [it.key, ...(it.title ? [shortText(it.title, 100)] : []), `${it.status || "status unknown"} · ${it.project}${it.team ? " · " + it.team : ""}`];
@@ -1781,22 +1843,40 @@ function renderAttention() {
   const host = document.getElementById("attn"); if (!host) return;
   const sum = document.getElementById("attn-sum"), body = document.getElementById("attn-body"), tog = document.getElementById("attn-toggle"), all = document.getElementById("attn-all");
   const jl = document.querySelector('[data-jump="h-attn"]');
-  if (!state.projects.size) { sum.textContent = "No project is selected."; body.hidden = true; tog.disabled = true; all.hidden = true; if (jl) jl.textContent = "Needs Attention"; return; }
+  if (!state.projects.size) { sum.textContent = "No project is selected."; body.hidden = true; tog.disabled = true; all.hidden = true; if (jl) { jl.textContent = "Needs Attention"; jl.removeAttribute("data-tip"); } return; }
   tog.disabled = false;
   const M = attentionModel(), ids = M.order.filter(id => M.T[id].items.length), nUnique = new Set(ids.flatMap(id => M.T[id].items.map(i => i.key))).size;
   const sevIcon = {High: "high", Medium: "warn", Low: "low", Info: "info"};
-  const seg = (icon, n, name, sev) => `<span class="aseg">${flagHtml(icon, "", "")}<b>${n.toLocaleString("en-US")}</b> ${esc(name)}</span>`;
+  // the summary chips: a count, a group name, the items behind the count on hover and focus, and a click that opens the group
+  const gname = id => id === "hygiene" ? "Jira Hygiene" : M.T[id].name;
+  const itemLine = it => it.kind === "bug" ? `${it.key} · ${it.pr || "no priority"} · ${it.status} · ${it.why.text}` : `${it.key} · ${shortText(it.title, 46)} · ${it.why.text}`;
+  const groupTipText = id => id === "hygiene"
+    ? [`Jira Hygiene (${M.hygChecks} ${M.hygChecks === 1 ? "check" : "checks"} with findings)`, ...M.hyg.filter(h => h.n).map(h => `${h.label} · ${h.n.toLocaleString("en-US")}`), "Click to open the group"].join("\n")
+    : [`${M.T[id].name} (${M.T[id].items.length})`, ...M.T[id].items.slice(0, 6).map(itemLine), ...(M.T[id].items.length > 6 ? [`and ${M.T[id].items.length - 6} more`] : []), "Click to open the group"].join("\n");
+  const chipDescs = [];
+  const chip = (id, icon, n, label) => { const tipTxt = groupTipText(id); chipDescs.push(`<span class="sr" id="attn-d-${id}">${esc(tipTxt.replace(/\n/g, ". "))}</span>`);
+    return `<button type="button" class="achip" data-chip="${id}" ${tipAttr(tipTxt, "")} aria-label="${esc(`${n} ${label}`)}" aria-describedby="attn-d-${id}">${flagHtml(icon, "", "")}<b>${n.toLocaleString("en-US")}</b> ${esc(label)}</button>`; };
+  const seg = id => chip(id, sevIcon[M.T[id].sev], M.T[id].items.length, M.T[id].name);
   const chk = M.checked;
-  const none = `As of ${esc(M.asOfTxt)}: checked ${chk.bugs} open customer-found ${chk.bugs === 1 ? "bug" : "bugs"}, ${chk.validation} ${chk.validation === 1 ? "epic" : "epics"} in Validation and ${chk.deps} open ${chk.deps === 1 ? "dependency" : "dependencies"} across ${esc(chk.proj)}. None met the criteria. Comments and story data were not checked.`;
+  const none = `Checked ${chk.bugs} open customer-found ${chk.bugs === 1 ? "bug" : "bugs"}, ${chk.validation} ${chk.validation === 1 ? "epic" : "epics"} in Validation and ${chk.deps} open ${chk.deps === 1 ? "dependency" : "dependencies"} across ${esc(chk.proj)}: none met the attention criteria. Comments and story data were not checked. As of ${esc(M.asOfTxt)}.`;
   const NEED = ["bug-sla-breach", "bug-sla-due", "bug-no-progress", "dep-overdue", "epic-validation-age"], needIds = ids.filter(id => NEED.includes(id)), refIds = ids.filter(id => !NEED.includes(id));
   const uniq = list => new Set(list.flatMap(id => M.T[id].items.map(i => i.key))).size, nNeed = uniq(needIds), nRef = uniq(refIds) + M.hygChecks;
-  const hygSeg = M.hygTotal ? `<span class="aseg">${flagHtml("info", "")}<b>${M.hygChecks}</b> Jira Hygiene ${M.hygChecks === 1 ? "check has" : "checks have"} findings</span>` : "";
-  const refPart = (refIds.length || M.hygTotal) ? ` · plus ${nRef} for reference or information: ` + refIds.map(id => seg(sevIcon[M.T[id].sev], M.T[id].items.length, M.T[id].name)).join("") + hygSeg : "";
-  sum.innerHTML = needIds.length
-    ? `As of ${esc(M.asOfTxt)} · ${nNeed} ${nNeed === 1 ? "item needs" : "items need"} attention: ` + needIds.map(id => seg(sevIcon[M.T[id].sev], M.T[id].items.length, M.T[id].name)).join("") + refPart
-    : none + refPart;
+  const hygSeg = M.hygTotal ? chip("hygiene", "info", M.hygChecks, `Jira Hygiene ${M.hygChecks === 1 ? "check has" : "checks have"} findings`) : "";
+  const nRefItems = uniq(refIds), lead = needIds.length ? "plus" : "For reference or information:";
+  const memberships = new Map(); needIds.forEach(id => M.T[id].items.forEach(i => memberships.set(i.key, (memberships.get(i.key) || 0) + 1)));
+  const dupItems = [...memberships.values()].filter(v => v > 1).length;
+  const stale = M.holidayStale ? `<span class="attn-plus">The holiday list ends ${esc(CFG.holidaysThrough)}, so Validation business days after that date are not adjusted for holidays.</span>` : "";
+  const refPart = (refIds.length || M.hygTotal)
+    ? `<span class="attn-plus">${needIds.length ? `plus ${nRefItems} ${nRefItems === 1 ? "item" : "items"} for reference or information:` : lead}</span>` + refIds.map(seg).join("") + (M.hygTotal ? `<span class="attn-plus">${refIds.length ? "and" : needIds.length ? "plus" : "Also:"}</span>` + hygSeg : "") : "";
+  sum.innerHTML = (needIds.length
+    ? `${nNeed} ${nNeed === 1 ? "item needs" : "items need"} attention${dupItems ? ` (${dupItems} ${dupItems === 1 ? "appears" : "appear"} in more than one group)` : ""}: ` + needIds.map(seg).join("") + refPart
+    : none + (refPart ? " " + refPart : "")) + stale;
+  sum.insertAdjacentHTML("beforeend", chipDescs.join(""));
   document.getElementById("attn-act").textContent = attnUi.panel ? "Hide Details" : "Show Details";
-  if (jl) jl.textContent = `Needs Attention (${nNeed})`;
+  tog.setAttribute("aria-label", `Needs Attention: ${needIds.length ? `${nNeed} ${nNeed === 1 ? "item needs" : "items need"} attention` : "no item met the attention rules"}${refIds.length || M.hygTotal ? `, plus ${nRef} for reference or information` : ""}. ${attnUi.panel ? "Hide" : "Show"} details`);
+  if (jl) { jl.textContent = `Needs Attention (${nNeed})`;
+    jl.setAttribute("data-tip", [`Needs Attention: ${nNeed} ${nNeed === 1 ? "item needs" : "items need"} attention`, ...needIds.map(id => `${M.T[id].items.length} ${M.T[id].name}`),
+      ...(refIds.length || M.hygTotal ? [`Plus ${nRef} for reference or information:`, ...refIds.map(id => `${M.T[id].items.length} ${M.T[id].name}`), ...(M.hygTotal ? [`${M.hygChecks} Jira Hygiene ${M.hygChecks === 1 ? "check has" : "checks have"} findings`] : [])] : [])].join("\n")); jl.setAttribute("data-link", "0"); }
   tog.setAttribute("aria-expanded", String(attnUi.panel));
   body.hidden = !attnUi.panel; all.hidden = !attnUi.panel;
   const groupHtml = id => {
@@ -1816,17 +1896,22 @@ function renderAttention() {
   const hygHtml = M.hygTotal ? `<div class="agrp"><h3 class="ah"><button type="button" class="abtn" data-act="grp-hygiene" aria-expanded="${hygOpen}" aria-controls="ag-hygiene"><svg class="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2l5 4-5 4z"/></svg><span class="an">Jira Hygiene</span> <span class="ac">${M.hygChecks}</span><span class="asev">${flagHtml("info", "Info")}</span></button></h3><div id="ag-hygiene" class="abody"${hygOpen ? "" : " hidden"}><ul class="arows hyg">${M.hyg.filter(h => h.n).map(h => `<li class="arow"><div class="a1">${h.href ? tlink(h.n.toLocaleString("en-US"), h.href, `${h.n} ${h.label}\n${h.note}`) : `<b>${h.n.toLocaleString("en-US")}</b>`} <span class="at">${esc(h.label)}</span></div><div class="a2">${esc(h.note)}</div><div class="a3"></div><div class="a4"><span class="conf">Confirmed</span></div></li>`).join("")}</ul></div></div>` : "";
   body.innerHTML = `<a class="skip" href="#h-burnup" data-skip="h-burnup">Skip to Delivery</a>` + ids.map(groupHtml).join("") + hygHtml +
     `<details class="vd"><summary>Limits and Thresholds</summary><div class="cap"><b>What This Checks.</b> Rules applied to the Jira data held at ${esc(M.asOfTxt)}; the as-of date is the snapshot date, not today's date. Epic rules follow the selected release, the Commitment Type filter and the Projects and Teams filters; bug rules follow the Projects and Teams filters only. Removed is excluded; Done means the status name Done.<br>` +
-    `<b>Thresholds and Where They Come From.</b> SLA for production (customer-found) bugs, by calendar days from creation with no pause: P1 ${CFG.sla.p1} days; P2, P3 and P4 with a regression ${CFG.sla.regression} days; P2 without ${CFG.sla.p2} days; P3 and P4 without ${CFG.sla.other} days (${CFG.sla.source}). Customer-found bugs are those reported by the CFB account whose status is not Ready for Deploy, Done, Closed, Resolved or Removed (Validation included); age is whole calendar days from creation, with no pause for any status; a missing regression counts as No; Breached means age greater than the SLA, so the last allowed day is not a breach. Due soon means ${Math.round(CFG.dueSoonShare * 100)}% of the SLA used (${CFG.dueSoonSource}), for example from day 3, 5, 10 and 21 for SLAs of 3, 7, 14 and 30 days. No update means ${CFG.noUpdateDays} days or more since the update date (${CFG.noUpdateSource}); any edit counts as an update. In Validation more than ${CFG.validationDays} business days (${CFG.validationSource}). <b>Assumptions to Confirm:</b> the working week is Sunday to Thursday, so Friday and Saturday are not counted, and no holiday calendar is configured (${CFG.HOLIDAYS.length ? CFG.HOLIDAYS.length + " holidays listed" : "the list is empty"}); dates are Israel local dates as Jira returns them. The hover shows both the business and the calendar days. Trend weeks start on Monday; only this business-day rule assumes the Sunday to Thursday working week. In Progress more than ${CFG.inProgressDays} days is a ${CFG.inProgressSource}. Overdue and external dependencies use the rules on the Dependencies board.<br>` +
+    `<b>Thresholds and Where They Come From.</b> SLA for production (customer-found) bugs, by calendar days from creation with no pause: P1 ${CFG.sla.p1} days; P2, P3 and P4 with a regression ${CFG.sla.regression} days; P2 without ${CFG.sla.p2} days; P3 and P4 without ${CFG.sla.other} days (${CFG.sla.source}). Customer-found bugs are those reported by the CFB account whose status is not Ready for Deploy, Done, Closed, Resolved or Removed (Validation included); age is whole calendar days from creation, with no pause for any status; a missing regression counts as No; Breached means age greater than the SLA, so the last allowed day is not a breach. Due soon means ${Math.round(CFG.dueSoonShare * 100)}% of the SLA used (${CFG.dueSoonSource}), for example from day 3, 5, 10 and 21 for SLAs of 3, 7, 14 and 30 days. No update means ${CFG.noUpdateDays} days or more since the update date (${CFG.noUpdateSource}); any edit counts as an update. In Validation more than ${CFG.validationDays} business days (${CFG.validationSource}). <b>Business Days.</b> The working week is Sunday to Thursday: Friday and Saturday are not counted (confirmed by the owner). Israeli public holidays are not counted either, using the public-holiday list in the thresholds object (${CFG.HOLIDAYS.length} dates, 2025-06 to ${esc(CFG.holidaysThrough.slice(0, 7))}${M.holidayStale ? "; the as-of date is beyond the list, so later days are not adjusted for holidays" : ""}); intermediate festival days such as Chol HaMoed are not excluded. Dates are Israel local dates as Jira returns them. The hover shows both the business and the calendar days. Trend weeks start on Monday. Overdue and external dependencies use the rules on the Dependencies board.<br>` +
     `<b>What It Cannot See.</b> Why an epic is in Validation (no comments are held), whether an epic is ready to close (no child issues), blocked flags and scope churn. Nothing is stored between visits: every rule is computed from the data this page holds, which is the Jira snapshot read at the time shown above (or the last Refresh from Jira; a refresh does not update status-since dates, due dates, sprints or dependencies). Status-since is held only for epics in Validation or In Progress. A bug with no priority, or a priority outside P1 to P4, has no SLA and is listed under Jira Hygiene as "No SLA", never in the SLA groups. Provider epics outside the six projects may be missing. Bugs have no title in this data, so only their key is shown.</div></details>`;
   const act = (id) => {
     if (id.startsWith("grp-")) { const g = id.slice(4); attnUi.open.has(g) ? attnUi.open.delete(g) : attnUi.open.add(g); }
     else if (id.startsWith("more-")) { const g = id.slice(5); attnUi.more.has(g) ? attnUi.more.delete(g) : attnUi.more.add(g); }
-    renderAttention(); const el = document.querySelector(`#attn [data-act="${id}"]`); if (el) el.focus();
+    withAnchor(renderAttention, `#attn [data-act="${id}"]`); const el = document.querySelector(`#attn [data-act="${id}"]`); if (el) el.focus({preventScroll: true});
   };
   body.querySelectorAll("[data-act]").forEach(b => b.onclick = () => act(b.dataset.act));
-  tog.onclick = () => { attnUi.panel = !attnUi.panel; renderAttention(); tog.focus(); };
+  tog.onclick = () => { attnUi.panel = !attnUi.panel; withAnchor(renderAttention, "#attn-toggle"); tog.focus({preventScroll: true}); };
+  sum.querySelectorAll(".achip").forEach(b => b.onclick = () => {          // open the details, expand that group, scroll to it (script scroll: the hash holds the filters)
+    const id = b.dataset.chip; attnUi.panel = true; attnUi.open.add(id); anchorUserAt = performance.now(); renderAttention(); gtip().style.display = "none";
+    const gb = document.querySelector(`#attn [data-act="grp-${id}"]`);
+    if (gb) { gb.closest(".agrp").scrollIntoView({block: "start", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"}); gb.focus({preventScroll: true}); }
+  });
   all.textContent = ids.concat(M.hygTotal ? ["hygiene"] : []).every(id => attnUi.open.has(id)) ? "Collapse All" : "Expand All";
-  all.onclick = () => { const every = ids.concat(M.hygTotal ? ["hygiene"] : []); const allOpen = every.every(id => attnUi.open.has(id)); every.forEach(id => allOpen ? attnUi.open.delete(id) : attnUi.open.add(id)); renderAttention(); all.focus(); };
+  all.onclick = () => { const every = ids.concat(M.hygTotal ? ["hygiene"] : []); const allOpen = every.every(id => attnUi.open.has(id)); every.forEach(id => allOpen ? attnUi.open.delete(id) : attnUi.open.add(id)); withAnchor(renderAttention, "#attn-all"); all.focus({preventScroll: true}); };
   nowrapDates();
 }
 
@@ -1875,7 +1960,7 @@ function renderCx() {
   const cxTop = [...cxByP.entries()].sort((a, b) => b[1] - a[1])[0] ? [...cxByP.entries()].sort((a, b) => b[1] - a[1])[0][0] : "no project";
   const capKeys = [...M.byCap.keys()], par = caps => `parent in (${caps.join(", ")})`;
   const latestOf = c => { const r = versionsOf((H[c] || {}).fv).rel; return r.length ? r[r.length - 1] : null; };
-  // "Behind Capability Fix Version": an open epic planned later than its Capability (rule a), or still open although the Capability's latest release has ended (rule b).
+  // "Behind Required Fix Version": an open epic planned later than its Capability (rule a), or still open although the Capability's latest release has ended (rule b).
   // A fact about versions and dates, never a verdict on a project or a team. A Capability with no release-named fix version cannot be assessed.
   const behindOf = (c, e) => { const L = latestOf(c); if (!L || cls(e.s) === "done") return null;
     const ev = versionsOf(e.fv).rel, a = !!(ev.length && relNum(ev[0]) > relNum(L)), w = DATA.windows && DATA.windows[L], b = !!(w && utc(w[1]) < asOf);
@@ -1887,21 +1972,21 @@ function renderCx() {
     const bh = l.map(e => ({e, w: behindOf(r.c, e)})).filter(x => x.w); r.cells.set(p, {l, bh}); epicsByProj.get(p).push(...l);
     if (bh.length) { behindCells++; behindByProj.set(p, behindByProj.get(p) + 1); behindEpics.push(...bh.map(x => x.e)); } }); });
   const noRel = rows.filter(r => !r.L), noneAtAll = rows.filter(r => !(H[r.c].fv || []).length).length;
-  document.getElementById("cx-sub").textContent = noProj ? "" : `${ep.length.toLocaleString("en-US")} ${epicWord(ep.length)} of ${M.scope.length.toLocaleString("en-US")} in scope for ${rel} sit under ${rows.length} CXCROSS ${rows.length === 1 ? "Capability" : "Capabilities"}${isProv(rel) ? "; provisional while the release is open" : ""}.`;
+  document.getElementById("cx-sub").innerHTML = noProj ? "" : `${tlink(ep.length, ep.length ? jira({extra: par(capKeys)}) : null, `${ep.length} epics under CXCROSS Capabilities`)} ${epicWord(ep.length)} of ${M.scope.length.toLocaleString("en-US")} in scope for ${esc(rel)} ${ep.length === 1 ? "sits" : "sit"} under ${rows.length} CXCROSS ${rows.length === 1 ? "Capability" : "Capabilities"}${isProv(rel) ? "; provisional while the release is open" : ""}.`;
   const doneN = ep.filter(e => cls(e.s) === "done").length;
-  if (noProj) kpiCards(kp, ["CXCROSS Items in Scope", "Epics Under Them", "Project Cells Behind", "Capabilities Without a Fix Version"].map(l => ({c: "cx", v: "–", l, s: "No project is selected"})));
+  if (noProj) kpiCards(kp, ["CXCROSS Items in Scope", "Epics Under Them", "Project Cells Behind", "Capabilities Without a Required Fix Version"].map(l => ({c: "cx", v: "–", l, s: "No project is selected"})));
   else kpiCards(kp, [
     {c: "cx", v: rows.length ? tlink(rows.length, keyIn(rows.map(r => r.c)), `${rows.length} CXCROSS Capabilities with epics in ${rel}`) : "0", l: "CXCROSS Items in Scope", s: "Capabilities with epics in this release"},
-    {c: "cx", v: ep.length ? tlink(ep.length, jira({extra: par(capKeys)}), epicListTip(`${ep.length} epics under CXCROSS Capabilities`, ep)) : "0", l: "Epics Under Them", s: ep.length ? `${doneN} Done${ep.length >= MIN_N ? ` (${pct(doneN, ep.length)}%)` : ""}` : "none in this selection"},
-    {c: "cx", v: behindCells ? tlink(behindCells, keyIn([...new Set(behindEpics.map(e => e.k))]), epicListTip(`${behindCells} project cells Behind Capability Fix Version, from ${new Set(behindEpics.map(e => e.k)).size} epics`, behindEpics)) : "0", l: "Project Cells Behind", s: "Behind Capability Fix Version"},
-    {c: "cx", v: noRel.length ? tlink(noRel.length, keyIn(noRel.map(r => r.c)), `${noRel.length} Capabilities with no release-named fix version\nTheir cells cannot be assessed.`) : "0", l: "Capabilities Without a Fix Version", s: noRel.length ? `${noneAtAll} with none at all, ${noRel.length - noneAtAll} Unscheduled or sprint-named only` : "a hygiene gap, not a risk"},
+    {c: "cx", v: ep.length ? tlink(ep.length, jira({extra: par(capKeys)}), epicListTip(`${ep.length} epics under CXCROSS Capabilities`, ep)) : "0", l: "Epics Under Them", s: ep.length ? `${doneN ? tlink(doneN, jira({kind: "done", extra: par(capKeys)}), `${doneN} Done epics under CXCROSS Capabilities`) : "0"} Done${ep.length >= MIN_N ? ` (${pct(doneN, ep.length)}%)` : ""}` : "none in this selection"},
+    {c: "cx", v: behindCells ? tlink(behindCells, keyIn([...new Set(behindEpics.map(e => e.k))]), epicListTip(`${behindCells} project cells Behind Required Fix Version, from ${new Set(behindEpics.map(e => e.k)).size} epics`, behindEpics)) : "0", l: "Project Cells Behind", s: "Behind Required Fix Version"},
+    {c: "cx", v: noRel.length ? tlink(noRel.length, keyIn(noRel.map(r => r.c)), `${noRel.length} Capabilities with no release-named fix version\nTheir cells cannot be assessed.`) : "0", l: "Capabilities Without a Required Fix Version", s: noRel.length ? `${noneAtAll} with none at all, ${noRel.length - noneAtAll} Unscheduled or sprint-named only` : "a hygiene gap, not a risk"},
   ]);
   document.getElementById("cx-facts").innerHTML = noProj ? "" : `${tlink(ep.length, ep.length ? jira({extra: par(capKeys)}) : null, `${ep.length} epics`)} of ${M.scope.length.toLocaleString("en-US")} epics in the selection have a CXCROSS parent.`;
   document.getElementById("cx-cap").innerHTML = defs(
-    `<b>Population</b>: epics of the six projects whose parent Capability key starts with CXCROSS, in the selected release under the Projects, Teams and Commitment Type filters. The CXCROSS-owned epics themselves are not included for now (an open question for the owner). An epic with several fix versions is counted once. Removed is excluded at all three levels.<br>` +
+    `<b>Population</b>: epics of the six projects whose parent Capability key starts with CXCROSS, in the selected release under the Projects, Teams and Commitment Type filters. Only CXCROSS Capabilities that have epics under the six projects are counted; epics owned by CXCROSS itself are not included. An epic with several fix versions is counted once. Removed is excluded at all three levels.<br>` +
     `<b>Cells</b>: each cell is one project's epics under one Capability, printed as done/total, and opens those epics in Jira. Rows are sorted by title and columns follow the standard project order, so neither expresses lateness.<br>` +
-    `<b>Behind Capability Fix Version</b>: a cell is marked when at least one of its open (not Done) epics is either (a) planned later than the Capability, meaning the epic's earliest release version is later than the Capability's latest release version, or (b) not Done although the Capability's latest release version has already ended. The hover lists those epics and the rule. It is a fact about versions and dates, not a verdict on a project or a team. A Capability with no release-named fix version cannot be assessed and says so in the last column.<br>` +
-    `<b>Capability Fix Version (Jira)</b> is the version set on the Capability in Jira. The program's required release lives outside Jira (emails and Confluence), so this page does not know it, and Capability fix versions can be stale. "Future Release" is read as Unscheduled and sprint-named versions are ignored because they are not releases.<br>` +
+    `<b>Behind Required Fix Version</b>: a cell is marked when at least one of its open (not Done) epics is either (a) planned later than the Capability, meaning the epic's earliest release version is later than the Capability's latest release version, or (b) not Done although the Capability's latest release version has already ended. The hover lists those epics and the rule. It is a fact about versions and dates, not a verdict on a project or a team. A Capability with no release-named fix version cannot be assessed and says so in the last column.<br>` +
+    `<b>Required Fix Version</b>: the required release is taken to be the Fix Version on the CXCROSS Capability in Jira (an owner assumption, not independently verified). Capability fix versions can be stale. "Future Release" is read as Unscheduled and sprint-named versions are ignored because they are not releases.<br>` +
     `Coverage: ${ep.length} of ${M.scope.length} epics in this selection have a CXCROSS parent; across all releases ${cxEver.length.toLocaleString("en-US")} of ${DATA.epics.length.toLocaleString("en-US")} epics do, and ${cxTop} supplies most of them. No comments or emails were read. Data is the Jira snapshot at ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}.`);
   if (noProj) { host.innerHTML = `<div class="empty">${whyEmpty("epics")}</div>`; document.getElementById("cx-none").innerHTML = ""; document.getElementById("cx-dq").innerHTML = ""; return; }
   if (!ep.length) host.innerHTML = `<div class="empty">${M.scope.length ? "No epic in this selection has a CXCROSS parent." : whyEmpty("epics")}</div>`;
@@ -1909,22 +1994,108 @@ function renderCx() {
     const dots = l => { if (l.length < MIN_N) return ""; const f = k => 100 * l.filter(k).length / l.length + "%"; return `<span class="mbar s"><i style="width:${f(e => cls(e.s) === "done")};background:#025AFB"></i><i style="width:${f(e => e.s === "In Progress" || e.s === "Validation")};background:#3694FC"></i><i style="width:${f(e => cls(e.s) === "notStarted")};background:#E3E0D8"></i></span>`; };
     const cell = (r, p) => { const x = r.cells.get(p); if (!x) return `<td class="cxc"><span class="muted" title="No ${esc(p)} epics under this Capability">–</span></td>`;
       const d = x.l.filter(e => cls(e.s) === "done").length, behind = x.bh.length;
-      const tip = [`${r.c} · ${p}`, `${d}/${x.l.length} Done`, statusLine(x.l), ...(behind ? [`Behind Capability Fix Version (${x.bh.length} ${x.bh.length === 1 ? "epic" : "epics"}), Capability Fix Version (Jira): ${versionText(r.C.fv)}`, ...x.bh.slice(0, 6).map(({e, w}) => `${e.k} ${shortText(e.t, 50)} (${e.s}): rule ${w.a && w.b ? "a and b" : w.a ? "a, planned later than the Capability" : "b, the Capability's release has ended"}`), ...(x.bh.length > 6 ? [`and ${x.bh.length - 6} more`] : [])] : []), ...x.l.slice(0, 6).map(e => `${e.k} ${shortText(e.t, 50)} (${e.s})`), ...(x.l.length > 6 ? [`and ${x.l.length - 6} more`] : [])].join("\n");
-      return `<td class="cxc"><a href="${jira({extra: `parent = ${r.c} AND project = ${p}`})}" target="_blank" rel="noopener" ${tipAttr(tip, "x")} aria-label="${esc(`${r.c}, ${p}: ${d} of ${x.l.length} Done${behind ? ", Behind Capability Fix Version" : ""}`)}. Opens in Jira.">${d}/${x.l.length}</a> ${dots(x.l)}${behind ? `<div class="bhd">${flagHtml("warn", "Behind")}</div>` : ""}</td>`; };
+      const tip = [`${r.c} · ${p}`, `${d}/${x.l.length} Done`, statusLine(x.l), ...(behind ? [`Behind Required Fix Version (${x.bh.length} ${x.bh.length === 1 ? "epic" : "epics"}), Required Fix Version: ${versionText(r.C.fv)}`, ...x.bh.slice(0, 6).map(({e, w}) => `${e.k} ${shortText(e.t, 50)} (${e.s}): rule ${w.a && w.b ? "a and b" : w.a ? "a, planned later than the Capability" : "b, the Capability's release has ended"}`), ...(x.bh.length > 6 ? [`and ${x.bh.length - 6} more`] : [])] : []), ...x.l.slice(0, 6).map(e => `${e.k} ${shortText(e.t, 50)} (${e.s})`), ...(x.l.length > 6 ? [`and ${x.l.length - 6} more`] : [])].join("\n");
+      return `<td class="cxc"><a href="${jira({extra: `parent = ${r.c} AND project = ${p}`})}" target="_blank" rel="noopener" ${tipAttr(tip, "x")} aria-label="${esc(`${r.c}, ${p}: ${d} of ${x.l.length} Done${behind ? ", Behind Required Fix Version" : ""}`)}. Opens in Jira.">${d}/${x.l.length}</a> ${dots(x.l)}${behind ? `<div class="bhd">${flagHtml("warn", "Behind")}</div>` : ""}</td>`; };
     const body = rows.map(r => { const ini = r.ini ? `${r.ini} ${shortText((H[r.ini] || {}).t, 60)}` : "No Initiative";
-      return `<tr><th scope="row"><a href="${BASE}/browse/${esc(r.c)}" target="_blank" rel="noopener" ${tipAttr(`${r.c}\n${r.C.t || ""}\n${r.C.s || "status unknown"} · Initiative: ${r.ini ? r.ini + " " + ((H[r.ini] || {}).t || "") : "none"}`, "x")} aria-label="${esc(r.c + ", " + shortText(r.C.t, 80))}. Opens in Jira.">${esc(shortText(r.C.t, 80))}</a><div class="sub1" title="${esc(ini)}">${esc(r.c)} · ${esc(ini)}</div></th>${projects.map(p => cell(r, p)).join("")}<td class="fvc">${r.L ? esc(versionText(r.C.fv)) : `<span class="flag info"><svg class="ic" viewBox="0 0 12 12" aria-hidden="true">${FLAG_ICON.info}</svg>No Capability Fix Version</span>${(r.C.fv || []).length ? `<div class="muted">${esc(versionText(r.C.fv))}</div>` : ""}`}</td></tr>`; }).join("");
+      return `<tr><th scope="row"><a href="${BASE}/browse/${esc(r.c)}" target="_blank" rel="noopener" ${tipAttr(`${r.c}\n${r.C.t || ""}\n${r.C.s || "status unknown"} · Initiative: ${r.ini ? r.ini + " " + ((H[r.ini] || {}).t || "") : "none"}`, "x")} aria-label="${esc(r.c + ", " + shortText(r.C.t, 80))}. Opens in Jira.">${esc(shortText(r.C.t, 80))}</a><div class="sub1" title="${esc(r.c + " · " + ini)}"><a href="${BASE}/browse/${esc(r.c)}" target="_blank" rel="noopener" aria-label="${esc(r.c)}. Opens in Jira.">${esc(r.c)}</a> · ${r.ini ? `<a href="${BASE}/browse/${esc(r.ini)}" target="_blank" rel="noopener" aria-label="${esc(r.ini)}, ${esc((H[r.ini] || {}).t || "")}. Opens in Jira.">${esc(r.ini)}</a> ${esc(shortText((H[r.ini] || {}).t, 60))}` : "No Initiative"}</div></th>${projects.map(p => cell(r, p)).join("")}<td class="fvc">${r.L ? esc(versionText(r.C.fv)) : `<span class="flag info"><svg class="ic" viewBox="0 0 12 12" aria-hidden="true">${FLAG_ICON.info}</svg>No Required Fix Version</span>${(r.C.fv || []).length ? `<div class="muted">${esc(versionText(r.C.fv))}</div>` : ""}`}</td></tr>`; }).join("");
     const n = (v, h, tip) => v ? tlink(v, h, tip) : `<span class="muted">0</span>`;
     const foot = `<tfoot><tr><th scope="row">Epics</th>${projects.map(p => { const l = epicsByProj.get(p); return `<td class="cxc n">${n(l.length, jira({projects: [p], extra: par(capKeys)}), `${l.length} ${p} epics under CXCROSS Capabilities`)}</td>`; }).join("")}<td></td></tr>` +
       `<tr><th scope="row">Done</th>${projects.map(p => { const l = epicsByProj.get(p).filter(e => cls(e.s) === "done"); return `<td class="cxc n">${n(l.length, jira({projects: [p], kind: "done", extra: par(capKeys)}), `${l.length} ${p} epics Done`)}</td>`; }).join("")}<td></td></tr>` +
-      `<tr><th scope="row">Cells Behind</th>${projects.map(p => { const k = behindByProj.get(p), es = [...new Set(rows.flatMap(r => (r.cells.get(p) ? r.cells.get(p).bh.map(x => x.e.k) : [])))]; return `<td class="cxc n">${n(k, keyIn(es), `${k} CXCROSS ${k === 1 ? "item" : "items"} where ${p} is Behind Capability Fix Version`)}</td>`; }).join("")}<td></td></tr></tfoot>`;
-    host.innerHTML = `<a class="skip" href="#h-analysis" data-skip="h-analysis">Skip to Release Analysis</a><div class="tablewrap"><table class="captable cxtable"><caption class="sr">CXCROSS Capabilities with epics in release ${esc(rel)}: for each project, epics done out of total, and whether the cell is Behind Capability Fix Version</caption><thead><tr><th scope="col">CXCROSS Capability</th>${projects.map(p => `<th scope="col" class="cxc">${esc(p)}</th>`).join("")}<th scope="col">Capability Fix Version (Jira)</th></tr></thead><tbody>${body}</tbody>${foot}</table></div>` +
+      `<tr><th scope="row">Cells Behind</th>${projects.map(p => { const k = behindByProj.get(p), es = [...new Set(rows.flatMap(r => (r.cells.get(p) ? r.cells.get(p).bh.map(x => x.e.k) : [])))]; return `<td class="cxc n">${n(k, keyIn(es), `${k} CXCROSS ${k === 1 ? "item" : "items"} where ${p} is Behind Required Fix Version`)}</td>`; }).join("")}<td></td></tr></tfoot>`;
+    host.innerHTML = `<a class="skip" href="#h-nfr" data-skip="h-nfr">Skip to NFRs</a><div class="scrollcue">Scrolls sideways</div><div class="tablewrap" tabindex="0" role="region" aria-label="CXCROSS Capabilities by project, scrolls sideways when it does not fit"><table class="captable cxtable"><caption class="sr">CXCROSS Capabilities with epics in release ${esc(rel)}: for each project, epics done out of total, and whether the cell is Behind Required Fix Version</caption><thead><tr><th scope="col">CXCROSS Capability</th>${projects.map(p => `<th scope="col" class="cxc">${esc(p)}</th>`).join("")}<th scope="col">Required Fix Version</th></tr></thead><tbody>${body}</tbody>${foot}</table></div>` +
       `<div class="cap">Each cell is done/total epics of that project under the Capability. Rows are sorted by title and columns follow the standard project order. "Behind" is a fact about versions and dates, explained under How This Is Calculated.</div>`;
   }
   // capabilities with no epics here, split
   const capRow = c => { const C = H[c] || {}, p = C.par && H[C.par] ? `${C.par}` : "No Initiative"; return `<tr><th scope="row"><a href="${BASE}/browse/${esc(c)}" target="_blank" rel="noopener" ${tipAttr(`${c}\n${C.t || ""}`, "x")}>${esc(c)}</a> ${esc(shortText(C.t, 70))}</th><td>${esc(C.s || "–")}</td><td>${esc(versionText(C.fv))}</td><td>${esc(p)}</td></tr>`; };
   const nn = M.noneEver.length + M.noneHere.length, wasOpen = !!(document.querySelector("#cx-none details") || {}).open;
-  document.getElementById("cx-none").innerHTML = nn ? `<details class="vd"${wasOpen ? " open" : ""}><summary>Capabilities With No Epics in This Release (${nn})</summary><div class="cap">${M.noneHere.length} ${M.noneHere.length === 1 ? "has" : "have"} epics from our projects in other releases or filtered out; ${M.noneEver.length} ${M.noneEver.length === 1 ? "has" : "have"} no epics from our six projects at all.</div><div class="tablewrap tall"><table><caption class="sr">CXCROSS Capabilities with no epics in this release</caption><thead><tr><th scope="col">Capability</th><th scope="col">Status</th><th scope="col">Capability Fix Version (Jira)</th><th scope="col">Initiative</th></tr></thead><tbody>${[...M.noneHere.sort(keyCmp), ...M.noneEver.sort(keyCmp)].map(capRow).join("")}</tbody></table></div></details>` : "";
+  document.getElementById("cx-none").innerHTML = nn ? `<details class="vd"${wasOpen ? " open" : ""}><summary>Capabilities with No Epics in This Release (${nn})</summary><div class="cap">${M.noneHere.length} ${M.noneHere.length === 1 ? "has" : "have"} epics from our projects in other releases or filtered out; ${M.noneEver.length} ${M.noneEver.length === 1 ? "has" : "have"} no epics from our six projects at all.</div><div class="tablewrap tall"><table><caption class="sr">CXCROSS Capabilities with no epics in this release</caption><thead><tr><th scope="col">Capability</th><th scope="col">Status</th><th scope="col">Required Fix Version</th><th scope="col">Initiative</th></tr></thead><tbody>${[...M.noneHere.sort(keyCmp), ...M.noneEver.sort(keyCmp)].map(capRow).join("")}</tbody></table></div></details>` : "";
   document.getElementById("cx-dq").innerHTML = `<div class="cap">${M.removedCaps} Removed ${M.removedCaps === 1 ? "Capability" : "Capabilities"} and ${M.removedIni} Removed ${M.removedIni === 1 ? "Initiative" : "Initiatives"} are left out${M.leftOut ? `, with ${M.leftOut} ${epicWord(M.leftOut)} under a Removed Capability` : ""}.</div>`;
+}
+
+// ---------------------------------------------------------------- NFRs: epics that carry the label NFR or one of four Issue Categories
+// An NFR epic is an epic with the label NFR (exact spelling) or an Issue Category from NFR_CATEGORIES. Both are self-reported in Jira. Facts only: no verdicts, no ranking.
+const NFR_Q = `(labels = NFR OR cf[10139] in (${NFR_CATEGORIES.map(q).join(", ")}))`;
+const NFR_CAT_IN = `cf[10139] in (${NFR_CATEGORIES.map(q).join(", ")})`;
+const NFR_KNOWN_STATUS = () => [...CLASS.done, ...CLASS.flight, ...CLASS.notStarted];
+const NFR_TABS = [["project", "By Project"], ["category", "By Category"], ["commitment", "By Commitment"], ["capability", "By Capability"], ["team", "By Team"]];
+function nfrSelect(tab) {                                       // switching tabs keeps the tab bar where it is
+  state.nfrTab = tab; saveState(); syncControls(); withAnchor(renderNfr, "#nfr-tabs");
+  const b = document.getElementById("nt-" + tab); if (b) b.focus({preventScroll: true});
+}
+function renderNfr() {
+  const host = document.getElementById("nfr-body"), kp = document.getElementById("nfr-kpis"); if (!host) return;
+  document.getElementById("nfr-state").hidden = !isRunning(state.release);
+  const rel = state.release, scope = scopeOf(rel), noProj = !state.projects.size;
+  const isLabel = e => !!e.nf, isCat = e => NFR_CATEGORIES.includes(e.cat);
+  const nfr = scope.filter(e => isLabel(e) || isCat(e)), N = nfr.length;
+  const stat = l => ({ns: l.filter(e => cls(e.s) === "notStarted").length, ip: l.filter(e => e.s === "In Progress").length, val: l.filter(e => e.s === "Validation").length, done: l.filter(e => cls(e.s) === "done").length,
+    oth: l.filter(e => cls(e.s) === "other" || (cls(e.s) === "flight" && !["In Progress", "Validation"].includes(e.s))).length, total: l.length});
+  const T = stat(nfr), commitTxt = state.commit.size === COMMIT.length ? "all Commitment Types" : [...state.commit].join(" + ") || "no Commitment Type";
+  const both = nfr.filter(e => isLabel(e) && isCat(e)), lab = nfr.filter(e => isLabel(e) && !isCat(e)), cat = nfr.filter(e => !isLabel(e) && isCat(e));
+  document.getElementById("nfr-sub").innerHTML = noProj ? "" : `${tlink(N, N ? jira({extra: NFR_Q}) : null, `${N} NFR epics`)} NFR ${N === 1 ? "epic" : "epics"} (label or Issue Category) of ${scope.length.toLocaleString("en-US")} in scope for ${rel}${isProv(rel) ? "; provisional while the release is open" : ""}.`;
+  const fig = (n, extra, label, kind) => n ? tlink(n, jira({kind, extra: `${NFR_Q}${extra ? " AND " + extra : ""}`}), `${n} of ${N} NFR epics: ${label}\nRemoved excluded; ${commitTxt}; release ${rel}.`) : "0";
+  const sub = n => N ? tipSpan(`${n} of ${N.toLocaleString("en-US")} NFR epics${N >= MIN_N ? ` (${pct(n, N)}%)` : ""}`, `${n} of ${N} NFR epics in ${rel}; the number above opens them`) : "none in this selection";
+  if (noProj) kpiCards(kp, ["NFR Epics in Scope", "Done", "In Progress", "Validation", "Not Started"].map(l => ({c: "nf", v: "–", l, s: "No project is selected"})));
+  else kpiCards(kp, [
+    {c: "nf", v: fig(N, "", "label or category"), l: "NFR Epics in Scope", s: `label or Issue Category, ${commitTxt}`},
+    {c: "nf", v: fig(T.done, "", "Done", "done"), l: "Done", s: sub(T.done)},
+    {c: "nf", v: fig(T.ip, 'status = "In Progress"', "In Progress"), l: "In Progress", s: sub(T.ip)},
+    {c: "nf", v: fig(T.val, "status = Validation", "in Validation"), l: "Validation", s: sub(T.val)},
+    {c: "nf", v: fig(T.ns, "", "Not Started", "notStarted"), l: "Not Started", s: sub(T.ns) + " · includes In Definition"},
+  ]);
+  const mk = (n, extra, tip) => n ? tlink(n, jira({extra: `${extra}`}), tip) : "0";
+  const noCap = nfr.filter(e => !e.cp), noTeam = nfr.filter(e => !e.tm || !e.tm.length), noCommit = nfr.filter(e => !e.c), noDue = nfr.filter(e => !e.dd), noCatLabel = nfr.filter(e => !e.cat);
+  const gapLink = (label, list, extra) => `${esc(label)} ${list.length ? tlink(list.length, jira({extra: `${NFR_Q} AND ${extra}`}), `${list.length} NFR epics: ${label}`) : "0"}`;
+  document.getElementById("nfr-facts").innerHTML = noProj ? "" :
+    `${N.toLocaleString("en-US")} NFR ${N === 1 ? "epic" : "epics"} in ${esc(rel)}: ${mk(lab.length, `labels = NFR AND (cf[10139] is EMPTY OR cf[10139] not in (${NFR_CATEGORIES.map(q).join(", ")}))`, `${lab.length} epics matched by label only`)} matched by label only, ` +
+    `${mk(cat.length, `${NFR_CAT_IN} AND (labels is EMPTY OR labels != NFR)`, `${cat.length} epics matched by category only`)} by category only, ${mk(both.length, `labels = NFR AND ${NFR_CAT_IN}`, `${both.length} epics matched by both`)} by both. ` +
+    `Denominator: ${N.toLocaleString("en-US")} NFR epics, Removed excluded, ${esc(commitTxt)}, projects ${state.projects.size === projectsAll.length ? "all" : esc([...state.projects].join(", "))}${state.teams.size ? ", teams " + esc([...state.teams].join(", ")) : ""}, data as of ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}.` +
+    `<br>Data gaps: ${gapLink("No Capability", noCap, "parent is EMPTY")} · ${gapLink("No Team", noTeam, "cf[10040] is EMPTY AND cf[10098] is EMPTY")} · ${gapLink("No Commitment Type", noCommit, "cf[10094] is EMPTY")} · ${gapLink("No Issue Category", noCatLabel, "cf[10139] is EMPTY")} · ${gapLink("No Due Date", noDue, "duedate is EMPTY")}.`;
+  document.getElementById("nfr-cap").innerHTML = defs(
+    `<b>Definition</b>: an NFR epic is an epic with the label NFR (this exact spelling, no variants) or an Issue Category of ${NFR_CATEGORIES.map(esc).join(", ")}. Both are self-reported in Jira. An epic that matches only by category is not called "labelled NFR". The three groups are counted separately above.<br>` +
+    `<b>Population</b>: epics of the six projects in the selected release under the Projects, Teams and Commitment Type filters (shown in the denominator line), Removed excluded. An epic counts once by key; with several fix versions it counts in each release it is in, so totals across releases are not additive. CXCROSS-owned epics are not included.<br>` +
+    `<b>Status</b>: Not Started is New, In Definition (an unmaintained status, so it is counted here), Ready for Dev or Candidate; In Progress, Validation and Done are the statuses of those names (Done is the status named Done, not Jira's Done category). A status that fits none shows as Other Status, so nothing disappears. The workflow of some projects is not documented, so the mapping can differ there. A share is shown only for 5 or more epics.<br>` +
+    `<b>Tabs</b>: each tab regroups the same NFR epics. By Team counts an epic under each team it lists, so the team rows add up to more than the total; the total row counts each epic once, and no team is compared with another. By Capability uses the epic's parent Capability. No verdict, forecast or ranking is shown. ${isProv(rel) ? `${esc(rel)} is still running, so these counts are provisional. ` : ""}Data is the Jira snapshot at ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}.`);
+  if (noProj) { host.innerHTML = `<div class="empty">${whyEmpty("epics")}</div>`; return; }
+  if (!N) { host.innerHTML = `<div class="empty">${scope.length ? "No NFR epic in this selection." : whyEmpty("epics")}</div>`; return; }
+  const showOther = T.oth > 0, tab = NFR_TABS.some(x => x[0] === state.nfrTab) ? state.nfrTab : "project";
+  const otherJql = `status not in (${NFR_KNOWN_STATUS().map(q).join(", ")})`;
+  const bar = s => s.total < MIN_N ? `<span class="muted" title="Fewer than ${MIN_N} epics, so no share is shown">–</span>` : `<span class="mbar" tabindex="0" role="img" aria-label="${s.total} epics: ${s.done} Done, ${s.ip + s.val} In Progress or Validation, ${s.ns} Not Started" ${tipAttr(`${s.total} epics\n${s.done} Done, ${s.ip + s.val} In Progress or Validation, ${s.ns} Not Started`, "")}><i style="width:${100 * s.done / s.total}%;background:#025AFB"></i><i style="width:${100 * (s.ip + s.val) / s.total}%;background:#3694FC"></i><i style="width:${100 * s.ns / s.total}%;background:#E3E0D8"></i></span>`;
+  const row = (label, list, extra, o = {}) => { const s = stat(list), tip = k => `${k}\n${label}, release ${rel}`, jx = extra || NFR_Q;
+    const nn = (v, st, tp, kind) => v ? tlink(v, jira({kind, extra: `${jx}${st ? " AND " + st : ""}`, projects: o.projects, commit: o.commit, teams: o.teams}), tip(tp)) : `<span class="muted">0</span>`;
+    return `<tr><th scope="row">${o.labelHtml || esc(label)}</th><td class="n">${nn(s.ns, "", `${s.ns} Not Started`, "notStarted")}</td><td class="n">${nn(s.ip, 'status = "In Progress"', `${s.ip} In Progress`)}</td><td class="n">${nn(s.val, "status = Validation", `${s.val} in Validation`)}</td><td class="n">${nn(s.done, "", `${s.done} Done`, "done")}</td>${showOther ? `<td class="n">${nn(s.oth, otherJql, `${s.oth} in Other Status`)}</td>` : ""}<td class="n">${nn(s.total, "", `${s.total} NFR epics`)}</td><td class="shr">${bar(s)}</td></tr>`; };
+  const head = first => `<thead><tr><th scope="col">${first}</th><th class="n" scope="col">Not Started</th><th class="n" scope="col">In Progress</th><th class="n" scope="col">Validation</th><th class="n" scope="col">Done</th>${showOther ? '<th class="n" scope="col">Other Status</th>' : ""}<th class="n" scope="col">Total</th><th scope="col">Share</th></tr></thead>`;
+  const tbl = (cap, first, rows, total, tall) => `<div class="scrollcue">Scrolls sideways</div><div class="tablewrap${tall ? " tall" : ""}" tabindex="0" role="region" aria-label="${esc(cap)}, scrolls sideways when it does not fit"><table class="captable nfrtable"><caption class="sr">${esc(cap)}</caption>${head(first)}<tbody>${rows}</tbody>${total ? `<tfoot>${total}</tfoot>` : ""}</table></div>`;
+  const totRow = label => row(label, nfr, NFR_Q).replace("<tr>", '<tr class="total">');
+  let panel = "";
+  if (tab === "project") panel = tbl("NFR epics by project, in the standard project order, with status counts", "Project", DATA.projects.map(p => row(p, nfr.filter(e => e.p === p), NFR_Q, {projects: [p]})).join(""), totRow("All Selected"));
+  else if (tab === "category") {
+    const labOther = nfr.filter(e => !isCat(e) && e.cat), noCat = nfr.filter(e => !isCat(e) && !e.cat);
+    panel = tbl("NFR epics by Issue Category, with status counts", "Issue Category", NFR_CATEGORIES.map(c => row(c, nfr.filter(e => e.cat === c), `cf[10139] = ${q(c)}`)).join("") +
+      row("NFR Label Only (No Category in the NFR List)", labOther, `labels = NFR AND cf[10139] is not EMPTY AND cf[10139] not in (${NFR_CATEGORIES.map(q).join(", ")})`) +
+      row("No Issue Category", noCat, "labels = NFR AND cf[10139] is EMPTY"), totRow("All NFR Epics"));
+  } else if (tab === "commitment") panel = tbl("NFR epics by Commitment Type, with status counts", "Commitment Type", COMMIT.filter(c => state.commit.has(c)).map(c => row(c === "Not Set" ? "No Commitment Type" : c, nfr.filter(e => commitOf(e) === c), NFR_Q, {commit: new Set([c])})).join(""), totRow("All NFR Epics"));
+  else if (tab === "capability") {
+    const capName = c => (DATA.capabilities && DATA.capabilities[c]) || (DATA.hier && DATA.hier[c] && DATA.hier[c].t) || c, by = new Map();
+    nfr.filter(e => e.cp).forEach(e => { if (!by.has(e.cp)) by.set(e.cp, []); by.get(e.cp).push(e); });
+    const keys = [...by.keys()].sort((a, b) => capName(a).localeCompare(capName(b), "en", {sensitivity: "base"}) || keyCmp(a, b));
+    panel = tbl("NFR epics by parent Capability, in alphabetical order, with status counts", "Capability", keys.map(k => row(capName(k), by.get(k), `${NFR_Q} AND parent = ${k}`, {labelHtml: `<a href="${BASE}/browse/${esc(k)}" target="_blank" rel="noopener" ${tipAttr(`${k}\n${capName(k)}\n${by.get(k).length} NFR epics in ${rel}`, "x")} aria-label="${esc(k + ", " + shortText(capName(k), 80))}. Opens in Jira.">${esc(shortText(capName(k), 80))}</a>`})).join("") +
+      (noCap.length ? row("No Capability", noCap, `${NFR_Q} AND parent is EMPTY`) : ""), totRow("All NFR Epics (Each Epic Once)"), true);
+  } else {
+    const by = new Map(); nfr.forEach(e => (e.tm && e.tm.length ? e.tm : [NO_TEAM]).forEach(tm => { if (!by.has(tm)) by.set(tm, []); by.get(tm).push(e); }));
+    const names = [...by.keys()].sort((a, b) => a === NO_TEAM ? 1 : b === NO_TEAM ? -1 : a.localeCompare(b, "en", {sensitivity: "base"}));
+    panel = tbl("NFR epics by team, in alphabetical order; an epic that lists several teams counts under each of them", "Team", names.map(tm => row(tm, by.get(tm), NFR_Q, {teams: new Set([tm])})).join(""), totRow("All NFR Epics (Each Epic Once)"), true);
+  }
+  host.innerHTML = `<a class="skip" href="#h-analysis" data-skip="h-analysis">Skip to Release Analysis</a>` +
+    `<div class="tabs" role="tablist" aria-label="NFR epics grouped by" id="nfr-tabs">${NFR_TABS.map(([id, name]) => `<button type="button" role="tab" id="nt-${id}" class="tab" aria-selected="${id === tab}" aria-controls="nfr-panel" tabindex="${id === tab ? 0 : -1}" data-nt="${id}">${name}</button>`).join("")}</div>` +
+    `<div id="nfr-panel" role="tabpanel" aria-labelledby="nt-${tab}" tabindex="0">${panel}</div>`;
+  const tabs = [...host.querySelectorAll("[data-nt]")];
+  tabs.forEach(b => b.onclick = () => { if (b.dataset.nt !== state.nfrTab) nfrSelect(b.dataset.nt); });
+  host.querySelector("#nfr-tabs").onkeydown = ev => {
+    const i = tabs.findIndex(b => b === document.activeElement); if (i < 0) return;
+    const next = ev.key === "ArrowRight" ? (i + 1) % tabs.length : ev.key === "ArrowLeft" ? (i + tabs.length - 1) % tabs.length : ev.key === "Home" ? 0 : ev.key === "End" ? tabs.length - 1 : -1;
+    if (next >= 0) { ev.preventDefault(); nfrSelect(tabs[next].dataset.nt); }
+  };
 }
 
 // ---------------------------------------------------------------- data quality
@@ -1952,7 +2123,7 @@ const filtersEl = document.getElementById("filters");
 function fitSticky() {
   const h = filtersEl.offsetHeight, tall = h > window.innerHeight * 0.3 || window.innerWidth <= 760;
   filtersEl.classList.toggle("nosticky", tall);
-  document.documentElement.style.scrollPaddingTop = tall ? "0px" : `calc(${h}px + env(safe-area-inset-top, 0px) + 8px)`;
+  document.documentElement.style.setProperty("--stick", tall ? "0px" : `calc(${h}px + env(safe-area-inset-top, 0px) + 8px)`);
 }
 function buildFilters() {
   const rel = document.getElementById("f-release");
@@ -1978,7 +2149,7 @@ function buildFilters() {
   document.getElementById("f-gran").onchange = e => { state.gran = e.target.value; update(); };
   document.getElementById("f-cfbgrp").onchange = e => { state.cfbGroup = e.target.value; update(); };
   document.getElementById("f-dp").onchange = e => { state.depFilter = e.target.value; update(); };
-  document.getElementById("f-reset").onclick = () => { resetFilters(); update(); document.getElementById("f-release").focus(); };   // the button disables itself, so focus moves to the first control
+  document.getElementById("f-reset").onclick = () => { resetFilters(); { const ts = document.getElementById("f-teams-search"); if (ts) ts.value = ""; } update(); document.getElementById("f-release").focus(); };   // the button disables itself, so focus moves to the first control
   const fbar = document.getElementById("filterbar"), ftog = document.getElementById("f-toggle");
   fbar.classList.toggle("collapsed", window.matchMedia("(max-width:760px)").matches);
   ftog.setAttribute("aria-expanded", String(!fbar.classList.contains("collapsed")));
@@ -1993,7 +2164,7 @@ function buildFilters() {
   };
   btn.onclick = e => { e.stopPropagation(); const open = !panel.classList.contains("open");
     panel.classList.toggle("open", open); btn.setAttribute("aria-expanded", String(open));
-    if (open) { place(); document.getElementById("f-teams-search").focus(); } };
+    if (open) { place(); document.getElementById("f-teams-search").focus({preventScroll: true}); } };
   panel.onclick = e => e.stopPropagation();
   document.addEventListener("click", close);
   document.addEventListener("keydown", e => { if (e.key === "Escape" && panel.classList.contains("open")) { close(); btn.focus(); } });
@@ -2021,14 +2192,14 @@ function renderTeamList() {
 function filterChanges() {
   const same = (a, b) => a.size === b.length && b.every(x => a.has(x));
   return {release: state.release !== DATA.current, projects: !same(state.projects, projectsAll), teams: state.teams.size > 0, commit: !same(state.commit, DEFAULT_COMMIT),
-    bugpri: state.bugPri.size !== PRI_ALL.length, cfb: state.cfb !== "all", ax: state.ax, period: state.gran !== "month", cfbgrp: state.cfbGroup !== "version", depfilter: state.depFilter !== "all"};
+    bugpri: state.bugPri.size !== PRI_ALL.length, cfb: state.cfb !== "all", ax: state.ax, period: state.gran !== "month", cfbgrp: state.cfbGroup !== "version", depfilter: state.depFilter !== "all", nfrtab: state.nfrTab !== "project"};
 }
 function syncControls() {
   const ch = filterChanges(), nCh = Object.values(ch).filter(Boolean).length;
   [["g-release", ch.release], ["g-projects", ch.projects], ["teamsel", ch.teams], ["g-commit", ch.commit], ["g-bpri", ch.bugpri], ["g-cfb", ch.cfb], ["g-ax", ch.ax], ["g-gran", ch.period], ["g-cfbgrp", ch.cfbgrp], ["g-dep", ch.depfilter]].forEach(([id, on]) => document.getElementById(id).classList.toggle("changed", on));
   const commit = state.commit.size === COMMIT.length ? "all commitment types" : [...state.commit].join(" + ") || "no commitment type";
   const top = ch.release || ch.projects || ch.teams || ch.commit, bugParts = [ch.bugpri ? `Priority ${PRI_ALL.filter(k => state.bugPri.has(k)).join(", ") || "none"}` : "", ch.cfb ? `CFB ${state.cfb === "yes" ? "only" : "excluded"}` : "", ch.ax ? "accessibility bugs included" : ""].filter(Boolean),
-    extra = (bugParts.length ? ` · Bugs: ${bugParts.join(", ")}` : "") + (ch.period ? ` · Efficiency and AI by ${state.gran}` : "") + (ch.cfbgrp ? ` · CFB by ${state.cfbGroup}` : "") + (ch.depfilter ? ` · Dependencies: ${state.depFilter === "unplanned" ? "Not Planned" : state.depFilter === "overdue" ? "Overdue" : "External"} only` : "");
+    extra = (bugParts.length ? ` · Bugs: ${bugParts.join(", ")}` : "") + (ch.period ? ` · Efficiency and AI by ${state.gran}` : "") + (ch.cfbgrp ? ` · CFB by ${state.cfbGroup}` : "") + (ch.nfrtab ? ` · NFRs ${NFR_TABS.find(x => x[0] === state.nfrTab)[1].toLowerCase()}` : "") + (ch.depfilter ? ` · Dependencies: ${state.depFilter === "unplanned" ? "Not Planned" : state.depFilter === "overdue" ? "Overdue" : "External"} only` : "");
   document.getElementById("fsum").textContent = (top
     ? `Filtered: ${ch.release ? "release " + state.release + " · " : ""}${state.projects.size === projectsAll.length ? "all projects" : [...state.projects].join(", ") || "no project"} · ${state.teams.size ? [...state.teams].join(", ") : "all teams"} · ${commit}`
     : `Showing all projects and teams · ${commit} (default)`) + extra;
@@ -2049,8 +2220,78 @@ function syncControls() {
   document.getElementById("f-teams-btn").textContent = n === 0 ? "All Teams" : n === 1 ? [...state.teams][0] : `${n} Teams`;
   renderTeamList();
 }
-function update() {
-  syncControls(); saveState(); renderKpis(); renderStatus(); renderBurnup(); renderEfficiency(); renderCharts(); renderBugs(); renderCfb(); renderDeps(); renderAttention(); renderCx(); renderAdoption();
+// ---- scroll anchoring: a filter change re-renders sections whose heights change above the reader, so the block being looked at is kept at the same screen position.
+// The finest stable block (a chart, table, board) that holds the middle of the visible area is the anchor; its top offset is recorded before the render and restored right after it
+// (before paint), again on the next frames and when fonts settle. A wheel, touch, key or pointer press by the reader cancels the correction; it is never smooth.
+const ANCHORS = "#kpis, #attn, #burnup, #eff-chart, #ai-chart, #bug-kpis, #bug-chart, #bug-table, #cfb-kpis, #cfb-chart, #cfb-table, #dep-kpis, #dep-body, #capview, #cx-kpis, #cx-body, #cx-none, #nfr-kpis, #nfr-body, #charts, #tbl-projects, #tbl-teams, #dq, main > section";
+let anchorUserAt = 0, anchorBusyAt = 0, lastUpdateAt = 0, anchorMem = null;
+["wheel", "touchstart", "pointerdown", "keydown"].forEach(ev => window.addEventListener(ev, () => { anchorUserAt = performance.now(); }, {passive: true, capture: true}));
+const anchorShown = e => e && e.isConnected && e.offsetParent !== null && e.getBoundingClientRect().height > 0;
+// Details panels and sideways scrollers live in re-rendered sections: remember which are open and how far they are scrolled.
+const detailsKey = d => { const host = d.closest("[id]"), s = d.querySelector("summary"); return (host ? host.id : "") + "|" + (s ? s.textContent.replace(/\(\d+\)/g, "").trim() : ""); };
+const scrollerKey = (e, i) => { const host = e.closest("[id]"); return (host ? host.id : "") + "|" + e.className + "|" + i; };
+function uiCapture() {
+  const open = new Set([...document.querySelectorAll("details[open]")].map(detailsKey)), left = new Map();
+  [...document.querySelectorAll(".board, .tablewrap")].forEach((e, i) => { if (e.scrollLeft) left.set(scrollerKey(e, i), e.scrollLeft); });
+  return {open, left};
+}
+function uiRestore(s) {
+  document.querySelectorAll("details").forEach(d => { if (s.open.has(detailsKey(d))) d.open = true; });
+  [...document.querySelectorAll(".board, .tablewrap")].forEach((e, i) => { const l = s.left.get(scrollerKey(e, i)); if (l) e.scrollLeft = l; });
+}
+function anchorCapture(sel) {
+  if (sel) {                                                    // a control the reader just used: it stays where it is
+    const el = document.querySelector(sel); if (!anchorShown(el)) return null;
+    const top = el.getBoundingClientRect().top; if (top < 0 || top > window.innerHeight) return null;
+    return {sel, top0: top, list: [], tops: new Map(), pick: el, t0: performance.now()};
+  }
+  if (anchorMem && state.projects.size && anchorMem.el.isConnected && anchorUserAt <= anchorMem.t) {      // back from the empty-project state: return to the block the reader was on
+    const m = anchorMem; anchorMem = null;
+    const list = [...document.querySelectorAll(ANCHORS)].filter(anchorShown), tops = new Map(list.map(e => [e, e.getBoundingClientRect().top]));
+    if (anchorShown(m.el)) { tops.set(m.el, m.top); return {pick: m.el, list: list.includes(m.el) ? list : list.concat(m.el), tops, t0: performance.now()}; }
+  }
+  if (window.scrollY < 8) return null;                          // at the top there is nothing to hold
+  const list = [...document.querySelectorAll(ANCHORS)].filter(anchorShown), tops = new Map(list.map(e => [e, e.getBoundingClientRect().top]));
+  const bar = document.getElementById("filters"), low = bar && !bar.classList.contains("nosticky") ? bar.getBoundingClientRect().bottom : 0, cy = (low + window.innerHeight) / 2;
+  let pick = null, size = Infinity;
+  list.forEach(e => { const r = e.getBoundingClientRect(); if (r.top <= cy && r.bottom >= cy && r.height < size) { pick = e; size = r.height; } });
+  if (!pick) pick = list.find(e => { const r = e.getBoundingClientRect(); return r.bottom > low + 1 && r.top < window.innerHeight; }) || null;
+  if (pick && !state.projects.size) anchorMem = {el: pick, top: tops.get(pick), t: performance.now()};      // entering the empty state: remember the block for the way back
+  else if (state.projects.size) anchorMem = null;
+  return pick ? {pick, list, tops, t0: performance.now()} : null;
+}
+function anchorRestore(st) {
+  if (!st) return;
+  const chain = () => { const out = [st.pick]; let p = st.pick.parentElement; while (p) { if (st.tops.has(p)) out.push(p); p = p.parentElement; }
+    for (let i = st.list.indexOf(st.pick) - 1; i >= 0; i--) out.push(st.list[i]); return out; };      // the block, its enclosing blocks, then the nearest earlier block
+  const apply = () => {
+    if (anchorUserAt > st.t0) return;                           // the reader took over
+    let use, base;
+    if (st.sel) { use = document.querySelector(st.sel); base = st.top0; if (!anchorShown(use)) return; }
+    else { use = chain().find(anchorShown); if (!use) return; base = st.tops.get(use); }
+    const diff = use.getBoundingClientRect().top - base;
+    if (Math.abs(diff) > 0.5) {
+      const want = window.scrollY + diff, room = document.documentElement.scrollHeight - window.innerHeight, sp = document.getElementById("anchor-spacer");
+      if (sp && want > room + 0.5) sp.style.height = (sp.offsetHeight + Math.ceil(want - room)) + "px";           // near the end of the page: add blank room so the block can stay where it is
+      anchorBusyAt = performance.now(); window.scrollTo({top: want, left: window.scrollX, behavior: "instant"});
+    }
+  };
+  apply(); requestAnimationFrame(() => { apply(); requestAnimationFrame(apply); });
+  setTimeout(apply, 120); setTimeout(apply, 450);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(apply);
+}
+window.addEventListener("scroll", () => {                       // the blank room goes away once it is below the screen
+  const sp = document.getElementById("anchor-spacer");
+  if (sp && sp.offsetHeight && window.scrollY + window.innerHeight <= sp.offsetTop - 2) sp.style.height = "0px";
+}, {passive: true});
+const withAnchor = (fn, sel) => { const st = anchorCapture(sel), ui = uiCapture(); fn(); uiRestore(ui); anchorRestore(st); };
+function update(opts) {
+  lastUpdateAt = performance.now();
+  const st = opts && opts.anchor === false ? null : anchorCapture(), ui = uiCapture();
+  updateCore(); uiRestore(ui); anchorRestore(st);
+}
+function updateCore() {
+  syncControls(); saveState(); renderKpis(); renderStatus(); renderBurnup(); renderEfficiency(); renderCharts(); renderBugs(); renderCfb(); renderDeps(); renderAttention(); renderCx(); renderNfr(); renderAdoption();
   renderBreakdowns(); renderDQ(); renderMeta(); tipPass(); nowrapDates(); fitSticky();
 }
 function renderMeta() {
@@ -2215,12 +2456,14 @@ document.getElementById("refresh").onclick = refresh;
   let lastY = window.scrollY, deep = false, up = 0, shown = false, hideTimer, busy = false;     // busy: the scroll started by the button itself
   const scrollable = () => document.documentElement.scrollHeight - window.innerHeight > window.innerHeight * 0.5;
   const show = on => {
-    if (on === shown) return; shown = on; clearTimeout(hideTimer);
+    if (on === shown) return;
+    if (!on && document.activeElement === top) return;                   // a focused button stays until focus leaves it shown = on; clearTimeout(hideTimer);
     if (on) { top.hidden = false; void top.offsetWidth; top.classList.add("on"); }
     else { top.classList.remove("on"); if (calm()) top.hidden = true; else hideTimer = setTimeout(() => { top.hidden = true; }, 130); }
   };
   const onScroll = () => {
     const y = window.scrollY, vh = window.innerHeight, dy = y - lastY; lastY = y;
+    if (performance.now() - anchorBusyAt < 150 || performance.now() - lastUpdateAt < 800) return;
     if (busy) { if (y <= 1) busy = false; return; }
     if (!scrollable()) { deep = false; up = 0; show(false); return; }
     if (y > vh * 1.5) deep = true; else if (y <= vh * 0.5) deep = false;
@@ -2247,22 +2490,22 @@ document.querySelectorAll("[data-jump]").forEach(a => a.addEventListener("click"
 }));
 document.getElementById("footer").innerHTML = `<details class="vd"><summary>How to Read This Page</summary><div style="margin-top:6px">
 <b>How to Read This.</b> Scope is Fix Version plus Commitment Type; status never defines scope. The Commitment Type filter shows every type by default,
-but the <b>scope target (Forecast Epics and the burnup scope) is always Committed or no Commitment Type, with Stretch left out</b>. <b>Removed epics are excluded from every number.</b> Done means the status
+but the <b>target scope (Forecast Epics and the burnup scope) is always Committed or no Commitment Type, with Stretch left out, counted on the first day of W1</b>. <b>Removed epics are excluded from every number.</b> Done means the status
 named Done, not Jira's Done category.
 <br><b>Cycle Time.</b> EDCT (Epic Development Cycle Time) matches the weekly email: calendar days an epic ended in In Progress or Validation, flagged days excluded.
 No percentile, share or trend is shown for fewer than ${MIN_N} items.
-<br><b>Burnup.</b> Done is cumulative by resolution date and counts target epics (Committed + Not Set). Scope is cumulative by the date each epic was added to the release (its Fix Version history), judged on each epic's current Commitment Type (Committed or Not Set). The IP week is the first seven days of the release. No projection is drawn.
+<br><b>Burnup.</b> Done is cumulative by resolution date and counts target epics (Committed + Not Set). Scope is the number of target epics (Committed + Not Set, judged on each epic's current Commitment Type) that were in the release on the first day of W1, from each epic's Fix Version history; the Forecast Epics tile shows the same number, and the epics added since are shown beside it. The IP week is the first seven days of the release. No projection is drawn.
 <br><b>Bugs.</b> The backlog follows the weekly email: created, resolved and open per week, accessibility bugs excluded unless switched on. CFB follows the release closure report: bugs reported by the CFB account, fixed in the release window.
 <br><b>Snapshot and Refresh.</b> Numbers were read from Jira at the time shown above. In the published page, Refresh reads what changed since and updates the page; cycle time and join dates for that new activity wait for a full rebuild.
 <br><b>Hover Text.</b> Hover text follows the pointer and is not itself hoverable; Esc closes it. The same text is in each chart's View Data table.
 <br><b>Scope of Use.</b> Counts describe programs, releases and teams. Nothing here ranks or scores a team or a person.
 <br>Definitions follow the Program Intelligence Agent (workflow-status-map, commitment-classes, metrics).</div></details>`;
-loadState(); buildFilters(); update();
+loadState(); buildFilters(); update({anchor: false});
 window.addEventListener("hashchange", () => {                 // an edited address is a new view (file mode only; the published page keeps filters in storage)
   if (RUNTIME) return;
   resetFilters();
   try { readParams(new URLSearchParams(location.hash.slice(1))); } catch (e) { /* keep defaults */ }
-  update();
+  update({anchor: false});
 });
 let lastVW = document.documentElement.clientWidth, resizeTimer;
 window.addEventListener("resize", () => {                     // charts are drawn at the width they are shown at, so redraw when it changes

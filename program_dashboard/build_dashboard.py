@@ -306,6 +306,29 @@ def collect_hier(j, epics, caps) -> dict:
     return {"hier": hier}
 
 
+NFR_LABEL = "NFR"
+NFR_CATEGORIES = ["R&D - 3rd party upgrades", "R&D - Arch/infra refactoring", "R&D Infra", "R&D - Low env. cost optimization"]
+
+
+def collect_nfr(j, epics) -> int:
+    """Flag (nf = 1) the epics that carry the NFR label. The other half of the NFR definition, an Issue Category in
+    NFR_CATEGORIES, is already on every epic as cat."""
+    by_key = {e["k"]: e for e in epics}
+    quoted = ", ".join(f'"{r}"' for r in RELEASES)
+    for e in epics:
+        e.pop("nf", None)
+    n = 0
+    for proj in PROJECTS:
+        jql = f'project = {proj} AND issuetype = Epic AND status != Removed AND fixVersion in ({quoted}) AND labels = {NFR_LABEL}'
+        for i in j.search(jql, ["labels"]):
+            if i["key"] in by_key:
+                by_key[i["key"]]["nf"] = 1
+                n += 1
+    print(f"NFR: {n} epics carry the {NFR_LABEL} label; "
+          f"{sum(1 for e in epics if e.get('cat') in NFR_CATEGORIES)} are in the NFR issue categories", flush=True)
+    return n
+
+
 def planning(j, epics, bugs, links) -> dict:
     """Everything the planning and insight views need beyond the basic pull."""
     labels = {e.get("ts") for e in epics} | {x.get("ts") for x in links["ext"].values()}
@@ -380,9 +403,12 @@ def collect_links(j, epics) -> dict:
                 caps[par["key"]] = par["fields"]["summary"]
                 rec["cp"] = par["key"]
             ext[i["key"]] = rec
-    print(f"links: {len(pairs)} epic-to-epic dependencies ({dropped['removed']} to Removed epics left out), "
+    print(f"links: {len({(d, p) for d, p, t in pairs})} epic-to-epic dependencies ({dropped['removed']} to Removed epics left out), "
           f"{len(outside)} epics outside the release data, {len(caps)} capabilities", flush=True)
-    return {"deps": sorted([d, p, "D" if t == "Dependency" else "B"] for d, p, t in pairs),
+    merged = {}                                                     # the same pair linked as Dependency and as Blocks is one dependency ("DB")
+    for d, p, t in pairs:
+        merged.setdefault((d, p), set()).add("D" if t == "Dependency" else "B")
+    return {"deps": sorted([d, p, "".join(c for c in "DB" if c in kinds)] for (d, p), kinds in merged.items()),
             "ext": ext, "capabilities": caps, "depsDropped": dropped}
 
 
@@ -452,6 +478,7 @@ def fetch() -> dict:
     links = collect_links(j, epics)
     plan = planning(j, epics, bugs, links)
     plan.update(collect_hier(j, epics, links["capabilities"]))
+    collect_nfr(j, epics)
     return {"generated": dt.datetime.now().astimezone().isoformat(timespec="minutes"), **links, **plan,
             "jiraBase": os.environ["JIRA_BASE_URL"].rstrip("/"),
             "projects": PROJECTS, "releases": RELEASES, "current": CURRENT_RELEASE,
@@ -497,12 +524,17 @@ def render(data: dict) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--reuse", action="store_true", help="render from build/program_data.json")
+    ap.add_argument("--add-nfr", action="store_true", help="flag the epics that carry the NFR label in build/program_data.json, then render")
     ap.add_argument("--add-hier", action="store_true", help="add the CXCROSS Initiative > Capability hierarchy to build/program_data.json, then render")
     ap.add_argument("--add-planning", action="store_true", help="add due dates, target sprints, sprint calendar, status-since and bug updates to build/program_data.json, then render")
     ap.add_argument("--add-deps", action="store_true", help="read dependency links and capabilities into build/program_data.json (no changelog calls), then render")
     args = ap.parse_args()
     DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
-    if args.add_hier:
+    if args.add_nfr:
+        data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
+        collect_nfr(E.Jira(), [e for e in data["epics"] if e["p"] in PROJECTS])
+        DATA_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    elif args.add_hier:
         data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
         data.update(collect_hier(E.Jira(), [e for e in data["epics"] if e["p"] in PROJECTS], data.get("capabilities", {})))
         DATA_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")

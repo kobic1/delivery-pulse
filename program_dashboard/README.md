@@ -9,7 +9,7 @@ each with a plain-fact line and a kicker saying whether it is release, month-to-
 **Needs Attention** panel, then **Delivery** (burnup), **Efficiency** (EDCT against the 10-day target) and
 **AI Adoption** (share of epics built by AI agents) with a Week / Month / Quarter switch, **Quality** (open bugs
 trend, customer-found bugs), **Dependencies** (open dependencies on a board with a column per sprint, plus a
-one-row-per-project capability status table), a separate **CXCROSS** section (status per project for each CXCROSS Capability, and which projects are behind) and, under "Release Analysis", trend by release, by project, by team
+one-row-per-project capability status table), a separate **CXCROSS** section (status per project for each CXCROSS Capability, and which projects are behind), an **NFRs** section ("NFR Epics (Label or Category)", five tabs) and, under "Release Analysis", trend by release, by project, by team
 and data quality. A quiet floating "Back to Top" button appears when you scroll up after reading well down the page (it stays hidden if the page cannot scroll). The header shows "Data as of ..." with a Refresh button. Monthly figures use the email's rules:
 resolution month, AI-implemented epics for EDCT, Maintenance-category epics left out.
 
@@ -20,6 +20,7 @@ python3 program_dashboard/build_dashboard.py --reuse      # re-render from the l
 python3 program_dashboard/build_dashboard.py --add-deps   # add dependency links and capabilities to the last pull (no changelog calls), then render
 python3 program_dashboard/build_dashboard.py --add-planning  # also add due dates, target sprints, the sprint calendar, status-since dates and bug updates
 python3 program_dashboard/build_dashboard.py --add-hier      # add the CXCROSS Initiative > Capability hierarchy
+python3 program_dashboard/build_dashboard.py --add-nfr       # flag the epics that carry the label NFR (the Issue Category is already in the data)
 # The Atlassian site id for Refresh is read from the site (or from JIRA_CLOUD_ID); it is not stored in the repository.
 ```
 
@@ -67,8 +68,12 @@ Taken from the Program Intelligence Agent (`.claude/agents/program-intelligence-
 - **Removed is excluded from every figure.** Done means the status named Done, never Jira's Done category.
 - **Scope is Fix Version plus Commitment Type** (customfield_10094). Status never defines scope.
 - **The scope target never changes with the Commitment Type filter**: it is always Committed or no Commitment
-  Type, with Stretch left out (Forecast Epics and the burnup scope). The Epics Delivered tile follows the filter
-  and says which population it counts; its fact line also shows the target-type delivered figure.
+  Type, with Stretch left out. **Forecast Epics is the target scope on the first day of W1** (the epics that were
+  in the release on that day and still are); the burnup's scope label, point, tooltip, subtitle and caption and the
+  even-pace reference read the same single value, and the tile adds how many were added since (and today's count,
+  as a link). Before W1 it shows the target so far. The links use `fixVersion WAS "<release>" ON "<W1 date>"`.
+  The Epics Delivered tile follows the Commitment Type filter and says so; its fact line gives the target-type
+  delivered figure against the W1 scope.
 - **Cycle time** is EDCT only: calendar days an epic ended in In Progress or Validation, flagged days excluded.
   Identical to `dashboards/edct_from_jira.py`; the build checks every epic against it and reports differences.
 - **Burnup** (selected release): only the 12 delivery weeks W1 to W12, from the first day of the second week of
@@ -88,8 +93,12 @@ Taken from the Program Intelligence Agent (`.claude/agents/program-intelligence-
   where both ends are epics, normalised to a dependent and a provider. Only pairs where neither end is Done are
   shown (complete pairs are counted and left out). The board has one column per sprint plus "Not Planned", one card
   per provider epic. The **planned sprint** of the provider is the sprint containing its due date (the due date is
-  stronger), otherwise its Target Sprint; sprint windows come from the Target Sprint labels (the label date is the
-  start, sprints run three weeks). **Overdue** = the planned sprint has ended and the provider is not Done.
+  stronger), otherwise its Target Sprint; when both exist and disagree the card, the hover and the View Data table
+  show both ("Due 2026-09-04 (Sprint 195) overrides Target Sprint 199 (2026-11-25)"). A due date outside the sprint
+  calendar, or a Target Sprint the calendar does not know, is said so, never silently replaced. Sprint windows come
+  from the Target Sprint labels (the label date is the start, sprints run three weeks). The key on a card opens that
+  ticket (`/browse/KEY`); a small "Open with Dependents" link opens the provider with the epics it blocks. A pair
+  linked both as Dependency and as Blocks counts once. **Overdue** = the planned sprint has ended and the provider is not Done.
   **External** = the provider is in a different Jira project. Hovering a card lists the epics it blocks. Other link
   types do not count, links to Removed epics are left out, and a link means a dependency is recorded, not that it
   is risky (no link is not no dependency). Counts only; no aging logic beyond overdue. The **capability view** is one table, one row per project of the Capability (the Jira parent link), with the
@@ -99,18 +108,29 @@ Taken from the Program Intelligence Agent (`.claude/agents/program-intelligence-
   production bugs (customer-found, not Ready for Deploy, Done, Closed, Resolved or Removed) out of SLA or due soon
   (age in whole calendar days from creation; SLA days: P1 3; P2 7 with a regression, 14 without; P3 and P4 7 with, 30
   without; due soon from 70% of the SLA; no priority means no SLA), production bugs with no update for 3 days,
-  overdue dependencies, epics in Validation for more than 3 business days (working week assumed Sunday to Thursday,
-  no holiday list yet), epics In Progress for more than 42 days (a reference threshold from the disabled alert rule),
-  open external dependencies and a hygiene group. One row per Jira item, never ranked by team or person, and the
+  overdue dependencies, epics in Validation for more than 3 business days (Friday and Saturday and the Israeli public
+  holidays are not counted; the holiday list, 2025-06 to 2027-12 in python-holidays style, is in the thresholds object
+  and Chol HaMoed is not excluded; the panel says when the as-of date is past the list), open external dependencies and
+  a hygiene group. The 42-day In Progress group was dropped. One row per Jira item, never ranked by team or person, and the
   panel states what it could not see (comments, story data, anything older than the snapshot).
 - **CXCROSS** (separate section): epics of the six projects whose parent Capability lives in project CXCROSS, for the
   selected release and the global filters. One row per CXCROSS Capability (its Initiative as a muted subtitle), one
   column per project in the standard order, each cell showing done/total linked to Jira. A cell is **Behind Capability
   Fix Version** when an open epic of that project is planned later than the Capability (its earliest release version is
   later than the Capability's latest) or is not Done although the Capability's latest release-named fix version has
-  ended. A Capability's own Fix Version is shown as "Capability Fix Version (Jira)", never as the program's required
-  release (that decision lives outside Jira). Facts only: no at-risk verdict, no due dates, no owners; rows and columns
-  are never ordered by lateness. CXCROSS-owned epics are not included yet.
+  ended. The Capability's Fix Version is taken to be the program's **Required Fix Version** (an owner assumption, not
+  independently verified), shown as "Required Fix Version" and "Behind Required Fix Version". Facts only: no at-risk verdict, no due dates, no owners; rows and columns
+  are never ordered by lateness. Only CXCROSS Capabilities that have epics under the six projects are counted; CXCROSS-owned epics are not included.
+- **NFRs** ("NFR Epics (Label or Category)"): an epic is an NFR epic when it carries the label `NFR` (exact spelling) or
+  its Issue Category (field 10139) is one of four values listed in `NFR_CATEGORIES` in the template. Both are
+  self-reported in Jira, and the section says how each epic matched (label only, category only, both). It follows
+  every global filter, excludes Removed and CXCROSS-owned epics, and prints its denominator. Five figures stay above
+  five tabs (By Project, By Category, By Commitment, By Capability, By Team); the tab is kept in the URL as `nt=`
+  (default By Project; Reset returns to it). Status classes are Not Started (including In Definition), In Progress,
+  Validation and Done, with an Other Status column when a status fits none. No verdicts, rings or rankings.
+- **Scroll anchoring:** when a filter changes and sections re-render, the block the reader is looking at is kept at the
+  same screen position (a control the reader just used is held instead of the centre block). Open details panels
+  stay open.
 - **Guardrails:** no percentile, share or trend on fewer than 5 items (including the bug direction facts);
   running releases are provisional; epics listing several teams count under each team (the total row counts them once).
 - **No ranking or scoring of any team or person.** Teams and capabilities are listed alphabetically and the views
