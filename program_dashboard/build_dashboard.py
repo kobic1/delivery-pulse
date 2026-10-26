@@ -3,6 +3,7 @@
 
     python3 program_dashboard/build_dashboard.py            # fetch from Jira + render
     python3 program_dashboard/build_dashboard.py --reuse    # re-render from build/program_data.json
+    python3 program_dashboard/build_dashboard.py --add-cycles  # pull the Delivery Cycle Governance section (needs cycles.config.json)
 
 Built on the Program Intelligence Agent's definitions (branch claude/zealous-cannon-ls64p7,
 program_intelligence/definitions/*.yaml), restated here so this file stands on its own:
@@ -36,6 +37,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "dashboards"))     # reuse the weekly emails' Jira client + EDCT
 import edct_from_jira as E  # noqa: E402
+sys.path.insert(0, str(HERE))
+import cycles as CY  # noqa: E402
 
 PROJECTS = ["PMN", "CXCO", "CXSUP", "CXWFM", "WFM", "CXINT"]
 RELEASES = ["25.4", "26.1", "26.2", "26.3", "26.4", "27.1", "27.2"]
@@ -55,7 +58,9 @@ BUG_SINCE = "2025-07-09"                 # start of the first release window (25
 BUG_FIELDS = ["summary", "status", "priority", "created", "resolutiondate", "resolution", "reporter",
               "customfield_10098",       # Team Name
               "customfield_10055",       # Regression
-              "customfield_10068"]       # Number of Incidents (PQCR)
+              "customfield_10068",       # Number of Incidents (PQCR)
+              "customfield_10329",       # SF Connection Case Reference: a Salesforce case makes a bug a customer-found bug
+              "customfield_10099"]       # Closed (date-time): the date a customer-found bug counts as fixed
 # The weekly emails drop these from the backlog; the JQL is theirs, so the flag matches them exactly.
 AX_JQL = '(summary ~ "\\"[Accessibility]*\\"" OR labels = DWP_Accessibility_Defect)'
 CFB_ACCOUNT = json.loads((HERE.parent / "release_closure" / "config_pmn.json").read_text())["cfb_reporter"]
@@ -150,8 +155,27 @@ def analyse(j, e: dict):
     return out
 
 
+SF_FIELD, CLOSED_FIELD = "customfield_10329", "customfield_10099"
+# A customer-found bug (CFB) is a Bug reported by the CFB account OR linked to a Salesforce case. Broader than the alerting rules, which use the reporter only.
+CFB_JQL = f'(reporter = "{CFB_ACCOUNT}" OR cf[10329] is not EMPTY)'
+
+
+def israel_date(ts: str | None) -> str | None:
+    """The Israel-local date (YYYY-MM-DD) of a Jira timestamp such as 2026-01-28T09:31:00.000+0200, the page's time base for period boundaries."""
+    if not ts:
+        return None
+    from zoneinfo import ZoneInfo
+    t = ts.strip()
+    try:
+        when = dt.datetime.strptime(t, "%Y-%m-%dT%H:%M:%S.%f%z") if "." in t else dt.datetime.strptime(t, "%Y-%m-%dT%H:%M:%S%z")
+    except ValueError:
+        return t[:10]
+    return when.astimezone(ZoneInfo("Asia/Jerusalem")).date().isoformat()
+
+
 def bug_record(i: dict, proj: str, ax_keys: set) -> dict:
-    """Compact bug row; absent keys mean false / empty. cfb = reported by the CFB account."""
+    """Compact bug row; absent keys mean false / empty. cfb = a customer-found bug: reported by the CFB account (rb) or linked to a Salesforce case (sf).
+    cl = the Israel-local date of the Closed field, kept for customer-found bugs only (the date a fixed CFB counts in a period)."""
     f = i["fields"]
     b = {"k": i["key"], "p": proj, "cr": (f.get("created") or "")[:10],
          "s": (f.get("status") or {}).get("name")}
@@ -163,8 +187,17 @@ def bug_record(i: dict, proj: str, ax_keys: set) -> dict:
             b[key] = v
     if i["key"] in ax_keys:
         b["ax"] = 1
-    if (f.get("reporter") or {}).get("accountId") == CFB_ACCOUNT:
+    by_reporter = (f.get("reporter") or {}).get("accountId") == CFB_ACCOUNT
+    has_case = bool(f.get(SF_FIELD))
+    if by_reporter or has_case:
         b["cfb"] = 1
+        if by_reporter:
+            b["rb"] = 1
+        if has_case:
+            b["sf"] = 1
+        cl = israel_date(f.get(CLOSED_FIELD))
+        if cl:
+            b["cl"] = cl
     if val(f.get("customfield_10055")) == "Yes":
         b["rg"] = 1
     if f.get("customfield_10068"):
@@ -185,13 +218,13 @@ def fetch_windows(j) -> dict:
     return out
 
 
-PLAN_FIELDS = ["updated", "duedate", "customfield_12697"]      # Last update, Due date, Target Sprint
+PLAN_FIELDS = ["updated", "duedate", "customfield_12697", "assignee", "customfield_10021"]      # Last update, Due date, Target Sprint, Assignee, Flagged
 SPRINT_RE = re.compile(r"^CX\.(\d+\.\d+)\.(\d+) \((\d{1,2})([A-Za-z]{3})(\d{2})\)$")
 OPEN_SLA_EXCLUDED = ("Ready for Deploy", "Done", "Closed", "Resolved", "Removed")
 
 
 def plan_record(f) -> dict:
-    """Planning facts on an epic: due date (dd), Target Sprint label (ts), last update (ud). Absent means empty."""
+    """Planning facts on an epic: due date (dd), Target Sprint label (ts), last update (ud), assignee (as, factual ownership only), Flagged (fl). Absent means empty."""
     out = {}
     if f.get("duedate"):
         out["dd"] = f["duedate"][:10]
@@ -200,6 +233,10 @@ def plan_record(f) -> dict:
         out["ts"] = ts
     if f.get("updated"):
         out["ud"] = f["updated"][:10]
+    if (f.get("assignee") or {}).get("displayName"):
+        out["as"] = f["assignee"]["displayName"]
+    if f.get("customfield_10021"):
+        out["fl"] = 1
     return out
 
 
@@ -257,7 +294,7 @@ def collect_bug_updates(j, bugs) -> int:
     by = {b["k"]: b for b in bugs}
     n = 0
     for proj in PROJECTS:
-        for i in j.search(f'project = {proj} AND issuetype = Bug AND reporter = {CFB_ACCOUNT} AND resolution is EMPTY', ["updated"]):
+        for i in j.search(f'project = {proj} AND issuetype = Bug AND {CFB_JQL} AND status not in (Done, Closed, Resolved, Removed)', ["updated"]):
             if i["key"] in by and i["fields"].get("updated"):
                 by[i["key"]]["ud"] = i["fields"]["updated"][:10]
                 n += 1
@@ -329,6 +366,141 @@ def collect_nfr(j, epics) -> int:
     return n
 
 
+# ----------------------------------------------------------------------------- open customer-found bugs: root cause analysis flags
+RCA_FIELD, RCA_REVIEW, RCA_CATEGORY = "customfield_10117", "customfield_12643", "customfield_12710"
+BUG_CLOSED = ("Done", "Closed", "Resolved", "Removed")
+TEMPLATE_MIN = 5                      # a Root Cause Analysis text shared by this many CFBs is the unedited template, not an analysis
+
+
+def plain_text(v) -> str:
+    """The text of a textarea field: a string, or Atlassian document format (nested nodes with text leaves)."""
+    if v is None:
+        return ""
+    if isinstance(v, str):
+        return v
+    out = []
+
+    def walk(n):
+        if isinstance(n, dict):
+            if n.get("type") == "text":
+                out.append(n.get("text", ""))
+            elif n.get("type") in ("hardBreak", "paragraph", "listItem") and out:
+                out.append("\n")
+            for c in n.get("content") or []:
+                walk(c)
+        elif isinstance(n, list):
+            for c in n:
+                walk(c)
+    walk(v)
+    return "".join(out)
+
+
+def norm_text(t: str) -> str:
+    return re.sub(r"\s+", " ", t or "").strip().lower()
+
+
+def rca_flags(texts: dict[str, str]) -> tuple[dict[str, int], int]:
+    """1 = the text was edited, 0 = empty or an unedited template. A template is learned, not hard-coded: the most repeated identical text
+    (shared by TEMPLATE_MIN or more CFBs). Only the flag is kept for it, never the text."""
+    counts: dict[str, int] = {}
+    for t in texts.values():
+        n = norm_text(t)
+        if n:
+            counts[n] = counts.get(n, 0) + 1
+    templates = {n for n, c in counts.items() if c >= TEMPLATE_MIN}
+    return {k: int(bool(norm_text(t)) and norm_text(t) not in templates) for k, t in texts.items()}, len(templates)
+
+
+def collect_cfb(j) -> dict:
+    """Every CFB (bug reported by the CFB account) of the six projects with its Root Cause Analysis state, plus the open count across ALL projects."""
+    jql = f'project in ({", ".join(PROJECTS)}) AND issuetype = Bug AND {CFB_JQL}'
+    got = j.search(jql, ["summary", "status", RCA_FIELD, RCA_REVIEW, "issuelinks"])
+    texts = {i["key"]: plain_text(i["fields"].get(RCA_FIELD)) for i in got}
+    flag, ntemplates = rca_flags(texts)
+    bugs = {}
+    for i in got:
+        f = i["fields"]
+        rv = val(f.get(RCA_REVIEW))
+        lk = []
+        for l in f.get("issuelinks") or []:
+            if (l.get("type") or {}).get("name") == "Problem/Incident":
+                other = l.get("outwardIssue") or l.get("inwardIssue")
+                if other:
+                    lk.append(other["key"])
+        rec = {"t": f.get("summary") or "", "rca": flag[i["key"]]}
+        if rv in ("Approved", "Not Required"):
+            rec["rv"] = "A" if rv == "Approved" else "N"
+        if lk:
+            rec["lk"] = lk
+        if flag[i["key"]] and (f.get("status") or {}).get("name") not in BUG_CLOSED:
+            rec["rt"] = re.sub(r"\s+", " ", texts[i["key"]]).strip()[:320]      # an excerpt of an edited analysis, only for bugs that are still open
+        bugs[i["key"]] = rec
+    allopen = j.search(f'issuetype = Bug AND {CFB_JQL} AND status not in ({", ".join(BUG_CLOSED)})', ["project"])
+    by = {}
+    for i in allopen:
+        pk = (i["fields"].get("project") or {}).get("key") or i["key"].split("-")[0]
+        by[pk] = by.get(pk, 0) + 1
+    print(f"CFB: {len(bugs)} bugs in the six projects ({sum(v['rca'] for v in bugs.values())} with an edited analysis, {ntemplates} template texts learned); "
+          f"{len(allopen)} open across all projects", flush=True)
+    return {"bugs": bugs, "templates": ntemplates, "allOpen": len(allopen), "allOpenByProject": by,
+            "pulledAt": dt.datetime.now().astimezone().isoformat(timespec="minutes")}
+
+
+# ----------------------------------------------------------------------------- capabilities: the Capability list and all their child epics
+CAP_PROJECTS = PROJECTS + ["CXCROSS"]
+CAP_RELEASES = [r for r in RELEASES if r != "25.4"]                 # Capabilities are read for 26.1 to 27.2
+
+
+def collect_capabilities(j, known: dict) -> dict:
+    """capList: the Capabilities of the six projects and CXCROSS that carry a release fix version (26.1 to 27.2), plus the Capabilities our epics point to
+    (any project). capEpics: ALL non-Removed child epics, in any project and with any fix version, of the six-project Capabilities, as compact rows
+    [key, project, status, release fix versions, Issue Category, Capability]. capNoFv: Capabilities with no fix version at all (a count, no records)."""
+    quoted = ", ".join(f'"{r}"' for r in CAP_RELEASES)
+    fields = ["summary", "status", "fixVersions", "project"]
+
+    def rec(i):
+        f = i["fields"]
+        return {"t": f["summary"], "s": (f.get("status") or {}).get("name"), "p": (f.get("project") or {}).get("key") or i["key"].split("-")[0],
+                "fv": [v["name"] for v in f.get("fixVersions") or []]}
+    caps = {i["key"]: rec(i) for i in j.search(f'project in ({", ".join(CAP_PROJECTS)}) AND issuetype = Capability AND status != Removed AND fixVersion in ({quoted})', fields)}
+    print(f"capabilities: {len(caps)} with a fix version in {CAP_RELEASES[0]} to {CAP_RELEASES[-1]}", flush=True)
+    want = sorted(set(known) - set(caps))                            # the Capabilities that our epics (the release data) point to and that are not in the list yet
+    extra = 0
+    for n in range(0, len(want), 80):
+        for i in j.search(f'key in ({", ".join(want[n:n + 80])}) AND status != Removed', fields):
+            caps[i["key"]] = rec(i)
+            extra += 1
+    print(f"capabilities: {extra} more that our epics point to (any project)", flush=True)
+    nofv = j.search(f'project in ({", ".join(CAP_PROJECTS)}) AND issuetype = Capability AND status != Removed AND fixVersion is EMPTY', ["status"])
+    no_fv = {"total": len(nofv), "done": sum(1 for i in nofv if (i["fields"].get("status") or {}).get("name") == "Done")}
+    keys = sorted(k for k, v in caps.items() if v["p"] in PROJECTS and any(r in CAP_RELEASES for r in v["fv"]))
+    rows = []
+    for n in range(0, len(keys), 80):
+        for i in j.search(f'parent in ({", ".join(keys[n:n + 80])}) AND issuetype = Epic AND status != Removed',
+                          ["status", "project", "fixVersions", "customfield_10139", "parent"]):
+            f = i["fields"]
+            rows.append([i["key"], (f.get("project") or {}).get("key") or i["key"].split("-")[0], (f.get("status") or {}).get("name"),
+                         [v["name"] for v in f.get("fixVersions") or [] if v["name"] in RELEASES], val(f.get("customfield_10139")) or "", f["parent"]["key"]])
+        if (n // 80) % 5 == 4:
+            print(f"  child epics: {min(n + 80, len(keys))}/{len(keys)} capabilities read, {len(rows)} epics", flush=True)
+    print(f"capabilities: {len(rows)} child epics of {len(keys)} six-project Capabilities; {no_fv['total']} Capabilities have no fix version", flush=True)
+    return {"capList": caps, "capEpics": rows, "capNoFv": no_fv, "capPulledAt": dt.datetime.now().astimezone().isoformat(timespec="minutes")}
+
+
+def collect_epic_bugs(j, epics) -> dict:
+    """Bugs whose parent is an epic (type Bug exactly, Removed excluded), for every epic of the six projects: {epic: [[bug, status, priority]]}.
+    A read of Jira found no other way a bug is tied to an epic (no issue links, no grandchildren), so the parent link is the whole relation."""
+    keys = sorted(e["k"] for e in epics)
+    out, total = {}, 0
+    for n in range(0, len(keys), 80):
+        for i in j.search(f'parent in ({", ".join(keys[n:n + 80])}) AND issuetype = Bug AND status != Removed', ["status", "priority", "parent"]):
+            f = i["fields"]
+            out.setdefault(f["parent"]["key"], []).append([i["key"], (f.get("status") or {}).get("name"), (f.get("priority") or {}).get("name")])
+            total += 1
+    print(f"epic bugs: {total} bugs under {len(out)} of {len(keys)} epics", flush=True)
+    return out
+
+
 def planning(j, epics, bugs, links) -> dict:
     """Everything the planning and insight views need beyond the basic pull."""
     labels = {e.get("ts") for e in epics} | {x.get("ts") for x in links["ext"].values()}
@@ -337,18 +509,19 @@ def planning(j, epics, bugs, links) -> dict:
     sprints = sprint_calendar(labels)
     print(f"planning: {sum(1 for e in epics if e.get('dd'))} epics with a due date, {sum(1 for e in epics if e.get('ts'))} with a target sprint, "
           f"{len(sprints)} sprints, status-since for {got} in-flight epics, last update for {nb} open CFB bugs", flush=True)
-    return {"sprints": sprints}
+    return {"sprints": sprints, "eb": collect_epic_bugs(j, epics)}
 
 
 def dep_pair(key, link):
-    """For an epic-to-epic Dependency or Blocks link return (dependent, provider, type, other end), else None.
+    """For a Dependency or Blocks link on an epic return (dependent, provider, type, other end), else None. The other end may be ANY issue type
+    (Epic, Initiative, Capability, Story, Task ...): one end is always the epic the link was read from.
     Dependency: outward "depends on", inward "is needed by". Blocks: outward "blocks", inward "is blocked by"."""
     t = link["type"]["name"]
     if t not in DEP_TYPES:
         return None
     out, inn = link.get("outwardIssue"), link.get("inwardIssue")
     other = out or inn
-    if not other or (other["fields"].get("issuetype") or {}).get("name") != "Epic":
+    if not other:
         return None
     ok = other["key"]
     if t == "Dependency":
@@ -358,12 +531,44 @@ def dep_pair(key, link):
     return dependent, provider, t, other
 
 
+def collect_story_links(j, epics) -> dict:
+    """Dependency or Blocks links that sit on the stories, tasks and bugs UNDER the epics of the release train (not on the epics themselves).
+    Kept apart from the epic board: sdeps = [dependent, provider, "D"/"B"/"DB", [parent epics of the ends]]; sinfo = status, project and type of each end."""
+    keys = sorted(e["k"] for e in epics)
+    pairs, info = {}, {}
+    for n in range(0, len(keys), 80):
+        for i in j.search(f'parent in ({", ".join(keys[n:n + 80])}) AND status != Removed AND issueLinkType in ({", ".join(sorted(DEP_TYPES))})',
+                          ["issuelinks", "status", "issuetype", "parent"]):
+            f = i["fields"]
+            pe = (f.get("parent") or {}).get("key")
+            info[i["key"]] = {"s": (f.get("status") or {}).get("name"), "ty": (f.get("issuetype") or {}).get("name"), "par": pe}
+            for link in f.get("issuelinks") or []:
+                r = dep_pair(i["key"], link)
+                if not r:
+                    continue
+                d, p, t, other = r
+                if (other["fields"].get("status") or {}).get("name") == "Removed":
+                    continue
+                if other["key"] not in info:
+                    info[other["key"]] = {"s": (other["fields"].get("status") or {}).get("name"), "ty": (other["fields"].get("issuetype") or {}).get("name")}
+                rec = pairs.setdefault((d, p), {"t": set(), "pe": set()})
+                rec["t"].add("D" if t == "Dependency" else "B")
+                if pe:
+                    rec["pe"].add(pe)
+        if (n // 80) % 10 == 9:
+            print(f"  story-level links: {min(n + 80, len(keys))}/{len(keys)} epics read", flush=True)
+    sdeps = sorted([d, p, "".join(c for c in "DB" if c in rec["t"]), sorted(rec["pe"])] for (d, p), rec in pairs.items())
+    print(f"story-level links: {len(sdeps)} pairs under {len({pe for r in sdeps for pe in r[3]})} epics", flush=True)
+    return {"sdeps": sdeps, "sinfo": info}
+
+
 def collect_links(j, epics) -> dict:
     """Dependencies between epics, and each epic's parent Capability. Epics at the far end of a link that are not in
     `epics` (other projects, other releases) are read once so the page can show their status, release and team."""
     by_key = {e["k"]: e for e in epics}
     quoted = ", ".join(f'"{r}"' for r in RELEASES)
     pairs, caps, dropped = set(), {}, {"removed": 0}
+    other_type = {}                                           # issue type of the far end of each pair, read from the link itself
     for proj in PROJECTS:
         jql = f'project = {proj} AND issuetype = Epic AND status != Removed AND fixVersion in ({quoted})'
         for i in j.search(jql, ["issuelinks", "parent"] + PLAN_FIELDS):
@@ -383,13 +588,14 @@ def collect_links(j, epics) -> dict:
                 if (other["fields"].get("status") or {}).get("name") == "Removed":
                     dropped["removed"] += 1
                     continue
+                other_type[other["key"]] = (other["fields"].get("issuetype") or {}).get("name") or "Epic"
                 pairs.add((d, p, t))
     outside = sorted({k for d, p, t in pairs for k in (d, p)} - set(by_key))
     ext = {}
     for n in range(0, len(outside), 80):
         chunk = outside[n:n + 80]
         for i in j.search(f'key in ({", ".join(chunk)})',
-                          ["summary", "status", "fixVersions", "parent", "customfield_10040", "customfield_10098", "project"] + PLAN_FIELDS):
+                          ["summary", "status", "issuetype", "fixVersions", "parent", "customfield_10040", "customfield_10098", "project"] + PLAN_FIELDS):
             f = i["fields"]
             teams = [t for t in (val(f.get("customfield_10040")) or []) if t]
             tn = val(f.get("customfield_10098"))
@@ -398,18 +604,51 @@ def collect_links(j, epics) -> dict:
             rec = {"p": (f.get("project") or {}).get("key") or i["key"].split("-")[0], "t": f["summary"],
                    "s": (f.get("status") or {}).get("name"), "fv": [v["name"] for v in f.get("fixVersions") or []], "tm": teams,
                    **plan_record(f)}
+            ty = (f.get("issuetype") or {}).get("name")
+            if ty and ty != "Epic":
+                rec["ty"] = ty                                  # absent means Epic
             par = f.get("parent")
             if par and (par["fields"].get("issuetype") or {}).get("name") == "Capability":
                 caps[par["key"]] = par["fields"]["summary"]
                 rec["cp"] = par["key"]
             ext[i["key"]] = rec
-    print(f"links: {len({(d, p) for d, p, t in pairs})} epic-to-epic dependencies ({dropped['removed']} to Removed epics left out), "
-          f"{len(outside)} epics outside the release data, {len(caps)} capabilities", flush=True)
+    kinds_n = {}
+    for k in {k for d, p, t in pairs for k in (d, p)}:
+        ty = by_key.get(k) and "Epic" or (ext.get(k) or {}).get("ty") or "Epic"
+        kinds_n[ty] = kinds_n.get(ty, 0) + 1
+    print(f"links: {len({(d, p) for d, p, t in pairs})} dependency pairs with an epic at one end ({dropped['removed']} to Removed issues left out); "
+          f"{len(outside)} issues outside the release data; ends by type {dict(sorted(kinds_n.items()))}; {len(caps)} capabilities", flush=True)
     merged = {}                                                     # the same pair linked as Dependency and as Blocks is one dependency ("DB")
     for d, p, t in pairs:
         merged.setdefault((d, p), set()).add("D" if t == "Dependency" else "B")
-    return {"deps": sorted([d, p, "".join(c for c in "DB" if c in kinds)] for (d, p), kinds in merged.items()),
+    story = collect_story_links(j, epics)
+    return {**story, "deps": sorted([d, p, "".join(c for c in "DB" if c in kinds)] for (d, p), kinds in merged.items()),
             "ext": ext, "capabilities": caps, "depsDropped": dropped}
+
+
+def collect_cycles(j):
+    """Delivery Cycle Governance: its own pull (INT, CXINT, WFM epics by pod label or Epic Team), independent of the release pull above.
+    Left out, with a message, when there is no cycles configuration."""
+    cfg = CY.load_config()
+    if cfg is None:
+        print(f"cycles: no configuration ({CY.config_path().name}); the Delivery Cycle Governance section is left out", flush=True)
+        return None
+    return CY.collect(j, cfg, day_counts, E.epic_events)
+
+
+def collect_bugs(j) -> list:
+    """Every Bug of the six projects open, created, resolved or closed since BUG_SINCE, as compact rows (see bug_record)."""
+    bugs = []
+    for proj in PROJECTS:
+        base = (f'project = {proj} AND issuetype = Bug AND (created >= "{BUG_SINCE}" '
+                f'OR resolutiondate >= "{BUG_SINCE}" OR cf[10099] >= "{BUG_SINCE}" OR resolution is EMPTY)')
+        ax_keys = {i["key"] for i in j.search(f"{base} AND {AX_JQL}", ["summary"])}
+        got = j.search(base, BUG_FIELDS)
+        bugs += [bug_record(i, proj, ax_keys) for i in got]
+        print(f"{proj}: {len(got)} bugs ({len(ax_keys)} accessibility)", flush=True)
+    n = sum(1 for b in bugs if b.get("cfb"))
+    print(f"customer-found bugs: {n} (reported by the CFB account {sum(1 for b in bugs if b.get('rb'))}, with a Salesforce case {sum(1 for b in bugs if b.get('sf'))})", flush=True)
+    return bugs
 
 
 def fetch() -> dict:
@@ -441,14 +680,7 @@ def fetch() -> dict:
                 "cat": val(f.get("customfield_10139")),
             })
 
-    bugs = []
-    for proj in PROJECTS:
-        base = (f'project = {proj} AND issuetype = Bug AND (created >= "{BUG_SINCE}" '
-                f'OR resolutiondate >= "{BUG_SINCE}" OR resolution is EMPTY)')
-        ax_keys = {i["key"] for i in j.search(f"{base} AND {AX_JQL}", ["summary"])}
-        got = j.search(base, BUG_FIELDS)
-        bugs += [bug_record(i, proj, ax_keys) for i in got]
-        print(f"{proj}: {len(got)} bugs ({len(ax_keys)} accessibility)", flush=True)
+    bugs = collect_bugs(j)
 
     print(f"reading the changelog of {len(epics)} epics (cycle time + release join dates) ...", flush=True)
 
@@ -479,7 +711,17 @@ def fetch() -> dict:
     plan = planning(j, epics, bugs, links)
     plan.update(collect_hier(j, epics, links["capabilities"]))
     collect_nfr(j, epics)
-    return {"generated": dt.datetime.now().astimezone().isoformat(timespec="minutes"), **links, **plan,
+    cfbx = collect_cfb(j)
+    capx = collect_capabilities(j, {e["cp"] for e in epics if e.get("cp")})
+    try:
+        cyc = collect_cycles(j)
+    except Exception as exc:                                      # this section must not sink the whole build: keep the last pull, which shows its own as-of date
+        print(f"warning: Delivery Cycle Governance could not be pulled ({type(exc).__name__}: {str(exc)[:120]}); keeping the last pull if there is one", flush=True)
+        try:
+            cyc = json.loads(DATA_PATH.read_text(encoding="utf-8")).get("cycles")
+        except Exception:
+            cyc = None
+    return {**({"cycles": cyc} if cyc else {}), "cfbx": cfbx, **capx, "generated": dt.datetime.now().astimezone().isoformat(timespec="minutes"), **links, **plan,
             "jiraBase": os.environ["JIRA_BASE_URL"].rstrip("/"),
             "projects": PROJECTS, "releases": RELEASES, "current": CURRENT_RELEASE,
             "windows": fetch_windows(j),
@@ -528,6 +770,10 @@ def main() -> int:
     ap.add_argument("--add-hier", action="store_true", help="add the CXCROSS Initiative > Capability hierarchy to build/program_data.json, then render")
     ap.add_argument("--add-planning", action="store_true", help="add due dates, target sprints, sprint calendar, status-since and bug updates to build/program_data.json, then render")
     ap.add_argument("--add-deps", action="store_true", help="read dependency links and capabilities into build/program_data.json (no changelog calls), then render")
+    ap.add_argument("--add-bugs", action="store_true", help="re-read the bugs (customer-found bugs by reporter OR Salesforce case, Closed dates) and the Open CFB Root Cause Analysis state into build/program_data.json, then render")
+    ap.add_argument("--add-cfb-open", action="store_true", help="pull the root cause analysis state of the customer-found bugs (Open CFBs table) into build/program_data.json, then render")
+    ap.add_argument("--add-capabilities", action="store_true", help="pull the Capability list and all their child epics (Capabilities section, Done Capabilities per Release) into build/program_data.json, then render")
+    ap.add_argument("--add-cycles", action="store_true", help="pull the Delivery Cycle Governance section into build/program_data.json (needs cycles.config.json), then render")
     args = ap.parse_args()
     DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
     if args.add_nfr:
@@ -544,6 +790,28 @@ def main() -> int:
         data.update(collect_links(E.Jira(), eps))
         j = E.Jira()
         data.update(planning(j, eps, [b for b in data["bugs"] if b["p"] in PROJECTS], data))
+        DATA_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    elif args.add_capabilities:
+        data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
+        data.update(collect_capabilities(E.Jira(), {e["cp"] for e in data["epics"] if e.get("cp")}))
+        DATA_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    elif args.add_bugs:
+        data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
+        j = E.Jira()
+        data["bugs"] = collect_bugs(j)
+        collect_bug_updates(j, data["bugs"])
+        data["cfbx"] = collect_cfb(j)
+        DATA_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    elif args.add_cfb_open:
+        data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
+        data["cfbx"] = collect_cfb(E.Jira())
+        DATA_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    elif args.add_cycles:
+        data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
+        cyc = collect_cycles(E.Jira())
+        if cyc is None:
+            return 1
+        data["cycles"] = cyc
         DATA_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     elif args.add_deps:
         data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
