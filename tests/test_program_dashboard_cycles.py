@@ -204,3 +204,44 @@ def test_closed_date_is_the_israel_local_day_and_a_salesforce_case_makes_a_cfb()
     base["fields"]["reporter"] = {"accountId": BD.CFB_ACCOUNT}
     b = BD.bug_record(base, "AAA", set())
     assert b["cfb"] == 1 and b["rb"] == 1 and "sf" not in b
+
+
+class SearchJira:
+    """search(jql, fields) returns the issues for the first matching key of `by_jql`."""
+    def __init__(self, issues):
+        self.issues = issues
+
+    def search(self, jql, fields):
+        return [i for i in self.issues if i["key"].split("-")[0] in jql]
+
+
+def test_a_field_emptied_in_jira_does_not_survive_from_an_earlier_pull():
+    old = {"k": "AAA-1", "dd": "2030-01-03", "ts": "CX.99.1.900 (01Jan30)", "as": "Person One", "fl": 1, "ud": "2030-01-01", "cp": "AAA-9", "t": "kept"}
+    epics = [dict(old), {"k": "AAA-2", "dd": "2030-01-03", "ts": "CX.99.1.900 (01Jan30)"}]
+    issue = lambda key, **f: {"key": key, "fields": {"issuelinks": [], "parent": None, "updated": "2030-01-02T09:00:00.000+0200", **f}}
+    # AAA-1: due date, Target Sprint, assignee, Flagged and parent Capability all emptied; AAA-2 keeps its due date and loses only the Target Sprint
+    j = SearchJira([issue("AAA-1", duedate=None, customfield_12697=None, assignee=None, customfield_10021=[]),
+                  issue("AAA-2", duedate="2030-01-04", customfield_12697=None)])
+    saved = BD.PROJECTS
+    BD.PROJECTS = ["AAA"]
+    try:
+        BD.collect_links(j, epics)
+    finally:
+        BD.PROJECTS = saved
+    a, b = epics
+    assert all(k not in a for k in ("dd", "ts", "as", "fl", "cp")) and a["ud"] == "2030-01-02" and a["t"] == "kept"
+    assert b["dd"] == "2030-01-04" and "ts" not in b
+
+
+def test_status_since_and_open_bug_update_dates_do_not_survive_when_no_longer_true():
+    epics = [{"k": "AAA-1", "s": "Done", "ss": "2029-11-01"}, {"k": "AAA-2", "s": "New", "ss": "2029-11-02"}]
+    BD.collect_status_since(SearchJira([]), epics)
+    assert all("ss" not in e for e in epics)
+    bugs = [{"k": "AAA-5", "ud": "2029-12-01"}, {"k": "AAA-6", "ud": "2029-12-02"}]
+    saved = BD.PROJECTS
+    BD.PROJECTS = ["AAA"]
+    try:
+        BD.collect_bug_updates(SearchJira([{"key": "AAA-6", "fields": {"updated": "2030-01-02T01:00:00.000+0200"}}]), bugs)
+    finally:
+        BD.PROJECTS = saved
+    assert "ud" not in bugs[0] and bugs[1]["ud"] == "2030-01-02"

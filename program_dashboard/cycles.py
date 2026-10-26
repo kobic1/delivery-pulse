@@ -27,7 +27,7 @@ POD_CACHE = HERE / "build" / "cycles_pods_cache.json"
 NOPOD = "_nopod"                                  # epics that match by Epic Team but carry no pod label from the pods page
 FLAG_FIELD = "customfield_10021"                  # Flagged (Impediment)
 CHUNK = 80
-BUG_CLOSED = ("Done", "Closed", "Resolved", "Removed")      # a bug is open while its status is not one of these (the dashboard's status rule)
+BUG_CLOSED = ("Done", "Ready for Deploy", "Closed", "Resolved", "Removed")      # a bug is open while its status is not one of these (the dashboard's status rule)
 
 
 # ----------------------------------------------------------------------------- configuration
@@ -312,7 +312,7 @@ def pull_epics(j, cfg: dict, groups: list[dict], cycles: list[dict]) -> list[dic
 
 
 def pull_bugs(j, epics: list[dict]) -> None:
-    """Bugs whose parent is the epic (type Bug exactly, Removed excluded). Open = status not Done, Closed, Resolved or Removed."""
+    """Bugs whose parent is the epic (type Bug exactly, Removed excluded). Open = status not Done, Ready for Deploy, Closed, Resolved or Removed."""
     by = {e["k"]: e for e in epics}
     keys = sorted(by)
     total = 0

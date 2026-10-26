@@ -703,10 +703,11 @@ const EMPTY_SHORT = "Nothing to show for this selection.";
 const CFB_RESOLUTIONS = ["Fixed", "Fixed - Config"];
 const PRIORITIES = ["P1", "P2", "P3", "P4"];
 const PRI_ALL = PRIORITIES;                                   // the priority control offers P1 to P4; a bug with no P1 to P4 priority stays in the totals (see backlogBugs)
-// A bug is open while its status is not Done, Closed, Resolved or Removed (the status rule of the alert rules). Resolution is not used: 482 imported bugs are Done without one.
-const BUG_CLOSED = ["Done", "Closed", "Resolved", "Removed"];
+// A bug is open while its status is not Done, Ready for Deploy, Closed, Resolved or Removed (the status rule of the alert rules). Resolution is not used: 482 imported bugs are Done without one.
+const BUG_CLOSED = ["Done", "Ready for Deploy", "Closed", "Resolved", "Removed"];      // Ready for Deploy counts as Done for bugs (epics keep Done = the status named Done)
 const isOpenBug = b => !BUG_CLOSED.includes(b.s);
-const BUG_CLOSED_IN = `status in (${BUG_CLOSED.join(", ")})`, OPEN_BUG_JQL = `status not in (${BUG_CLOSED.join(", ")})`;
+const jqlName = x => /\s/.test(x) ? `"${x}"` : x;
+const BUG_CLOSED_IN = `status in (${BUG_CLOSED.map(jqlName).join(", ")})`, OPEN_BUG_JQL = `status not in (${BUG_CLOSED.map(jqlName).join(", ")})`;
 const DAY = 86400000;
 // Every threshold of the Needs Attention panel, with where it came from. Change a number here and the panel, its hover text and its notes follow.
 // The Issue Category values (field 10139) that make an epic an NFR epic, in addition to the label NFR.
@@ -722,7 +723,6 @@ const CFG = {
   // Dates are Israel local dates as Jira returns them; no timezone shifting.
   holidaysThrough: "2027-12-31",                                 // the holiday list below covers up to this date
   weekend: [5, 6], HOLIDAYS: ["2025-06-02", "2025-09-23", "2025-09-24", "2025-10-02", "2025-10-07", "2025-10-14", "2026-04-02", "2026-04-08", "2026-04-22", "2026-05-22", "2026-09-12", "2026-09-13", "2026-09-21", "2026-09-26", "2026-10-03", "2027-04-22", "2027-04-28", "2027-05-12", "2027-06-11", "2027-10-02", "2027-10-03", "2027-10-11", "2027-10-16", "2027-10-23"],
-  prodDoneStatuses: ["Ready for Deploy", "Done", "Closed", "Resolved", "Removed"],
   rows: {first: 5, other: 10},
 };
 const projectsAll = DATA.projects;
@@ -869,10 +869,12 @@ function niceScale(v, want = 4) {
 
 // ---------------------------------------------------------------- jira links (null when the selection is empty, so no invalid query is offered)
 const q = s => `"${String(s).replace(/"/g, '\\"')}"`;
+const CFB_FIXED_JQL = `((status = Done AND resolution in (Fixed, "Fixed - Config")) OR (status = "Ready for Deploy" AND (resolution is EMPTY OR resolution in (Fixed, "Fixed - Config"))))`;
 // A customer-found bug (CFB) is a Bug reported by the CFB account OR linked to a Salesforce case (field SF Connection Case Reference). Broader than the alerting rules (reporter only).
 const CFB_Q = () => `(reporter = ${q(DATA.cfbAccount)} OR cf[10329] is not EMPTY)`;
 const NOT_CFB_Q = () => `(reporter != ${q(DATA.cfbAccount)} AND cf[10329] is EMPTY)`;
-const cfbDate = b => b.cl || b.rd;                              // a fixed CFB counts in the period of its Closed date (Israel-local day); Done without one falls back to the resolution date
+// A fixed CFB counts in the period of its Closed date (Israel-local day). Without one: a Ready for Deploy bug uses its Ready to Deploy Date, then (and for a Done bug) the resolution date.
+const cfbDate = b => b.cl || (b.s === "Ready for Deploy" && b.rtd) || b.rd;
 // Epics in these Issue Categories do not need a Capability parent, so a missing parent is not flagged for them. The stored spelling is "Maintenance";
 // the comparison ignores case. "NFR" as an Issue Category value is not exempt.
 const CAP_EXEMPT = [...NFR_CATEGORIES, "Maintenance"];
@@ -1312,17 +1314,35 @@ function renderBurnup() {
   const flip = snapD < D && x(snapD) + 7 + est > W - 4, tx = flip ? x(snapD) - 7 : x(snapD) + 7, ty = yD + 4 + (gap && snapD === D ? 8 : 0), anc = flip ? "end" : "start";
   g += `<text x="${tx}" text-anchor="${anc}" y="${ty}" font-size="12" font-weight="600" fill="#025AFB" stroke="#fff" stroke-width="3" paint-order="stroke">${doneTxt}${paceTxt && !narrow ? " · " + paceTxt : ""}</text>`;
   if (paceTxt && narrow) g += `<text x="${tx}" text-anchor="${anc}" y="${ty + 15}" font-size="11" fill="#025AFB" stroke="#fff" stroke-width="3" paint-order="stroke">${paceTxt}</text>`;
-  g += `<text x="${x(D * .64)}" y="${y(N * .64) - 8}" text-anchor="middle" font-size="11" fill="#5A5F6B">Even pace</text>`;
+  g += `<text x="${x(D * .64)}" y="${y(N * .64) - 8}" text-anchor="middle" font-size="11" fill="#5A5F6B" stroke="#fff" stroke-width="3" paint-order="stroke">Even pace</text>`;
   const W6 = D >= 41 && state.projects.size ? w6Model(rel, w1) : null;
-  if (W6) g += `<line x1="${x(41)}" x2="${x(41)}" y1="${pt}" y2="${pt + ph}" stroke="#025AFB" stroke-opacity=".7" stroke-width="1.5" stroke-dasharray="1 4" stroke-linecap="round" pointer-events="none"/>` +
-    `<text x="${x(41) - 5}" y="${pt + 12}" text-anchor="end" font-size="11" fill="#1A4FB5" stroke="#fff" stroke-width="3" paint-order="stroke" pointer-events="none">Delivery Cycle 1</text>`;
+  let w6Dot = "", w6Hit = "";
+  if (W6) {
+    // The cycle's count is printed on the chart: "Delivery Cycle 1 · N epics planned" and "N Done" (the same numbers as the fact line under it), left of the dotted line at the top of the plot,
+    // where nothing else is drawn. The line wraps by the space left of the marker (two lines, three, five) so it never reaches the axis or the other labels at 1440, 1280, 400 or 320.
+    const nP = W6.within.length, nD = W6.done.length, ctx2 = document.createElement("canvas").getContext("2d"), fam = getComputedStyle(el).fontFamily || "sans-serif";
+    const tw = (s2, w) => { ctx2.font = `${w} 12px ${fam}`; return ctx2.measureText(s2).width; };
+    const wd = seg => seg.reduce((a, [t2, bd]) => a + tw(String(t2), bd ? 600 : 400), 0);
+    const cands = [
+      [[["Delivery Cycle 1 · "], [nP, 1], [` ${epicWord(nP)} planned`]], [[nD, 1], [" Done"]]],
+      [[["Delivery Cycle 1"]], [[nP, 1], [` ${epicWord(nP)} planned`]], [[nD, 1], [" Done"]]],
+      [[["Delivery"]], [["Cycle 1"]], [[nP, 1], [` ${epicWord(nP)}`]], [["planned"]], [[nD, 1], [" Done"]]],
+    ];
+    const room = x(41) - 10 - pl - 2, lines = cands.find(c => Math.max(...c.map(wd)) <= room) || cands[2], lw = Math.max(...lines.map(wd)), lx = x(41) - 10;
+    g += `<line x1="${x(41)}" x2="${x(41)}" y1="${pt}" y2="${pt + ph}" stroke="#025AFB" stroke-opacity=".7" stroke-width="1.5" stroke-dasharray="1 4" stroke-linecap="round" pointer-events="none"/>` +
+      lines.map((ln, i) => `<text x="${lx}" y="${pt + 13 + i * 15}" text-anchor="end" font-size="12" fill="#1A4FB5" stroke="#fff" stroke-width="3" paint-order="stroke" pointer-events="none">` +
+        ln.map(([t2, bd]) => bd ? `<tspan font-weight="600">${esc(String(t2))}</tspan>` : esc(t2)).join("") + `</text>`).join("");
+    const yP = y(Math.min(nP, sc.max));                                        // the dot sits at the planned count on the chart's own epic scale
+    w6Dot = `<circle cx="${x(41)}" cy="${yP}" r="4.5" fill="#025AFB" stroke="#fff" stroke-width="1.5"/><circle cx="${x(41)}" cy="${yP}" r="10" fill="transparent"/>`;
+    w6Hit = `<rect class="hit" x="${lx - lw - 3}" y="${pt}" width="${lw + 16}" height="${lines.length * 15 + 4}" fill="transparent"/>`;
+  }
   g += `<line id="bu-cross" x1="0" x2="0" y1="${pt}" y2="${pt + ph}" stroke="#444" stroke-opacity=".45" style="display:none"/>`;
   g += `<a id="bu-link" href="${jira({kind: "done", commit: new Set(TARGET_COMMIT)}) || ""}" target="_blank" rel="noopener" aria-label="Open the Done epics in Jira"><rect id="bu-hit" x="${pl}" y="${pt}" width="${pw}" height="${ph}" fill="transparent" style="touch-action:pan-y;cursor:pointer"/></a>`;
   g += ga(`<circle cx="${x(D)}" cy="${yS}" r="9" fill="transparent" stroke="none"/><rect class="hit" x="${x(D) - 9}" y="${yS - 16}" width="${pr - 4}" height="34" fill="transparent"/>`, TB.href, `Target scope ${N.toLocaleString("en-US")} on ${shortDate(w1)}\n${TB.tip}`);
-  const w6tip = W6 ? `Delivery Cycle 1 (W1 to W6, ends ${W6.w6}): ${W6.within.length} Committed epics planned, of ${W6.list.length} Committed in the release\n${W6.done.length} Done, ${W6.open.length} not Done; ${W6.none.length} with no due date or Target Sprint.\nCommitted only, Not Set is not included. A Target Sprint counts by its end date (the 2nd sprint of the release or earlier); with both a Target Sprint and a due date the later one counts. The dependency board keeps the due date over the Target Sprint.` : "";
-  if (W6) g += ga(`<rect class="hit" x="${x(41) - 96}" y="${pt}" width="102" height="18" fill="transparent"/>`, W6.hrefs.within, w6tip);
+  const w6tip = W6 ? `Delivery Cycle 1 (W1 to W6, ends ${W6.w6}): ${W6.within.length} Committed ${epicWord(W6.within.length)} planned by the cycle end, of ${W6.list.length} Committed in the release\n${W6.done.length} Done, ${W6.open.length} not Done; ${W6.none.length} with no due date or Target Sprint.\nCommitted only, Not Set is not included. A Target Sprint counts by its end date (the 2nd sprint of the release or earlier); with both a Target Sprint and a due date the later one counts. The dependency board keeps the due date over the Target Sprint.` : "";
+  if (W6) g += ga(w6Hit + w6Dot, W6.hrefs.within, w6tip);
   const w6n = (list, href, what) => list.length ? tlink(list.length, href, `${list.length} Committed ${epicWord(list.length)} ${what}\nCommitted only; with both a Target Sprint and a due date the later one counts (a sprint by its end date).`) : "0";
-  document.getElementById("bu-w6").innerHTML = W6 ? (W6.list.length ? `<b>Delivery Cycle 1</b> (W1 to W6, ends ${W6.w6}): ${w6n(W6.within, W6.hrefs.within, "planned in Delivery Cycle 1")} Committed ${epicWord(W6.within.length)} planned (of ${tlink(W6.list.length, W6.hrefs.all, `${W6.list.length} Committed epics in ${rel}`)} Committed in the release): ${w6n(W6.done, W6.hrefs.done, "Done, planned in Delivery Cycle 1")} Done, ${w6n(W6.open, W6.hrefs.open, "not Done, planned in Delivery Cycle 1")} not Done; ${w6n(W6.none, W6.hrefs.none, "with no due date and no known Target Sprint")} with no due date or Target Sprint. <span class="muted">Committed only. An epic is planned in the cycle when its Target Sprint (counted by its end date) or its due date is on or before ${W6.w6}; with both, the later one counts. The dependency board keeps the due date over the Target Sprint. The dotted line marks the end of the cycle.</span>` : `No Committed epics on ${esc(rel)}.`) : "";
+  document.getElementById("bu-w6").innerHTML = W6 ? (W6.list.length ? `<b>Delivery Cycle 1</b> (W1 to W6, ends ${W6.w6}): ${w6n(W6.within, W6.hrefs.within, "planned in Delivery Cycle 1")} Committed ${epicWord(W6.within.length)} planned (of ${tlink(W6.list.length, W6.hrefs.all, `${W6.list.length} Committed epics in ${rel}`)} Committed in the release): ${w6n(W6.done, W6.hrefs.done, "Done, planned in Delivery Cycle 1")} Done, ${w6n(W6.open, W6.hrefs.open, "not Done, planned in Delivery Cycle 1")} not Done; ${w6n(W6.none, W6.hrefs.none, "with no due date and no known Target Sprint")} with no due date or Target Sprint. <span class="muted">Committed only. An epic is planned in the cycle when its Target Sprint (counted by its end date) or its due date is on or before ${W6.w6}; with both, the later one counts. The dependency board keeps the due date over the Target Sprint. The dotted line marks the end of the cycle; the dot on it is at the number planned, on the chart's epic scale.</span>` : `No Committed epics on ${esc(rel)}.`) : "";
   el.innerHTML = `<div class="chartscroll"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Burnup for ${esc(rel)}, weeks 1 to ${weeks}: ${finalDone} epics Done against a scope of ${N}. Daily values are in the View Data table below.">${g}</svg></div><div class="bu-tip" id="bu-tip"></div>`;
 
   const svg = el.querySelector("svg"), tip = document.getElementById("bu-tip"), cross = document.getElementById("bu-cross");
@@ -1362,10 +1382,12 @@ function renderBurnup() {
     (late ? `${late} ${epicWord(late)} closed after the release end ${late === 1 ? "is" : "are"} counted on its last day. ` : "") + `Follows the project and team filters; the Commitment Type filter does not change this chart.</div></details>`;
   const days = [];
   for (let d = 0; d <= D; d += 7) days.push(d);
-  [snapD, D].forEach(d => { if (!days.includes(d)) days.push(d); });
+  [snapD, D, ...(W6 ? [41] : [])].forEach(d => { if (!days.includes(d)) days.push(d); });
   days.sort((a, b) => a - b);
-  dataTable("bu-data", `Burnup for ${rel}, weekly and at the latest day`, ["Date", "Week", "Scope", "Done", "Remaining"],
-    days.map(d => [shortDate(w1 + d * DAY), "W" + (Math.min(d, D - 1) >= 0 ? Math.floor(Math.min(d, D - 1) / 7) + 1 : 1), N, d > snapD ? "–" : done[d], d > snapD ? "–" : Math.max(0, N - done[d])]));
+  // Delivery Cycle 1 columns: on the row of the cycle end (W1 start + 41 days) the Committed epics planned by then and how many of them are Done, linked like the fact line.
+  dataTable("bu-data", `Burnup for ${rel}, weekly, at the latest day and at the end of Delivery Cycle 1`, ["Date", "Week", "Scope", "Done", "Remaining"].concat(W6 ? ["Delivery Cycle 1 Planned", "Delivery Cycle 1 Done"] : []),
+    days.map(d => [shortDate(w1 + d * DAY), "W" + (Math.min(d, D - 1) >= 0 ? Math.floor(Math.min(d, D - 1) / 7) + 1 : 1), N, d > snapD ? "–" : done[d], d > snapD ? "–" : Math.max(0, N - done[d])]
+      .concat(W6 ? (d === 41 ? [w6n(W6.within, W6.hrefs.within, "planned in Delivery Cycle 1"), w6n(W6.done, W6.hrefs.done, "Done, planned in Delivery Cycle 1")] : ["–", "–"]) : [])));
 }
 
 // ---------------------------------------------------------------- trend charts
@@ -1494,7 +1516,7 @@ function placeLabels(cands, obstacles, maxX, limit = Infinity) {
 function bugNoDateNote() {
   const list = backlogBugs().filter(b => !isOpenBug(b) && b.s !== "Removed" && !b.rd); if (!list.length) return "";
   const projs = [...new Set(list.map(b => b.p))].sort(), crs = list.map(b => b.cr).sort(), c0 = crs[0], c1 = crs[crs.length - 1];
-  return `${tlink(list.length.toLocaleString("en-US"), jiraBugs({extra: `${BUG_CLOSED_IN} AND resolution is EMPTY`}), `${list.length} bugs are closed without a resolution\nStatus Done, Closed or Resolved and no resolution date.`)} ${esc(projs.join(", "))} ${list.length === 1 ? "bug" : "bugs"} created ${c0 === c1 ? c0 : `${c0} to ${c1}`} ${list.length === 1 ? "is" : "are"} Done without a resolution date and ${list.length === 1 ? "is" : "are"} left out of the weekly open line.`;
+  return `${tlink(list.length.toLocaleString("en-US"), jiraBugs({extra: `${BUG_CLOSED_IN} AND resolution is EMPTY`}), `${list.length} bugs are closed without a resolution\nStatus Done, Ready for Deploy, Closed or Resolved and no resolution date.`)} ${esc(projs.join(", "))} ${list.length === 1 ? "bug" : "bugs"} created ${c0 === c1 ? c0 : `${c0} to ${c1}`} ${list.length === 1 ? "is" : "are"} Done without a resolution date and ${list.length === 1 ? "is" : "are"} left out of the weekly open line.`;
 }
 function renderBugs() {
   const sub = document.getElementById("bugs-sub"), kpis = document.getElementById("bug-kpis"), el = document.getElementById("bug-chart");
@@ -1506,7 +1528,7 @@ function renderBugs() {
     const pkE = pk ? pk.w + 7 * DAY : 0;
     sub.innerHTML = (pk ? `${tlink(nOpen.toLocaleString("en-US"), jiraBugs({extra: OPEN_BUG_JQL}), `${nOpen} open ${plural(nOpen, "bug", "bugs")} today\nStatus is not Done, Closed, Resolved or Removed.`)} open · peak ${tlink(pk.open.toLocaleString("en-US"), jiraBugs({extra: `created < "${iso(pkE)}" AND (${OPEN_BUG_JQL} OR resolutiondate >= "${iso(pkE)}")`}), `${pk.open} open at the end of the week of ${shortDate(pk.w)}`)} in the week of ${shortDate(pk.w)}` : state.projects.size ? "" : "No project is selected.") +
       `<details class="vd"><summary>About These Numbers</summary><div class="cap">Open bugs by week for the selected projects and teams (the last ${WEEKS} weeks). Release and commitment filters do not apply. ` +
-      (state.ax ? "Accessibility bugs are included. " : "Accessibility bugs are excluded, as in the weekly email. ") + `The Priority and CFB filters below apply to this section only. A bug is open while its status is not Done, Closed, Resolved or Removed. ${bugNoDateNote()}</div></details>`;
+      (state.ax ? "Accessibility bugs are included. " : "Accessibility bugs are excluded, as in the weekly email. ") + `The Priority and CFB filters below apply to this section only. A bug is open while its status is not Done, Ready for Deploy, Closed, Resolved or Removed. ${bugNoDateNote()}</div></details>`;
   }
   const clear = () => { legend.innerHTML = ""; cap.innerHTML = ""; document.getElementById("bug-data").innerHTML = ""; };
   if (!state.projects.size) {
@@ -1612,14 +1634,16 @@ function cfbWindows() {
   const today = asOfDay();
   return DATA.releases.filter(r => DATA.windows[r] && utc(DATA.windows[r][0]) <= today).map(r => ({r, start: utc(DATA.windows[r][0]), end: utc(DATA.windows[r][1])}));
 }
-const isCfbFixed = b => b.cfb && b.s === "Done" && CFB_RESOLUTIONS.includes(b.rs) && !!cfbDate(b);
+// Fixed = Done with the resolution Fixed or Fixed - Config, or Ready for Deploy (which counts as Done for bugs) with one of them or none.
+const isCfbFixed = b => b.cfb && ((b.s === "Done" && CFB_RESOLUTIONS.includes(b.rs)) || (b.s === "Ready for Deploy" && (!b.rs || CFB_RESOLUTIONS.includes(b.rs)))) && !!cfbDate(b);
 function cfbStats(list) {
   return {n: list.length, reg: list.filter(b => b.rg).length, pqcr: Math.round(list.reduce((a, b) => a + (b.inc || 0), 0))};
 }
 function cfbJql(start, end, extra = "") {
   if (!state.projects.size) return null;
-  let jql = `project in (${[...state.projects].join(", ")}) AND issuetype = Bug AND status = Done AND ${CFB_Q()} AND resolution in (Fixed, "Fixed - Config")`;
-  if (start != null) jql += ` AND ((cf[10099] >= "${iso(start)}" AND cf[10099] < "${iso(end + DAY)}") OR (cf[10099] is EMPTY AND resolutiondate >= "${iso(start)}" AND resolutiondate < "${iso(end + DAY)}"))`;      // by the Closed date; a Done CFB with none falls back to its resolution date
+  let jql = `project in (${[...state.projects].join(", ")}) AND issuetype = Bug AND ${CFB_FIXED_JQL} AND ${CFB_Q()}`;
+  if (start != null) { const a = iso(start), b = iso(end + DAY);      // by the Closed date; without one a Ready for Deploy bug uses its Ready to Deploy Date, and then the resolution date
+    jql += ` AND ((cf[10099] >= "${a}" AND cf[10099] < "${b}") OR (cf[10099] is EMPTY AND status = "Ready for Deploy" AND cf[10051] >= "${a}" AND cf[10051] < "${b}") OR (cf[10099] is EMPTY AND (status = Done OR cf[10051] is EMPTY) AND resolutiondate >= "${a}" AND resolutiondate < "${b}"))`; }
   return href(jql + bugTeamClause(state.teams) + (extra ? " AND " + extra : ""));
 }
 // The periods the CFB chart and table group by: release windows (as before), calendar months (the last 12 that exist) or calendar quarters since the data starts.
@@ -1645,7 +1669,7 @@ function renderCfb() {
   const mode = state.cfbGroup, U = CFB_UNIT[mode];
   document.getElementById("h-cfbfixed").textContent = `CFB Fixed and Regressions per ${U.head}`;
   document.getElementById("cfb-sub").textContent =
-    `Customer-found bugs (reported by the CFB account or linked to a Salesforce case) that are Done with the resolution Fixed or Fixed - Config, counted by their Closed date. Shown by ${mode === "version" ? "release window" : mode === "month" ? "calendar month (the last 12 months)" : "calendar quarter since " + DATA.bugSince}. Follows the project and team filters.`;
+    `Customer-found bugs (reported by the CFB account or linked to a Salesforce case) that are Done or Ready for Deploy with the resolution Fixed or Fixed - Config, counted by their Closed date. Shown by ${mode === "version" ? "release window" : mode === "month" ? "calendar month (the last 12 months)" : "calendar quarter since " + DATA.bugSince}. Follows the project and team filters.`;
   if (!state.projects.size) { tableEl.innerHTML = ""; capEl.textContent = ""; chartEl.innerHTML = `<div class="empty">${whyEmpty("bugs")}</div>`; return; }
   const fixed = bugsBase().filter(isCfbFixed), wins = cfbWindows();
   const relRows = wins.map(w => ({...w, ...cfbStats(fixed.filter(b => utc(cfbDate(b)) >= w.start && utc(cfbDate(b)) <= w.end))}));
@@ -1724,29 +1748,29 @@ document.addEventListener("click", ev => {                      // the RCA text 
 function renderCfbAbout() {
   const host = document.getElementById("cfb-about"); if (!host) return;
   if (!state.projects.size) { host.innerHTML = ""; return; }
-  const all = bugsBase().filter(b => b.cfb), viaCase = all.filter(b => b.sf && !b.rb), fixed = all.filter(isCfbFixed), noClosed = fixed.filter(b => !b.cl);
+  const all = bugsBase().filter(b => b.cfb), viaCase = all.filter(b => b.sf && !b.rb), fixed = all.filter(isCfbFixed), noClosed = fixed.filter(b => !b.cl), viaRtd = noClosed.filter(b => b.s === "Ready for Deploy" && b.rtd), viaRes = noClosed.filter(b => !(b.s === "Ready for Deploy" && b.rtd));
   const pj = [...state.projects].join(", "), tm = bugTeamClause(state.teams);
   const win = `(created >= "${DATA.bugSince}" OR resolutiondate >= "${DATA.bugSince}" OR cf[10099] >= "${DATA.bugSince}" OR resolution is EMPTY)`;      // the bugs the page reads, so a number and its link agree
   const lk = (n, jql, tip) => n ? tlink(n.toLocaleString("en-US"), href(`project in (${pj}) AND issuetype = Bug AND ${jql} AND ${win}${tm}`), `${tip}\nWithin the bugs the page reads (created, resolved or closed since ${DATA.bugSince}, or still open).`) : "0";
   host.innerHTML = defs(
     `<b>What counts as a CFB</b>: a Bug reported by the CFB account OR linked to a Salesforce case (the field SF Connection Case Reference is not empty). The alerting rules and the Teams alerts use the reporter only, so this view is broader than they are. In the selected projects ${lk(all.length, CFB_Q(), `${all.length} CFBs in the data`)} ${plural(all.length, "bug counts", "bugs count")} as a CFB (created, resolved or closed since ${esc(DATA.bugSince)}, or still open): ${lk(all.filter(b => b.rb).length, `reporter = ${q(DATA.cfbAccount)}`, "Reported by the CFB account")} reported by the CFB account and ${lk(all.filter(b => b.sf).length, "cf[10329] is not EMPTY", "Linked to a Salesforce case")} linked to a Salesforce case. ${lk(viaCase.length, `cf[10329] is not EMPTY AND reporter != ${q(DATA.cfbAccount)}`, "Linked to a Salesforce case but reported by someone else")} ${plural(viaCase.length, "bug carries", "bugs carry")} a Salesforce case although another person reported ${plural(viaCase.length, "it", "them")}.<br>` +
-    `<b>Fixed and the period</b>: a CFB is fixed when it is Done with the resolution Fixed or Fixed - Config, and it counts in the period of its <b>Closed</b> date (the Jira field Closed, as the Israel-local day), not its resolution date; the two can differ by days and usually fall in the same quarter. ${lk(noClosed.length, `status = Done AND ${CFB_Q()} AND resolution in (Fixed, "Fixed - Config") AND cf[10099] is EMPTY`, "Done CFBs with no Closed date")} fixed ${plural(noClosed.length, "CFB has", "CFBs have")} no Closed date and ${plural(noClosed.length, "falls", "fall")} back to the resolution date. The Open Bugs trend and the Open CFBs table do not use the Closed date. Data is the Jira snapshot at ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}.`);
+    `<b>Fixed and the period</b>: a CFB is fixed when it is Done with the resolution Fixed or Fixed - Config, or Ready for Deploy (which counts as Done for bugs) with one of them or none. It counts in the period of its <b>Closed</b> date (the Jira field Closed, as the Israel-local day), not its resolution date; the two can differ by days and usually fall in the same quarter. ${noClosed.length ? `${lk(noClosed.length, `${CFB_FIXED_JQL} AND ${CFB_Q()} AND cf[10099] is EMPTY`, "Fixed CFBs with no Closed date")} fixed ${plural(noClosed.length, "CFB has", "CFBs have")} no Closed date: ${lk(viaRtd.length, `status = "Ready for Deploy" AND cf[10099] is EMPTY AND cf[10051] is not EMPTY AND ${CFB_Q()}`, "Ready for Deploy CFBs counted by the Ready to Deploy Date")} ${plural(viaRtd.length, "uses", "use")} the Ready to Deploy Date and ${lk(viaRes.length, `${CFB_FIXED_JQL} AND ${CFB_Q()} AND cf[10099] is EMPTY AND (status = Done OR cf[10051] is EMPTY)`, "Fixed CFBs counted by the resolution date")} ${plural(viaRes.length, "falls", "fall")} back to the resolution date.` : "Every fixed CFB has a Closed date."} The Open Bugs trend and the Open CFBs table do not use these dates. Data is the Jira snapshot at ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}.`);
 }
 function renderOpenCfb() {
   const host = document.getElementById("ocfb-table"), kp = document.getElementById("ocfb-kpis"); if (!host) return;
   if (!state.projects.size) { kpiCards(kp, ["Open CFBs", "RCA Not Done", "Over SLA", "Regression"].map(l => ({c: "q", v: "–", l, s: "No project is selected"}))); host.innerHTML = `<div class="empty">${whyEmpty("bugs")}</div>`; document.getElementById("ocfb-note").innerHTML = ""; document.getElementById("ocfb-cap").innerHTML = ""; return; }
   const M = ocfbModel(), R = M.rows, n = R.length, asOf = iso(asOfDay());
   const sub = (list, what, extra) => list.length ? tlink(list.length, ocfbKeys(list), `${list.length} open ${plural(list.length, "CFB", "CFBs")}: ${what}${extra ? "\n" + extra : ""}`) : "0";
-  const rfd = R.filter(r => r.b.s === "Ready for Deploy"), notDone = R.filter(r => r.rca === "not"), done = R.filter(r => r.rca === "done"), na = R.filter(r => r.rca === "na"), over = R.filter(r => r.late), reg = R.filter(r => r.b.rg);
+  const notDone = R.filter(r => r.rca === "not"), done = R.filter(r => r.rca === "done"), na = R.filter(r => r.rca === "na"), over = R.filter(r => r.late), reg = R.filter(r => r.b.rg);
   const openHref = href(`${ocfbBase()} AND ${OPEN_BUG_JQL}${bugTeamClause(state.teams)}`);
   kpiCards(kp, [
-    {c: "q", v: n ? tlink(n, openHref, `${n} open ${plural(n, "CFB", "CFBs")}\nReported by the CFB account or linked to a Salesforce case; status not Done, Closed, Resolved or Removed.`) : "0", l: "Open CFBs", s: n ? `${rfd.length ? sub(rfd, "in Ready for Deploy") : "0"} in Ready for Deploy` : "none open"},
+    {c: "q", v: n ? tlink(n, openHref, `${n} open ${plural(n, "CFB", "CFBs")}\nReported by the CFB account or linked to a Salesforce case; status not Done, Ready for Deploy, Closed, Resolved or Removed.`) : "0", l: "Open CFBs", s: n ? "reported by the CFB account or linked to a Salesforce case" : "none open"},
     {c: "q", v: M.hasX ? sub(notDone, "Root Cause Analysis not done", "Jira cannot search this: the analysis field is pre-filled with a template.") : "–", l: "RCA Not Done", s: M.hasX ? `${sub(done, "RCA Done")} Done · ${sub(na, "Root Cause Analysis not required")} Not Required` : "RCA state is not in this build"},
-    {c: "q", v: sub(over, "past their SLA", `Age is more than the SLA days for the priority, as of ${asOf}.`), l: "Over SLA", s: `of ${n} open ${n === 1 ? "CFB" : "CFBs"}${over.filter(r => r.b.s === "Ready for Deploy").length ? `; ${over.filter(r => r.b.s === "Ready for Deploy").length} in Ready for Deploy, which <a href="#h-attn" data-skip="h-attn">Needs Attention</a> leaves out` : ""}`},
+    {c: "q", v: sub(over, "past their SLA", `Age is more than the SLA days for the priority, as of ${asOf}.`), l: "Over SLA", s: `of ${n} open ${n === 1 ? "CFB" : "CFBs"}`},
     {c: "q", v: reg.length ? tlink(reg.length, href(`${ocfbBase()} AND ${OPEN_BUG_JQL} AND regression = Yes${bugTeamClause(state.teams)}`), `${reg.length} open ${plural(reg.length, "CFB", "CFBs")} with regression Yes`) : "0", l: "Regression", s: "Regression field is Yes"},
   ]);
   const all = DATA.cfbx && DATA.cfbx.allOpen != null ? DATA.cfbx : null;
-  document.getElementById("ocfb-note").innerHTML = `Follows the Projects and Teams filters, like the chart above; the Priority, CFB and accessibility controls do not apply. Open means a status other than Done, Closed, Resolved or Removed, so Ready for Deploy is included; Needs Attention leaves it out. ` +
+  document.getElementById("ocfb-note").innerHTML = `Follows the Projects and Teams filters, like the chart above; the Priority, CFB and accessibility controls do not apply. Open means a status other than Done, Ready for Deploy, Closed, Resolved or Removed, the same rule as Needs Attention. ` +
     (all ? `Across all Jira projects there ${all.allOpen === 1 ? "is" : "are"} ${tlink(all.allOpen, href(`issuetype = Bug AND ${CFB_Q()} AND ${OPEN_BUG_JQL}`), `${all.allOpen} open ${plural(all.allOpen, "CFB", "CFBs")} in any project`)} open ${plural(all.allOpen, "CFB", "CFBs")}; this table covers the projects selected above. ` : "") + `Data is the Jira snapshot at ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}; the Root Cause Analysis state and the summaries are read when the dashboard is built, and Refresh does not update them.`;
   let inner = "";
   if (!n) { inner = `<div class="empty">No open CFBs in the selected ${state.teams.size ? "projects and teams" : "projects"}.</div>`; }
@@ -1763,7 +1787,7 @@ function renderOpenCfb() {
   }
   host.innerHTML = `<details class="vd" id="ocfb-details"><summary>Show Open CFBs (${n})</summary>${inner}</details>`;      // collapsed until asked for; an open panel stays open while the page re-renders, for this visit only
   document.getElementById("ocfb-cap").innerHTML = defs(
-    `<b>Population</b>: bugs reported by the CFB account or linked to a Salesforce case in the selected projects (and teams) whose status is not Done, Closed, Resolved or Removed. Rows are in project and key order, not ranked. <b>Age</b>: whole calendar days from creation to ${esc(asOf)}. <b>SLA Days</b>: P1 ${CFG.sla.p1}; with a regression ${CFG.sla.regression}; P2 without one ${CFG.sla.p2}; P3 and P4 without one ${CFG.sla.other}; no SLA for a bug with no P1 to P4 priority. <b>SLA Due Date</b>: created plus the SLA days. Over SLA means age greater than the SLA days. <b>Incidents</b>: the Number of Incidents field, with linked incident issues when there are any.<br>` +
+    `<b>Population</b>: bugs reported by the CFB account or linked to a Salesforce case in the selected projects (and teams) whose status is not Done, Ready for Deploy, Closed, Resolved or Removed. Rows are in project and key order, not ranked. <b>Age</b>: whole calendar days from creation to ${esc(asOf)}. <b>SLA Days</b>: P1 ${CFG.sla.p1}; with a regression ${CFG.sla.regression}; P2 without one ${CFG.sla.p2}; P3 and P4 without one ${CFG.sla.other}; no SLA for a bug with no P1 to P4 priority. <b>SLA Due Date</b>: created plus the SLA days. Over SLA means age greater than the SLA days. <b>Incidents</b>: the Number of Incidents field, with linked incident issues when there are any.<br>` +
     `<b>RCA</b> (Root Cause Analysis): <i>RCA Done</i> when the Root Cause Analysis text was edited (it differs from the unedited template) or the RCA Review Status is Approved; <i>Not Required</i> when the review status is Not Required; <i>RCA Not Done</i> when the field is empty, or still holds the unedited template, and the review status is empty. The field is pre-filled in Jira, so a non-empty field proves nothing and Jira cannot search for the template: the template is recognised at build time as the text that five or more CFBs share, and only a flag is stored. An edited text can still be a partial analysis. The excerpt is shown on request.`);
 }
 
@@ -2049,7 +2073,6 @@ function renderCapDone() {
 // Items that meet an explicit rule at the snapshot date. Every threshold lives in CFG with the source it came from, so one place changes them.
 // Facts only: no comments, story data, assignees or reporters are held, and nothing here ranks a team or a person.
 const attnUi = {panel: false, open: new Set(["bug-sla-breach"]), more: new Set()};
-const OPEN_BUG_SKIP = () => CFG.prodDoneStatuses;
 const daysSince = ds => Math.floor((asOfDay() - utc(ds)) / DAY);
 // Working days d with start < d <= as-of date, under the assumed working week and holiday list in CFG.
 const businessDaysSince = (ds, asOf = asOfDay()) => { let n = 0; for (let t = utc(ds) + DAY; t <= asOf; t += DAY) { if (!CFG.weekend.includes(new Date(t).getUTCDay()) && !CFG.HOLIDAYS.includes(iso(t))) n++; } return n; };
@@ -2078,7 +2101,7 @@ function attentionModel() {
   mk("epic-validation-age", `Epics in Validation More Than ${CFG.validationDays} Business Days`, "Medium", "Confirmed");
   mk("dep-external", "Open External Dependencies", "Info", "Confirmed");
   // ---- production bugs: customer-found, open, not yet ready to deploy; follows the Projects and Teams filters, not the release
-  const prod = bugsBase().filter(b => b.cfb && isOpenBug(b) && !OPEN_BUG_SKIP().includes(b.s));
+  const prod = bugsBase().filter(b => b.cfb && isOpenBug(b));
   const bugItem = (b, extra) => ({key: b.k, kind: "bug", title: "", project: b.p, status: b.s, team: b.tm || "", href: `${BASE}/browse/${b.k}`, tier: 0, impact: 0, blast: 0, pr: b.pr, ...extra});
   prod.forEach(b => {
     const age = daysSince(b.cr), s = slaOf(b);
@@ -2119,7 +2142,7 @@ function attentionModel() {
     {label: "Epics with No Team", n: noTeam.length, href: noTeam.length ? jira({extra: "cf[10040] is EMPTY AND cf[10098] is EMPTY"}) : null, note: "in scope for the selected release"},
     {label: "Epics with No Parent Capability", n: noCap.length, href: noCap.length ? jira({extra: NO_CAP_JQL}) : null, note: `in scope for the selected release; ${capExempted.length} more are exempt by Issue Category (${CAP_EXEMPT.join(", ")})`,
       noteHtml: `in scope for the selected release; ${capExempted.length ? tlink(capExempted.length, jira({extra: `parent is EMPTY AND ${CAP_EXEMPT_IN}`}), capExemptTip(capExempted.length)) : "0"} more ${capExempted.length === 1 ? "is" : "are"} exempt by Issue Category (${esc(CAP_EXEMPT.join(", "))})`},
-    {label: "Open Customer-Found Bugs with No SLA", n: noPri.length, href: noPri.length && state.projects.size ? href(`project in (${pj}) AND issuetype = Bug AND ${CFB_Q()} AND status not in (${CFG.prodDoneStatuses.map(q).join(", ")}) AND (priority is EMPTY OR priority not in (${PRIORITIES.join(", ")}))${bugTeamClause(state.teams)}`) : null, note: "no priority, or a priority outside P1 to P4, so no SLA applies"},
+    {label: "Open Customer-Found Bugs with No SLA", n: noPri.length, href: noPri.length && state.projects.size ? href(`project in (${pj}) AND issuetype = Bug AND ${CFB_Q()} AND ${OPEN_BUG_JQL} AND (priority is EMPTY OR priority not in (${PRIORITIES.join(", ")}))${bugTeamClause(state.teams)}`) : null, note: "no priority, or a priority outside P1 to P4, so no SLA applies"},
     {label: "Done Epics with No EDCT", n: doneNoEdct.length, href: null, note: "read from change history, which Jira cannot search"},
   ];
   const holidayStale = asOfDay() > utc(CFG.holidaysThrough); if (holidayStale && !window.__holidayWarned) { window.__holidayWarned = true; console.warn(`The holiday list ends ${CFG.holidaysThrough}; Validation business days after it are not adjusted for holidays.`); }
@@ -2189,9 +2212,9 @@ function renderAttention() {
   };
   const hygOpen = attnUi.open.has("hygiene");
   const hygHtml = M.hygTotal ? `<div class="agrp"><h3 class="ah"><button type="button" class="abtn" data-act="grp-hygiene" aria-expanded="${hygOpen}" aria-controls="ag-hygiene"><svg class="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2l5 4-5 4z"/></svg><span class="an">Jira Hygiene</span> <span class="ac">${M.hygChecks}</span><span class="asev">${flagHtml("info", "Info")}</span></button></h3><div id="ag-hygiene" class="abody"${hygOpen ? "" : " hidden"}><ul class="arows hyg">${M.hyg.filter(h => h.n).map(h => `<li class="arow"><div class="a1">${h.href ? tlink(h.n.toLocaleString("en-US"), h.href, `${h.n} ${h.label}\n${h.note}`) : `<b>${h.n.toLocaleString("en-US")}</b>`} <span class="at">${esc(h.label)}</span></div><div class="a2">${h.noteHtml || esc(h.note)}</div><div class="a3"></div><div class="a4"><span class="conf">Confirmed</span></div></li>`).join("")}</ul></div></div>` : "";
-  body.innerHTML = `<a class="skip" href="#h-burnup" data-skip="h-burnup">Skip to Delivery</a>` + `<div class="cap">Production bugs here leave out Ready for Deploy. The <a href="#h-ocfb" data-skip="h-ocfb">Open CFBs</a> table lists every customer-found bug that is not in a final status, Ready for Deploy included, so its count can be higher.</div>` + ids.map(groupHtml).join("") + hygHtml +
+  body.innerHTML = `<a class="skip" href="#h-burnup" data-skip="h-burnup">Skip to Delivery</a>` + ids.map(groupHtml).join("") + hygHtml +
     `<details class="vd"><summary>Limits and Thresholds</summary><div class="cap"><b>What This Checks.</b> Rules applied to the Jira data held at ${esc(M.asOfTxt)}; the as-of date is the snapshot date, not today's date. Epic rules follow the selected release, the Commitment Type filter and the Projects and Teams filters; bug rules follow the Projects and Teams filters only. Removed is excluded; Done means the status name Done.<br>` +
-    `<b>Thresholds and Where They Come From.</b> SLA for production (customer-found) bugs, by calendar days from creation with no pause: P1 ${CFG.sla.p1} days; P2, P3 and P4 with a regression ${CFG.sla.regression} days; P2 without ${CFG.sla.p2} days; P3 and P4 without ${CFG.sla.other} days (${CFG.sla.source}). Customer-found bugs are those reported by the CFB account or linked to a Salesforce case (the alerting rules use the reporter only) whose status is not Ready for Deploy, Done, Closed, Resolved or Removed (Validation included); age is whole calendar days from creation, with no pause for any status; a missing regression counts as No; Breached means age greater than the SLA, so the last allowed day is not a breach. Due soon means ${Math.round(CFG.dueSoonShare * 100)}% of the SLA used (${CFG.dueSoonSource}), for example from day 3, 5, 10 and 21 for SLAs of 3, 7, 14 and 30 days. No update means ${CFG.noUpdateDays} days or more since the update date (${CFG.noUpdateSource}); any edit counts as an update. In Validation more than ${CFG.validationDays} business days (${CFG.validationSource}). <b>Business Days.</b> The working week is Sunday to Thursday: Friday and Saturday are not counted (confirmed by the owner). Israeli public holidays are not counted either, using the public-holiday list in the thresholds object (${CFG.HOLIDAYS.length} dates, 2025-06 to ${esc(CFG.holidaysThrough.slice(0, 7))}${M.holidayStale ? "; the as-of date is beyond the list, so later days are not adjusted for holidays" : ""}); intermediate festival days such as Chol HaMoed are not excluded. Dates are Israel local dates as Jira returns them. The hover shows both the business and the calendar days. Trend weeks start on Monday. Overdue and external dependencies use the rules on the Dependencies board.<br>` +
+    `<b>Thresholds and Where They Come From.</b> SLA for production (customer-found) bugs, by calendar days from creation with no pause: P1 ${CFG.sla.p1} days; P2, P3 and P4 with a regression ${CFG.sla.regression} days; P2 without ${CFG.sla.p2} days; P3 and P4 without ${CFG.sla.other} days (${CFG.sla.source}). Customer-found bugs are those reported by the CFB account or linked to a Salesforce case (the alerting rules use the reporter only) whose status is not Done, Ready for Deploy, Closed, Resolved or Removed (Validation included); age is whole calendar days from creation, with no pause for any status; a missing regression counts as No; Breached means age greater than the SLA, so the last allowed day is not a breach. Due soon means ${Math.round(CFG.dueSoonShare * 100)}% of the SLA used (${CFG.dueSoonSource}), for example from day 3, 5, 10 and 21 for SLAs of 3, 7, 14 and 30 days. No update means ${CFG.noUpdateDays} days or more since the update date (${CFG.noUpdateSource}); any edit counts as an update. In Validation more than ${CFG.validationDays} business days (${CFG.validationSource}). <b>Business Days.</b> The working week is Sunday to Thursday: Friday and Saturday are not counted (confirmed by the owner). Israeli public holidays are not counted either, using the public-holiday list in the thresholds object (${CFG.HOLIDAYS.length} dates, 2025-06 to ${esc(CFG.holidaysThrough.slice(0, 7))}${M.holidayStale ? "; the as-of date is beyond the list, so later days are not adjusted for holidays" : ""}); intermediate festival days such as Chol HaMoed are not excluded. Dates are Israel local dates as Jira returns them. The hover shows both the business and the calendar days. Trend weeks start on Monday. Overdue and external dependencies use the rules on the Dependencies board.<br>` +
     `<b>What It Cannot See.</b> Why an epic is in Validation (no comments are held), whether an epic is ready to close (no child issues), blocked flags and scope churn. Nothing is stored between visits: every rule is computed from the data this page holds, which is the Jira snapshot read at the time shown above (or the last Refresh from Jira; a refresh does not update status-since dates, due dates, sprints or dependencies). Status-since is held only for epics in Validation or In Progress. A bug with no priority, or a priority outside P1 to P4, has no SLA and is listed under Jira Hygiene as "No SLA", never in the SLA groups. Provider epics outside the six projects may be missing. Bugs have no title in this data, so only their key is shown.</div></details>`;
   const act = (id) => {
     if (id.startsWith("grp-")) { const g = id.slice(4); attnUi.open.has(g) ? attnUi.open.delete(g) : attnUi.open.add(g); }
@@ -2515,7 +2538,7 @@ function cyCards(s, c, full) {
   ];
   if (full) cards.push(
     {c: "cy2", v: cyNum(s.staleIn.concat(s.staleCarry), `more than ${CY.stale} days past their planned date`, `Planned and carry-over epics, not Done, planned before ${cyAdd(asOf, -CY.stale)}.`), l: `Stale (More Than ${CY.stale} Days)`, s: `of which carry-over ${cyNum(s.staleCarry, `carry-over, more than ${CY.stale} days past their planned date`, `Not Done, planned before ${cyAdd(asOf, -CY.stale)}.`)}`},
-    {c: "cy2", v: !DATA.eb ? "–" : s.nBugs ? tlink(s.nBugs, cyBugHref(s.withBugs.map(e => e.k)), `${s.nBugs} open ${plural(s.nBugs, "bug", "bugs")} under planned epics in ${ID}\nBugs whose parent is the epic. Open means a status other than Done, Closed, Resolved or Removed. A read of Jira found no other way a bug is tied to an epic, so bugs linked any other way are not counted.`) : "0", l: "Open Bugs", s: !DATA.eb ? "bug links are not in this build (run --add-planning)" : `in ${s.withBugs.length ? tlink(s.withBugs.length, cyHref(s.withBugs.map(e => e.k)), `${cyEp(s.withBugs.length)} with open bugs`) : "0"} ${s.withBugs.length === 1 ? "epic" : "epics"}`},
+    {c: "cy2", v: !DATA.eb ? "–" : s.nBugs ? tlink(s.nBugs, cyBugHref(s.withBugs.map(e => e.k)), `${s.nBugs} open ${plural(s.nBugs, "bug", "bugs")} under planned epics in ${ID}\nBugs whose parent is the epic. Open means a status other than Done, Ready for Deploy, Closed, Resolved or Removed. A read of Jira found no other way a bug is tied to an epic, so bugs linked any other way are not counted.`) : "0", l: "Open Bugs", s: !DATA.eb ? "bug links are not in this build (run --add-planning)" : `in ${s.withBugs.length ? tlink(s.withBugs.length, cyHref(s.withBugs.map(e => e.k)), `${cyEp(s.withBugs.length)} with open bugs`) : "0"} ${s.withBugs.length === 1 ? "epic" : "epics"}`},
     {c: "cy2", v: !raw ? "–" : cyNum(s.flag, "flagged as blocked", "Jira Flagged field set, not Done; planned epics."), l: "Flagged", s: !raw ? "the Flagged field is not in this build (run --add-planning)" : s.flagCarry.length ? `${cyNum(s.flagCarry, "flagged, in carry-over", "Flagged and not Done, planned before the cycle start.")} more in carry-over` : "planned epics, not Done"},
     {c: "cy2", v: asOf >= c.start ? cyNum(s.carry, "carried over", `Not Done, planned before ${c.start}.`) : "0", l: "Carry-Over", s: asOf >= c.start ? `planned before ${c.start}, not Done` : `shown once ${ID} has started`},
     {c: "cy2", v: cyNum(s.noDue, "active with no planned date", "Status In Progress or Validation, no due date and no Target Sprint."), l: "No Planned Date", s: "active, not in the plan"});
@@ -2740,7 +2763,7 @@ function cyDefs() {
   document.getElementById("cy-cap").innerHTML = defs(
     `<b>Cycles</b>: derived from the Jira release window of ${esc(state.release)}, not configured. ${esc(win[0].name)} runs from the release start (${win[0].start}) to the end of W6 (${win[0].end}, release start plus 48 days, the same boundary as the Epic Delivery chart)${win[1] ? `; ${esc(win[1].name)} runs from the next day (${win[1].start}) to the release end (${win[1].end})` : ""}. <b>Planned date</b>: the later of the epic's due date and the end of its Target Sprint when it has both, otherwise the one it has; an epic with neither is not planned. An epic belongs to the cycle that holds its planned date.<br>` +
     `<b>Planned</b>: epics (Removed excluded) in the selected release under the Projects, Teams and Commitment Type filters whose planned date is in the cycle, both ends included. <b>Done</b>: status named Done. <b>Due so far</b>: planned epics with a planned date before ${esc(CY.asOf)}; an epic planned today is not yet due. <b>Overdue</b>: planned before ${esc(CY.asOf)} and not Done. <b>Stale (more than ${CY.stale} days)</b>: more than ${CY.stale} days overdue, counted over planned and carry-over epics together. <b>Due next ${CY.next} days</b>: not Done, planned ${esc(cyWindow())} (today through today plus ${CY.next} days, ${CY.next + 1} calendar days). A share (for example "13 of 17 due epics done") is shown only for 5 or more epics.<br>` +
-    `<b>Carry-over</b>: not Done, with a planned date before the cycle starts; shown only once the cycle has started. <b>No planned date, active</b>: In Progress or Validation with neither a due date nor a Target Sprint. <b>Flagged</b>: the Jira Flagged field is set and the epic is not Done. <b>Open Bugs</b>: issues of type Bug whose parent is the epic, Removed excluded; open means a status other than Done, Closed, Resolved or Removed. A read of Jira found no other way a bug is tied to an epic, so there is no other count to show. <b>EDCT</b>: the dashboard's: days an epic ended in In Progress or Validation, flagged days excluded, the Done day not counted; it is read for Done epics, so open epics show a dash.<br>` +
+    `<b>Carry-over</b>: not Done, with a planned date before the cycle starts; shown only once the cycle has started. <b>No planned date, active</b>: In Progress or Validation with neither a due date nor a Target Sprint. <b>Flagged</b>: the Jira Flagged field is set and the epic is not Done. <b>Open Bugs</b>: issues of type Bug whose parent is the epic, Removed excluded; open means a status other than Done, Ready for Deploy, Closed, Resolved or Removed. A read of Jira found no other way a bug is tied to an epic, so there is no other count to show. <b>EDCT</b>: the dashboard's: days an epic ended in In Progress or Validation, flagged days excluded, the Done day not counted; it is read for Done epics, so open epics show a dash.<br>` +
     `<b>Epics with Flags</b> lists each epic that has at least one of these facts, one row, in planned-date order (no ranking): <i>overdue</i> (not Done and planned before ${esc(CY.asOf)}, with the number of days; stale when more than ${CY.stale} days); <i>planned soon and not started</i> (planned ${esc(cyWindow())} and still New, In Definition, Ready for Dev or Candidate); <i>flagged</i>; <i>carried over</i>; <i>no planned date</i> (active). It states what the data shows and does not rate any team or group.<br>` +
     `<b>Groups</b> are the Epic Teams of the selected epics in alphabetical order (an epic that lists several teams counts under each; epics with none are under No Team), never ordered by progress.${cyPodOk() ? " The Group By switch can show the pod groups of the optional pods pull instead." : ""} Weeks run seven days from the cycle start date. <b>Capabilities</b>: each Capability that parents an epic in view, with the status of all its child epics in any team or project. The people named (assignee${CYM.mode === "pod" ? ", group leader" : ""}) are factual ownership only: nothing here is counted or compared per person. No verdict (on track, at risk), rating or ranking is shown. Data is the Jira snapshot at ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}; epic bug links, Flagged and assignees are read when the dashboard is built.`);
 }
@@ -3075,7 +3098,8 @@ function renderMeta() {
 const LIVE = {server: "Atlassian", tool: "searchJiraIssuesUsingJql", pageLimit: 40};
 const FIELDS = ["summary", "status", "issuetype", "priority", "created", "resolutiondate", "resolution", "reporter", "fixVersions",
   "customfield_10094", "customfield_10040", "customfield_10098", "customfield_15229", "customfield_15264", "customfield_10139",
-  "customfield_10055", "customfield_10068", "customfield_10329", "customfield_10099"];
+  "customfield_10055", "customfield_10068", "customfield_10329", "customfield_10099", "customfield_10051",
+  "duedate", "customfield_12697", "assignee", "parent", "customfield_10021", "updated", "labels"];      // planning facts: due date, Target Sprint, assignee, parent Capability, Flagged, last update, labels (NFR)
 const optVal = x => x == null ? null : Array.isArray(x) ? x.map(optVal).filter(Boolean) : typeof x === "object" ? (x.value || x.name || null) : x;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 function describeError(err) {
@@ -3111,6 +3135,22 @@ async function fetchAll(mcp, jql, onPage) {
   } while (token && pages < LIVE.pageLimit);
   return {nodes, truncated: !!token};
 }
+// Planning facts, named and normalised as the collector's plan_record does: dd due date, ts Target Sprint label, ud last update (first 10 characters),
+// as assignee name, fl Flagged, cp parent Capability key. A field the response carries as empty clears it; a field the response does not carry is left as it was.
+function mergePlan(rec, f) {
+  const set = (name, field, v) => { if (field in f) { if (v) rec[name] = v; else delete rec[name]; } };
+  set("dd", "duedate", f.duedate ? String(f.duedate).slice(0, 10) : null);
+  if ("customfield_12697" in f) { const t = optVal(f.customfield_12697), v = Array.isArray(t) ? t[0] : t; set("ts", "customfield_12697", v || null); }
+  set("ud", "updated", f.updated ? String(f.updated).slice(0, 10) : null);
+  set("as", "assignee", f.assignee && f.assignee.displayName);
+  if ("customfield_10021" in f) { const x = f.customfield_10021; if (Array.isArray(x) ? x.length : x) rec.fl = 1; else delete rec.fl; }
+  if ("parent" in f) {
+    const par = f.parent, ty = par && ((par.fields && par.fields.issuetype && par.fields.issuetype.name) || (par.issuetype && par.issuetype.name));
+    if (!par) delete rec.cp;
+    else if (ty === "Capability") { rec.cp = par.key; const sm = (par.fields && par.fields.summary) || par.summary; if (sm && DATA.capabilities && !DATA.capabilities[par.key]) DATA.capabilities[par.key] = sm; }
+    else if (ty) delete rec.cp;                                    // a parent of another type: the collector keeps cp for Capability parents only
+  }
+}
 function mergeDelta(nodes, axKeys) {
   const epics = new Map(DATA.epics.map(e => [e.k, e])), bugs = new Map(DATA.bugs.map(b => [b.k, b]));
   const today = ilDate(new Date()), counts = {epics: 0, bugs: 0};              // join dates use the Israel-local day, the same time base as the as-of day
@@ -3125,26 +3165,37 @@ function mergeDelta(nodes, axKeys) {
       const tn = optVal(f.customfield_10098); if (tn && !teams.includes(tn)) teams.push(tn);
       const ai = optVal(f.customfield_15229) || [];
       const ad = {}; fv.forEach(r => { ad[r] = (old && old.ad && old.ad[r]) || (old ? today : created); });
-      const rec = {k: key, p: proj, t: f.summary, s: status, fv, c: optVal(f.customfield_10094), tm: teams,
-        ai: Array.isArray(ai) ? ai.includes("Yes") : ai === "Yes", m: null, rd, cr: created, cat: optVal(f.customfield_10139), ad};
-      if (old && old.edct != null && status === "Done") { rec.ip = old.ip; rec.vl = old.vl; rec.edct = old.edct; rec.cal = old.cal; }
+      // Merge, never rebuild: start from the old record and overwrite only what this response carries, so a field Refresh does not read
+      // (cycle time, sprint calendar, status-since, anything a full build adds) is never dropped. The fields read here always replace.
+      const rec = {...(old || {}), k: key, p: proj, t: f.summary, s: status, fv, c: optVal(f.customfield_10094), tm: teams,
+        ai: Array.isArray(ai) ? ai.includes("Yes") : ai === "Yes", rd, cr: created, cat: optVal(f.customfield_10139), ad};
+      if (!old) rec.m = null;
+      if (old && old.rd && !("resolutiondate" in f) && status === "Done") rec.rd = old.rd;
+      mergePlan(rec, f);
+      if (old && old.s !== status) delete rec.ss;                  // the "in this status since" day belongs to the old status; a rebuild fills in the new one
+      if (status !== "Done") { delete rec.ip; delete rec.vl; delete rec.edct; delete rec.cal; }     // cycle time exists for Done epics only; a Done epic keeps its own
+      if ("labels" in f) { if ((f.labels || []).includes("NFR")) rec.nf = 1; else delete rec.nf; }
       epics.set(key, rec); counts.epics++;
     } else if (type === "Bug") {
       const old = bugs.get(key);
       if (!old && rd && rd < DATA.bugSince) continue;
-      const b = {k: key, p: proj, cr: created, s: status};
-      const pr = f.priority && f.priority.name; if (pr) b.pr = pr;
-      if (rd) b.rd = rd;
-      const rs = f.resolution && f.resolution.name; if (rs) b.rs = rs;
-      const tm = optVal(f.customfield_10098); if (tm) b.tm = tm;
-      if (axKeys.has(key)) b.ax = 1;
-      const byReporter = !!(f.reporter && f.reporter.accountId === DATA.cfbAccount), hasCase = !!f.customfield_10329;
-      if (byReporter || hasCase) {                                // a customer-found bug: reported by the CFB account or linked to a Salesforce case
-        b.cfb = 1; if (byReporter) b.rb = 1; if (hasCase) b.sf = 1;
-        const cl = f.customfield_10099 ? ilDate(String(f.customfield_10099).replace(/([+-]\d\d)(\d\d)$/, "$1:$2")) : null; if (cl) b.cl = cl;
-      }
-      if (optVal(f.customfield_10055) === "Yes") b.rg = 1;
-      if (f.customfield_10068) b.inc = f.customfield_10068;
+      const b = {...(old || {}), k: key, p: proj, cr: created, s: status};          // merge: keep what this response does not carry (rb, sf, cl, rtd, inc, ud ...)
+      const put = (name, v) => { if (v) b[name] = v; else delete b[name]; };
+      put("pr", f.priority && f.priority.name);
+      if ("resolutiondate" in f || !BUG_CLOSED.includes(status)) { put("rd", rd); put("rs", f.resolution && f.resolution.name); }
+      else if (f.resolution) b.rs = f.resolution.name;
+      put("tm", optVal(f.customfield_10098));
+      if (axKeys.has(key)) b.ax = 1; else delete b.ax;
+      if ("reporter" in f) put("rb", f.reporter && f.reporter.accountId === DATA.cfbAccount ? 1 : 0);
+      if ("customfield_10329" in f) put("sf", f.customfield_10329 ? 1 : 0);
+      if (!old || "reporter" in f || "customfield_10329" in f) { if (b.rb || b.sf) b.cfb = 1; else delete b.cfb; }       // a customer-found bug: reported by the CFB account or linked to a Salesforce case
+      const day = x => x ? ilDate(String(x).replace(/([+-]\d\d)(\d\d)$/, "$1:$2")) : null;
+      if (b.cfb) { if ("customfield_10099" in f) put("cl", day(f.customfield_10099)); if ("customfield_10051" in f) put("rtd", day(f.customfield_10051)); }
+      else { delete b.cl; delete b.rtd; }
+      if ("customfield_10055" in f) put("rg", optVal(f.customfield_10055) === "Yes" ? 1 : 0);
+      if ("customfield_10068" in f) put("inc", f.customfield_10068);
+      if (b.cfb && !BUG_CLOSED.includes(status) && f.updated) b.ud = String(f.updated).slice(0, 10);       // last update of open customer-found bugs
+      else if (!b.cfb || BUG_CLOSED.includes(status)) delete b.ud;
       bugs.set(key, b); counts.bugs++;
     }
   }
@@ -3180,7 +3231,7 @@ async function refresh() {
     update();
     say(`Refreshed. ${counts.epics} epics and ${counts.bugs} bugs changed since ${sinceDay}.` +
         (changed.truncated || ax.truncated ? " A very large number of issues changed, so only the first pages were read. Ask for a full rebuild to get everything." : "") +
-        " Cycle time and release join dates for new activity are filled in at the next full rebuild.", changed.truncated || ax.truncated ? "warn" : "info");
+        " Cycle time and release join dates for new activity are filled in at the next full rebuild. Refresh does not update dependency links, story-level links, capabilities or cycles pods: those need a rebuild.", changed.truncated || ax.truncated ? "warn" : "info");
     if (!(changed.truncated || ax.truncated)) refresh.t = setTimeout(() => { status.innerHTML = ""; }, 8000);
   } catch (err) {
     const [msg, kind] = describeError(err);
@@ -3266,7 +3317,7 @@ named Done, not Jira's Done category.
 <br><b>Cycle Time.</b> EDCT (Epic Development Cycle Time) matches the weekly email: calendar days an epic ended in In Progress or Validation, flagged days excluded. The trend shows P50 and P90 (linear interpolation).
 No percentile, share or trend is shown for fewer than ${MIN_N} items.
 <br><b>Burnup.</b> Done is cumulative by resolution date and counts target epics (Committed + Not Set). Scope is the number of target epics (Committed + Not Set, judged on each epic's current Commitment Type) that were in the release on the first day of W1, from each epic's Fix Version history; the Forecast Epics tile shows the same number, and the epics added since are shown beside it. The IP week is the first seven days of the release. No projection is drawn.
-<br><b>Bugs.</b> The backlog shows created, resolved and open per week, accessibility bugs excluded unless switched on. A bug is open while its status is not Done, Closed, Resolved or Removed; bugs that are Done without a resolution date cannot be placed on the weekly line and are named in its notes. The Open CFBs table lists the customer-found bugs that are not in a final status, with age against the SLA and the Root Cause Analysis state. CFB follows the release closure report: bugs reported by the CFB account, fixed in the release window.
+<br><b>Bugs.</b> The backlog shows created, resolved and open per week, accessibility bugs excluded unless switched on. A bug is open while its status is not Done, Ready for Deploy, Closed, Resolved or Removed; bugs that are Done without a resolution date cannot be placed on the weekly line and are named in its notes. The Open CFBs table lists the customer-found bugs that are not in a final status, with age against the SLA and the Root Cause Analysis state. CFB follows the release closure report: bugs reported by the CFB account, fixed in the release window.
 <br><b>Snapshot and Refresh.</b> Numbers were read from Jira at the time shown above. In the published page, Refresh reads what changed since and updates the page; cycle time and join dates for that new activity wait for a full rebuild.
 <br><b>Hover Text.</b> Hover text follows the pointer and is not itself hoverable; Esc closes it. The same text is in each chart's View Data table.
 <br><b>Delivery Cycle Governance.</b> The last section has its own data (INT, CXINT and WFM epics by pod label or Epic Team, read at build time, not by Refresh) and follows its own delivery cycle and pod groups, not the filters above. It states facts only: no verdict, no rating of a group.

@@ -60,7 +60,8 @@ BUG_FIELDS = ["summary", "status", "priority", "created", "resolutiondate", "res
               "customfield_10055",       # Regression
               "customfield_10068",       # Number of Incidents (PQCR)
               "customfield_10329",       # SF Connection Case Reference: a Salesforce case makes a bug a customer-found bug
-              "customfield_10099"]       # Closed (date-time): the date a customer-found bug counts as fixed
+              "customfield_10099",       # Closed (date-time): the date a customer-found bug counts as fixed
+              "customfield_10051"]       # Ready to Deploy Date: the fixed date of a Ready for Deploy bug that has no Closed date
 # The weekly emails drop these from the backlog; the JQL is theirs, so the flag matches them exactly.
 AX_JQL = '(summary ~ "\\"[Accessibility]*\\"" OR labels = DWP_Accessibility_Defect)'
 CFB_ACCOUNT = json.loads((HERE.parent / "release_closure" / "config_pmn.json").read_text())["cfb_reporter"]
@@ -198,6 +199,9 @@ def bug_record(i: dict, proj: str, ax_keys: set) -> dict:
         cl = israel_date(f.get(CLOSED_FIELD))
         if cl:
             b["cl"] = cl
+        rtd = israel_date(f.get("customfield_10051"))
+        if rtd:
+            b["rtd"] = rtd
     if val(f.get("customfield_10055")) == "Yes":
         b["rg"] = 1
     if f.get("customfield_10068"):
@@ -270,6 +274,8 @@ def sprint_calendar(labels) -> list:
 
 def collect_status_since(j, epics) -> int:
     """Date each in-flight epic entered its current status (Validation or In Progress), from its changelog."""
+    for e in epics:
+        e.pop("ss", None)                                    # an earlier pull's day must not survive when the epic is no longer in that status
     todo = [e for e in epics if e["s"] in ("Validation", "In Progress")]
 
     def work(e):
@@ -293,8 +299,10 @@ def collect_bug_updates(j, bugs) -> int:
     """Last update date of open customer-found bugs, for the no-activity insight."""
     by = {b["k"]: b for b in bugs}
     n = 0
+    for b in bugs:
+        b.pop("ud", None)                                    # a bug that is no longer an open customer-found bug must not keep an earlier pull's date
     for proj in PROJECTS:
-        for i in j.search(f'project = {proj} AND issuetype = Bug AND {CFB_JQL} AND status not in (Done, Closed, Resolved, Removed)', ["updated"]):
+        for i in j.search(f'project = {proj} AND issuetype = Bug AND {CFB_JQL} AND status not in ({BUG_CLOSED_JQL})', ["updated"]):
             if i["key"] in by and i["fields"].get("updated"):
                 by[i["key"]]["ud"] = i["fields"]["updated"][:10]
                 n += 1
@@ -368,7 +376,8 @@ def collect_nfr(j, epics) -> int:
 
 # ----------------------------------------------------------------------------- open customer-found bugs: root cause analysis flags
 RCA_FIELD, RCA_REVIEW, RCA_CATEGORY = "customfield_10117", "customfield_12643", "customfield_12710"
-BUG_CLOSED = ("Done", "Closed", "Resolved", "Removed")
+BUG_CLOSED = ("Done", "Ready for Deploy", "Closed", "Resolved", "Removed")      # final statuses of a bug: Ready for Deploy counts as Done (epics keep Done = the status named Done)
+BUG_CLOSED_JQL = ", ".join(f'"{x}"' if " " in x else x for x in BUG_CLOSED)
 TEMPLATE_MIN = 5                      # a Root Cause Analysis text shared by this many CFBs is the unedited template, not an analysis
 
 
@@ -435,7 +444,7 @@ def collect_cfb(j) -> dict:
         if flag[i["key"]] and (f.get("status") or {}).get("name") not in BUG_CLOSED:
             rec["rt"] = re.sub(r"\s+", " ", texts[i["key"]]).strip()[:320]      # an excerpt of an edited analysis, only for bugs that are still open
         bugs[i["key"]] = rec
-    allopen = j.search(f'issuetype = Bug AND {CFB_JQL} AND status not in ({", ".join(BUG_CLOSED)})', ["project"])
+    allopen = j.search(f'issuetype = Bug AND {CFB_JQL} AND status not in ({BUG_CLOSED_JQL})', ["project"])
     by = {}
     for i in allopen:
         pk = (i["fields"].get("project") or {}).get("key") or i["key"].split("-")[0]
@@ -574,6 +583,8 @@ def collect_links(j, epics) -> dict:
         for i in j.search(jql, ["issuelinks", "parent"] + PLAN_FIELDS):
             f = i["fields"]
             if i["key"] in by_key:
+                for gone in ("dd", "ts", "ud", "as", "fl", "cp"):      # a field emptied in Jira (a parent Capability too) must not survive from an earlier pull
+                    by_key[i["key"]].pop(gone, None)
                 by_key[i["key"]].update(plan_record(f))
             par = f.get("parent")
             if par and (par["fields"].get("issuetype") or {}).get("name") == "Capability":
