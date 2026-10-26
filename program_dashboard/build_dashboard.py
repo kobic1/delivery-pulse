@@ -58,7 +58,7 @@ BUG_SINCE = "2025-07-09"                 # start of the first release window (25
 BUG_FIELDS = ["summary", "status", "priority", "created", "resolutiondate", "resolution", "reporter",
               "customfield_10098",       # Team Name
               "customfield_10055",       # Regression
-              "customfield_10068",       # Number of Incidents (PQCR)
+              "customfield_10068",       # Number of Incidents (PQCR Cases)
               "customfield_10329",       # SF Connection Case Reference: a Salesforce case makes a bug a customer-found bug
               "customfield_10099",       # Closed (date-time): the date a customer-found bug counts as fixed
               "customfield_10051"]       # Ready to Deploy Date: the fixed date of a Ready for Deploy bug that has no Closed date

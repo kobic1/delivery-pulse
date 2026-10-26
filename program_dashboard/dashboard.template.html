@@ -195,6 +195,7 @@ section.sec h2 { margin:0 0 3px; font-size:var(--t-sub); font-weight:600; }
 section.sec .sub { color:var(--muted); font-size:var(--t-cap); margin-bottom:12px; }
 section.sec h3 { font-weight:600; }
 .charts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:28px; }
+.dc { display:contents; }                       /* the hosts of the chart cards add their cards straight into the one grid */
 @media (max-width:1100px) { .charts { grid-template-columns:minmax(0,1fr); } }
 .two { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:28px; align-items:start; }
 @media (max-width:1000px) { .two { grid-template-columns:minmax(0,1fr); } }
@@ -646,8 +647,9 @@ footer.f b { color:var(--ink); }
     <h2 id="h-trend">Trend by Release</h2>
     <div class="sub" id="trend-sub"></div>
     <a class="skip" href="#h-proj" data-skip="h-proj">Skip to By Project</a>
-    <div class="charts" id="charts"></div>
+    <div class="charts" id="chartgrid"><div id="charts" class="dc"></div><div id="capdone-chart" class="dc"></div></div>
     <div id="trend-data"></div>
+    <div id="capdone-data"></div>
   </section>
 
 
@@ -662,13 +664,6 @@ footer.f b { color:var(--ink); }
     <div class="sub">Listed alphabetically. This view reports scope and status, not performance. An epic that lists several teams counts under each of them; the total row counts it once.</div>
     <a class="skip" href="#h-dq" data-skip="h-dq">Skip to Data Quality</a>
     <div class="tablewrap tall" id="tbl-teams"></div>
-  </section>
-
-  <section class="sec plain" aria-labelledby="h-capdone">
-    <h2 id="h-capdone">Done Capabilities per Release</h2>
-    <div class="sub">Capabilities by fix version: Done over all, one bar per release. Not affected by the filters.</div>
-    <div class="charts" id="capdone-chart"></div>
-    <div id="capdone-data"></div>
   </section>
 
   <section class="sec plain" aria-labelledby="h-dq">
@@ -851,9 +846,17 @@ function cycleStats(list) {
   const vals = list.filter(e => cls(e.s) === "done").map(cycleOf).filter(v => v != null).sort((a, b) => a - b);
   return {n: vals.length, ok: vals.length >= MIN_N, p50: percentile(vals, .5), p75: percentile(vals, .75), p90: percentile(vals, .9), p95: percentile(vals, .95)};
 }
+// AI Adoption leaves out epics in these Issue Categories (Jira field cf10139, stored spelling, compared case-insensitively) from EVERY AI figure: the tile and its previous-month line, the chart, its View Data
+// table and all their Jira links, the Release Analysis AI share. One list drives the numbers (aiExcluded) and every link (AI_KEPT_JQL / AI_EXCLUDED_JQL). EDCT is not an AI figure: it keeps its own Maintenance-only rule.
+const AI_EXCLUDED_CATEGORIES = ["Maintenance", "SOW"];
+const aiExcluded = e => AI_EXCLUDED_CATEGORIES.some(c => String(e.cat || "").toLowerCase() === c.toLowerCase());
+const AI_KEPT_JQL = `(cf[10139] is EMPTY OR cf[10139] not in (${AI_EXCLUDED_CATEGORIES.join(", ")}))`;
+const AI_EXCLUDED_JQL = `cf[10139] in (${AI_EXCLUDED_CATEGORIES.join(", ")})`;
+const AI_EXCL_TEXT = `${AI_EXCLUDED_CATEGORIES.slice(0, -1).join(", ")} and ${AI_EXCLUDED_CATEGORIES[AI_EXCLUDED_CATEGORIES.length - 1]}`;
+const AI_EXCL_WHY = `Epics in the Issue Categories ${AI_EXCL_TEXT} are not product delivery that AI adoption is measured on, so they are left out of the numerator, the denominator and every Jira link of the AI figures.`;
 function counts(list) {
-  const c = {scope: list.length, done: 0, flight: 0, notStarted: 0, other: 0, ai: 0};
-  for (const e of list) { const k = cls(e.s); c[k]++; if (k === "done" && e.ai) c.ai++; }
+  const c = {scope: list.length, done: 0, flight: 0, notStarted: 0, other: 0, ai: 0, aiDone: 0, aiExcl: 0};         // ai, aiDone and aiExcl follow the AI rule: Done epics outside the excluded Issue Categories
+  for (const e of list) { const k = cls(e.s); c[k]++; if (k === "done") { if (aiExcluded(e)) c.aiExcl++; else { c.aiDone++; if (e.ai) c.ai++; } } }
   return c;
 }
 
@@ -1042,8 +1045,8 @@ const chartWidth = (el, min) => Math.max(min, Math.floor(el.clientWidth) || min)
 
 // ---------------------------------------------------------------- epic KPIs
 function renderKpis() {
-  const list = scopeOf(state.release), c = counts(list), cy = cycleStats(list), aiPct = pct(c.ai, c.done);
-  const defLabel = "EDCT days", small = c.done < MIN_N, rel = esc(state.release), host = document.getElementById("an-kpis");
+  const list = scopeOf(state.release), c = counts(list), cy = cycleStats(list), aiPct = pct(c.ai, c.aiDone);
+  const defLabel = "EDCT days", small = c.aiDone < MIN_N, rel = esc(state.release), host = document.getElementById("an-kpis");
   // Where the epics of the release stand: one bar, split into Done, In Flight and Not Started. Each part opens its epics in Jira.
   const parts = [["done", "Done", c.done, "#025AFB"], ["flight", "In Flight", c.flight, "#3694FC"], ["notStarted", "Not Started", c.notStarted, "#E3E0D8"]];
   if (c.other) parts.push(["other", "Other Status", c.other, "#8A8F98"]);
@@ -1056,7 +1059,7 @@ function renderKpis() {
     : `<div class="kpi"><div class="v">${state.projects.size ? "0" : "–"}</div><div class="l">Epics in Scope on ${rel}</div><div class="s">${state.projects.size ? "nothing in scope" : "No project is selected"}</div></div>`;
   host.innerHTML = bar +
     `<div class="kpi"><div class="v">${cy.ok ? `${fmt(cy.p50)} <span class="muted" style="font-weight:400">/ ${fmt(cy.p90)}</span>` : "–"}</div><div class="l">Cycle Time P50 / P90, Release ${rel}</div><div class="s">${!state.projects.size ? "No project is selected" : cy.ok ? `${defLabel}, ${cy.n} Done epics` : `${defLabel}: only ${cy.n} Done epics, need ${MIN_N}`}</div></div>` +
-    `<div class="kpi"><div class="v">${small ? "–" : `${aiPct}%`}</div><div class="l">Epics by AI, Release ${rel}</div><div class="s">${!state.projects.size ? "No project is selected" : c.done ? `${tlink(c.ai, jira({kind: "done", extra: "cf[15229] = Yes"}), `${c.ai} Done epics implemented by AI`)} of ${c.done} Done ${epicWord(c.done)}${small ? ", too few for a share" : ""}` : "no Done epics yet"}</div></div>`;
+    `<div class="kpi"><div class="v">${small ? "–" : `${aiPct}%`}</div><div class="l">Epics by AI, Release ${rel}</div><div class="s">${!state.projects.size ? "No project is selected" : c.aiDone ? `${tlink(c.ai, jira({kind: "done", extra: `cf[15229] = Yes AND ${AI_KEPT_JQL}`}), `${c.ai} Done epics implemented by AI\n${AI_EXCL_TEXT} excluded`)} of ${tlink(c.aiDone, jira({kind: "done", extra: AI_KEPT_JQL}), `${c.aiDone} Done epics\n${AI_EXCL_TEXT} excluded`)} Done ${epicWord(c.aiDone)}${small ? ", too few for a share" : ""}` : "no Done epics yet"}${state.projects.size ? `<br><span class="muted">${AI_EXCL_TEXT} are excluded: ${c.aiExcl ? tlink(c.aiExcl, jira({kind: "done", extra: AI_EXCLUDED_JQL}), `${c.aiExcl} Done ${AI_EXCL_TEXT} ${epicWord(c.aiExcl)}\nLeft out of every AI figure.\n${AI_EXCL_WHY}`) : "0"} Done ${epicWord(c.aiExcl)}</span>` : ""}</div></div>`;
   const none = [...state.projects].filter(p => !DATA.epics.some(e => e.p === p && inRelease(e, state.release)));
   let html = "";
   if (!list.length) html += `<div class="notice">${whyEmpty("epics")}</div>`;
@@ -1096,19 +1099,21 @@ function periods(g = state.gran) {
   }
   return out;
 }
-// Epics resolved in a month, as the email counts them: status Done, Maintenance-category epics left out.
+// Epics resolved in a month (status Done). The AI figures leave out the AI-excluded Issue Categories (Maintenance, SOW); EDCT keeps its own rule, Maintenance only, as the email counts it.
 function monthStats(mo) {
-  const done = DATA.epics.filter(e => base(e) && e.s === "Done" && e.rd && utc(e.rd) >= mo.s && utc(e.rd) < mo.e && e.cat !== "Maintenance");
-  const ai = done.filter(e => e.ai), withEdct = ai.filter(e => e.edct != null);
-  return {done: done.length, ai: ai.length, edctN: withEdct.length,
+  const pop = DATA.epics.filter(e => base(e) && e.s === "Done" && e.rd && utc(e.rd) >= mo.s && utc(e.rd) < mo.e);
+  const kept = pop.filter(e => !aiExcluded(e)), ai = kept.filter(e => e.ai);
+  const withEdct = pop.filter(e => e.cat !== "Maintenance" && e.ai && e.edct != null);
+  return {done: kept.length, ai: ai.length, excl: pop.length - kept.length, edctN: withEdct.length,
     edctAvg: withEdct.length ? withEdct.reduce((a, e) => a + e.edct, 0) / withEdct.length : null};
 }
 // Every link carries the population of the number it explains: the epics held in this page, which are the epics with a fix version from the first to the last release listed.
 const AI_NOT = " AND (cf[15229] is EMPTY OR (cf[15229] = No AND cf[15229] != Yes))";          // "not Yes": the field is a multi-select; empty, or No without Yes. Never != Yes alone (it drops the empty ones); an epic with both Yes and No counts as AI
 const aiNotTip = (n, what) => `${n} ${epicWord(n)} not marked as AI, ${what}\nImplemented by AI Agent is empty, or No without Yes.`;
-function jiraMonth(mo, extra = "") {
+function jiraMonth(mo, extra = "", basis = "ai") {                 // basis: "ai" the AI population (excluded categories out), "excluded" the epics those categories leave out, "edct" the EDCT population (Maintenance out)
   if (!state.projects.size) return null;
-  return href(`project in (${[...state.projects].join(", ")}) AND issuetype = Epic AND status = Done AND resolutiondate >= "${iso(mo.s)}" AND resolutiondate < "${iso(mo.e)}" AND (cf[10139] is EMPTY OR cf[10139] != "Maintenance") AND fixVersion in (${DATA.releases.map(q).join(", ")})` + teamClause(state.teams) + extra);
+  const cat = basis === "edct" ? `(cf[10139] is EMPTY OR cf[10139] != "Maintenance")` : basis === "excluded" ? AI_EXCLUDED_JQL : AI_KEPT_JQL;
+  return href(`project in (${[...state.projects].join(", ")}) AND issuetype = Epic AND status = Done AND resolutiondate >= "${iso(mo.s)}" AND resolutiondate < "${iso(mo.e)}" AND ${cat} AND fixVersion in (${DATA.releases.map(q).join(", ")})` + teamClause(state.teams) + extra);
 }
 function weekOf(rel) {                                       // where the release stands today, in its own 12-week frame
   const win = DATA.windows && DATA.windows[rel]; if (!win) return "";
@@ -1157,11 +1162,12 @@ function renderStatus() {
     {k: `Release ${esc(rel)}`, c: "d", v: tlink(TB.N, TB.href, TB.tip), l: "Forecast Epics",
      s: !TB.win ? "Target scope: Committed + Not Set" : TB.pre ? `Target scope so far; W1 starts ${shortDate(TB.w1)}` : `Target scope on ${shortDate(TB.w1)}, first day of W1: Committed + Not Set`,
      x: !TB.win || TB.pre ? "" : `${tipSpan(`${TB.added >= 0 ? "+" : "−"}${Math.abs(TB.added).toLocaleString("en-US")} ${TB.added >= 0 ? "added" : "removed"} since W1`, `${Math.abs(TB.added)} target epics ${TB.added >= 0 ? "were added to" : "left"} ${rel} after the first day of W1: ${TB.today} today minus ${TB.N} on ${shortDate(TB.w1)}`)} (${tlink(TB.today, TB.hrefToday, `${TB.today} epics are in the target today (Committed + Not Set)`)} today)`},
-    {k: to, c: "e", v: ms.edctN >= MIN_N ? link(Math.round(ms.edctAvg), jiraMonth(mo, aiMonth)) : "–", l: "EDCT Days",
+    {k: to, c: "e", v: ms.edctN >= MIN_N ? link(Math.round(ms.edctAvg), jiraMonth(mo, aiMonth, "edct")) : "–", l: "EDCT Days",
      s: ms.edctN >= MIN_N ? "average of AI-implemented epics" : `only ${ms.edctN} epics, need ${MIN_N}`, x: f.edct && f.edct.t, xc: f.edct && f.edct.c},
     {k: "Today", c: "q", v: link(open.length, jiraBugs({extra: OPEN_BUG_JQL})), l: "Open Bugs", s: `${state.ax ? "including" : "excluding"} accessibility bugs${filtered ? "; Priority or CFB filter on" : ""}`, x: f.bugs && f.bugs.t, xc: f.bugs && f.bugs.c},
     {k: to, c: "a", v: ms.done >= MIN_N ? link(pct(ms.ai, ms.done) + "%", jiraMonth(mo, aiMonth)) : "–", l: "Epics by AI",
-     s: ms.done ? `${tlink(ms.ai, jiraMonth(mo, aiMonth), `${ms.ai} epics implemented by AI, resolved in ${mname}\nEpics with a fix version from ${DATA.releases[0]} to ${DATA.releases[DATA.releases.length - 1]}, Maintenance excluded.`)} of ${tlink(ms.done, jiraMonth(mo), `${ms.done} epics resolved in ${mname}\nEpics with a fix version from ${DATA.releases[0]} to ${DATA.releases[DATA.releases.length - 1]}, Maintenance excluded.`)} epics resolved${ms.done < MIN_N ? ", too few for a share" : ""}<br>${ms.done - ms.ai ? tlink(ms.done - ms.ai, jiraMonth(mo, AI_NOT), aiNotTip(ms.done - ms.ai, `resolved in ${mname}`)) : "0"} not marked as AI` : "no epics resolved", x: f.ai},
+     s: ms.done ? `${tlink(ms.ai, jiraMonth(mo, aiMonth), `${ms.ai} epics implemented by AI, resolved in ${mname}\nEpics with a fix version from ${DATA.releases[0]} to ${DATA.releases[DATA.releases.length - 1]}, ${AI_EXCL_TEXT} excluded.`)} of ${tlink(ms.done, jiraMonth(mo), `${ms.done} epics resolved in ${mname}\nEpics with a fix version from ${DATA.releases[0]} to ${DATA.releases[DATA.releases.length - 1]}, ${AI_EXCL_TEXT} excluded.`)} epics resolved${ms.done < MIN_N ? ", too few for a share" : ""}<br>${ms.done - ms.ai ? tlink(ms.done - ms.ai, jiraMonth(mo, AI_NOT), aiNotTip(ms.done - ms.ai, `resolved in ${mname}`)) : "0"} not marked as AI` : "no epics resolved",
+     x: [f.ai, `${AI_EXCL_TEXT} epics are excluded from every AI figure (${ms.excl ? tlink(ms.excl, jiraMonth(mo, "", "excluded"), `${ms.excl} ${AI_EXCL_TEXT} ${epicWord(ms.excl)} resolved in ${mname}\nLeft out of every AI figure.\n${AI_EXCL_WHY}`) : "0"} ${epicWord(ms.excl)} resolved in ${mname})`].filter(Boolean).join("<br>")},
   ]);
 }
 // Plain facts shown under the headline numbers. No verdict on the burnup (its reference line is not a forecast); the others compare with an explicit target or with an earlier period.
@@ -1218,7 +1224,7 @@ function renderEfficiency() {
   const rows = periods().map(mo => { const m = monthStats(mo); return {mo, n: m.edctN, avg: m.edctN >= MIN_N ? m.edctAvg : null}; });
   const cur = rows[rows.length - 1], head = document.getElementById("eff-head"), cap = document.getElementById("eff-cap");
   document.getElementById("eff-sub").textContent = `Average cycle time of AI-implemented epics, by resolution ${GRAN[state.gran].noun}.`;
-  monthChart("eff-chart", "eff-cap", "eff-data", rows, {value: r => r.avg == null ? null : Math.round(r.avg), sc: niceScale(Math.max(EDCT_TARGET, ...rows.map(r => r.avg || 0)) * 1.1), fmtv: v => String(v), fill: "#249A89", ink: "#1C7A6C", target: EDCT_TARGET, href: r => jiraMonth(r.mo, " AND cf[15229] = Yes"), nHref: r => r.n ? jiraMonth(r.mo, " AND cf[15229] = Yes") : null,
+  monthChart("eff-chart", "eff-cap", "eff-data", rows, {value: r => r.avg == null ? null : Math.round(r.avg), sc: niceScale(Math.max(EDCT_TARGET, ...rows.map(r => r.avg || 0)) * 1.1), fmtv: v => String(v), fill: "#249A89", ink: "#1C7A6C", target: EDCT_TARGET, href: r => jiraMonth(r.mo, " AND cf[15229] = Yes", "edct"), nHref: r => r.n ? jiraMonth(r.mo, " AND cf[15229] = Yes", "edct") : null,
     tip: r => r.avg == null ? `${pname(r.mo)}\nFewer than ${MIN_N} AI-implemented epics, so no average is shown` : `${pname(r.mo)}\nAverage EDCT ${Math.round(r.avg)} days\n${r.n} AI-implemented epics`, title: `Average EDCT days per ${GRAN[state.gran].noun}`, col: "Average EDCT Days"});
   if (!state.projects.size) { head.innerHTML = ""; cap.innerHTML = ""; return; }
   const a = cur.avg == null ? null : Math.round(cur.avg), over = a == null ? 0 : a - EDCT_TARGET;
@@ -1227,15 +1233,17 @@ function renderEfficiency() {
   cap.innerHTML = defs(`EDCT is the average of calendar days an epic ended in In Progress or Validation, flagged days excluded; Maintenance-category epics are left out. Follows the project and team filters. * and the dashed outline mark the running ${GRAN[state.gran].noun}.`);
 }
 function renderAdoption() {
-  const rows = periods().map(mo => { const m = monthStats(mo); return {mo, n: m.done, ai: m.ai, share: m.done >= MIN_N ? pct(m.ai, m.done) : null}; });
+  const rows = periods().map(mo => { const m = monthStats(mo); return {mo, n: m.done, ai: m.ai, excl: m.excl, share: m.done >= MIN_N ? pct(m.ai, m.done) : null}; });
   const cur = rows[rows.length - 1], head = document.getElementById("ai-head"), cap = document.getElementById("ai-cap");
-  document.getElementById("ai-sub").textContent = `Share of epics resolved each ${GRAN[state.gran].noun} that were implemented by an AI agent.`;
+  const span = {s: rows[0].mo.s, e: rows[rows.length - 1].mo.e}, exclAll = rows.reduce((a, r) => a + r.excl, 0), when = `${rows[0].mo.label.replace("*", "")} to ${cur.mo.label.replace("*", "")}`;
+  document.getElementById("ai-sub").innerHTML = `Share of epics resolved each ${GRAN[state.gran].noun} that were implemented by an AI agent. <b>${esc(AI_EXCL_TEXT)} epics are excluded from every AI figure</b> (${state.projects.size && exclAll ? tlink(exclAll, jiraMonth(span, "", "excluded"), `${exclAll} ${AI_EXCL_TEXT} ${epicWord(exclAll)} resolved ${when}\nLeft out of every AI figure.\n${AI_EXCL_WHY}`) : "0"} ${epicWord(exclAll)} resolved ${esc(when)}).`;
   monthChart("ai-chart", "ai-cap", "ai-data", rows, {value: r => r.share, sc: {max: 100, ticks: [0, 25, 50, 75, 100]}, fmtv: v => v + "%", fill: "#6100FF", ink: "#6100FF", href: r => r.n - r.ai ? jiraMonth(r.mo, AI_NOT) : null, nHref: r => r.n ? jiraMonth(r.mo) : null,      // a bar opens the epics of its period that are NOT marked as AI (the same population as its denominator)
     tip: r => r.share == null ? `${pname(r.mo)}\nFewer than ${MIN_N} epics resolved, so no share is shown${r.n - r.ai ? `\nClick opens the ${r.n - r.ai} epics not marked as AI (field empty or No)` : ""}` : `${pname(r.mo)}: ${r.share}% marked as AI (${r.ai} of ${r.n})\n${r.n - r.ai ? `Click opens the ${r.n - r.ai} ${epicWord(r.n - r.ai)} not marked as AI (field empty or No)` : "Every resolved epic is marked as AI"}`, title: `Epics developed by AI agents per ${GRAN[state.gran].noun}`, col: "Developed by AI Agents",
-    extra: {heads: ["Marked as AI", "Not Marked as AI"], cells: r => [r.ai ? tlink(r.ai, jiraMonth(r.mo, " AND cf[15229] = Yes"), `${r.ai} epics marked as AI, resolved in ${pwords(r.mo)}`) : "0", r.n - r.ai ? tlink(r.n - r.ai, jiraMonth(r.mo, AI_NOT), aiNotTip(r.n - r.ai, `resolved in ${pwords(r.mo)}`)) : "0"]}});
+    extra: {heads: ["Marked as AI", "Not Marked as AI", `Excluded (${AI_EXCLUDED_CATEGORIES.join(", ")})`], cells: r => [r.ai ? tlink(r.ai, jiraMonth(r.mo, " AND cf[15229] = Yes"), `${r.ai} epics marked as AI, resolved in ${pwords(r.mo)}`) : "0", r.n - r.ai ? tlink(r.n - r.ai, jiraMonth(r.mo, AI_NOT), aiNotTip(r.n - r.ai, `resolved in ${pwords(r.mo)}`)) : "0",
+      r.excl ? tlink(r.excl, jiraMonth(r.mo, "", "excluded"), `${r.excl} ${AI_EXCL_TEXT} ${epicWord(r.excl)} resolved in ${pwords(r.mo)}\nLeft out of every AI figure.`) : "0"]}});
   if (!state.projects.size) { head.innerHTML = ""; cap.innerHTML = ""; return; }
   head.innerHTML = cur.share == null ? `– <small>${pwords(cur.mo)} · fewer than ${MIN_N} epics so far</small>` : `${cur.share}% <small>${pwords(cur.mo)} so far · ${cur.ai} of ${cur.n} epics · ${cur.n - cur.ai ? tlink(cur.n - cur.ai, jiraMonth(cur.mo, AI_NOT), aiNotTip(cur.n - cur.ai, `resolved in ${pwords(cur.mo)}`)) : "0"} not marked as AI</small>`;
-  cap.innerHTML = defs(`Epics by AI counts epics whose Implemented by AI Agent field is Yes, not the AGENTIC_AI_CODE label; Maintenance-category epics are left out. Population: epics resolved in the period that carry a release fix version from ${DATA.releases[0]} to ${DATA.releases[DATA.releases.length - 1]}; the Jira links use the same filter, so they open the epics counted. "Not marked as AI" means the field is empty, or No without Yes. A bar opens the epics of its period that are not marked as AI; the View Data table links both the marked and the not-marked epics. * and the dashed outline mark the running ${GRAN[state.gran].noun}.`);
+  cap.innerHTML = defs(`Epics by AI counts epics whose Implemented by AI Agent field is Yes, not the AGENTIC_AI_CODE label. <b>${esc(AI_EXCL_TEXT)} epics are excluded from every AI figure</b> (Issue Category = ${AI_EXCLUDED_CATEGORIES.join(" or ")}; ${AI_EXCL_WHY} The View Data table counts them per period, with links). Population: epics resolved in the period that carry a release fix version from ${DATA.releases[0]} to ${DATA.releases[DATA.releases.length - 1]}; the Jira links use the same filter, so they open the epics counted. "Not marked as AI" means the field is empty, or No without Yes. A bar opens the epics of its period that are not marked as AI; the View Data table links both the marked and the not-marked epics. * and the dashed outline mark the running ${GRAN[state.gran].noun}.`);
 }
 
 // ---------------------------------------------------------------- burnup
@@ -1443,18 +1451,18 @@ function chartAI(rels) {
   const {step, x} = axisX(rels), bw = Math.min(30, step * .6);
   let s = yAxis({max: 100, ticks: [0, 25, 50, 75, 100]}, v => v + "%");
   rows.forEach((c, i) => {
-    const r = rels[i], cx = x(i), p = pct(c.ai, c.done), nm = r + (isProv(r) ? " (in progress)" : ""), faded = c.done < MIN_N;
+    const r = rels[i], cx = x(i), p = pct(c.ai, c.aiDone), nm = r + (isProv(r) ? " (in progress)" : ""), faded = c.aiDone < MIN_N;
     let m = `<rect class="hit" x="${cx - step / 2}" y="${PAD.t}" width="${step}" height="${H - PAD.b - PAD.t}" fill="transparent"/>`;
     if (p == null) m += `<text x="${cx}" y="${H - PAD.b - 8}" text-anchor="middle" font-size="11" fill="#5A5F6B">–</text>`;
     else {
       const y = yOf(p, 100);
       m += `<rect x="${cx - bw / 2}" y="${y}" width="${bw}" height="${H - PAD.b - y}" fill="#6100FF" opacity="${faded ? .4 : 1}"/>`;
-      m += `<text x="${cx}" y="${y - 5}" text-anchor="middle" font-size="11" font-weight="600" fill="#6100FF">${faded ? `${c.ai}/${c.done}` : p + "%"}</text>`;
+      m += `<text x="${cx}" y="${y - 5}" text-anchor="middle" font-size="11" font-weight="600" fill="#6100FF">${faded ? `${c.ai}/${c.aiDone}` : p + "%"}</text>`;
     }
-    s += ga(m, jira({release: r, kind: "done", extra: "cf[15229] = Yes"}), `${nm}\n${c.ai} of ${c.done} Done epics implemented by AI agents${p != null && !faded ? ` (${p}%)` : faded ? "\nFewer than 5 Done epics, so no share is shown" : ""}`);
-    s += relLabel(r, cx) + `<text x="${cx}" y="${H - PAD.b + 30}" text-anchor="middle" font-size="11" fill="#5A5F6B">n=${c.done}</text>`;
+    s += ga(m, jira({release: r, kind: "done", extra: `cf[15229] = Yes AND ${AI_KEPT_JQL}`}), `${nm}\n${c.ai} of ${c.aiDone} Done epics implemented by AI agents${p != null && !faded ? ` (${p}%)` : faded ? "\nFewer than 5 Done epics, so no share is shown" : ""}\n${c.aiExcl} ${AI_EXCL_TEXT} Done ${epicWord(c.aiExcl)} excluded`);
+    s += relLabel(r, cx) + `<text x="${cx}" y="${H - PAD.b + 30}" text-anchor="middle" font-size="11" fill="#5A5F6B">n=${c.aiDone}</text>`;
   });
-  return {svg: s, cap: "Share of Done epics with Implemented by AI Agent = Yes. Faded bar = fewer than 5 Done epics, shown as a count instead of a share."};
+  return {svg: s, cap: `Share of Done epics with Implemented by AI Agent = Yes. ${AI_EXCL_TEXT} epics are excluded from every AI figure (n is the Done epics left after that). Faded bar = fewer than 5 Done epics, shown as a count instead of a share.`};
 }
 function renderCharts() {
   const rels = DATA.releases;
@@ -1462,15 +1470,17 @@ function renderCharts() {
   document.getElementById("charts").innerHTML = defs.map(([t, c]) =>
     `<div class="chart"><h3>${t}</h3><div class="chartscroll"><svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:${W}px" role="img" aria-label="${t}, ${rels.length} releases. Values are in the View Data table below.">${c.svg}</svg></div><div class="cap">${c.cap}</div></div>`).join("");
   document.getElementById("trend-sub").textContent =
-    `Uses the project, team and commitment filters. An asterisk marks releases that are still provisional (${DATA.provisional.join(", ")}).`;
+    `Uses the project, team and commitment filters. An asterisk marks releases that are still provisional (${DATA.provisional.join(", ")}). The AI share leaves out ${AI_EXCL_TEXT} epics (the last column counts them). The Done Capabilities chart counts Capabilities by fix version and is not affected by the filters.`;
   const rows = rels.map(r => {
     const list = scopeOf(r), c = counts(list), cy = cycleStats(list);
     return [esc(r) + (isProv(r) ? "*" : ""), link(c.scope, jira({release: r})), link(c.done, jira({release: r, kind: "done"})),
       cy.ok ? fmt(cy.p50) : "–", cy.ok ? fmt(cy.p90) : "–", cy.n,
-      c.done >= MIN_N ? pct(c.ai, c.done) + "%" : c.done ? `${c.ai} of ${c.done}` : "–"];
+      c.aiDone >= MIN_N ? pct(c.ai, c.aiDone) + "%" : c.aiDone ? `${c.ai} of ${c.aiDone}` : "–",
+      c.aiExcl ? tlink(c.aiExcl, jira({release: r, kind: "done", extra: AI_EXCLUDED_JQL}), `${c.aiExcl} ${AI_EXCL_TEXT} Done ${epicWord(c.aiExcl)} in ${r}\nLeft out of every AI figure.`) : "0"];
   });
   dataTable("trend-data", "Epics, cycle time and AI share per release",
-    ["Release", "Epics in Scope", "Done", "Cycle P50", "Cycle P90", "Done with Cycle Time", "Epics by AI"], rows);
+    ["Release", "Epics in Scope", "Done", "Cycle P50", "Cycle P90", "Done with Cycle Time", "Epics by AI", `Excluded From AI (${AI_EXCLUDED_CATEGORIES.join(", ")})`], rows);
+  const tsm = document.querySelector("#trend-data summary"); if (tsm) tsm.textContent = "View Data, Epic Charts";        // two tables sit under the chart grid: say which charts each one belongs to
 }
 
 // ---------------------------------------------------------------- bugs backlog
@@ -1714,12 +1724,12 @@ function renderCfb() {
   const body = rows.slice().reverse().map(r => `<tr class="${r.sel ? "sel" : ""}"><th scope="row">${esc(r.label)}${r.running ? "*" : ""}</th>` +
     `<td class="n">${cellN(r.n, cfbJql(r.start, r.end))}</td><td class="n">${cellN(r.reg, cfbJql(r.start, r.end, "regression = Yes"))}</td><td class="n">${r.pqcr}</td></tr>`).join("");
   tableEl.innerHTML = rows.length
-    ? `<table><caption class="sr">CFB fixed, regressions and PQCR per ${U.noun}, newest first${monthTotal ? `. The total row sums the ${rows.length} months shown, ${rows[0].label} to ${rows[rows.length - 1].label.replace("*", "")}` : `. The total row covers everything since ${DATA.bugSince}`}</caption><thead><tr><th>${U.head}</th><th class="n">CFB Fixed</th><th class="n">Regressions</th><th class="n">PQCR</th></tr></thead><tbody>${body}` +
+    ? `<table><caption class="sr">CFB fixed, regressions and PQCR Cases per ${U.noun}, newest first${monthTotal ? `. The total row sums the ${rows.length} months shown, ${rows[0].label} to ${rows[rows.length - 1].label.replace("*", "")}` : `. The total row covers everything since ${DATA.bugSince}`}</caption><thead><tr><th>${U.head}</th><th class="n">CFB Fixed</th><th class="n">Regressions</th><th class="n">PQCR Cases</th></tr></thead><tbody>${body}` +
       `<tr class="total"><th scope="row">${tRow.label}</th><td class="n">${cellN(tRow.n, cfbJql(tRow.start, tRow.end))}</td><td class="n">${cellN(tRow.reg, cfbJql(tRow.start, tRow.end, "regression = Yes"))}</td><td class="n">${tRow.pqcr}</td></tr></tbody></table>` : "";
   capEl.textContent = mode === "version"
-    ? `Release windows run from the Jira version start (the IP week) to its release date. PQCR sums Number of Incidents over the CFB bugs fixed in the window. ` +
+    ? `Release windows run from the Jira version start (the IP week) to its release date. PQCR Cases sums Number of Incidents over the CFB bugs fixed in the window. ` +
       (cur ? "The row for the selected release is highlighted. " : `${state.release} has not started, so no row is highlighted. `) + `An asterisk marks a release still running.`
-    : `${mode === "month" ? "Calendar months" : "Calendar quarters"} by resolution date, newest first in the table. PQCR sums Number of Incidents over the CFB bugs fixed in the period. ` +
+    : `${mode === "month" ? "Calendar months" : "Calendar quarters"} by resolution date, newest first in the table. PQCR Cases sums Number of Incidents over the CFB bugs fixed in the period. ` +
       `An asterisk and a dashed outline mark the ${U.noun} still running. ` + `Data starts on ${DATA.bugSince}${rows.length && rows[0].name.includes("(from") ? `, so the first ${U.noun} is partial` : ""}. ${monthTotal ? `The total row sums the ${rows.length} months shown (${rows[0].label} to ${rows[rows.length - 1].label.replace("*", "")}). ` : ""}The cards above stay on ${esc(state.release)}.`;
 }
 
@@ -2058,15 +2068,17 @@ function renderCapDone() {
     svg += relLabel(r, cx);
   });
   const nf = DATA.capNoFv, others = [...new Set(Object.values(DATA.capList).filter(c => !projectsAll.includes(c.p)).map(c => c.p))].sort();
-  host.innerHTML = `<div class="chart"><h3>Capabilities Done, by Fix Version</h3><div class="chartscroll"><svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:${W}px" role="img" aria-label="Done Capabilities per release, ${rels.length} releases. Values are in the View Data table below.">${svg}</svg></div>` +
-    `<div class="cap">Dark blue = Done, light blue = still open. Label = Done / all Capabilities with that fix version, Removed excluded. A Capability with several fix versions counts in each release. An asterisk marks a running release. By project in the hover text and the View Data table. ${nf ? `${tlink(nf.total, href(`project in (${[...projectsAll, "CXCROSS"].join(", ")}) AND issuetype = Capability AND status != Removed AND fixVersion is EMPTY`), `${nf.total} Capabilities with no fix version`)} Capabilities have no fix version (${nf.done} Done) and are in no bar. ` : ""}Not affected by the filters. Data is the Jira snapshot at ${esc(ilLabel(DATA.capPulledAt || DATA.generated))}.</div></div>`;
+  host.innerHTML = `<div class="chart"><h3>Done Capabilities per Release</h3><div class="chartscroll"><svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:${W}px" role="img" aria-label="Done Capabilities per release, ${rels.length} releases. Values are in the View Data table below.">${svg}</svg></div>` +
+    `<div class="cap">Dark blue = Done, light blue = still open. Label = Done / all Capabilities with that fix version. An asterisk marks a running release. Not affected by the filters.</div></div>`;
+  const note = `Removed Capabilities are excluded. A Capability with several fix versions counts in each release. An asterisk marks a running release. By project in the hover text and the View Data table. ${nf ? `${tlink(nf.total, href(`project in (${[...projectsAll, "CXCROSS"].join(", ")}) AND issuetype = Capability AND status != Removed AND fixVersion is EMPTY`), `${nf.total} Capabilities with no fix version`)} Capabilities have no fix version (${nf.done} Done) and are in no bar. ` : ""}Data is the Jira snapshot at ${esc(ilLabel(DATA.capPulledAt || DATA.generated))}.`;
   const P = projectsAll;
   const cell = (r, l, project) => { const done = l.done, all = l.all, base = project && project !== "Other" ? `project = ${project} AND ` : "";
     const one = (list, extra, tip) => list.length ? tlink(list.length, project && project !== "Other" ? href(`${base}issuetype = Capability AND status != Removed AND fixVersion = ${q(r)}${extra}`) : capKeyHref(r, list, extra), tip) : "0";
     return `${one(done, " AND status = Done", `${done.length} Done Capabilities with fix version ${r}${project ? " in " + project : ""}`)} / ${one(all, "", `${all.length} Capabilities with fix version ${r}${project ? " in " + project : ""}`)}`; };
   dataTable("capdone-data", "Done Capabilities over all Capabilities with that fix version, per release and project of the Capability", ["Release", ...P, "Other", "Total"],
     rows.map(row => [esc(row.r) + (isProv(row.r) ? "*" : ""), ...row.byP.map(b => cell(row.r, b, b.p)), cell(row.r, {done: row.done, all: row.all}, null)]));
-  data.insertAdjacentHTML("beforeend", `<div class="cap">Other is ${esc(others.join(", ") || "other projects")}: Capabilities of other projects that have epics of these projects, and CXCROSS. Each cell is Done / all.</div>`);
+  data.insertAdjacentHTML("beforeend", `<div class="cap">${note} Other is ${esc(others.join(", ") || "other projects")}: Capabilities of other projects that have epics of these projects, and CXCROSS. Each cell is Done / all.</div>`);
+  const sm = data.querySelector("summary"); if (sm) sm.textContent = "View Data, Done Capabilities";
 }
 
 // ---------------------------------------------------------------- needs attention
