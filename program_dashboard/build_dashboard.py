@@ -39,6 +39,10 @@ sys.path.insert(0, str(HERE.parent / "dashboards"))     # reuse the weekly email
 import edct_from_jira as E  # noqa: E402
 sys.path.insert(0, str(HERE))
 import cycles as CY  # noqa: E402
+import importlib.util as _ilu  # noqa: E402
+_spec = _ilu.spec_from_file_location("release_planning_model", HERE.parent / "release_planning" / "model.py")
+RPM = _ilu.module_from_spec(_spec)                       # the release planning report's own pod rule (classify / pod_labels), reused rather than copied
+_spec.loader.exec_module(RPM)
 
 PROJECTS = ["PMN", "CXCO", "CXSUP", "CXWFM", "WFM", "CXINT"]
 RELEASES = ["25.4", "26.1", "26.2", "26.3", "26.4", "27.1", "27.2"]
@@ -355,6 +359,54 @@ NFR_LABEL = "NFR"
 NFR_CATEGORIES = ["R&D - 3rd party upgrades", "R&D - Arch/infra refactoring", "R&D Infra", "R&D - Low env. cost optimization"]
 
 
+POD_DEFAULT_RX = "pod"                                                      # a project without a release planning configuration uses the plain pattern
+
+
+def pod_patterns() -> dict:
+    """The pod_label_regex of each project, read from release_planning/config_<project>.json at build time (default: pod). Stored in the data, never hardcoded."""
+    out = {}
+    for proj in PROJECTS:
+        f = HERE.parent / "release_planning" / f"config_{proj.lower()}.json"
+        cfg = json.loads(f.read_text(encoding="utf-8")) if f.exists() else {}
+        out[proj] = cfg.get("pod_label_regex") or POD_DEFAULT_RX
+    return out
+
+
+def group_pods(labels_by_epic: dict) -> dict:
+    """The page's pod grouping, as a reference: {epic: matched pod labels} -> {pod key (lower case): {"name": first spelling found, "epics": [..]}}.
+    Pods are grouped case-insensitively and shown with the first spelling; an epic with two spellings or two pods counts once per pod; an epic with none is not listed (the page shows it under No Pod Label)."""
+    out: dict = {}
+    for epic, pods in labels_by_epic.items():
+        seen = set()
+        for p in pods:
+            k = p.lower()
+            out.setdefault(k, {"name": p, "epics": []})
+            if k not in seen:
+                seen.add(k)
+                out[k]["epics"].append(epic)
+    return out
+
+
+def collect_pods(j, epics) -> dict:
+    """Pod labels of the epics (pl = the matched labels only, sorted, as spelled): the release planning report's rule, RPM.pod_labels, with each project's own pattern."""
+    rx = pod_patterns()
+    by_key = {e["k"]: e for e in epics}
+    quoted = ", ".join(f'"{r}"' for r in RELEASES)
+    for e in epics:
+        e.pop("pl", None)                                                    # a label removed in Jira must not survive from an earlier pull
+    n = 0
+    for proj in PROJECTS:
+        jql = f'project = {proj} AND issuetype = Epic AND status != Removed AND fixVersion in ({quoted}) AND labels is not EMPTY'
+        for i in j.search(jql, ["labels"]):
+            if i["key"] in by_key:
+                pods = RPM.pod_labels(i["fields"].get("labels"), rx[proj])
+                if pods:
+                    by_key[i["key"]]["pl"] = pods
+                    n += 1
+    print(f"pods: {n} epics carry a pod label; {len({l.lower() for e in epics for l in e.get('pl', [])})} distinct pods (case-insensitive)", flush=True)
+    return rx
+
+
 def collect_nfr(j, epics) -> int:
     """Flag (nf = 1) the epics that carry the NFR label. The other half of the NFR definition, an Issue Category in
     NFR_CATEGORIES, is already on every epic as cat."""
@@ -516,9 +568,10 @@ def planning(j, epics, bugs, links) -> dict:
     got = collect_status_since(j, epics)
     nb = collect_bug_updates(j, bugs)
     sprints = sprint_calendar(labels)
+    podrx = collect_pods(j, epics)
     print(f"planning: {sum(1 for e in epics if e.get('dd'))} epics with a due date, {sum(1 for e in epics if e.get('ts'))} with a target sprint, "
           f"{len(sprints)} sprints, status-since for {got} in-flight epics, last update for {nb} open CFB bugs", flush=True)
-    return {"sprints": sprints, "eb": collect_epic_bugs(j, epics)}
+    return {"sprints": sprints, "eb": collect_epic_bugs(j, epics), "podRx": podrx}
 
 
 def dep_pair(key, link):
@@ -782,6 +835,7 @@ def main() -> int:
     ap.add_argument("--add-planning", action="store_true", help="add due dates, target sprints, sprint calendar, status-since and bug updates to build/program_data.json, then render")
     ap.add_argument("--add-deps", action="store_true", help="read dependency links and capabilities into build/program_data.json (no changelog calls), then render")
     ap.add_argument("--add-bugs", action="store_true", help="re-read the bugs (customer-found bugs by reporter OR Salesforce case, Closed dates) and the Open CFB Root Cause Analysis state into build/program_data.json, then render")
+    ap.add_argument("--add-pods", action="store_true", help="read the pod labels of the epics (each project's pod_label_regex from release_planning/config_*.json) into build/program_data.json, then render")
     ap.add_argument("--add-cfb-open", action="store_true", help="pull the root cause analysis state of the customer-found bugs (Open CFBs table) into build/program_data.json, then render")
     ap.add_argument("--add-capabilities", action="store_true", help="pull the Capability list and all their child epics (Capabilities section, Done Capabilities per Release) into build/program_data.json, then render")
     ap.add_argument("--add-cycles", action="store_true", help="pull the Delivery Cycle Governance section into build/program_data.json (needs cycles.config.json), then render")
@@ -790,6 +844,10 @@ def main() -> int:
     if args.add_nfr:
         data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
         collect_nfr(E.Jira(), [e for e in data["epics"] if e["p"] in PROJECTS])
+        DATA_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    elif args.add_pods:
+        data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
+        data["podRx"] = collect_pods(E.Jira(), [e for e in data["epics"] if e["p"] in PROJECTS])
         DATA_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     elif args.add_hier:
         data = json.loads(DATA_PATH.read_text(encoding="utf-8"))

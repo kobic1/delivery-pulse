@@ -69,11 +69,16 @@ def sprint_milestone(value: str | None, cfg: dict) -> str | None:
     return None
 
 
+def pod_labels(labels, pattern: str) -> list[str]:
+    """The labels of an epic that name a pod: each label is tested case-insensitively against the project's pod_label_regex."""
+    pod_re = re.compile(pattern, re.I)
+    return sorted(l for l in labels or [] if pod_re.search(l))
+
+
 def classify(issue: dict, cfg: dict) -> dict:
     f, fid = issue["fields"], cfg["fields"]
     status = f["status"]["name"]
-    pod_re = re.compile(cfg["pod_label_regex"], re.I)
-    pods = sorted(l for l in f.get("labels") or [] if pod_re.search(l))
+    pods = pod_labels(f.get("labels"), cfg["pod_label_regex"])
     teams = [t["value"] for t in f.get(fid["epic_team"]) or []] or [NO_TEAM]
     ct = f.get(fid["commitment_type"])
     sprint = (f.get(fid["target_sprint"]) or {}).get("value")

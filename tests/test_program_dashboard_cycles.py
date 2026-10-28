@@ -245,3 +245,48 @@ def test_status_since_and_open_bug_update_dates_do_not_survive_when_no_longer_tr
     finally:
         BD.PROJECTS = saved
     assert "ud" not in bugs[0] and bugs[1]["ud"] == "2030-01-02"
+
+
+POD_RX_DEFAULT = "pod"
+POD_RX_PREFIX = r"pod|^XYZ-[A-Za-z]+-\d+$"                                     # the shape of a project pattern with a second alternative (fictitious names throughout)
+
+
+def test_pod_labels_use_the_release_planning_rule_case_insensitively():
+    labels = ["POD-Alpha-Integrations", "Beta_PMN_POD1", "AlphaTechPod-CR", "Gamma-Pod-3", "unrelated", "NFR", "pod"]
+    assert BD.RPM.pod_labels(labels, POD_RX_DEFAULT) == sorted(["POD-Alpha-Integrations", "Beta_PMN_POD1", "AlphaTechPod-CR", "Gamma-Pod-3", "pod"])      # the text anywhere counts
+    assert BD.RPM.pod_labels(None, POD_RX_DEFAULT) == [] and BD.RPM.pod_labels([], POD_RX_DEFAULT) == []
+    # the second alternative: a label of the form XYZ-Name-1 counts, XYZ-12345 does not, and the plain pattern alone counts neither
+    assert BD.RPM.pod_labels(["XYZ-Falcons-2", "XYZ-12345", "XYZ-Falcons"], POD_RX_PREFIX) == ["XYZ-Falcons-2"]
+    assert BD.RPM.pod_labels(["XYZ-Falcons-2"], POD_RX_DEFAULT) == []
+    assert BD.RPM.pod_labels(["xyz-falcons-2"], POD_RX_PREFIX) == ["xyz-falcons-2"]
+
+
+def test_pod_patterns_are_read_from_the_release_planning_configuration(tmp_path, monkeypatch):
+    rx = BD.pod_patterns()
+    assert set(rx) == set(BD.PROJECTS) and all(v for v in rx.values())
+    assert rx["WFM"] == BD.POD_DEFAULT_RX                                            # no configuration for the project: the plain pattern
+
+
+def test_pods_group_case_insensitively_with_the_first_spelling_and_count_an_epic_once_per_pod():
+    g = BD.group_pods({"AAA-1": ["Pod-Delta-1"], "AAA-2": ["pod-delta-1", "Pod-Epsilon"], "AAA-3": ["POD-DELTA-1", "pod-delta-1"], "AAA-4": []})
+    assert list(g) == ["pod-delta-1", "pod-epsilon"]
+    assert g["pod-delta-1"] == {"name": "Pod-Delta-1", "epics": ["AAA-1", "AAA-2", "AAA-3"]}          # first spelling shown, AAA-3 carries two spellings and counts once
+    assert g["pod-epsilon"]["epics"] == ["AAA-2"]                                                    # an epic with two pods counts under each; AAA-4 has no pod
+    assert all("AAA-4" not in v["epics"] for v in g.values())
+
+
+def test_collect_pods_clears_a_label_removed_in_jira_and_stores_only_the_matched_labels():
+    class J:
+        def search(self, jql, fields):
+            return [{"key": "AAA-1", "fields": {"labels": ["Pod-Zeta", "other", "NFR"]}}, {"key": "AAA-2", "fields": {"labels": ["other"]}}]
+    epics = [{"k": "AAA-1"}, {"k": "AAA-2", "pl": ["Pod-Old"]}, {"k": "AAA-3", "pl": ["Pod-Gone"]}]
+    saved = BD.PROJECTS
+    BD.PROJECTS = ["AAA"]
+    try:
+        monkey = BD.pod_patterns
+        BD.pod_patterns = lambda: {"AAA": "pod"}
+        rx = BD.collect_pods(J(), epics)
+    finally:
+        BD.PROJECTS = saved
+        BD.pod_patterns = monkey
+    assert rx == {"AAA": "pod"} and epics[0]["pl"] == ["Pod-Zeta"] and "pl" not in epics[1] and "pl" not in epics[2]
