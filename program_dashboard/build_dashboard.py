@@ -3,7 +3,6 @@
 
     python3 program_dashboard/build_dashboard.py            # fetch from Jira + render
     python3 program_dashboard/build_dashboard.py --reuse    # re-render from build/program_data.json
-    python3 program_dashboard/build_dashboard.py --add-cycles  # pull the Delivery Cycle Governance section (needs cycles.config.json)
 
 Built on the Program Intelligence Agent's definitions (branch claude/zealous-cannon-ls64p7,
 program_intelligence/definitions/*.yaml), restated here so this file stands on its own:
@@ -38,7 +37,6 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "dashboards"))     # reuse the weekly emails' Jira client + EDCT
 import edct_from_jira as E  # noqa: E402
 sys.path.insert(0, str(HERE))
-import cycles as CY  # noqa: E402
 import importlib.util as _ilu  # noqa: E402
 _spec = _ilu.spec_from_file_location("release_planning_model", HERE.parent / "release_planning" / "model.py")
 RPM = _ilu.module_from_spec(_spec)                       # the release planning report's own pod rule (classify / pod_labels), reused rather than copied
@@ -690,16 +688,6 @@ def collect_links(j, epics) -> dict:
             "ext": ext, "capabilities": caps, "depsDropped": dropped}
 
 
-def collect_cycles(j):
-    """Delivery Cycle Governance: its own pull (INT, CXINT, WFM epics by pod label or Epic Team), independent of the release pull above.
-    Left out, with a message, when there is no cycles configuration."""
-    cfg = CY.load_config()
-    if cfg is None:
-        print(f"cycles: no configuration ({CY.config_path().name}); the Delivery Cycle Governance section is left out", flush=True)
-        return None
-    return CY.collect(j, cfg, day_counts, E.epic_events)
-
-
 def collect_bugs(j) -> list:
     """Every Bug of the six projects open, created, resolved or closed since BUG_SINCE, as compact rows (see bug_record)."""
     bugs = []
@@ -777,15 +765,7 @@ def fetch() -> dict:
     collect_nfr(j, epics)
     cfbx = collect_cfb(j)
     capx = collect_capabilities(j, {e["cp"] for e in epics if e.get("cp")})
-    try:
-        cyc = collect_cycles(j)
-    except Exception as exc:                                      # this section must not sink the whole build: keep the last pull, which shows its own as-of date
-        print(f"warning: Delivery Cycle Governance could not be pulled ({type(exc).__name__}: {str(exc)[:120]}); keeping the last pull if there is one", flush=True)
-        try:
-            cyc = json.loads(DATA_PATH.read_text(encoding="utf-8")).get("cycles")
-        except Exception:
-            cyc = None
-    return {**({"cycles": cyc} if cyc else {}), "cfbx": cfbx, **capx, "generated": dt.datetime.now().astimezone().isoformat(timespec="minutes"), **links, **plan,
+    return {"cfbx": cfbx, **capx, "generated": dt.datetime.now().astimezone().isoformat(timespec="minutes"), **links, **plan,
             "jiraBase": os.environ["JIRA_BASE_URL"].rstrip("/"),
             "projects": PROJECTS, "releases": RELEASES, "current": CURRENT_RELEASE,
             "windows": fetch_windows(j),
@@ -838,7 +818,7 @@ def main() -> int:
     ap.add_argument("--add-pods", action="store_true", help="read the pod labels of the epics (each project's pod_label_regex from release_planning/config_*.json) into build/program_data.json, then render")
     ap.add_argument("--add-cfb-open", action="store_true", help="pull the root cause analysis state of the customer-found bugs (Open CFBs table) into build/program_data.json, then render")
     ap.add_argument("--add-capabilities", action="store_true", help="pull the Capability list and all their child epics (Capabilities section, Done Capabilities per Release) into build/program_data.json, then render")
-    ap.add_argument("--add-cycles", action="store_true", help="pull the Delivery Cycle Governance section into build/program_data.json (needs cycles.config.json), then render")
+    ap.add_argument("--add-cycles", action="store_true", help="no longer used (kept so old command lines still run): the Confluence pods pull was removed; Group By is Team or Pod from labels")
     args = ap.parse_args()
     DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
     if args.add_nfr:
@@ -876,12 +856,8 @@ def main() -> int:
         data["cfbx"] = collect_cfb(E.Jira())
         DATA_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     elif args.add_cycles:
-        data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
-        cyc = collect_cycles(E.Jira())
-        if cyc is None:
-            return 1
-        data["cycles"] = cyc
-        DATA_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        print("--add-cycles does nothing any more: Delivery Cycle Governance groups by Epic Team or by pod label, both from the main pull (--add-pods for the labels).")
+        return 0
     elif args.add_deps:
         data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
         data.update(collect_links(E.Jira(), [e for e in data["epics"] if e["p"] in PROJECTS]))

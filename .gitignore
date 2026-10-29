@@ -18,5 +18,5 @@ release_closure/sonarqube_*.json
 # Program dashboard build output and Jira pull (epic titles, internal figures -- never commit)
 program_dashboard/build/
 
-# Delivery Cycle Governance configuration (pods page id, Epic Team names, cycle dates): internal, never commit. Commit only cycles.config.example.json
+# a leftover local configuration of the removed pods pull stays out of the repository
 program_dashboard/cycles.config.json
