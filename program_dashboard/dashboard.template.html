@@ -2408,16 +2408,16 @@ function nfrSelect(tab, viaKey) {                                       // switc
   const b = document.getElementById("nt-" + tab); if (b) { b.focus({preventScroll: true}); if (viaKey) { b.scrollIntoView({block: "nearest", inline: "nearest"}); anchorUserAt = performance.now(); } }
   enhanceScrollers();
 }
-// Two populations, never mixed. The headline count is every NFR epic under the page filters (all Commitment Types by default). The SHARE is taken of the target scope, the same set
+// Two populations, never mixed. The headline count is every NFR epic under the page filters (all Commitment Types by default). The SHARE is the Committed NFR epics of the target scope, taken of the target scope, the same set
 // as the Forecast Epics tile: Committed + Not Set epics that were in the release on the first day of W1 (the target so far before W1), under the Projects and Teams filters; the Commitment
 // Type checkboxes do not change it. Its denominator is that tile's number, printed and linked; a share only from a denominator of 5.
 function nfrTargetShare(isNfr) {
-  const TB = targetBase(), X = TB.members.filter(isNfr), D = TB.N, rel = state.release;
-  const o = {release: rel, commit: new Set(TARGET_COMMIT), extra: NFR_Q};
+  const TB = targetBase(), X = TB.members.filter(e => isNfr(e) && e.c === "Committed"), D = TB.N, rel = state.release;     // the numerator is the NFR epics that are Committed, the denominator the whole target scope
+  const o = {release: rel, commit: new Set(["Committed"]), extra: NFR_Q};
   if (!TB.pre && TB.win) o.wasOn = {release: rel, date: iso(TB.w1)};          // the same basis as the Forecast Epics link
   const den = D ? tlink(D.toLocaleString("en-US"), TB.href, `${D} target-scope epics: the Forecast Epics scope\n${TB.tip}`) : "0";
-  const xl = X.length ? tlink(X.length.toLocaleString("en-US"), jira(o), `${X.length} NFR epics in the target scope\nCommitted + Not Set epics ${TB.pre || !TB.win ? "in the release so far" : `that were in ${rel} on ${iso(TB.w1)}, the first day of W1`}, with the label NFR or an NFR Issue Category; the same basis as the Forecast Epics link.\nThe link opens them as Jira lists them now.`) : "0";
-  return {X: X.length, D, html: D >= MIN_N ? `<b>${pct(X.length, D)}%</b> of ${den} target-scope epics are NFR (${xl} of ${den}): the Forecast Epics scope` : `${xl} of ${den} target-scope epics are NFR; no share under ${MIN_N}`};
+  const xl = X.length ? tlink(X.length.toLocaleString("en-US"), jira(o), `${X.length} Committed NFR epics in the target scope\nCommitment Type Committed epics ${TB.pre || !TB.win ? "in the release so far" : `that were in ${rel} on ${iso(TB.w1)}, the first day of W1`}, with the label NFR or an NFR Issue Category; the same basis as the Forecast Epics link, Committed only.\nThe link opens them as Jira lists them now.`) : "0";
+  return {X: X.length, D, html: D >= MIN_N ? `<b>${pct(X.length, D)}%</b> of ${den} target-scope epics are Committed NFR epics (${xl} of ${den}): the Forecast Epics scope` : `${xl} Committed NFR epics of ${den} target-scope epics; no share under ${MIN_N}`};
 }
 function nfrHeadline(N, scope, commitTxt) {                      // the count under the page filters, with its own denominator
   const M = scope.length, den = M ? tlink(M.toLocaleString("en-US"), jira({}), `${M} epics under the current filters\nThe selected release under the Projects, Teams and Commitment Type filters; Removed excluded.`) : "0";
