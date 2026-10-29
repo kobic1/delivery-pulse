@@ -30,6 +30,7 @@ import json
 import os
 import re
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -405,6 +406,76 @@ def collect_pods(j, epics) -> dict:
     return rx
 
 
+# ---------------------------------------------------------------- Capitalization % (owner's Jira logic, Closed-date rule)
+# Population: Done Bugs, Stories and Tasks of the six projects with a Closed date (customfield_10099, the field the CFB section uses); a Done issue whose Closed field is empty uses its resolution
+# date and is counted. No sprint, board or fix version is read. The page turns the Closed day (Israel-local) into a calendar quarter and into the release whose Jira version window contains it.
+CAP_PREFIX = "Capitalize"                         # a customfield_10079 value that STARTS WITH this is capitalized ("Non Capitalize ..." and an empty value are not)
+CAP_FIELD, CAP_SP_FIELD, CAP_TEAM_FIELD = "customfield_10079", "customfield_10038", "customfield_10098"
+CAP_FIELDS = ["issuetype", "status", "resolutiondate", CLOSED_FIELD, CAP_FIELD, CAP_SP_FIELD, CAP_TEAM_FIELD]
+CAP_START = "2025-10-01"                          # the start of 2025-Q4: 2025-Q4 and release 26.1 (its Jira window starts 2025-10-08) are complete
+CAP_EPOCH = dt.date(2025, 1, 1)                   # the Closed day is stored as days since this date
+
+
+def cap_start() -> str:
+    return CAP_START
+
+
+def cap_day(fields: dict):
+    """(Israel-local Closed day as ISO text, True when the resolution date had to stand in for an empty Closed field); (None, False) when neither can be read."""
+    closed = israel_date(fields.get(CLOSED_FIELD))
+    if closed:
+        return closed, False
+    res = israel_date(fields.get("resolutiondate"))
+    return (res, True) if res else (None, False)
+
+
+def cap_is_capitalized(value) -> bool:
+    """The option value starts with Capitalize; Non Capitalize ... and an empty value do not."""
+    return bool(value) and str(value).startswith(CAP_PREFIX)
+
+
+def cap_record(issue: dict) -> dict:
+    """One issue: capitalized flag, story points (blank = 0), team, Closed day and whether it is the resolution-date fallback."""
+    f = issue["fields"]
+    val = f.get(CAP_FIELD)
+    val = val.get("value") if isinstance(val, dict) else val
+    team = f.get(CAP_TEAM_FIELD)
+    team = team.get("value") if isinstance(team, dict) else team
+    sp = f.get(CAP_SP_FIELD)
+    day, fallback = cap_day(f)
+    return {"key": issue["key"], "value": val or "", "cap": cap_is_capitalized(val), "sp": float(sp) if isinstance(sp, (int, float)) else 0.0, "team": team or "", "day": day, "fallback": fallback}
+
+
+def collect_capitalization(j) -> dict:
+    """Per project, every Done Bug, Story and Task closed since CAP_START as compact records. rows is one text, records separated by ';', fields by ',':
+    key number, project index, value index (-1 empty), story points, Closed day (days since 2025-01-01), team index (-1 none), 1 when the resolution date stood in for the Closed date."""
+    start = cap_start()
+    wide = (dt.date.fromisoformat(start) - dt.timedelta(days=1)).isoformat()          # the query is a day wider than the rule: Jira reads the date in its own time zone, the rule in Israel's
+    values, teams, rows, counts = [], [], [], {}
+    fallbacks = 0
+    t0 = time.time()
+    for pi, proj in enumerate(PROJECTS):
+        jql = (f'project = {proj} AND status = Done AND issuetype in (Bug, Story, Task) AND '
+               f'(cf[10099] >= "{wide}" OR (cf[10099] is EMPTY AND resolutiondate >= "{wide}"))')
+        issues = j.search(jql, CAP_FIELDS)
+        counts[proj] = 0
+        for i in issues:
+            r = cap_record(i)
+            if r["day"] is None or r["day"] < start:
+                continue
+            counts[proj] += 1
+            fallbacks += 1 if r["fallback"] else 0
+            idx = lambda lst, x: lst.index(x) if x in lst else (lst.append(x) or len(lst) - 1)
+            rows.append(",".join(str(x) for x in (int(r["key"].split("-")[1]), pi, idx(values, r["value"]) if r["value"] else -1, ("%g" % r["sp"]),
+                                                  (dt.date.fromisoformat(r["day"]) - CAP_EPOCH).days, idx(teams, r["team"]) if r["team"] else -1, 1 if r["fallback"] else 0)))
+    text = ";".join(rows)
+    print(f"capitalization: {len(rows)} issues pulled ({', '.join(f'{k} {v}' for k, v in counts.items())}) in {time.time() - t0:.0f}s; {fallbacks} use the resolution date (no Closed date); "
+          f"{len(values)} distinct field values; {len(text) / 1024:.0f} KB of records", flush=True)
+    return {"start": start, "prefix": CAP_PREFIX, "epoch": CAP_EPOCH.isoformat(), "projects": PROJECTS,
+            "values": values, "teams": teams, "rows": text,
+            "pulledAt": dt.datetime.now().astimezone().isoformat(timespec="minutes")}
+
+
 def collect_nfr(j, epics) -> int:
     """Flag (nf = 1) the epics that carry the NFR label. The other half of the NFR definition, an Issue Category in
     NFR_CATEGORIES, is already on every epic as cat."""
@@ -765,7 +836,8 @@ def fetch() -> dict:
     collect_nfr(j, epics)
     cfbx = collect_cfb(j)
     capx = collect_capabilities(j, {e["cp"] for e in epics if e.get("cp")})
-    return {"cfbx": cfbx, **capx, "generated": dt.datetime.now().astimezone().isoformat(timespec="minutes"), **links, **plan,
+    capz = collect_capitalization(j)
+    return {"cfbx": cfbx, "cap": capz, **capx, "generated": dt.datetime.now().astimezone().isoformat(timespec="minutes"), **links, **plan,
             "jiraBase": os.environ["JIRA_BASE_URL"].rstrip("/"),
             "projects": PROJECTS, "releases": RELEASES, "current": CURRENT_RELEASE,
             "windows": fetch_windows(j),
@@ -817,6 +889,7 @@ def main() -> int:
     ap.add_argument("--add-bugs", action="store_true", help="re-read the bugs (customer-found bugs by reporter OR Salesforce case, Closed dates) and the Open CFB Root Cause Analysis state into build/program_data.json, then render")
     ap.add_argument("--add-pods", action="store_true", help="read the pod labels of the epics (each project's pod_label_regex from release_planning/config_*.json) into build/program_data.json, then render")
     ap.add_argument("--add-cfb-open", action="store_true", help="pull the root cause analysis state of the customer-found bugs (Open CFBs table) into build/program_data.json, then render")
+    ap.add_argument("--add-capitalization", action="store_true", help="pull the Done Bugs, Stories and Tasks with a sprint (Capitalization %% chart: capitalize field, story points, sprints, fix versions, team) into build/program_data.json, then render")
     ap.add_argument("--add-capabilities", action="store_true", help="pull the Capability list and all their child epics (Capabilities section, Done Capabilities per Release) into build/program_data.json, then render")
     ap.add_argument("--add-cycles", action="store_true", help="no longer used (kept so old command lines still run): the Confluence pods pull was removed; Group By is Team or Pod from labels")
     args = ap.parse_args()
@@ -839,6 +912,10 @@ def main() -> int:
         data.update(collect_links(E.Jira(), eps))
         j = E.Jira()
         data.update(planning(j, eps, [b for b in data["bugs"] if b["p"] in PROJECTS], data))
+        DATA_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    elif args.add_capitalization:
+        data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
+        data["cap"] = collect_capitalization(E.Jira())
         DATA_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     elif args.add_capabilities:
         data = json.loads(DATA_PATH.read_text(encoding="utf-8"))

@@ -133,3 +133,24 @@ def test_collect_pods_clears_a_label_removed_in_jira_and_stores_only_the_matched
         BD.PROJECTS = saved
         BD.pod_patterns = monkey
     assert rx == {"AAA": "pod"} and epics[0]["pl"] == ["Pod-Zeta"] and "pl" not in epics[1] and "pl" not in epics[2]
+
+
+def test_capitalization_day_uses_the_closed_field_in_israel_time_and_falls_back_to_the_resolution_date():
+    day = BD.cap_day
+    assert day({"customfield_10099": "2030-03-31T23:30:00.000+0000", "resolutiondate": "2030-01-01T10:00:00.000+0200"}) == ("2030-04-01", False)      # 23:30 UTC is 02:30 on April 1 in Israel
+    assert day({"customfield_10099": "2030-02-10T09:00:00.000+0200", "resolutiondate": "2030-03-01T10:00:00.000+0200"}) == ("2030-02-10", False)      # Closed wins over the resolution date
+    assert day({"customfield_10099": None, "resolutiondate": "2030-03-01T10:00:00.000+0200"}) == ("2030-03-01", True)                                 # empty Closed: the resolution date, flagged
+    assert day({}) == (None, False)
+
+
+def test_capitalization_values_and_record():
+    assert BD.cap_is_capitalized("Capitalize - Bug Fix for release not yet in production")
+    assert not BD.cap_is_capitalized("Non Capitalize - Tech research/POC") and not BD.cap_is_capitalized("") and not BD.cap_is_capitalized(None)
+    issue = lambda **f: {"key": "AAA-7", "fields": {"customfield_10079": {"value": "Capitalize - New Product Dev"}, "customfield_10038": None, "customfield_10099": "2030-02-10T09:00:00.000+0200",
+                                                      "customfield_10098": {"value": "Team A"}, "resolutiondate": "2030-02-01T10:00:00.000+0200", **f}}
+    r = BD.cap_record(issue())
+    assert r["cap"] and r["sp"] == 0.0 and r["day"] == "2030-02-10" and r["fallback"] is False and r["team"] == "Team A"          # blank points count as 0
+    assert BD.cap_record(issue(customfield_10079=None))["cap"] is False and BD.cap_record(issue(customfield_10038=3.5))["sp"] == 3.5
+    r2 = BD.cap_record(issue(customfield_10099=None))
+    assert r2["day"] == "2030-02-01" and r2["fallback"] is True
+    assert BD.cap_start() == "2025-10-01"                                                                                          # the start of 2025-Q4
