@@ -3788,11 +3788,26 @@ async function edctRefresh(mcp, say) {
   return {n: out.length, tooLong: tooLong.length};
 }
 // A query over a long `updated` range is read in windows (a few days, split to one day when a window hits the page limit); a one-day window that still hits it is an error, so nothing is applied half-way.
+// What Jira says the query matches, asked the way the connector offers (searchResultMode count). A tool or answer without a number returns null and the check is skipped, never failed.
+async function countOf(mcp, jql) {
+  try {
+    const res = await withDeadline(Promise.resolve(mcp.callTool(LIVE.server, LIVE.tool, {cloudId: DATA.cloudId, jql, searchResultMode: "count", maxResults: 50}, {cache: false})));
+    const n = res && res.payload && res.payload.issues && res.payload.issues.totalCount;
+    return typeof n === "number" ? n : null;
+  } catch (err) { return null; }
+}
+const COUNT_SLACK = 3;      // issues updated between the read and the count are not a lost page; a lost page is far larger
 async function fetchSliced(mcp, baseJql, sinceDay, onPage, fields = FIELDS) {
   const nodes = [], seen = new Set();
   const todayEnd = ilDate(new Date()), addDay = (d, n) => iso(utc(d) + n * DAY);
   const readWindow = async (from, to, span) => {                // [from, to): days
-    const r = await fetchAll(mcp, `${baseJql} AND updated >= "${from}" AND updated < "${to}"`, onPage, fields);
+    const jql = `${baseJql} AND updated >= "${from}" AND updated < "${to}"`;
+    let r = await fetchAll(mcp, jql, onPage, fields);
+    if (!r.truncated) {      // cross-check against Jira's own count: a page lost without an error would otherwise be applied as if complete
+      let total = await countOf(mcp, jql);
+      if (total != null && total > r.nodes.length) { r = await fetchAll(mcp, jql, onPage, fields); total = await countOf(mcp, jql); }      // late arrivals: read once more
+      if (total != null && total - r.nodes.length > COUNT_SLACK) throw {code: "tool_error", message: `Jira counted ${total} issues for ${from} to ${to} but ${r.nodes.length} were read; nothing was applied`};
+    }
     if (!r.truncated) { r.nodes.forEach(n => { if (!seen.has(n.key)) { seen.add(n.key); nodes.push(n); } }); return; }
     if (span <= 1) throw {code: "tool_error", message: `more than ${LIVE.pageLimit * 100} issues updated on ${from}; ask for a full rebuild`};
     const mid = addDay(from, Math.ceil(span / 2)); await readWindow(from, mid, Math.ceil(span / 2)); await readWindow(mid, to, span - Math.ceil(span / 2));

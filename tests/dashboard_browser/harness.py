@@ -878,6 +878,30 @@ def _(t: T):
     t.check(r["after"].get("e_new") == r["before"].get("e_new"), "nothing was applied from the partial read")
 
 
+@SUITE.test("f09_the_read_is_checked_against_jiras_own_count")
+def _(t: T):
+    r = scenario("ok", ls="none", click=True, cache=False)
+    n = json.loads(ctx.chrome.js("JSON.stringify(window.__countCalls || [])"))
+    t.check(n and all("updated >=" in c["jql"] for c in n), f"every window of the main read is counted by Jira too ({len(n)} count calls)")
+    t.check("Refreshed" in r["status"], f"a read that matches the count is applied -> {r['status'][:80]}")
+
+
+@SUITE.test("f09_a_lost_page_is_caught_by_the_count_and_nothing_is_applied")
+def _(t: T):
+    r = scenario("ok", ls="none", click=True, countDelta=40, cache=False)
+    t.check("Jira counted" in r["status"] and "nothing was applied" in r["status"], f"the refresh stops and says why -> {r['status'][:160]}")
+    t.check(r["after"].get("e_new") == r["before"].get("e_new"), "nothing was applied from the short read")
+    t.check(len([c for c in r["calls"] if "issuetype in (Epic, Bug)" in c["jql"] and not c["token"]]) == 2, "the window was read once more before giving up")
+
+
+@SUITE.test("f09_a_late_arrival_or_a_missing_count_does_not_fail_the_refresh")
+def _(t: T):
+    r = scenario("ok", ls="none", click=True, countDelta=2, cache=False)
+    t.check("Refreshed" in r["status"], f"two issues updated between the read and the count are not a lost page -> {r['status'][:80]}")
+    r2 = scenario("nocount", ls="none", click=True, cache=False)
+    t.check("Refreshed" in r2["status"], f"a connector answer without a count skips the check -> {r2['status'][:80]}")
+
+
 @SUITE.test("f09_a_repeated_continuation_token_stops_the_read")
 def _(t: T):
     hook = "async (input, c) => { if (input.jql.includes('issuetype in (Epic, Bug)')) return c.ok(c.CFG.page1, 'loop'); }"

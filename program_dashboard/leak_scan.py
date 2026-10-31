@@ -21,6 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "program_dashboard" / "build" / "program_data.json"
 SCOPES = ("program_dashboard/", "tests/dashboard_browser/", "tests/test_program_dashboard.py", "tests/test_definitions_contract.py", ".github/workflows/dashboard-checks.yml")
+OUTSIDE = ("config/", "release_closure/", "dashboards/", "release_planning/")      # other parts of the repo: reported, never failing (they predate the dashboard and belong to other pipelines)
 SKIP = ("program_dashboard/build/", "leak_scan.py")          # this file spells the patterns it looks for; build/ is git-ignored
 TEXT_SUFFIXES = {".py", ".md", ".html", ".js", ".json", ".yml", ".yaml", ".txt", ".css", ".toml", ".cfg", ".sh"}
 
@@ -88,7 +89,33 @@ def main() -> int:
     for f, n, kind in sorted(set(hits)):
         print(f"{f}:{n}: {kind}")
     print(f"scanned {len(files)} files; {len(set(hits))} finding(s)")
+    if not staged:
+        report_outside(deny)
     return 1 if hits else 0
+
+
+def report_outside(deny: dict[str, set[str]]) -> None:
+    """Counts only, per file and kind, for the rest of the repository: an owner's overview of what else a public repository shows. Never changes the exit code."""
+    out = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.split("\n")
+    counts: dict[tuple[str, str], int] = {}
+    for f in out:
+        if not f.startswith(OUTSIDE) or Path(f).suffix not in TEXT_SUFFIXES:
+            continue
+        try:
+            text = (ROOT / f).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        for kind, rx in PATTERNS.items():
+            n = len(rx.findall(text))
+            if n:
+                counts[(f, kind)] = n
+        for w in deny.get("team name", ()):
+            n = len(re.findall(rf"(?<![\w-]){re.escape(w)}(?![\w-])", text))
+            if n:
+                counts[(f, "team name")] = counts.get((f, "team name"), 0) + n
+    print(f"outside the dashboard (report only, not a failure): {len(counts)} file/kind pair(s)")
+    for (f, kind), n in sorted(counts.items()):
+        print(f"  {f}: {kind} x{n}")
 
 
 if __name__ == "__main__":
