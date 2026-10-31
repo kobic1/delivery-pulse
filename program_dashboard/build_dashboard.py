@@ -903,7 +903,24 @@ def validate_payload(data: dict) -> list[str]:
     bad = [k for k, t in REQUIRED.items() if not isinstance(data.get(k), t) or (k in NONEMPTY and not data.get(k))]
     if bad:
         raise SystemExit(f"program_data.json is missing required data: {', '.join(bad)}. Run a full build (no flag) or restore the last good build/program_data.json.prev.")
-    return [f"optional section '{k}' is missing or has the wrong type; the page will show a notice for it" for k, t in EXPECTED.items() if not isinstance(data.get(k), t)]
+    warn = [f"optional section '{k}' is missing or has the wrong type; the page will show a notice for it" for k, t in EXPECTED.items() if not isinstance(data.get(k), t)]
+    unknown = unknown_sprint_labels(data)
+    if unknown:
+        warn.append(f"{sum(unknown.values())} epics carry {len(unknown)} Target Sprint labels the sprint calendar does not know (e.g. {', '.join(sorted(unknown)[:3])}); "
+                    "the page and the Delivery Cycles links count them as having no Target Sprint")
+    return warn
+
+
+def unknown_sprint_labels(data: dict) -> dict:
+    """Target Sprint labels on epics that are not in the sprint calendar, with their epic counts (a label that does not follow the CX.<release>.<number> (<date>) pattern)."""
+    cal = {x.get("n") for x in data.get("sprints") or []}
+    if not cal:
+        return {}
+    out: dict = {}
+    for e in data.get("epics") or []:
+        if e.get("ts") and e["ts"] not in cal:
+            out[e["ts"]] = out.get(e["ts"], 0) + 1
+    return out
 
 
 def drop_people(data: dict) -> None:

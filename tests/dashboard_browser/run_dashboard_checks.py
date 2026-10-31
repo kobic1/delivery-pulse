@@ -3,7 +3,8 @@
 
   1. tests/test_program_dashboard.py and tests/test_definitions_contract.py with pytest (the collector's unit tests and the collector/page contract);
   2. the fictitious fixture: built twice (it must be identical), rendered into the template under test;
-  3. the browser suites in headless Chrome: harness.py (Refresh and the failure matrix), canary.py (escaping), link_oracle.py (links);
+  3. the browser suites in headless Chrome: harness.py (Refresh and the failure matrix), canary.py (escaping), link_oracle.py (links), link_guard.py (every link a query, within the URL budget),
+     link_cycles.py (every Delivery Cycles query finds the epics the page counts);
   4. leak_check.py (nothing real in this folder, when a real payload is on the machine);
   5. a pass/fail summary. Exit code 1 on any FAIL. Tests that are expected to fail until a fix lands (XFAIL) are listed apart and
      do not fail the run unless --strict.
@@ -32,7 +33,7 @@ sys.path.insert(0, str(HERE))
 import kit                                                                          # noqa: E402
 import make_synthetic as MS                                                         # noqa: E402
 
-SUITES = [("harness", "harness.py"), ("canary", "canary.py"), ("link oracle", "link_oracle.py"), ("link guard", "link_guard.py")]
+SUITES = [("harness", "harness.py"), ("canary", "canary.py"), ("link oracle", "link_oracle.py"), ("link guard", "link_guard.py"), ("cycles links", "link_cycles.py")]
 
 
 def step_pytest() -> dict:

@@ -32,6 +32,8 @@ Results: `PASS`, `FAIL`, `XFAIL` (expected to fail until a fix lands, see below)
 | `harness.py` | The Refresh checks and the failure matrix (F15). |
 | `canary.py` | The escaping canary (F16). |
 | `link_oracle.py`, `jql_eval.py` | The link oracle (F14b) and the small JQL evaluator it uses. |
+| `link_guard.py` | The owner's rule: every Jira link is a query Jira recalculates, never a frozen list of keys (an allowlist names the few populations Jira cannot search, and may only shrink), and no link is longer than 6,000 characters (also with every team ticked). |
+| `link_cycles.py` | The Delivery Cycles links: for every release x project set x cycle x node x kind (Planned, Done, Due so far, Overdue, Stale, Due next 7 days, Flagged, Carry-over, No planned date, Epics with Flags, weekly rows, After release end, pod rows), the query the page builds is evaluated in Python over the baked epics and must find exactly the set of epics the page counts; the printed number of every link must equal its query's result; a link over the URL budget is plain text; two seeded defects (`<=` to `<`, a Target Sprint no longer excluded) must be caught. A variant payload reaches carry-over, planned after the release end and a Target Sprint the calendar does not know. |
 | `leak_check.py` | Searches this folder for anything that appears in the real data (needs a real payload on the machine; otherwise it says so and skips). |
 | `run_dashboard_checks.py` | The one entry. |
 

@@ -1432,13 +1432,12 @@ function w6Model(rel, w1) {
   const list = DATA.epics.filter(e => base(e) && inRelease(e, rel) && e.c === "Committed");
   const planned = plannedLater;
   const within = list.filter(e => { const d = planned(e); return d && d <= w6; }), none = list.filter(e => !planned(e));
-  const early = sp.filter(s => s.end <= w6).map(s => q(s.n)), all = sp.map(s => q(s.n));
-  // the same set in JQL: a due date and a sprint must both be on or before W6 end; with one of them, that one
-  const noTs = `(cf[12697] is EMPTY${all.length ? ` OR cf[12697] not in (${all.join(", ")})` : ""})`;
-  const win = `((duedate <= "${w6}" AND (${early.length ? `cf[12697] in (${early.join(", ")}) OR ` : ""}${noTs.slice(1, -1)}))${early.length ? ` OR (duedate is EMPTY AND cf[12697] in (${early.join(", ")}))` : ""})`;
+  // the same set in JQL, in the form of the Delivery Cycles links (real sprint names only): the planned date, the later of the two, exists and is on or before W6 end
+  CY_SPR = cySprints();
+  const all = cyNames(() => true), win = `(${cyPlan(null, w6)})`;
   const J = extra => jira({commit: new Set(["Committed"]), extra});
   return {w6, list, within, none, done: within.filter(e => cls(e.s) === "done"), open: within.filter(e => cls(e.s) !== "done"),
-    hrefs: {all: J(""), within: J(win), done: J(`${win} AND status = Done`), open: J(`${win} AND status != Done`), none: J(`duedate is EMPTY AND ${noTs}`)}};
+    hrefs: {all: J(""), within: J(win), done: J(`${win} AND status = Done`), open: J(`${win} AND status != Done`), none: J(`duedate is EMPTY${all ? ` AND (${CY_TS} is EMPTY OR ${CY_TS} not in (${all}))` : ""}`)}};
 }
 function renderBurnup() {
   const el = document.getElementById("burnup"), cap = document.getElementById("bu-cap"), dataEl = document.getElementById("bu-data");
@@ -2890,9 +2889,10 @@ const cyNext = list => list.filter(e => !cyDone(e) && e.due && e.due >= CY.asOf 
 const cyShare = (a, m) => m >= MIN_N ? ` (${pct(a, m)}%)` : "";
 const cyEp = n => `${n.toLocaleString("en-US")} ${epicWord(n)}`;
 const cyOpenBugs = e => (e.bugs || []).filter(b => b.o);
-const cyHref = keys => keys.length ? jira({extra: `key in (${[...new Set(keys)].join(", ")})`}) : null;       // the filters of the page plus the exact keys
+const cyHref = keys => keys.length ? jira({extra: `key in (${[...new Set(keys)].join(", ")})`}) : null;       // the filters of the page plus the exact keys; kept only for epics selected by the state of their child bugs, which Jira cannot search
 const cyBugHref = keys => keys.length ? href(`parent in (${[...new Set(keys)].join(", ")}) AND issuetype = Bug AND ${OPEN_BUG_JQL}`) : null;
-const cyNum = (list, what, detail) => list.length ? tlink(list.length, cyHref(list.map(e => e.k)), `${cyEp(list.length)} ${what}\n${detail ? detail + "\n" : ""}Opens these epics by key, within the current filters.`) : "0";
+const CY_TIP = "Jira finds these epics again when you open the link, so the list can change after the page was built.";
+const cyNum = (list, what, detail, ...qa) => list.length ? tlink(list.length, cyQ(...qa), `${cyEp(list.length)} ${what}\n${detail ? detail + "\n" : ""}${CY_TIP}`) : "0";
 const cyKey = e => `<a href="${BASE}/browse/${esc(e.k)}" target="_blank" rel="noopener" ${tipAttr(`${e.k}\n${shortText(e.t, 90)}\n${e.s}${e.due ? `, planned ${e.due}` : ", no planned date"}`, "x")} aria-label="${esc(`${e.k}, ${shortText(e.t, 60)}. Opens in Jira.`)}">${esc(e.k)}</a>`;
 const cyStatusIds = () => ["all", "open", "done", "late", "stale", "flag", "bug", "prog", "val", "new"];
 const cyOther = e => !cyDone(e) && cls(e.s) !== "notStarted" && !["In Progress", "Validation"].includes(e.s);
@@ -2932,8 +2932,85 @@ function podRegistry() {
 }
 const podSpellingsClause = sp => `labels in (${[...sp].sort().map(q).join(", ")})`;
 
+// ---- Delivery Cycles links: every number opens a QUERY that Jira recalculates (the owner's rule), never a list of issue keys.
+// The planned date of an epic is the later of its due date and the end of its Target Sprint (cf[12697], a sprint-name string). Only the REAL sprint names of the calendar are used, and each list is the shorter side
+// (the names ending after a date, or on or after it); a Target Sprint the calendar does not know counts as no Target Sprint, as in plannedLater. The links carry the page's own filters (jira({})) plus the row's project, team and pod.
+const CY_URL_MAX = 6000;                                       // Jira's front door rejects URLs of about 10 KB; above this a number is shown as plain text, not as a link
+const CY_TS = "cf[12697]", CY_FLAG = "cf[10021] is not EMPTY";
+function cySprints() {                                         // the sprint names Jira knows: the calendar's real ones (and any the epics carry now, after a Refresh)
+  const used = new Set(DATA.epics.map(e => e.ts).filter(Boolean));
+  return sprintList().filter(s => s.real !== false || used.has(s.n)).map(s => ({n: q(s.n), end: s.end}));
+}
+let CY_SPR = [];                                               // the sprint names Jira knows, read again by each model that builds links (cyBuild, w6Model)
+const cyNames = pred => CY_SPR.filter(pred).map(s => s.n).join(",");
+const cyUp = hi => { const after = cyNames(s => s.end > hi);   // the planned date is on or before hi: the due date and the Target Sprint end both are
+  return `(duedate is EMPTY OR duedate <= "${hi}")` + (after ? ` AND (${CY_TS} is EMPTY OR ${CY_TS} not in (${after}))` : ""); };
+const cyLow = (lo, hi) => { const nm = lo == null ? cyNames(s => s.end <= hi) : cyNames(s => s.end >= lo);       // on or after lo; with no lo, there is a planned date (cyUp bounds it)
+  return `(${lo == null ? `duedate <= "${hi}"` : `duedate >= "${lo}"`}${nm ? ` OR ${CY_TS} in (${nm})` : ""})`; };
+const cyPlan = (lo, hi) => `${cyUp(hi)} AND ${cyLow(lo, hi)}`;                 // planned date in [lo, hi]; lo null: any planned date up to hi
+const cyNoDueQ = () => { const all = cyNames(() => true);
+  return `status in (${CLASS.flight.map(q).join(",")}) AND duedate is EMPTY` + (all ? ` AND (${CY_TS} is EMPTY OR ${CY_TS} not in (${all}))` : ""); };
+const cyMin = (a, b) => a < b ? a : b;
+const cyMax = (a, b) => a > b ? a : b;
+const cyPodSp = p => [...((podRegistry().per[p]) || [])].sort();
+const cyNoPodQ = p => { const sp = cyPodSp(p); return sp.length ? `(labels is EMPTY OR labels not in (${sp.map(q).join(",")}))` : ""; };
+function cyNodeClause(g) {                                     // the project, team and pod of a row, in the terms of the model's groups
+  if (!g) return "";
+  const parts = [`project = ${g.project}`];
+  if (g.level !== "project") parts.push(teamClause(new Set([g.team])).slice(5));
+  if (g.level === "pod") parts.push(g.virtual ? cyNoPodQ(g.project) : podSpellingsClause(g.spellings));
+  return parts.filter(Boolean).join(" AND ");
+}
+// kind: what the number counts; g: the row (null: every epic under the page filters); c: the cycle; arg: [from, to] of a week. Null when there is nothing to open or the URL is over the budget.
+function cyQ(kind, g, c, arg) {
+  const A = CY.asOf, S = c && c.start, E = c && c.end, ND = "status != Done";
+  const late = c && cyMin(E, cyAdd(A, -1)), stale = c && cyMin(E, cyAdd(A, -(CY.stale + 1))), win = c && [cyMax(S, A), cyMin(E, cyAdd(A, CY.next))];
+  const span = (lo, hi, more = "") => lo != null && lo > hi ? null : cyPlan(lo, hi) + more;       // an empty window holds no epics, so it has no link
+  const NS = ` AND status in (${CLASS.notStarted.map(q).join(",")})`;
+  let w;
+  if (["carry", "flagCarry", "staleCarry", "staleAll"].includes(kind) && A < S) return null;      // carry-over exists only once the cycle has started, as in the model
+  switch (kind) {
+    case "scope": w = ""; break;
+    case "planned": w = span(S, E); break;
+    case "done": w = span(S, E, " AND status = Done"); break;
+    case "due": w = span(S, late); break;
+    case "dueDone": w = span(S, late, " AND status = Done"); break;
+    case "over": w = span(S, late, ` AND ${ND}`); break;
+    case "stale": w = span(S, stale, ` AND ${ND}`); break;
+    case "staleAll": w = span(null, stale, ` AND ${ND}`); break;                                 // planned and carry-over epics together
+    case "staleCarry": w = span(null, cyMin(cyAdd(S, -1), stale), ` AND ${ND}`); break;
+    case "next": w = span(win[0], win[1], ` AND ${ND}`); break;
+    case "nextNs": w = span(win[0], win[1], NS); break;
+    case "flag": w = span(S, E, ` AND ${ND} AND ${CY_FLAG}`); break;
+    case "carry": w = span(null, cyAdd(S, -1), ` AND ${ND}`); break;
+    case "flagCarry": w = span(null, cyAdd(S, -1), ` AND ${ND} AND ${CY_FLAG}`); break;
+    case "noDue": w = cyNoDueQ(); break;
+    case "week": w = span(arg[0], arg[1]); break;
+    case "weekDone": w = span(arg[0], arg[1], " AND status = Done"); break;
+    case "weekOpen": w = span(arg[0], arg[1], ` AND ${ND}`); break;
+    case "after": { const after = cyNames(s => s.end > E); w = `(duedate > "${E}"${after ? ` OR ${CY_TS} in (${after})` : ""})`; break; }
+    case "concerns": {                                                                           // the union of the facts listed in Epics with Flags, as one query
+      const bits = [CY_FLAG];
+      if (late >= S) bits.push(`(${cyUp(late)})`);
+      if (win[0] <= win[1]) bits.push(`(${cyUp(win[1])} AND ${cyLow(win[0], win[1])}${NS})`);
+      w = `((${cyPlan(S, E)} AND ${ND} AND (${bits.join(" OR ")}))${A >= S ? ` OR (${cyPlan(null, cyAdd(S, -1))} AND ${ND})` : ""} OR (${cyNoDueQ()}))`; break;
+    }
+    case "podWith": case "podNone": {                                                            // the epics under the page filters with / without a pod label, each project by its own pod labels
+      const none = kind === "podNone";
+      const parts = [...state.projects].map(p => { const sp = cyPodSp(p).map(q).join(",");
+        return none ? `(project = ${p}${sp ? ` AND (labels is EMPTY OR labels not in (${sp}))` : ""})` : sp ? `(project = ${p} AND labels in (${sp}))` : ""; }).filter(Boolean);
+      w = parts.length ? `(${parts.join(" OR ")})` : null; break;
+    }
+    default: w = null;
+  }
+  if (w == null) return null;
+  const u = jira({extra: [cyNodeClause(g), w].filter(Boolean).join(" AND ") || undefined});
+  if (u && u.length > CY_URL_MAX) { try { console.warn(`Delivery Pulse: link dropped, the URL is ${u.length} characters (the limit is ${CY_URL_MAX}):`, kind); } catch (e) { /* no console */ } return null; }
+  return u;
+}
+
 function cyBuild() {
-  CY.asOf = iso(asOfDay());
+  CY.asOf = iso(asOfDay()); CY_SPR = cySprints();
   const cycles = cyCycles(), y = state.cy;
   if (!cycles) return (CYM = {none: "window", cycles: null});
   const c = cycles.find(x => x.id === y.cycle) || cyDefaultCycle(cycles);
@@ -2979,21 +3056,21 @@ function cyStats(planned, carry, noDue) {
     withBugs, nBugs: withBugs.reduce((n, e) => n + cyOpenBugs(e).length, 0), flag: planned.filter(e => e.fl && !cyDone(e)), flagCarry: carry.filter(e => e.fl), carry, noDue};
 }
 const cyWindow = () => `${CY.asOf} to ${cyAdd(CY.asOf, CY.next)}`;
-function cyCards(s, c, full) {
+function cyCards(s, c, full, g) {
   const asOf = CY.asOf, ID = c.name, raw = CY_RAW_OK();
   const cards = [
-    {c: "cy", v: cyNum(s.planned, `planned in ${ID}`, `Planned date ${c.start} to ${c.end}; Removed excluded.`), l: "Planned", s: `epics planned in ${ID}`},
-    {c: "cy", v: cyNum(s.done, `Done of ${s.planned.length} planned in ${ID}`, "Status Done; Removed excluded."), l: "Done", s: `of ${cyNum(s.planned, `planned in ${ID}`, `Planned date ${c.start} to ${c.end}; Removed excluded.`)} planned${cyShare(s.done.length, s.planned.length)}`},
-    {c: "cy", v: cyNum(s.due, `due so far in ${ID}`, `Planned epics with a planned date before ${asOf}.`), l: "Due So Far", s: `${cyNum(s.dueDone, `due epics Done in ${ID}`, `Planned before ${asOf}, status Done.`)} of ${cyNum(s.due, `due so far in ${ID}`, `Planned epics with a planned date before ${asOf}.`)} due ${s.due.length === 1 ? "epic" : "epics"} done${cyShare(s.dueDone.length, s.due.length)}`},
-    {c: "cy", v: cyNum(s.over, `overdue in ${ID}`, `Planned before ${asOf} and not Done.`), l: "Overdue", s: s.staleIn.length ? `${cyNum(s.staleIn, `overdue by more than ${CY.stale} days`, `Planned in ${ID}, not Done, planned before ${cyAdd(asOf, -CY.stale)}.`)} of them stale, more than ${CY.stale} days` : `none more than ${CY.stale} days late`},
-    {c: "cy", v: cyNum(s.next, `planned in the next ${CY.next} days`, `Planned ${cyWindow()} (today through today plus ${CY.next} days), not Done.`), l: `Due Next ${CY.next} Days`, s: `${cyNum(s.nextNs, "planned in the window and not started", `Planned ${cyWindow()}; status New, In Definition, Ready for Dev or Candidate.`)} not started`},
+    {c: "cy", v: cyNum(s.planned, `planned in ${ID}`, `Planned date ${c.start} to ${c.end}; Removed excluded.`, "planned", g, c), l: "Planned", s: `epics planned in ${ID}`},
+    {c: "cy", v: cyNum(s.done, `Done of ${s.planned.length} planned in ${ID}`, "Status Done; Removed excluded.", "done", g, c), l: "Done", s: `of ${cyNum(s.planned, `planned in ${ID}`, `Planned date ${c.start} to ${c.end}; Removed excluded.`, "planned", g, c)} planned${cyShare(s.done.length, s.planned.length)}`},
+    {c: "cy", v: cyNum(s.due, `due so far in ${ID}`, `Planned epics with a planned date before ${asOf}.`, "due", g, c), l: "Due So Far", s: `${cyNum(s.dueDone, `due epics Done in ${ID}`, `Planned before ${asOf}, status Done.`, "dueDone", g, c)} of ${cyNum(s.due, `due so far in ${ID}`, `Planned epics with a planned date before ${asOf}.`, "due", g, c)} due ${s.due.length === 1 ? "epic" : "epics"} done${cyShare(s.dueDone.length, s.due.length)}`},
+    {c: "cy", v: cyNum(s.over, `overdue in ${ID}`, `Planned before ${asOf} and not Done.`, "over", g, c), l: "Overdue", s: s.staleIn.length ? `${cyNum(s.staleIn, `overdue by more than ${CY.stale} days`, `Planned in ${ID}, not Done, planned before ${cyAdd(asOf, -CY.stale)}.`, "stale", g, c)} of them stale, more than ${CY.stale} days` : `none more than ${CY.stale} days late`},
+    {c: "cy", v: cyNum(s.next, `planned in the next ${CY.next} days`, `Planned ${cyWindow()} (today through today plus ${CY.next} days), not Done.`, "next", g, c), l: `Due Next ${CY.next} Days`, s: `${cyNum(s.nextNs, "planned in the window and not started", `Planned ${cyWindow()}; status New, In Definition, Ready for Dev or Candidate.`, "nextNs", g, c)} not started`},
   ];
   if (full) cards.push(
-    {c: "cy2", v: cyNum(s.staleIn.concat(s.staleCarry), `more than ${CY.stale} days past their planned date`, `Planned and carry-over epics, not Done, planned before ${cyAdd(asOf, -CY.stale)}.`), l: `Stale (More Than ${CY.stale} Days)`, s: `of which carry-over ${cyNum(s.staleCarry, `carry-over, more than ${CY.stale} days past their planned date`, `Not Done, planned before ${cyAdd(asOf, -CY.stale)}.`)}`},
+    {c: "cy2", v: cyNum(s.staleIn.concat(s.staleCarry), `more than ${CY.stale} days past their planned date`, `Planned and carry-over epics, not Done, planned before ${cyAdd(asOf, -CY.stale)}.`, "staleAll", g, c), l: `Stale (More Than ${CY.stale} Days)`, s: `of which carry-over ${cyNum(s.staleCarry, `carry-over, more than ${CY.stale} days past their planned date`, `Not Done, planned before ${cyAdd(asOf, -CY.stale)}.`, "staleCarry", g, c)}`},
     {c: "cy2", v: !DATA.eb ? "–" : s.nBugs ? tlink(s.nBugs, cyBugHref(s.withBugs.map(e => e.k)), `${s.nBugs} open ${plural(s.nBugs, "bug", "bugs")} under planned epics in ${ID}\nBugs whose parent is the epic. Open means a status other than Done, Ready for Deploy, Closed, Resolved or Removed. A read of Jira found no other way a bug is tied to an epic, so bugs linked any other way are not counted.`) : "0", l: "Open Bugs", s: !DATA.eb ? "bug links are not in this build (run --add-planning)" : `in ${s.withBugs.length ? tlink(s.withBugs.length, cyHref(s.withBugs.map(e => e.k)), `${cyEp(s.withBugs.length)} with open bugs`) : "0"} ${s.withBugs.length === 1 ? "epic" : "epics"}`},
-    {c: "cy2", v: !raw ? "–" : cyNum(s.flag, "flagged as blocked", "Jira Flagged field set, not Done; planned epics."), l: "Flagged", s: !raw ? "the Flagged field is not in this build (run --add-planning)" : s.flagCarry.length ? `${cyNum(s.flagCarry, "flagged, in carry-over", "Flagged and not Done, planned before the cycle start.")} more in carry-over` : "planned epics, not Done"},
-    {c: "cy2", v: asOf >= c.start ? cyNum(s.carry, "carried over", `Not Done, planned before ${c.start}.`) : "0", l: "Carry-Over", s: asOf >= c.start ? `planned before ${c.start}, not Done` : `shown once ${ID} has started`},
-    {c: "cy2", v: cyNum(s.noDue, "active with no planned date", "Status In Progress or Validation, no due date and no Target Sprint."), l: "No Planned Date", s: "active, not in the plan"});
+    {c: "cy2", v: !raw ? "–" : cyNum(s.flag, "flagged as blocked", "Jira Flagged field set, not Done; planned epics.", "flag", g, c), l: "Flagged", s: !raw ? "the Flagged field is not in this build (run --add-planning)" : s.flagCarry.length ? `${cyNum(s.flagCarry, "flagged, in carry-over", "Flagged and not Done, planned before the cycle start.", "flagCarry", g, c)} more in carry-over` : "planned epics, not Done"},
+    {c: "cy2", v: asOf >= c.start ? cyNum(s.carry, "carried over", `Not Done, planned before ${c.start}.`, "carry", g, c) : "0", l: "Carry-Over", s: asOf >= c.start ? `planned before ${c.start}, not Done` : `shown once ${ID} has started`},
+    {c: "cy2", v: cyNum(s.noDue, "active with no planned date", "Status In Progress or Validation, no due date and no Target Sprint.", "noDue", g, c), l: "No Planned Date", s: "active, not in the plan"});
   return cards;
 }
 
@@ -3049,9 +3126,9 @@ function cyWeekly(d) {
   let rows = "";
   for (let w = 0; w < nw; w++) {
     const ws = cyAdd(c.start, w * 7), we = cyAdd(c.start, Math.min(w * 7 + 6, len - 1)), list = d.planned.filter(e => e.due >= ws && e.due <= we), dn = list.filter(cyDone), nd = list.filter(e => !cyDone(e));
-    const tip = (l, what) => l.length ? tlink(l.length, cyHref(l.map(e => e.k)), `${cyEp(l.length)} ${what}\nWeek ${w + 1}: planned ${ws} to ${we}; Removed excluded.`) : "0";
-    const res = !list.length ? "–" : we < CY.asOf ? (nd.length ? `${tip(nd, "not Done in a week that has ended")} Not Done` : "All Done") : ws > CY.asOf ? "Upcoming" : "Current Week";
-    rows += `<tr><th scope="row">Week ${w + 1}</th><td>${ws} to ${we}</td><td class="n">${tip(list, "planned")}</td><td class="n">${tip(dn, "Done")}</td><td class="n">${tip(nd, "not Done")}</td><td>${res}</td></tr>`;
+    const tip = (l, what, kind) => cyNum(l, what, `Week ${w + 1}: planned ${ws} to ${we}; Removed excluded.`, kind, d.g, c, [ws, we]);
+    const res = !list.length ? "–" : we < CY.asOf ? (nd.length ? `${tip(nd, "not Done in a week that has ended", "weekOpen")} Not Done` : "All Done") : ws > CY.asOf ? "Upcoming" : "Current Week";
+    rows += `<tr><th scope="row">Week ${w + 1}</th><td>${ws} to ${we}</td><td class="n">${tip(list, "planned", "week")}</td><td class="n">${tip(dn, "Done", "weekDone")}</td><td class="n">${tip(nd, "not Done", "weekOpen")}</td><td>${res}</td></tr>`;
   }
   return `<div class="tablewrap"><table class="cytable"><caption class="sr">Weekly plan versus actual for ${esc(c.name)}: epics planned each week, seven days from the cycle start date</caption><thead><tr><th scope="col">Week</th><th scope="col">Dates</th><th scope="col" class="n">Planned</th><th scope="col" class="n">Done</th><th scope="col" class="n">Not Done</th><th scope="col">Result</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
@@ -3072,9 +3149,9 @@ function cyConcernHtml(d) {
 }
 
 // ---- views
-const cyStatCells = (s, c) => `<td class="n">${cyNum(s.planned, `planned in ${c.name}`, "Removed excluded.")}</td><td class="n">${cyNum(s.done, "Done", `Planned in ${c.name}, status Done.`)}</td><td class="n">${cyNum(s.due, "due so far", `Planned before ${CY.asOf}.`)}</td>` +
-  `<td class="n">${s.due.length ? `${cyNum(s.dueDone, "due epics Done", `Planned before ${CY.asOf}, status Done.`)} of ${s.due.length}${cyShare(s.dueDone.length, s.due.length)}` : "–"}</td>` +
-  `<td class="n">${cyNum(s.over, "overdue", `Planned before ${CY.asOf}, not Done.`)}</td><td class="n">${cyNum(s.next, `planned in the next ${CY.next} days`, `Planned ${cyWindow()}, not Done.`)}</td>`;
+const cyStatCells = (s, c, g) => `<td class="n">${cyNum(s.planned, `planned in ${c.name}`, "Removed excluded.", "planned", g, c)}</td><td class="n">${cyNum(s.done, "Done", `Planned in ${c.name}, status Done.`, "done", g, c)}</td><td class="n">${cyNum(s.due, "due so far", `Planned before ${CY.asOf}.`, "due", g, c)}</td>` +
+  `<td class="n">${s.due.length ? `${cyNum(s.dueDone, "due epics Done", `Planned before ${CY.asOf}, status Done.`, "dueDone", g, c)} of ${s.due.length}${cyShare(s.dueDone.length, s.due.length)}` : "–"}</td>` +
+  `<td class="n">${cyNum(s.over, "overdue", `Planned before ${CY.asOf}, not Done.`, "over", g, c)}</td><td class="n">${cyNum(s.next, `planned in the next ${CY.next} days`, `Planned ${cyWindow()}, not Done.`, "next", g, c)}</td>`;
 let CY_FIND = "";                                                // the Find text: kept out of the address, like the other search boxes
 let CY_FOPEN = new Set();                                        // while a Find text is active the matches open on their own; this set holds what is open then
 let CY_RET = null;                                               // where the Overview was left: the scroll offset and the row that was opened
@@ -3098,16 +3175,16 @@ function cyOverview(c, planned) {
   const sharedWith = n => n.level !== "pod" || n.virtual ? [] : nodesLive.filter(o => o.level === "pod" && !o.virtual && o.project === n.project && o.id !== n.id && o.name.toLowerCase() === n.name.toLowerCase()).map(o => o.team);
   const rowOf = n => {
     const kids = kidsOf(n), s = cyStats(n.epics.filter(e => plannedSet.has(e)), [], []), lvl = cyLevel(n), ctx = cyCtx(n);
-    const href = n.virtual ? cyHref(n.epics.map(e => e.k)) : jira({projects: [n.project], ...(n.level === "project" ? {} : {teams: new Set([n.team])}), extra: n.level === "pod" ? podSpellingsClause(n.spellings) : ""});
+    const href = n.virtual ? cyQ("scope", n) : jira({projects: [n.project], ...(n.level === "project" ? {} : {teams: new Set([n.team])}), extra: n.level === "pod" ? podSpellingsClause(n.spellings) : ""});
     const tip = `${cyEp(n.epics.length)} of ${ctx}${n.level === "pod" ? (n.virtual ? " with no pod label" : ` with the label ${n.spellings.join(" or ")}`) : ""} in ${state.release}\n${n.spellings && n.spellings.length > 1 ? `Several spellings are combined (${n.spellings.join(", ")}).\n` : ""}${n.level === "team" && kids.length ? "Every epic of the team once, with or without a pod label.\n" : ""}Every cycle, under the page filters.`;
     const tgl = kids.length ? `<button type="button" class="linkbtn cytgl" data-cyact="tgl" data-cyval="${esc(n.id)}" data-what="${esc(`${lvl} ${ctx}`)}" aria-expanded="false" aria-controls="${kids.map(k => "cyr-" + esc(k.id)).join(" ")}" aria-label="Expand ${esc(`${lvl} ${ctx}`)}"><span class="chev" aria-hidden="true">▸</span></button>` : `<span class="cytgl-gap" aria-hidden="true"></span>`;
     const shared = sharedWith(n);
     const count = n.level === "project" ? (kids.length ? `${kids.length} ${plural(kids.length, "team", "teams")}` : "") : n.level === "team" ? (kids.length ? `${kids.filter(k => !k.virtual).length} ${plural(kids.filter(k => !k.virtual).length, "pod", "pods")}` : "") : "";
     return `<tr class="cy${n.level}" id="cyr-${esc(n.id)}" data-id="${esc(n.id)}" data-par="${esc(n.parent)}" data-lvl="${n.level}" hidden>` +
       `<th scope="row"><span class="cyname-wrap" style="padding-left:${({project: 0, team: 22, pod: 44})[n.level]}px">${tgl}<button type="button" class="linkbtn cyname" data-cyact="open" data-cyval="${esc(n.id)}" aria-label="${esc(`Open ${lvl} ${ctx}, details`)}">${esc(n.name)}</button></span>${shared.length ? `<div class="cysub" style="padding-left:${44 + 24}px">also with ${esc(shared.join(", "))}</div>` : ""}</th>` +
-      `<td class="n">${esc(count)}</td><td class="n">${n.epics.length ? tlink(n.epics.length, href, tip) : "0"}</td>${cyStatCells(s, c)}</tr>`;
+      `<td class="n">${esc(count)}</td><td class="n">${n.epics.length ? tlink(n.epics.length, href, tip) : "0"}</td>${cyStatCells(s, c, n)}</tr>`;
   };
-  const tot = `<tr class="tot"><th scope="row">All Epics (Each Epic Once)</th><td></td><td class="n">${tlink(M.epics.length, jira({}), `${cyEp(M.epics.length)} in ${state.release}\nUnder the page filters.`)}</td>${cyStatCells(cyStats(planned, [], []), c)}</tr>`;
+  const tot = `<tr class="tot"><th scope="row">All Epics (Each Epic Once)</th><td></td><td class="n">${tlink(M.epics.length, jira({}), `${cyEp(M.epics.length)} in ${state.release}\nUnder the page filters.`)}</td>${cyStatCells(cyStats(planned, [], []), c, null)}</tr>`;
   return `<div class="cyblock"><h3>Projects, Teams and Pods</h3><div class="cymeta">Projects, then teams, then pods, alphabetical. Open a name for its epics, flags and weekly plan.</div>` +
     `<div class="cyfrow cytogglebar"><button type="button" class="btn link" data-cyact="expall">Expand All</button><button type="button" class="btn link" data-cyact="colall">Collapse All</button>` +
     `<label class="lbl" for="cy-find">Find</label><input type="search" class="cysearch" id="cy-find" placeholder="Team or pod name" value="${esc(CY_FIND)}" autocomplete="off" aria-describedby="cy-findstat"><span class="cymeta" id="cy-findstat" role="status" aria-live="polite"></span></div>` +
@@ -3165,22 +3242,22 @@ function cyListsHtml(d) {
   const y = state.cy, qq = y.q.trim().toLowerCase(), c = d.c, g = d.g, M = CYM;
   const flt = d.planned.filter(e => cyPass(e, qq)), carryF = d.carry.filter(e => cyPass(e, qq)), noDueF = d.noDue.filter(e => cyPass(e, qq));
   let h = "";
-  if (d.carry.length) h += `<div class="cyblock"><h3>Carried Over From Before This Cycle (${tlink(d.carry.length, cyHref(d.carry.map(e => e.k)), `${d.carry.length} epics carried over into ${c.name}`)})</h3><div class="cymeta">Not Done, with a planned date before ${c.start}. Stale means more than ${CY.stale} days past the planned date.</div>${carryF.length ? cyEpicTable(carryF, c, `Epics carried over into ${c.name} for ${g.name}`) : `<div class="empty">${cyWhy("filter")}</div>`}</div>`;
+  if (d.carry.length) h += `<div class="cyblock"><h3>Carried Over From Before This Cycle (${tlink(d.carry.length, cyQ("carry", g, c), `${d.carry.length} epics carried over into ${c.name}\n${CY_TIP}`)})</h3><div class="cymeta">Not Done, with a planned date before ${c.start}. Stale means more than ${CY.stale} days past the planned date.</div>${carryF.length ? cyEpicTable(carryF, c, `Epics carried over into ${c.name} for ${g.name}`) : `<div class="empty">${cyWhy("filter")}</div>`}</div>`;
   if (!d.planned.length) h += `<div class="cyblock"><div class="empty">${cyWhy("group", g, c)}</div></div>`;
   {
     const all = d.planned, pl = flt;
     if (all.length) {
     const done = all.filter(cyDone).length, title = "Planned Epics";
-    h += `<div class="cyblock"><h3>${title} <span class="cymeta">${done ? tlink(done, cyHref(all.filter(cyDone).map(e => e.k)), `${done} Done of ${all.length} planned epics`) : 0} of ${tlink(all.length, cyHref(all.map(e => e.k)), `${all.length} planned epics`)} planned ${epicWord(all.length)} done</span></h3>${pl.length ? cyEpicTable(pl, c, `${title} in ${g.name}, planned in ${c.name}`) : `<div class="empty">${cyWhy("filter")}</div>`}</div>`;
+    h += `<div class="cyblock"><h3>${title} <span class="cymeta">${done ? tlink(done, cyQ("done", g, c), `${done} Done of ${all.length} planned epics\n${CY_TIP}`) : 0} of ${tlink(all.length, cyQ("planned", g, c), `${all.length} planned epics\n${CY_TIP}`)} planned ${epicWord(all.length)} done</span></h3>${pl.length ? cyEpicTable(pl, c, `${title} in ${g.name}, planned in ${c.name}`) : `<div class="empty">${cyWhy("filter")}</div>`}</div>`;
     }
   }
-  if (d.noDue.length) h += `<div class="cyblock"><h3>No Planned Date, Active (${tlink(d.noDue.length, cyHref(d.noDue.map(e => e.k)), `${d.noDue.length} active epics with no planned date`)})</h3><div class="cymeta">In Progress or Validation with no due date and no Target Sprint: active, but not counted in the plan.</div>${noDueF.length ? cyEpicTable(noDueF, c, `Active epics with no planned date in ${g.name}`) : `<div class="empty">${cyWhy("filter")}</div>`}</div>`;
+  if (d.noDue.length) h += `<div class="cyblock"><h3>No Planned Date, Active (${tlink(d.noDue.length, cyQ("noDue", g, c), `${d.noDue.length} active epics with no planned date\n${CY_TIP}`)})</h3><div class="cymeta">In Progress or Validation with no due date and no Target Sprint: active, but not counted in the plan.</div>${noDueF.length ? cyEpicTable(noDueF, c, `Active epics with no planned date in ${g.name}`) : `<div class="empty">${cyWhy("filter")}</div>`}</div>`;
   return {html: h, shown: flt.length + carryF.length + noDueF.length, total: d.planned.length + d.carry.length + d.noDue.length};
 }
 function cyGroupHtml(g) {
   const d = cyGroupData(g), s = d.s, c = d.c, M = CYM;
   const allIn = M.epics.filter(e => e.gs.includes(g.id));
-  const lblHref = g.level === "pod" && !g.virtual ? jira({projects: [g.project], teams: new Set([g.team]), extra: podSpellingsClause(g.spellings)}) : g.level === "pod" ? cyHref(allIn.map(e => e.k)) : jira({projects: [g.project], ...(g.level === "team" ? {teams: new Set([g.team])} : {})});
+  const lblHref = g.level === "pod" && !g.virtual ? jira({projects: [g.project], teams: new Set([g.team]), extra: podSpellingsClause(g.spellings)}) : g.level === "pod" ? cyQ("scope", g) : jira({projects: [g.project], ...(g.level === "team" ? {teams: new Set([g.team])} : {})});
   const lblTip = `${cyEp(allIn.length)} of ${cyCtx(g)}${g.level === "pod" ? (g.virtual ? " with no pod label" : ` with the label ${g.spellings.join(" or ")}`) : ""} in ${state.release}\n${g.spellings && g.spellings.length > 1 ? `Several spellings are combined (${g.spellings.join(", ")}).\n` : ""}Every cycle, under the page filters.`;
   const meta = ` · ${g.level === "project" ? "Project" : g.level === "team" ? `Team of ${esc(g.project)}` : `Pod of ${esc(g.team)}, ${esc(g.project)}`} · ${tlink(allIn.length, lblHref, lblTip)} ${epicWord(allIn.length)} in the release${g.spellings && g.spellings.length > 1 ? ` (spellings combined: ${esc(g.spellings.join(", "))})` : ""}`;
   const chain = []; for (let n = g; n; n = n.parent ? M.byId.get(n.parent) : null) chain.unshift(n);
@@ -3190,12 +3267,12 @@ function cyGroupHtml(g) {
     chain.map((n, i) => `<li${i < keep ? ' class="hide-sm"' : ""}>${i === chain.length - 1 ? `<span aria-current="page">${esc(n.name)}</span>` : `<button type="button" class="linkbtn" data-cyact="open" data-cyval="${esc(n.id)}" aria-label="Open ${esc(cyLevel(n) + " " + cyCtx(n))}">${esc(n.name)}</button>`}</li>`).join("") + `</ol></nav></div>`;
   const head = `<div class="cyhead"><h3 id="cy-gname" tabindex="-1">${esc(g.name)}</h3><div class="cymeta">${esc(c.name)}, ${c.start} to ${c.end}${meta}</div></div>`;
   if (!d.planned.length && !d.carry.length && !d.noDue.length) return `<div class="cydetail">${crumb}${head}<div class="empty">${cyWhy("group", g, c)}</div></div>`;
-  const fact = (n, label, list, what) => `${n ? tlink(n, cyHref(list.map(e => e.k)), `${cyEp(n)} ${what}`) : "0"} ${label}`;
+  const fact = (n, label, kind, what) => `${n ? tlink(n, cyQ(kind, g, c), `${cyEp(n)} ${what}\n${CY_TIP}`) : "0"} ${label}`;
   const L = cyListsHtml(d);
   return `<div class="cydetail">${crumb}` + head + `<div class="kpis six" id="cy-gkpis"></div>` +
-    `<div class="cap" id="cy-gfacts">${fact(s.flag.length, "flagged as blocked", s.flag, "flagged as blocked")} · ${fact(d.carry.length, "carried over", d.carry, "carried over")} · ${fact(d.noDue.length, "active with no planned date", d.noDue, "active with no planned date")}</div>` +
+    `<div class="cap" id="cy-gfacts">${fact(s.flag.length, "flagged as blocked", "flag", "flagged as blocked")} · ${fact(d.carry.length, "carried over", "carry", "carried over")} · ${fact(d.noDue.length, "active with no planned date", "noDue", "active with no planned date")}</div>` +
     cyFilterBar(d) +
-    `<div class="cyblock" id="cy-concerns"><h3>Epics with Flags (${cyConcerns(d).length ? tlink(cyConcerns(d).length, cyHref(cyConcerns(d).map(r => r.e.k)), `${cyConcerns(d).length} epics with at least one flag\nOverdue, flagged, planned soon and not started, carried over, or no planned date; the rules are under How this is calculated.`) : 0})</h3><div class="cymeta">Epics with at least one flag, one row each, in planned-date order. The flags are facts about dates and Jira fields, not a rating or a ranking.</div>${cyConcernHtml(d)}</div>` +
+    `<div class="cyblock" id="cy-concerns"><h3>Epics with Flags (${cyConcerns(d).length ? tlink(cyConcerns(d).length, cyQ("concerns", g, c), `${cyConcerns(d).length} epics with at least one flag\nOverdue, flagged, planned soon and not started, carried over, or no planned date; the rules are under How this is calculated.\n${CY_TIP}`) : 0})</h3><div class="cymeta">Epics with at least one flag, one row each, in planned-date order. The flags are facts about dates and Jira fields, not a rating or a ranking.</div>${cyConcernHtml(d)}</div>` +
     (d.planned.length ? `<div class="cyblock" id="cy-weekly"><h3>Weekly Plan vs. Actual</h3><div class="cymeta">Epics by the week of their planned date, seven days from the cycle start date. The result column states what the dates show; it is not a rating.</div>${cyWeekly(d)}</div>` : "") +
     `<div id="cy-lists">${L.html}</div></div>`;
 }
@@ -3205,7 +3282,7 @@ function cyNotes() {
   const M = CYM, bits = [];
   if (cyLabelOk()) {
     const withPod = M.epics.filter(e => e.pl.length), none = M.epics.filter(e => !e.pl.length);
-    bits.push(`<div class="cymeta" id="cy-podnote"><b>${tlink(withPod.length, cyHref(withPod.map(e => e.k)), `${cyEp(withPod.length)} with a pod label in ${state.release}\nUnder the page filters.`)}</b> of ${tlink(M.epics.length, jira({}), `${cyEp(M.epics.length)} in ${state.release}\nUnder the page filters.`)} epics carry a pod label; ${none.length ? tlink(none.length, cyHref(none.map(e => e.k)), `${cyEp(none.length)} with no pod label`) : "0"} have none (No Pod Label).</div>`);
+    bits.push(`<div class="cymeta" id="cy-podnote"><b>${tlink(withPod.length, cyQ("podWith"), `${cyEp(withPod.length)} with a pod label in ${state.release}\nUnder the page filters.`)}</b> of ${tlink(M.epics.length, jira({}), `${cyEp(M.epics.length)} in ${state.release}\nUnder the page filters.`)} epics carry a pod label; ${none.length ? tlink(none.length, cyQ("podNone"), `${cyEp(none.length)} with no pod label`) : "0"} have none (No Pod Label).</div>`);
   }
   document.getElementById("cy-notes").innerHTML = bits.join("");
 }
@@ -3222,6 +3299,7 @@ function cyDefs() {
     `<b>Cycles</b>: derived from the Jira release window of ${esc(state.release)}, not configured. ${esc(win[0].name)} runs from the release start (${win[0].start}) to the end of W6 (${win[0].end}, release start plus 48 days, the same boundary as the Epic Delivery chart)${win[1] ? `; ${esc(win[1].name)} runs from the next day (${win[1].start}) to the release end (${win[1].end})` : ""}. <b>Planned date</b>: the later of the epic's due date and the end of its Target Sprint when it has both, otherwise the one it has; an epic with neither is not planned. An epic belongs to the cycle that holds its planned date.<br>` +
     `<b>Planned</b>: epics (Removed excluded) in the selected release under the Projects, Teams and Commitment Type filters whose planned date is in the cycle, both ends included. <b>Done</b>: status named Done. <b>Due so far</b>: planned epics with a planned date before ${esc(CY.asOf)}; an epic planned today is not yet due. <b>Overdue</b>: planned before ${esc(CY.asOf)} and not Done. <b>Stale (more than ${CY.stale} days)</b>: more than ${CY.stale} days overdue, counted over planned and carry-over epics together. <b>Due next ${CY.next} days</b>: not Done, planned ${esc(cyWindow())} (today through today plus ${CY.next} days, ${CY.next + 1} calendar days). A share (for example "13 of 17 due epics done") is shown only for 5 or more epics.<br>` +
     `<b>Carry-over</b>: not Done, with a planned date before the cycle starts; shown only once the cycle has started. <b>No planned date, active</b>: In Progress or Validation with neither a due date nor a Target Sprint. <b>Flagged</b>: the Jira Flagged field is set and the epic is not Done. <b>Open Bugs</b>: issues of type Bug whose parent is the epic, Removed excluded; open means a status other than Done, Ready for Deploy, Closed, Resolved or Removed. A read of Jira found no other way a bug is tied to an epic, so there is no other count to show. <b>EDCT</b>: the dashboard's: days an epic ended in In Progress or Validation, flagged days excluded, the Done day not counted; it is read for Done epics, so open epics show a dash.<br>` +
+    `<b>Links</b>: every number opens a Jira search, not a saved list of epics; Jira finds the epics again when the link is opened, so the list can change after the page was built, and a link that would be too long for Jira is shown as a plain number.<br>` +
     `<b>Epics with Flags</b> lists each epic that has at least one of these facts, one row, in planned-date order (no ranking): <i>overdue</i> (not Done and planned before ${esc(CY.asOf)}, with the number of days; stale when more than ${CY.stale} days); <i>planned soon and not started</i> (planned ${esc(cyWindow())} and still New, In Definition, Ready for Dev or Candidate); <i>flagged</i>; <i>carried over</i>; <i>no planned date</i> (active). It states what the data shows and does not rate any team or group.<br>` +
     cyPodDefs() +
     `<b>Overview hierarchy</b>: Project (the projects of the Projects filter, in the usual order), then Team under its project (the Epic Team field; an epic that lists several teams counts under each, epics with none under (No Team)), then Pod under its team; teams and pods in alphabetical order, never ordered by progress. Each row counts its own epics once: a project row the epics of the project, a team row the epics of that team in that project, a pod row the epics with that pod label in that team; an epic with two teams or several pods appears under each, once per row, and the last row counts each epic once. A team with no pod label on any of its epics has no pod rows; the team of a pod is whatever Jira holds in the Epic Team field of its epics. A share is shown only for 5 or more due epics. Weeks run seven days from the cycle start date. No person is named or counted: the Jira link shows an epic's owner. No verdict (on track, at risk), rating or ranking is shown. Data is the Jira snapshot at ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}; epic bug links, Flagged and assignees are read when the dashboard is built.`);
@@ -3240,7 +3318,7 @@ function cyRenderPanel() {
   const c = M.c, tab = M.tabs.includes(y.tab) ? y.tab : "overview", g = M.groups.find(x => x.id === tab);
   if (g) {
     panel.innerHTML = cyGroupHtml(g);
-    const d = cyGroupData(g), all = cyCards(d.s, c, true); if (document.getElementById("cy-gkpis")) kpiCards(document.getElementById("cy-gkpis"), [0, 1, 2, 3, 4, 6].map(i => ({...all[i], c: "cy"})));
+    const d = cyGroupData(g), all = cyCards(d.s, c, true, g); if (document.getElementById("cy-gkpis")) kpiCards(document.getElementById("cy-gkpis"), [0, 1, 2, 3, 4, 6].map(i => ({...all[i], c: "cy"})));
     cyStatus(d); cyBarVar(); fitSticky();
   } else {
     const planned = M.planned();
@@ -3275,10 +3353,10 @@ function renderCycles() {
   cySanitise();
   cyNotes(); cyDefs(); cyControls();
   document.getElementById("cy-after").textContent = "";
-  const planned = M.planned(), s = cyStats(planned, M.carry(), M.noDue), cards = cyCards(s, M.c, true);
+  const planned = M.planned(), s = cyStats(planned, M.carry(), M.noDue), cards = cyCards(s, M.c, true, null);
   kpiCards(document.getElementById("cy-kpis1"), cards.slice(0, 5)); kpiCards(document.getElementById("cy-kpis2"), cards.slice(5));
   const after = M.epics.filter(e => e.due && e.due > M.cycles[M.cycles.length - 1].end);
-  if (after.length) document.getElementById("cy-after").innerHTML += `After Release End: ${tlink(after.length, cyHref(after.map(e => e.k)), `${cyEp(after.length)} planned after the release end (${M.cycles[M.cycles.length - 1].end}); in no cycle.`)}`;
+  if (after.length) document.getElementById("cy-after").innerHTML += `After Release End: ${tlink(after.length, cyQ("after", null, M.cycles[M.cycles.length - 1]), `${cyEp(after.length)} planned after the release end (${M.cycles[M.cycles.length - 1].end}); in no cycle.\n${CY_TIP}`)}`;
   cyRenderBody();
 }
 function cyPush() {                                              // a detail view is a history entry in file mode, so the browser Back button returns to the Overview; the published page keeps its state in storage

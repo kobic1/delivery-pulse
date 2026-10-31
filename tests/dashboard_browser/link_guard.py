@@ -13,6 +13,7 @@ What it asserts
   3. links_no_frozen_release_or_date_lists  fixVersion lists with 3+ releases and the like are reported per site (ALLOW_CALENDAR documents the accepted ones).
   4. links_the_view_matrix_really_rendered  the sweep saw enough links, in every section, with no console error (a green guard is not a blind one).
   5. selftest_guard_catches_a_seeded_key_list   a copy of the template with a 6-key list added to an ordinary query link must be flagged.
+  6. links_within_length_budget            no Jira link is longer than URL_BUDGET characters (Jira's front door rejects about 10 KB), also with every team ticked.
 The site of a link is its JQL with the keys elided ("parent in (<keys>) AND issuetype = Epic ..."), so the allowlist does not depend on line numbers.
 """
 from __future__ import annotations
@@ -33,6 +34,7 @@ import make_synthetic as MS                                                     
 from kit import ctx, T                                                              # noqa: E402
 
 SUITE = kit.Suite("Delivery Pulse link guard")
+URL_BUDGET = 6000                               # the page returns no link above this (a plain number instead); measured: Jira rejects URLs of about 10 KB
 FEW_KEYS = 3                                    # a hand-picked "pair of issues" is tolerated; a population is not
 KEYRE = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
 
@@ -44,7 +46,6 @@ PROPOSED_ALLOW = [      # the accepted gaps: every entry is a population Jira ca
     (r"^key in \(<keys>\)$", "", "pairs whose far end is not Done, story-level links, dependency cards, Needs Attention groups, DQ 'no cycle time' (changelog-derived): a linked issue's status / the changelog is not searchable", "issueLinkType in (...) is a superset"),
     (r"^issuetype = Bug AND key in \(<keys>\)$", "", "open CFBs by Root Cause Analysis state: the field is pre-filled with a template Jira cannot search", "all open CFBs (superset)"),
     (r"\bkey in \(<keys>\)", r"epics with open bugs", "epics selected by the state of their CHILD bugs: not searchable in native JQL", "none"),
-    (r"AND key in \(<keys>\)$", "", "PENDING OWNER DECISION (Delivery Cycles links): a query exists and was verified on the fictitious data, but it must carry the sprint-name calendar and grows to several KB of URL; the exact list stays until the owner decides", "the planned-in-cycle query with the calendar's sprint names"),
 ]
 ALLOW_CALENDAR: list[tuple[str, str]] = [(r"fixVersion in \(", "the release list is the dashboard's own release set, fixed when the data is built (a new release needs a rebuild)")]
 
@@ -72,6 +73,9 @@ def views(full: bool, data: dict) -> list[str]:
     out = [f"r={r}&{p}&cy={c}".replace("&&", "&") for r in rels for p in psets for c in ("DC1", "DC2")]
     facets = ["c=Stretch", "ax=1", "cfb=yes", "g=week", "g=quarter", "cg=quarter", "dp=all", "dp=overdue", "dp=gap", "nt=capability", "nt=team", "cx=committed", "cpg=release", "cpm=count"]
     out += [f"r=27.1&{f}" for f in facets]
+    teams = sorted({t for e in data["epics"] for t in (e.get("tm") or [])})                   # every team ticked: the longest queries (team clauses and sprint names together)
+    allt = "t=" + "|".join(urllib.parse.quote(t) for t in teams)
+    out += [f"r=27.1&{allt}&cy=DC1", f"r=27.1&{allt}&cy=DC2"]
     return out
 
 
@@ -116,7 +120,8 @@ def sweep(template: Path | None = None) -> dict:
                 jql = urllib.parse.parse_qs(q.query, keep_blank_values=True).get("jql", [""])[0]
                 n_links += 1
                 secs[a["sec"]] += 1
-                found.setdefault(jql, dict(sec=a["sec"], tip=a["tip"], full=a.get("full", ""), text=a["text"], view=h))
+                f = found.setdefault(jql, dict(sec=a["sec"], tip=a["tip"], full=a.get("full", ""), text=a["text"], view=h, urllen=0))
+                f["urllen"] = max(f["urllen"], len(a["href"]))
         _cache[key] = dict(found=found, links=n_links, errors=errors, sections=secs, views=len(todo))
         return _cache[key]
     finally:
@@ -171,6 +176,18 @@ def _(t: T):
     for site, o in sorted(off.items(), key=lambda x: -x[1]["max"]):
         t.failures.append(f"frozen list of up to {o['max']} keys ({o['n']} distinct links) in section {o['ex']['sec']}: '{o['ex']['tip'] or o['ex']['text']}' -> {site[:170]}")
     t.passed += 0 if off else 1
+
+
+@SUITE.test("links_within_length_budget")
+def _(t: T):
+    """Jira's front door rejects URLs of about 10 KB: a link above URL_BUDGET characters must not be rendered (the number is plain text)."""
+    r = sweep()
+    longest = sorted(r["found"].items(), key=lambda x: -x[1]["urllen"])
+    over = [(m["urllen"], m["sec"], m["tip"] or m["text"], m["view"]) for _, m in longest if m["urllen"] > URL_BUDGET]
+    t.check(not over, f"{len(over)} links are longer than {URL_BUDGET} characters, the longest {over[:2]}")
+    top = longest[0][1]
+    t.check(top["urllen"] > 3000, "the longest link is short: the views did not produce long queries (a blind check)")
+    t.note(f"longest link: {top['urllen']} characters ('{top['tip'] or top['text']}' in {top['view']}); budget {URL_BUDGET}")
 
 
 @SUITE.test("links_exact_lists_say_so_in_their_tooltip")

@@ -66,6 +66,17 @@ def test_validate_stops_a_build_that_misses_required_data_and_warns_about_option
         BD.validate_payload({**ok, "epics": "not a list"})
 
 
+def test_an_unknown_target_sprint_label_is_a_soft_warning_not_a_failure():
+    ok = synthetic_payload()
+    ok["sprints"] = [{"n": "CX.26.1.1 (01Jan30)", "start": "2030-01-01", "end": "2030-01-21", "real": True}]
+    ok["epics"][0]["ts"] = "CX.26.1.1 (01Jan30)"
+    assert not any("Target Sprint" in w for w in BD.validate_payload(ok))
+    ok["epics"][0]["ts"] = "Sprint of the unknown kind"
+    warnings = BD.validate_payload(ok)                                         # warned about, the build goes on
+    assert any("Target Sprint" in w and "1 epics" in w for w in warnings)
+    assert BD.unknown_sprint_labels({"epics": ok["epics"], "sprints": []}) == {}      # no calendar at all is the "section missing" notice, not one warning per epic
+
+
 def test_render_writes_schema_defs_and_build_stamp_and_drops_the_dead_keys(tmp_path, monkeypatch):
     monkeypatch.setattr(BD, "OUT", tmp_path / "page.html")
     monkeypatch.setattr(BD, "OUT_ARTIFACT", tmp_path / "artifact.html")
