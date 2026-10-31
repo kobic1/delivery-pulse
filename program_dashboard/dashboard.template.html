@@ -604,6 +604,7 @@ footer.f b { color:var(--ink); }
       <a class="skip" href="#h-ai" data-skip="h-ai">Skip to AI Adoption</a>
       <div class="chart narrow" id="eff-chart"></div>
       <div class="cap" id="eff-cap"></div>
+      <div class="cap" id="eff-note"></div>
       <div id="eff-data"></div>
     </section>
 
@@ -747,6 +748,7 @@ footer.f b { color:var(--ink); }
   <div class="seclabel">Analysis</div>
   <h2 id="h-analysis" tabindex="-1">Release Analysis</h2>
   <div class="sub">Detail for the selected release.</div>
+  <div class="cap" id="ra-note"></div>
   <div class="anrow" id="an-kpis"></div>
 
   <section class="sec plain" aria-labelledby="h-trend">
@@ -1397,12 +1399,23 @@ function monthChart(hostId, capId, dataId, rows, o) {       // o: value(r), labe
   dataTable(dataId, o.title, [GRAN[state.gran].head, "Epics", o.col, ...(o.extra ? o.extra.heads : [])], rows.map(r => [r.mo.label, o.nHref ? tlink(r.n, o.nHref(r), `${r.n} epics, ${pname(r.mo)}`) : r.n, o.value(r) == null ? "–" : o.fmtv(o.value(r)), ...(o.extra ? o.extra.cells(r) : [])]));
 }
 const defs = html => `<details class="vd"><summary>How this is calculated</summary><div class="cap">${html}</div></details>`;
+// Cycle time and Capitalization refresh on the first open of the day and the first two clicks (see SLOW_*): the modules built on them say when they were last read. A published page only.
+function renderLimitedNotes() {
+  const eff = document.getElementById("eff-note"), ra = document.getElementById("ra-note"); if (!eff || !ra) return;
+  if (!RUNTIME) { eff.textContent = ra.textContent = ""; return; }
+  const wait = DATA.epics.filter(e => state.projects.has(e.p) && edctPending(e)).length, c = DATA.capRefreshedAt, e0 = DATA.edctAt;
+  eff.textContent = DATA.edctFailed ? `Cycle time: not refreshed: ${DATA.edctFailed}${e0 ? `; as of ${ilStamp(e0)}` : ""}.`
+    : `Cycle time: ${e0 ? `refreshed ${ilLabel(e0)}` : "not refreshed yet"}; Refresh updates it up to twice a day.${wait ? ` ${wait} ${wait === 1 ? "epic that closed" : "epics that closed"} since then ${wait === 1 ? "is" : "are"} not counted yet.` : ""}`;
+  ra.textContent = (e0 && c ? `Cycle time and Capitalization: refreshed ${ilLabel([e0, c].sort()[0])}` : !e0 && !c ? "Cycle time and Capitalization: not refreshed yet"
+    : `Cycle time: ${e0 ? `refreshed ${ilLabel(e0)}` : "not refreshed yet"}; Capitalization: ${c ? `refreshed ${ilLabel(c)}` : "not refreshed yet"}`) + "; Refresh updates them up to twice a day.";
+}
 function renderEfficiency() {
   const rows = periods().map(mo => { const m = monthStats(mo); return {mo, n: m.edctN, avg: m.edctN >= MIN_N ? m.edctAvg : null}; });
   const cur = rows[rows.length - 1], head = document.getElementById("eff-head"), cap = document.getElementById("eff-cap");
   document.getElementById("eff-sub").textContent = `AI-implemented epics, by resolution ${GRAN[state.gran].noun}.`;
   monthChart("eff-chart", "eff-cap", "eff-data", rows, {value: r => r.avg == null ? null : Math.round(r.avg), sc: niceScale(Math.max(EDCT_TARGET, ...rows.map(r => r.avg || 0)) * 1.1), fmtv: v => String(v), fill: "#249A89", ink: "#1C7A6C", target: EDCT_TARGET, href: r => jiraMonth(r.mo, " AND cf[15229] = Yes", "edct"), nHref: r => r.n ? jiraMonth(r.mo, " AND cf[15229] = Yes", "edct") : null,
     tip: r => r.avg == null ? `${pname(r.mo)}\nFewer than ${MIN_N} AI-implemented epics, so no average is shown` : `${pname(r.mo)}\nAverage EDCT ${Math.round(r.avg)} days\n${r.n} AI-implemented epics`, title: `Average EDCT days per ${GRAN[state.gran].noun}`, col: "Average EDCT Days"});
+  renderLimitedNotes();
   if (!state.projects.size) { head.innerHTML = ""; cap.innerHTML = ""; return; }
   const a = cur.avg == null ? null : Math.round(cur.avg), over = a == null ? 0 : a - EDCT_TARGET;
   head.innerHTML = a == null ? `– <small>${pwords(cur.mo)} · fewer than ${MIN_N} epics so far</small>`
@@ -1761,8 +1774,8 @@ function renderCapitalization() {
   { let cue = document.getElementById("capz-cue"); if (!cue) { cue = document.createElement("div"); cue.id = "capz-cue"; cue.className = "scrollcue"; svgHost.insertAdjacentElement("afterend", cue); }
     const wide = svgHost.scrollWidth > svgHost.clientWidth + 1; cue.hidden = !wide; cue.textContent = wide ? "Scroll sideways to see all periods; the chart opens on the latest." : ""; if (wide) svgHost.scrollLeft = svgHost.scrollWidth; }       // on a phone the chart scrolls inside its card
   const built = ilLabel(C.pulledAt), refreshed = DATA.capRefreshedAt ? `; the current quarter was refreshed ${ilLabel(DATA.capRefreshedAt)}${DATA.capRefreshedN != null ? ` (${DATA.capRefreshedN} issues)` : ""}` : "";
-  const stampTxt = DATA.capRefreshFailed ? `not refreshed: ${esc(DATA.capRefreshFailed)}; as of ${esc(ilStamp(DATA.capRefreshedAt || C.pulledAt))}` : "";      // no per-section stamp: the header carries the one time for every section, and Refresh covers them all; only a failed step is called out here
-  const refShort = stampTxt ? ` · ${stampTxt}` : "";
+  const stampTxt = DATA.capRefreshFailed ? `not refreshed: ${esc(DATA.capRefreshFailed)}; as of ${esc(ilStamp(DATA.capRefreshedAt || C.pulledAt))}` : "";      // a published page names when Capitalization was last read (it refreshes less often than the header's live sources); a failed step is called out instead
+  const refShort = stampTxt ? ` · ${stampTxt}` : RUNTIME ? (DATA.capRefreshedAt ? ` · refreshed ${esc(ilLabel(DATA.capRefreshedAt))}` : " · not refreshed yet") : "";
   cap.innerHTML = `Capitalized share of Done issues by Closed date${refShort}.`;
   const winTxt = DATA.releases.filter(r => DATA.windows[r] && !capSkipped().includes(r)).map(r => `${r} ${DATA.windows[r][0]} to ${DATA.windows[r][1]}`).join("; ");
   how.innerHTML = `Capitalized ${sp ? "story points" : "issues"} over all ${sp ? "story points" : "issues"} of Done Bugs, Stories and Tasks, by the day each was closed. Group By ${by === "quarter" ? "Quarter: the calendar quarter of the Closed date (Israel-local day)" : "Release: the release whose Jira version window holds the Closed date"}. Dashed bar: ${by === "quarter" ? "the current quarter" : "a release still running"}. Follows the Projects and Teams filters (Team = Team Name of the issue); the Release and Commitment Type filters do not apply. No share under ${MIN_N} issues. Refresh updates the current quarter only; earlier quarters are as of the build (${esc(built)})${esc(refreshed)}${by === "release" ? "; in Release mode, issues of earlier quarters are not refreshed" : ""}.` +
@@ -2565,7 +2578,7 @@ function attentionModel() {
   Object.values(T).forEach(t => t.items.sort((a, b) => a.impact - b.impact || a.slaKey - b.slaKey || a.tier - b.tier || b.blast - a.blast || (b.age || 0) - (a.age || 0) || a.key.localeCompare(b.key, "en", {numeric: true})));
   // ---- hygiene
   const noTeam = scope.filter(e => !e.tm || !e.tm.length), noCommit = scope.filter(e => !e.c), noCap = scope.filter(needsCap), capExempted = scope.filter(e => !e.cp && capExempt(e));
-  const noPri = prod.filter(b => !PRIORITIES.includes(b.pr)), doneNoEdct = scope.filter(e => cls(e.s) === "done" && e.edct == null);
+  const noPri = prod.filter(b => !PRIORITIES.includes(b.pr)), doneNoEdct = scope.filter(e => cls(e.s) === "done" && e.edct == null && !edctPending(e)), edctWait = scope.filter(edctPending);
   const pj = [...state.projects].join(", ");
   const hyg = [
     {label: "Epics with No Commitment Type", n: noCommit.length, href: noCommit.length ? jira({commit: new Set(["Not Set"])}) : null, note: "in scope for the selected release"},
@@ -2573,7 +2586,7 @@ function attentionModel() {
     {label: "Epics with No Parent Capability", n: noCap.length, href: noCap.length ? jira({extra: NO_CAP_JQL}) : null, note: `in scope for the selected release; ${capExempted.length} more are exempt by Issue Category (${CAP_EXEMPT.join(", ")})`,
       noteHtml: `in scope for the selected release; ${capExempted.length ? tlink(capExempted.length, jira({extra: `parent is EMPTY AND ${CAP_EXEMPT_IN}`}), capExemptTip(capExempted.length)) : "0"} more ${capExempted.length === 1 ? "is" : "are"} exempt by Issue Category (${esc(CAP_EXEMPT.join(", "))})`},
     {label: "Open Customer-Found Bugs with No SLA", n: noPri.length, href: noPri.length && state.projects.size ? href(`project in (${pj}) AND issuetype = Bug AND ${CFB_Q()} AND ${OPEN_BUG_JQL} AND (priority is EMPTY OR priority not in (${PRIORITIES.join(", ")}))${bugTeamClause(state.teams)}`) : null, note: "no priority, or a priority outside P1 to P4, so no SLA applies"},
-    {label: "Done Epics with No EDCT", n: doneNoEdct.length, href: null, note: "read from change history, which Jira cannot search"},
+    {label: "Done Epics with No EDCT", n: doneNoEdct.length, href: null, note: `read from change history, which Jira cannot search${edctWait.length ? `; ${edctWait.length} more wait for the next cycle-time refresh` : ""}`},
   ];
   const holidayStale = asOfDay() > utc(CFG.holidaysThrough); if (holidayStale && !window.__holidayWarned) { window.__holidayWarned = true; console.warn(`The holiday list ends ${CFG.holidaysThrough}; Validation business days after it are not adjusted for holidays.`); }
   const checked = {bugs: prod.length, validation: scope.filter(e => e.s === "Validation").length, deps: dm.open.length, proj: (state.projects.size === projectsAll.length ? "All Projects" : pj || "no project") + (state.teams.size ? `, teams ${[...state.teams].join(", ")}` : "")};
@@ -3422,12 +3435,12 @@ function cyInit() {
 function renderDQ() {
   const all = scopeOf(state.release, {anyCommit: true});
   const notSet = all.filter(e => commitOf(e) === "Not Set"), inDef = all.filter(e => e.s === "In Definition");
-  const noCycle = all.filter(e => cls(e.s) === "done" && (cycleOf(e) == null || e.edct === 0));
+  const noCycle = all.filter(e => cls(e.s) === "done" && (cycleOf(e) == null || e.edct === 0) && !edctPending(e)), cycleWait = all.filter(edctPending).length;
   const exact = noCycle.length <= 250, noCycleHref = noCycle.length && exact ? keyIn(noCycle.map(e => e.k)) : null;          // above 250 there is no link: a different set of epics would not match the number
   const items = [
     {v: notSet.length, d: tipSpan(`${epicWord(notSet.length)} with no Commitment Type`, "Counted as committed in the target until teams fill it in."), href: jira({commit: new Set(COMMIT), extra: "cf[10094] is EMPTY"}), tip: `${notSet.length} ${epicWord(notSet.length)} with no Commitment Type in ${state.release}\nOpens them in Jira under the Projects and Teams filters.`},
     {v: inDef.length, d: tipSpan(`${epicWord(inDef.length)} still in In Definition`, "Usually means the status was not updated, not that scoping is ongoing."), href: jira({commit: new Set(COMMIT), extra: 'status = "In Definition"'}), tip: `${inDef.length} ${epicWord(inDef.length)} with the status In Definition in ${state.release}\nOpens them in Jira under the Projects and Teams filters.`},
-    {v: noCycle.length, d: tipSpan(`Done ${epicWord(noCycle.length)} with no In Progress time`, "Went straight to Done, or no history yet."), href: noCycleHref, tip: exact ? `${noCycle.length} Done ${epicWord(noCycle.length)} with no In Progress time\nExact list; the rule uses change history.` : `${noCycle.length} Done ${epicWord(noCycle.length)} with no In Progress time\nToo many to list in a link; the rule uses change history, which Jira cannot search.`},
+    {v: noCycle.length, d: tipSpan(`Done ${epicWord(noCycle.length)} with no In Progress time`, "Went straight to Done, or no history yet."), href: noCycleHref, tip: (exact ? `${noCycle.length} Done ${epicWord(noCycle.length)} with no In Progress time\nExact list; the rule uses change history.` : `${noCycle.length} Done ${epicWord(noCycle.length)} with no In Progress time\nToo many to list in a link; the rule uses change history, which Jira cannot search.`) + (cycleWait ? `\n${cycleWait} more wait for the next cycle-time refresh.` : "")},
   ];
   document.getElementById("dq").innerHTML = items.map(i =>
     `<div class="item"><div class="v">${i.href && i.v ? tlink(i.v, i.href, i.tip) : i.v}</div><div class="d">${i.d}</div></div>`).join("");
@@ -3678,18 +3691,22 @@ function updateCore() {
   syncControls(); saveState(); renderKpis(); renderStatus(); renderBurnup(); renderEfficiency(); renderCharts(); renderBugs(); renderCfb(); renderOpenCfb(); renderCfbAbout(); renderDeps(); renderAttention(); renderCapabilities(); renderCx(); renderNfr(); renderAdoption(); renderCapDone(); renderCycles();
   renderBreakdowns(); renderDQ(); renderMeta(); tipPass(); nowrapDates(); fitSticky();
 }
-// ONE stamp in the header: the oldest time among the sources the viewer sees (after a full Refresh they all carry the refresh time). The per-source times are in its tooltip, and only when they differ.
+// ONE stamp in the header: the oldest time among the LIVE sources (every open and every click refreshes them; after a Refresh they all carry the refresh time, a failed step keeps its old time).
+// The two LIMITED sources (cycle time, Capitalization: first open of the day and the first two clicks) are named in the tooltip, and only when they differ from it. A copy with no connector has no limited tier: its stamp is the oldest of all.
 function sourceTimes() {
   const base = DATA.generated, rf = DATA.refreshedAt;
-  const src = [["Epics", rf || base], ["Bugs", rf || DATA.bugsPulledAt || base], ["Open CFBs", DATA.cfbRefreshedAt || (DATA.cfbx && DATA.cfbx.pulledAt) || base], ["Dependency links", DATA.linksPulledAt || base], ["Capabilities", DATA.capPulledAt || base], ["Capitalization", DATA.capRefreshedAt || (DATA.cap && DATA.cap.pulledAt) || base]];
-  const oldest = src.map(x => x[1]).sort()[0];
-  return {src, oldest, differ: src.some(x => Math.abs(new Date(x[1]) - new Date(oldest)) > 60000)};
+  const live = [["Epics", rf || base], ["Bugs", rf || DATA.bugsPulledAt || base], ["Open CFBs", DATA.cfbRefreshedAt || (DATA.cfbx && DATA.cfbx.pulledAt) || base], ["Dependency links", DATA.linksPulledAt || base], ["Capabilities", DATA.capPulledAt || base]];
+  const slow = [["Cycle time", DATA.edctAt || base, !!DATA.edctAt], ["Capitalization", DATA.capRefreshedAt || (DATA.cap && DATA.cap.pulledAt) || base, !!DATA.capRefreshedAt]];      // [name, time, refreshed at least once]
+  const oldestOf = list => list.map(x => x[1]).sort()[0], liveOldest = oldestOf(live), oldestAll = oldestOf([...live, ...slow]);
+  return {live, slow, oldest: RUNTIME ? liveOldest : oldestAll, oldestAll, slowDiffer: slow.filter(x => Math.abs(new Date(x[1]) - new Date(liveOldest)) > 60000)};
 }
 const stampText = () => `${RUNTIME ? "Data as of" : "Snapshot from"} ${ilLabel(sourceTimes().oldest)}`;
 function stampTip() {
   if (refresh.busy) return "Refreshing from Jira. The page updates as each step finishes.";
-  const head = DATA.refreshedAt ? `Updated from Jira ${ilStamp(DATA.refreshedAt)}.` : `Snapshot from ${ilStamp(sourceTimes().oldest)}.${RUNTIME ? " Press Refresh to update it." : ""}`;
-  return [head, ...(DATA.lastRefreshNote ? [DATA.lastRefreshNote] : []), ...(DATA.schema != null && DATA.schema !== PAGE_SCHEMA ? [`Data layout ${DATA.schema}, this page expects ${PAGE_SCHEMA}: rebuild with build_dashboard.py`] : [])].join("\n");
+  const st = sourceTimes();
+  const head = DATA.refreshedAt ? `Updated from Jira ${ilStamp(DATA.refreshedAt)}.` : `Snapshot from ${ilStamp(st.oldest)}.${RUNTIME ? " Press Refresh to update it." : ""}`;
+  const limited = RUNTIME ? [...(st.slowDiffer.length ? [`${st.slowDiffer.map(x => `${x[0]} ${x[2] ? `as of ${ilStamp(x[1])}` : "not refreshed yet"}`).join("; ")}.`] : []), `${SLOW_CLICKS - slowRead().n} of ${SLOW_CLICKS} Refresh clicks left today.`] : [];
+  return [head, ...limited, ...(DATA.lastRefreshNote ? [DATA.lastRefreshNote] : []), ...(DATA.schema != null && DATA.schema !== PAGE_SCHEMA ? [`Data layout ${DATA.schema}, this page expects ${PAGE_SCHEMA}: rebuild with build_dashboard.py`] : [])].join("\n");
 }
 function renderMeta() {
   const fmtT = ilLabel;
@@ -3704,6 +3721,54 @@ function renderMeta() {
 
 // ---------------------------------------------------------------- live refresh (published artifact only)
 const LIVE = {server: "Atlassian", tool: "searchJiraIssuesUsingJql", issueTool: "getJiraIssue", pageLimit: 40};
+// Two tiers of Refresh steps. LIVE (every open and every click): epics, bugs and accessibility first, then Open CFBs, Dependency links, Capabilities. LIMITED (after those): cycle time, then Capitalization.
+// Per viewer and Israel-local day the FIRST automatic refresh on open runs the limited tier without using a click (SLOW_AUTO = 0: an open runs the live tier only), and SLOW_CLICKS clicks run it too; after that a click runs the live tier only.
+// The count is a courtesy kept in this browser (localStorage "dp.slowRuns" = {day, n, auto}), not an access control: clearing storage or moving the clock resets it. With storage blocked the count lives in memory for this page load.
+const SLOW_AUTO = 1, SLOW_CLICKS = 2, SLOW_KEY = "dp.slowRuns";
+let slowMem = null;
+function slowRead() {                                        // the state for the Israel-local day of THIS moment: anything unreadable, invalid or from another day is a fresh {today, 0, 0}, so a clock moved either way never locks a viewer out
+  const today = ilDate(new Date());
+  let s = null;
+  try { s = JSON.parse(localStorage.getItem(SLOW_KEY)); } catch (e) { s = null; }
+  if (slowMem) s = slowMem;                                    // storage threw earlier in this page load: the in-memory count stands
+  const good = s && typeof s === "object" && /^\d{4}-\d{2}-\d{2}$/.test(s.day) && !isNaN(Date.parse(s.day)) && Number.isInteger(s.n) && s.n >= 0 && s.n <= SLOW_CLICKS && Number.isInteger(s.auto) && s.auto >= 0 && s.auto <= 1;
+  return good && s.day === today ? {day: today, n: s.n, auto: s.auto} : {day: today, n: 0, auto: 0};
+}
+function slowReserve(auto) {                                 // synchronous read, check, increment, write: no refund when the run fails (a refund would make an unbounded retry loop)
+  const s = slowRead(); let run = false;
+  if (auto) { if (s.auto < SLOW_AUTO) { s.auto++; run = true; } }
+  else if (s.n < SLOW_CLICKS) { s.n++; run = true; }
+  try { localStorage.setItem(SLOW_KEY, JSON.stringify(s)); } catch (e) { slowMem = s; }
+  return {run, left: SLOW_CLICKS - s.n};
+}
+// What the limited tier last read is kept in this browser (localStorage "dp.slowData"), so a reload shows it instead of the older data the page was built with. It is bound to the data version it was read on
+// (build time and schema): a newer build discards it. A stored value never overwrites a value the data already has and never makes data look newer than it is. Any storage problem is skipped silently.
+const SLOW_DATA = "dp.slowData", SLOW_DATA_MAX = 1.5e6;
+let slowStored = {}, slowEdct = {};                         // what is kept so far: {edctAt, edct: {key: [ip, vl, cal]}, cap, capAt}
+function slowSave(part) {                                    // called right after a limited step succeeds
+  Object.assign(slowStored, part);
+  try { const txt = JSON.stringify({v: 1, build: DATA.generated, schema: PAGE_SCHEMA, ...slowStored}); if (txt.length <= SLOW_DATA_MAX) localStorage.setItem(SLOW_DATA, txt); } catch (e) { /* not persisted */ }
+}
+function slowLoad() {                                        // at boot, before the first render
+  const stamp = x => typeof x === "string" && !isNaN(Date.parse(x)) && Date.parse(x) <= Date.now() + 60000;
+  let d = null;
+  try {
+    const raw = localStorage.getItem(SLOW_DATA); if (raw == null) return;
+    try { d = JSON.parse(raw); } catch (e) { d = null; }
+    if (!d || typeof d !== "object" || d.v !== 1 || d.schema !== PAGE_SCHEMA || d.build !== DATA.generated) { d = null; localStorage.removeItem(SLOW_DATA); return; }      // another data version, or not ours: discard
+  } catch (e) { return; }
+  if (stamp(d.edctAt) && d.edct && typeof d.edct === "object" && !Array.isArray(d.edct)) {
+    const num = x => typeof x === "number" && isFinite(x);
+    for (const e of DATA.epics) { const v = d.edct[e.k]; if (e.edct == null && Array.isArray(v) && num(v[0]) && num(v[1]) && (v[2] === null || num(v[2]))) { e.ip = v[0]; e.vl = v[1]; e.edct = v[0] + v[1]; e.cal = v[2]; slowEdct[e.k] = v; } }
+    DATA.edctAt = d.edctAt; slowStored.edctAt = d.edctAt; slowStored.edct = slowEdct;
+  }
+  const C = d.cap;
+  if (stamp(d.capAt) && C && typeof C === "object" && typeof C.rows === "string" && Array.isArray(C.values) && Array.isArray(C.teams) && Array.isArray(C.projects) && DATA.cap && DATA.cap.pulledAt && Date.parse(d.capAt) > Date.parse(DATA.cap.pulledAt)) {
+    DATA.cap = C; DATA.capRefreshedAt = d.capAt; slowStored.cap = C; slowStored.capAt = d.capAt;
+  }
+}
+// An epic that closed since the last cycle-time run is not a hygiene defect: its cycle time is read by the next limited run (a published page only).
+const edctPending = e => RUNTIME && cls(e.s) === "done" && e.edct == null && !!e.rd && e.rd >= ilDate(DATA.edctAt || DATA.generated);
 const FIELDS = ["summary", "status", "issuetype", "priority", "created", "resolutiondate", "resolution", "reporter", "fixVersions",
   "customfield_10094", "customfield_10040", "customfield_10098", "customfield_15229", "customfield_15264", "customfield_10139",
   "customfield_10055", "customfield_10068", "customfield_10329", "customfield_10099", "customfield_10051",
@@ -3776,7 +3841,7 @@ async function callIssue(mcp, key) {
 // Every epic that is Done but has no cycle time yet (it closed after the build): read its history and set ip, vl, edct and cal. Nothing is applied unless every history was read in full.
 async function edctRefresh(mcp, say) {
   const todo = DATA.epics.filter(e => cls(e.s) === "done" && e.edct == null && e.rd);
-  if (!todo.length) return null;
+  if (!todo.length) { DATA.edctAt = new Date().toISOString(); DATA.edctFailed = null; slowSave({edctAt: DATA.edctAt, edct: slowEdct}); return null; }          // nothing waiting still counts as a run
   const out = [], tooLong = [];
   for (let i = 0; i < todo.length; i++) {
     say(`Cycle time of epics that closed since the data was built: ${i + 1} of ${todo.length}.`);
@@ -3784,7 +3849,8 @@ async function edctRefresh(mcp, say) {
     if (cl.total != null && cl.histories && cl.total > cl.histories.length) { tooLong.push(todo[i].k); continue; }          // a history Jira returned only in part cannot be counted
     out.push([todo[i], epicDays(cl.histories, todo[i].rd)]);
   }
-  out.forEach(([e, r]) => { e.ip = r.ip; e.vl = r.vl; e.edct = r.ip + r.vl; e.cal = r.cal; });
+  out.forEach(([e, r]) => { e.ip = r.ip; e.vl = r.vl; e.edct = r.ip + r.vl; e.cal = r.cal; slowEdct[e.k] = [r.ip, r.vl, r.cal]; });
+  DATA.edctAt = new Date().toISOString(); DATA.edctFailed = null; slowSave({edctAt: DATA.edctAt, edct: slowEdct});
   return {n: out.length, tooLong: tooLong.length};
 }
 // A query over a long `updated` range is read in windows (a few days, split to one day when a window hits the page limit); a one-day window that still hits it is an error, so nothing is applied half-way.
@@ -3935,6 +4001,7 @@ async function capRefresh(mcp, say) {
   }
   C.rows = [...recs.values()].map(r => [r.n, r.p, r.v, r.sp, r.cd, r.t, r.fb].join(",")).join(";");
   CAPZ = null; DATA.capRefreshedAt = new Date().toISOString(); DATA.capRefreshedN = changed; DATA.capRefreshFailed = null;
+  slowSave({cap: DATA.cap, capAt: DATA.capRefreshedAt});
   return {since, read, n: changed, cur: capQuarterOf(new Date(utc(ilDate(new Date()))))};
 }
 // ---- Refresh steps beyond epics and bugs. Each step is independent: a failure is reported on its own and leaves its data as it was; the others still run.
@@ -4066,22 +4133,26 @@ async function refresh(opts = {}) {
     DATA.refreshedAt = new Date().toISOString();
     DATA.refreshedStats = {epics: (DATA.refreshedStats ? DATA.refreshedStats.epics : 0) + counts.epics, bugs: (DATA.refreshedStats ? DATA.refreshedStats.bugs : 0) + counts.bugs};
     update(); syncTip();                                              // epics and bugs are read and merged: show them now, the other steps redraw as each finishes
-    const steps = [], run = async (label, fn) => { try { const r = await fn(); if (r) steps.push({label, ok: true, r}); } catch (err) { const msg = String((err && (err.message || err.code)) || "unknown error").slice(0, 120); if (label === "Capitalization") DATA.capRefreshFailed = msg; steps.push({label, ok: false, msg}); } update(); syncTip(); };
-    await run("Cycle time", () => edctRefresh(mcp, msg => say(msg)));
+    const slow = slowReserve(auto);                                   // decided once, here: step 1 succeeded, so this run counts against the starting day's allowance; a failed run is not refunded
+    const steps = [], run = async (label, fn) => { try { const r = await fn(); if (r) steps.push({label, ok: true, r}); } catch (err) { const msg = String((err && (err.message || err.code)) || "unknown error").slice(0, 120); if (label === "Capitalization") DATA.capRefreshFailed = msg; if (label === "Cycle time") DATA.edctFailed = msg; steps.push({label, ok: false, msg}); } update(); syncTip(); };
     await run("Open CFBs", () => cfbRefresh(mcp, msg => say(msg)));
     await run("Dependency links", () => linksRefresh(mcp, msg => say(msg), sinceDay));
     await run("Capabilities", () => capsRefresh(mcp, msg => say(msg), sinceDay));
-    await run("Capitalization", () => capRefresh(mcp, msg => say(msg)));
+    if (slow.run) {
+      await run("Cycle time", () => edctRefresh(mcp, msg => say(msg)));
+      await run("Capitalization", () => capRefresh(mcp, msg => say(msg)));
+    }
     update();
     const okOf = l => (steps.find(x => x.label === l && x.ok) || {}).r, bad = steps.filter(x => !x.ok);
     const cfb = okOf("Open CFBs"), caps = okOf("Capabilities"), cz = okOf("Capitalization"), lk = okOf("Dependency links");
-    const pending = DATA.epics.filter(e => cls(e.s) === "done" && e.edct == null).length;
+    const pending = slow.run ? DATA.epics.filter(e => cls(e.s) === "done" && e.edct == null).length : 0;      // only a run that read the histories can say it could not calculate one
     const cal = new Set(sprintList().map(s => s.n)), noCal = cal.size ? DATA.epics.filter(e => e.ts && !cal.has(e.ts)).length : 0;
     const buildDays = Math.floor((asOfDay() - utc(ilDate(DATA.generated))) / 864e5);
     const notes = [...bad.map(x => `Not refreshed, data unchanged: ${x.label} (${esc(x.msg)}).`),
       ...(pending ? [`EDCT for ${pending} newly Done ${pending === 1 ? "epic" : "epics"} could not be calculated here (its history was not returned in full); it needs a rebuild.`] : []),
       ...(noCal ? [`${noCal} ${noCal === 1 ? "epic has" : "epics have"} a Target Sprint that is not in the sprint calendar; a rebuild extends it.`] : []),
-      ...(buildDays > BUILD_STALE_DAYS ? [`Story-level links are from the build of ${ilDate(DATA.generated)}.`] : [])];
+      ...(buildDays > BUILD_STALE_DAYS ? [`Story-level links are from the build of ${ilDate(DATA.generated)}.`] : []),
+      ...(!slow.run && !slow.left ? ["Cycle time and Capitalization were not refreshed: they update on the first two Refresh clicks each day, and those are used. They update again after midnight, Israel time."] : [])];
     say(`Refreshed ${ilStamp(DATA.refreshedAt)}: ${counts.epics} ${counts.epics === 1 ? "epic" : "epics"} and ${counts.bugs} ${counts.bugs === 1 ? "bug" : "bugs"} changed.${notes.length ? " " + notes.join(" ") : ""}`, bad.length ? "warn" : "info");
     DATA.lastRefreshNote = notes.join("\n");
     { const a = document.getElementById("asof"); if (a) a.dataset.tip = stampTip(); }
@@ -4090,7 +4161,7 @@ async function refresh(opts = {}) {
   } catch (err) {
     const [msg, kind] = describeError(err);
     const ACCESS = ["approval_required", "consent_required", "server_not_connected", "selection_required", "needs_reauth", "not_in_manifest", "blocked_by_policy", "not_granted", "capability_disabled", "capability_removed"];
-    if (auto) { say(`Showing the snapshot from ${esc(ilLabel(sourceTimes().oldest))}. ${ACCESS.includes(err && err.code) ? "Refresh needs Jira access." : msg} <button type="button" class="btn link" id="refresh-retry">Retry</button>`, "warn"); const rb = document.getElementById("refresh-retry"); if (rb) rb.onclick = () => refresh(); }
+    if (auto) { say(`Showing the snapshot from ${esc(ilLabel(sourceTimes().oldestAll))}. ${ACCESS.includes(err && err.code) ? "Refresh needs Jira access." : msg} <button type="button" class="btn link" id="refresh-retry">Retry</button>`, "warn"); const rb = document.getElementById("refresh-retry"); if (rb) rb.onclick = () => refresh(); }
     else say(msg, kind);
   } finally {
     refresh.busy = false;
@@ -4236,15 +4307,18 @@ named Done, not Jira's Done category.
 No percentile, share or trend is shown for fewer than ${MIN_N} items.
 <br><b>Burnup.</b> Done is cumulative by resolution date and counts target epics (Committed + Not Set). Scope is the number of target epics (Committed + Not Set, judged on each epic's current Commitment Type) that were in the release on the first day of W1, from each epic's Fix Version history; the Forecast Epics tile shows the same number, and the epics added since are shown beside it. The IP week is the first seven days of the release. No projection is drawn.
 <br><b>Bugs.</b> The backlog shows created, resolved and open per week, accessibility bugs excluded unless switched on. A bug is open while its status is not Done, Ready for Deploy, Closed, Resolved or Removed; bugs that are Done without a resolution date cannot be placed on the weekly line and are named in its notes. The Open CFBs table lists the customer-found bugs that are not in a final status, with age against the SLA and the Root Cause Analysis state. CFB follows the release closure report: bugs reported by the CFB account, fixed in the release window.
-<br><b>Snapshot and Refresh.</b> Numbers were read from Jira at the time shown above. In the published page the data refreshes when the page opens, and Refresh does it again: epics, bugs, open customer-found bugs, dependency links, Capabilities and Capitalization. Story-level links, the sprint calendar and the Cycles pods are read only when the data is built.
+<br><b>Snapshot and Refresh.</b> Numbers were read from Jira at the time shown above. In the published page the data refreshes when the page opens, and Refresh does it again: epics, bugs, open customer-found bugs, dependency links, Capabilities and Capitalization. Capitalization and cycle time refresh on the first open each day and on the first two Refresh clicks. Story-level links, the sprint calendar and the Cycles pods are read only when the data is built.
 <br><b>Hover Text.</b> Hover text follows the pointer and is not itself hoverable; Esc closes it. The same text is in each chart's data table.
 <br><b>Delivery Cycle Governance.</b> The last section has its own data (INT, CXINT and WFM epics by pod label or Epic Team, read at build time, not by Refresh) and follows its own delivery cycle and pod groups, not the filters above. It states facts only: no verdict, no rating of a group.
 <br><b>Scope of Use.</b> Counts describe programs, releases and teams. Facts only: nothing here ranks or scores a team or a person.
 <br>Definitions follow the Program Intelligence Agent (workflow-status-map, commitment-classes, metrics).</div></details>`;
+if (RUNTIME) slowLoad();                                     // the last limited refresh kept in this browser, before anything is drawn
 capInit(); cyInit(); loadState(); buildFilters(); update({anchor: false}); fitSticky(); SEC.observe();
-// Live data on open (the published page with the connector only): one automatic Refresh after the first paint, unless the data is already fresher than 15 minutes; a local file has no connector and says it is a snapshot.
-if (RUNTIME) setTimeout(() => { let recent = false; try { const l = Number(localStorage.getItem("dp.lastRefresh")); recent = l && Date.now() - l < 15 * 60 * 1000; } catch (e) { /* no storage */ }
-  const fresh = Date.now() - new Date(DATA.refreshedAt || DATA.generated) < 15 * 60 * 1000; if (!recent && !fresh) refresh({auto: true}); }, 600);
+// Live data on open (the published page with the connector only): one automatic Refresh after the first paint, on EVERY open: a reload never shows older data. LIVE_GUARD_MS is the length of the old guard (skip when the last
+// refresh without a failed step was younger); 0 = none, 15 * 60 * 1000 restores the 15-minute guard. The limited tier runs only on the first open of the Israel day (SLOW_AUTO). A local file has no connector and says it is a snapshot.
+const LIVE_GUARD_MS = 0;
+if (RUNTIME) setTimeout(() => { let recent = false; try { const l = Number(localStorage.getItem("dp.lastRefresh")); recent = LIVE_GUARD_MS > 0 && l && Date.now() - l < LIVE_GUARD_MS; } catch (e) { /* no storage */ }
+  const fresh = LIVE_GUARD_MS > 0 && Date.now() - new Date(DATA.refreshedAt || DATA.generated) < LIVE_GUARD_MS; if (!recent && !fresh && !refresh.busy) refresh({auto: true}); }, 600);
 if (!RUNTIME && /(^|&)ct=/.test(location.hash.slice(1))) {                  // a shared link with ct=<node> opens at the top of that detail view; the page above it is still settling (charts, fonts), so the jump is repeated until the reader scrolls
   let moved = false; const stop = () => { moved = true; };
   ["wheel", "touchstart", "keydown", "mousedown"].forEach(ev => window.addEventListener(ev, stop, {once: true, passive: true}));

@@ -28,7 +28,7 @@ Results: `PASS`, `FAIL`, `XFAIL` (expected to fail until a fix lands, see below)
 | `make_synthetic.py` | The fictitious payload, same schema and keys as `build/program_data.json`. Seeded, dates relative to today (Israel time), issue numbers from 90001. Also `render_page` (the same single-placeholder substitution as `build_dashboard.render()`) and `canarify`. `python3 make_synthetic.py out.html` renders a page you can open. |
 | `cdp.py` | A small Chrome DevTools driver (standard library only), temporary profile, free port, `wait_for` with a timeout. |
 | `kit.py` | The tiny suite (PASS/FAIL/XFAIL/XPASS), the expectation flags, shared page helpers. |
-| `mock_claude.js`, `probe.js` | The mocked `claude.use("mcp")` (the real shape of the Atlassian `searchJiraIssuesUsingJql` answer) and the in-page probe. |
+| `mock_claude.js`, `probe.js` | The mocked `claude.use("mcp")` (the real shape of the Atlassian `searchJiraIssuesUsingJql` answer) and the in-page probe. The mock clears `dp.slowRuns` and `dp.slowData` at the start of every page (`CFG.keep` keeps them: the page is a reload of the previous one) and seeds the daily allowance with `CFG.sr`: `none`, `auto` (the first open of the day used), `one`, `used` (both clicks used), `yesterday`, `future`, `corrupt`, a raw string stored as it is, or an object such as `{"n": 0, "auto": 1}`; the Israel day is computed after the `CFG.shift` clock override. `CFG.ls`: `recent` seeds `dp.lastRefresh` and drops the page's automatic refresh (the case is about a click), `recentauto` seeds it and lets the automatic refresh run. The probe adds `dp.slowRuns` (`slowRaw`), `DATA.edctAt`, the Efficiency and Release Analysis notes and the 'Done Epics with No EDCT' row to the snapshot. |
 | `harness.py` | The Refresh checks and the failure matrix (F15). |
 | `canary.py` | The escaping canary (F16). |
 | `link_oracle.py`, `jql_eval.py` | The link oracle (F14b) and the small JQL evaluator it uses. |
@@ -77,6 +77,26 @@ Left untouched on purpose: project codes, release labels, issue keys, `jiraBase`
 "All issues" and "no story points": no `NaN` date; Release mode "Not plotted" and "no story points": scoped). `oracle_selftest_catches_seeded_defects` copies the template,
 seeds each defect, and requires the oracle to catch it, so a green oracle is not a blind one. The evaluator knows the fields these blocks use; a query it cannot
 judge is reported as "not judged", a query it cannot parse is a failure.
+
+**Two tiers of Refresh steps** (the `slow_tier_*`, `stored_limited_tier_*` and `live_tier_*` tests; each clicks the way the multi-click tests do, with `refresh.last = 0` and `cache=False`). The live tier (epics, bugs and accessibility, then Open CFBs, Dependency links, Capabilities) runs on every open and click; the limited tier (cycle time = a `getJiraIssue` call per epic waiting; Capitalization = the `issuetype in (Bug, Story, Task)` reads) runs on the first open of the Israel day and the first two clicks.
+
+| Test | Guards |
+|---|---|
+| `slow_tier_three_clicks...` | clicks 1 and 2 issue both limited calls, click 3 issues none but still the live reads, shows the sentence as an info message, leaves the button enabled and the Capitalization rows unchanged |
+| `slow_tier_the_first_open_of_the_day...` / `..._second_open...` | the first open runs the limited tier and uses the automatic allowance (`auto` 1, `n` 0); the second is live only and both clicks are still available |
+| `slow_tier_a_new_day...` / `..._midnight_crossing...` | yesterday's allowance resets; a run that crosses midnight (clock at 23:59:46, held inside the limited tier) counts for its starting day, and a click after midnight runs the tier and starts the new day at one |
+| `slow_tier_blocked_storage...` | storage blocked: the count lives in memory (clicks 1 and 2 limited, click 3 live only), no console errors |
+| `slow_tier_unreadable_or_invalid...` | not JSON, `null`, a list, a number, `n` out of range, not an integer or negative, not a date, a day in the future: all reset to today without page errors |
+| `slow_tier_the_allowance_is_read_at_click_time` | a value written by another tab after load is honoured |
+| `slow_tier_a_failed_run_is_not_refunded` | a failed Capitalization read uses a click; the third click is live only; only the step that succeeded is stored |
+| `slow_tier_header_stamp...` | the header is the oldest of the five live sources (computed independently in Python), the tooltip, the Efficiency, Release Analysis and Capitalization notes say "not refreshed yet" or the refresh time, nothing talks about a build, and a copy without a connector shows none of it |
+| `slow_tier_an_epic_closed_since...` | with the cycle-time step skipped the newly Done epic is not a 'Done Epics with No EDCT' defect (row note: "wait for the next cycle-time refresh"), the status does not say "rebuild"; with the step run the count is the same |
+| `slow_tier_an_automatic_refresh_that_fails_on_step_one...` | `dp.slowRuns` untouched |
+| `live_tier_the_automatic_refresh_runs_on_every_open...` | no 15-minute skip: a reload with a recent `dp.lastRefresh` still reads the live data |
+| `stored_limited_tier_*` | a reload (the same page, connector denied) shows the refreshed Capitalization rows, the cycle time and the stored refresh times before any refresh; another build, schema or layout, and a corrupt value, are discarded or ignored without errors; a stored value never overwrites an existing one and a future time is not trusted; blocked storage still works |
+| `refresh_redraws_after_the_first_step...` | also the order of one refresh: step 1, then the live steps, then cycle time, then Capitalization |
+
+Assertions changed for the two tiers: `refresh_capitalization_delta_every_quarter` (the chart caption now carries "refreshed <time>" after a Refresh and "not refreshed yet" before it; the old rule "no per-section stamp" is reversed on purpose), `refresh_step_fails_alone_capitalization` and the stamp check of `f15j...` (a failed limited step no longer drags the header stamp back: it names the step in the tooltip), and `auto_refresh_skipped_when_last_refresh_was_recent` (now `auto_refresh_runs_even_when_the_last_refresh_was_recent`: the 15-minute guard is off).
 
 ## The expectation flags
 

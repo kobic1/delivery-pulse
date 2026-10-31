@@ -5,11 +5,23 @@
   const CFG = /*__CFG__*/null;
   const RD = Date, off = CFG.shift;
   if (off) { class D extends RD { constructor(...a) { if (a.length) super(...a); else super(RD.now() + off); } static now() { return RD.now() + off; } } window.Date = D; }
-  if (CFG.fastTimers) { const st = window.setTimeout; window.setTimeout = (f, ms, ...a) => st(f, ms >= 4000 ? ms / 20 : ms, ...a); }   // the page's multi-second timers (settle, deadlines) run 20 times faster
+  if (CFG.fastTimers) { const st = window.setTimeout; window.setTimeout = (f, ms, ...a) => st(f, ms >= 4000 ? ms / 20 : ms, ...a); }
+  // ls "recent" means "this case is about a click, not about the automatic refresh on open": the page's one 600 ms timer that starts it is dropped (ls "recentauto" keeps dp.lastRefresh recent and lets it run)
+  if (CFG.ls === "recent") { const st = window.setTimeout; window.setTimeout = (f, ms, ...a) => (ms === 600 && /auto: true/.test(String(f))) ? 0 : st(f, ms, ...a); }   // the page's multi-second timers (settle, deadlines) run 20 times faster
   if (CFG.deadlineMs) window.__dpCallDeadlineMs = CFG.deadlineMs;      // a template with a per-call deadline reads its length from here (a no-op for one without)
   window.__CFG = CFG; window.__calls = []; window.__countCalls = [];
   try { localStorage.removeItem("delivery-pulse-filters"); } catch (e) {}
-  try { if (CFG.ls === "recent") localStorage.setItem("dp.lastRefresh", String(RD.now())); else if (CFG.ls === "old") localStorage.setItem("dp.lastRefresh", String(RD.now() - 3600000)); else if (CFG.ls === "none") localStorage.removeItem("dp.lastRefresh");
+  try { if (!CFG.keep) { localStorage.removeItem("dp.slowRuns"); localStorage.removeItem("dp.slowData"); }      // CFG.keep: this page is a reload of the previous one, its stored allowance and limited-tier data stay
+    // dp.slowRuns is the daily allowance of the limited refresh tier (cycle time, Capitalization); CFG.sr seeds it, the Israel day is computed here so CFG.shift is honoured
+    if (CFG.sr) {
+      const ilDay = t => new Intl.DateTimeFormat("en-CA", {timeZone: "Asia/Jerusalem", year: "numeric", month: "2-digit", day: "2-digit"}).format(t);
+      const today = ilDay(new Date()), plus = n => ilDay(new Date(RD.parse(today + "T12:00:00Z") + n * 86400000));
+      const seeds = {none: null, auto: {day: today, n: 0, auto: 1}, one: {day: today, n: 1, auto: 1}, used: {day: today, n: 2, auto: 1}, yesterday: {day: plus(-1), n: 2, auto: 1}, future: {day: plus(400), n: 2, auto: 1}, corrupt: "{not json"};
+      const v = typeof CFG.sr === "string" ? (CFG.sr in seeds ? seeds[CFG.sr] : CFG.sr) : {day: today, ...CFG.sr};       // a name, a raw string stored as it is, or an object (the day defaults to today)
+      if (v) localStorage.setItem("dp.slowRuns", typeof v === "string" ? v : JSON.stringify(v));
+    }
+  } catch (e) {}
+  try { if (CFG.ls === "recent" || CFG.ls === "recentauto") localStorage.setItem("dp.lastRefresh", String(RD.now())); else if (CFG.ls === "old") localStorage.setItem("dp.lastRefresh", String(RD.now() - 3600000)); else if (CFG.ls === "none") localStorage.removeItem("dp.lastRefresh");
     if (CFG.ls === "blocked") Object.defineProperty(window, "localStorage", {get() { throw new Error("blocked"); }}); } catch (e) {}
   window.__hook = /*__HOOK__*/null;
   const ok = (nodes, more) => ({payload: {issues: {nodes, pageInfo: more ? {hasNextPage: true, endCursor: more} : {hasNextPage: false, endCursor: null}}}});
