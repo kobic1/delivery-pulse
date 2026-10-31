@@ -29,6 +29,7 @@ import datetime as dt
 import json
 import os
 import re
+import shutil
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -67,7 +68,7 @@ BUG_FIELDS = ["summary", "status", "priority", "created", "resolutiondate", "res
               "customfield_10051"]       # Ready to Deploy Date: the fixed date of a Ready for Deploy bug that has no Closed date
 # The weekly emails drop these from the backlog; the JQL is theirs, so the flag matches them exactly.
 AX_JQL = '(summary ~ "\\"[Accessibility]*\\"" OR labels = DWP_Accessibility_Defect)'
-CFB_ACCOUNT = json.loads((HERE.parent / "release_closure" / "config_pmn.json").read_text())["cfb_reporter"]
+CFB_ACCOUNT = os.environ.get("CFB_REPORTER_ID") or json.loads((HERE.parent / "release_closure" / "config_pmn.json").read_text())["cfb_reporter"]      # CFB_REPORTER_ID wins, so the id can leave the tracked config
 
 DATA_PATH = HERE / "build" / "program_data.json"
 TEMPLATE = HERE / "dashboard.template.html"
@@ -225,13 +226,12 @@ def fetch_windows(j) -> dict:
     return out
 
 
-PLAN_FIELDS = ["updated", "duedate", "customfield_12697", "assignee", "customfield_10021"]      # Last update, Due date, Target Sprint, Assignee, Flagged
+PLAN_FIELDS = ["updated", "duedate", "customfield_12697", "customfield_10021"]      # Last update, Due date, Target Sprint, Flagged (no person is read from Jira)
 SPRINT_RE = re.compile(r"^CX\.(\d+\.\d+)\.(\d+) \((\d{1,2})([A-Za-z]{3})(\d{2})\)$")
-OPEN_SLA_EXCLUDED = ("Ready for Deploy", "Done", "Closed", "Resolved", "Removed")
 
 
 def plan_record(f) -> dict:
-    """Planning facts on an epic: due date (dd), Target Sprint label (ts), last update (ud), assignee (as, factual ownership only), Flagged (fl). Absent means empty."""
+    """Planning facts on an epic: due date (dd), Target Sprint label (ts), last update (ud), Flagged (fl). Absent means empty."""
     out = {}
     if f.get("duedate"):
         out["dd"] = f["duedate"][:10]
@@ -240,8 +240,6 @@ def plan_record(f) -> dict:
         out["ts"] = ts
     if f.get("updated"):
         out["ud"] = f["updated"][:10]
-    if (f.get("assignee") or {}).get("displayName"):
-        out["as"] = f["assignee"]["displayName"]
     if f.get("customfield_10021"):
         out["fl"] = 1
     return out
@@ -529,6 +527,32 @@ def norm_text(t: str) -> str:
     return re.sub(r"\s+", " ", t or "").strip().lower()
 
 
+def h53(text: str, seed: int = 0) -> int:
+    """cyrb53, a 53-bit string hash over the UTF-16 code units: the page computes the same number (Math.imul), so a Refresh can tell an edited analysis from the unedited template without the template text being stored."""
+    u = text.encode("utf-16-le")
+    units = [u[i] | (u[i + 1] << 8) for i in range(0, len(u), 2)]
+    h1, h2 = 0xDEADBEEF ^ seed, 0x41C6CE57 ^ seed
+    m32 = 0xFFFFFFFF
+
+    def imul(a, b_):
+        return (a * b_) & m32
+    for c in units:
+        h1 = imul(h1 ^ c, 2654435761)
+        h2 = imul(h2 ^ c, 1597334677)
+    h1 = imul(h1 ^ (h1 >> 16), 2246822507) ^ imul(h2 ^ (h2 >> 13), 3266489909)
+    h2 = imul(h2 ^ (h2 >> 16), 2246822507) ^ imul(h1 ^ (h1 >> 13), 3266489909)
+    return 4294967296 * (2097151 & (h2 & m32)) + (h1 & m32)
+
+
+def rca_templates(texts: dict[str, str]) -> set[str]:
+    counts: dict[str, int] = {}
+    for t in texts.values():
+        n = norm_text(t)
+        if n:
+            counts[n] = counts.get(n, 0) + 1
+    return {n for n, c in counts.items() if c >= TEMPLATE_MIN}
+
+
 def rca_flags(texts: dict[str, str]) -> tuple[dict[str, int], int]:
     """1 = the text was edited, 0 = empty or an unedited template. A template is learned, not hard-coded: the most repeated identical text
     (shared by TEMPLATE_MIN or more CFBs). Only the flag is kept for it, never the text."""
@@ -547,6 +571,7 @@ def collect_cfb(j) -> dict:
     got = j.search(jql, ["summary", "status", RCA_FIELD, RCA_REVIEW, "issuelinks"])
     texts = {i["key"]: plain_text(i["fields"].get(RCA_FIELD)) for i in got}
     flag, ntemplates = rca_flags(texts)
+    tpl = sorted(h53(n) for n in rca_templates(texts))                 # the unedited-template texts as hashes, so Refresh can classify a new analysis
     bugs = {}
     for i in got:
         f = i["fields"]
@@ -572,7 +597,7 @@ def collect_cfb(j) -> dict:
         by[pk] = by.get(pk, 0) + 1
     print(f"CFB: {len(bugs)} bugs in the six projects ({sum(v['rca'] for v in bugs.values())} with an edited analysis, {ntemplates} template texts learned); "
           f"{len(allopen)} open across all projects", flush=True)
-    return {"bugs": bugs, "templates": ntemplates, "allOpen": len(allopen), "allOpenByProject": by,
+    return {"bugs": bugs, "templates": ntemplates, "tpl": tpl, "allOpen": len(allopen), "allOpenByProject": by,
             "pulledAt": dt.datetime.now().astimezone().isoformat(timespec="minutes")}
 
 
@@ -756,7 +781,8 @@ def collect_links(j, epics) -> dict:
         merged.setdefault((d, p), set()).add("D" if t == "Dependency" else "B")
     story = collect_story_links(j, epics)
     return {**story, "deps": sorted([d, p, "".join(c for c in "DB" if c in kinds)] for (d, p), kinds in merged.items()),
-            "ext": ext, "capabilities": caps, "depsDropped": dropped}
+            "ext": ext, "capabilities": caps, "depsDropped": dropped,
+            "linksPulledAt": dt.datetime.now().astimezone().isoformat(timespec="minutes")}      # per-source stamp: the header shows the oldest source, so a links-only re-pull must not read as older than it is
 
 
 def collect_bugs(j) -> list:
@@ -804,6 +830,7 @@ def fetch() -> dict:
             })
 
     bugs = collect_bugs(j)
+    bugs_at = dt.datetime.now().astimezone().isoformat(timespec="minutes")
 
     print(f"reading the changelog of {len(epics)} epics (cycle time + release join dates) ...", flush=True)
 
@@ -842,13 +869,83 @@ def fetch() -> dict:
             "projects": PROJECTS, "releases": RELEASES, "current": CURRENT_RELEASE,
             "windows": fetch_windows(j),
             "provisional": PROVISIONAL, "epics": epics, "bugs": bugs,
-            "cfbAccount": CFB_ACCOUNT, "bugSince": BUG_SINCE,
-            "quality": {"cycleTimeErrors": errors, "edctDiffersFromEmail": drift}}
+            "cfbAccount": CFB_ACCOUNT, "bugSince": BUG_SINCE, "bugsPulledAt": bugs_at}
+
+
+SCHEMA = 2           # the payload layout the page expects (PAGE_SCHEMA in dashboard.template.html must be the same number; tests/test_definitions_contract.py checks it)
+REQUIRED = {"generated": str, "jiraBase": str, "projects": list, "releases": list, "current": str, "windows": dict, "epics": list, "bugs": list,
+            "cfbAccount": str}          # without these the page cannot draw: stop the build instead of publishing an empty page
+NONEMPTY = {"projects", "releases", "windows", "epics", "generated", "jiraBase"}      # an empty bug list is a real (if unlikely) state; an empty epic list is a failed pull
+EXPECTED = {"hier": dict, "capabilities": dict, "capList": dict, "capEpics": list, "cfbx": dict, "deps": list, "cap": dict, "podRx": dict, "sprints": list}      # optional sections: a build without them still renders, the page shows a notice
+
+
+def definitions() -> dict:
+    """The definitions that the collector and the page must agree on, written once into the payload (DATA.defs). The page reads them from here;
+    its own literals are only a fallback for an older payload, and tests/test_definitions_contract.py keeps the two equal."""
+    return {"bugClosed": list(BUG_CLOSED), "nfrLabel": NFR_LABEL, "nfrCategories": list(NFR_CATEGORIES),
+            "commitTypes": ["Committed", "Not Set", "Stretch"], "targetCommit": ["Committed", "Not Set"]}
+
+
+def build_stamp() -> dict:
+    """Which code produced this page: short commit, whether the working tree had uncommitted changes, when. Shown in the tooltip of the data stamp."""
+    import subprocess
+    def git(*a):
+        return subprocess.run(["git", *a], cwd=HERE, capture_output=True, text=True, timeout=20).stdout.strip()
+    try:
+        sha = git("rev-parse", "--short", "HEAD"); dirty = bool(git("status", "--porcelain", "--", "."))
+    except Exception:
+        sha, dirty = "", False
+    return {"sha": sha, "dirty": dirty, "at": dt.datetime.now().astimezone().isoformat(timespec="minutes")}
+
+
+def validate_payload(data: dict) -> list[str]:
+    """Hard problems raise (nothing is published); soft ones are returned as warnings."""
+    bad = [k for k, t in REQUIRED.items() if not isinstance(data.get(k), t) or (k in NONEMPTY and not data.get(k))]
+    if bad:
+        raise SystemExit(f"program_data.json is missing required data: {', '.join(bad)}. Run a full build (no flag) or restore the last good build/program_data.json.prev.")
+    warn = [f"optional section '{k}' is missing or has the wrong type; the page will show a notice for it" for k, t in EXPECTED.items() if not isinstance(data.get(k), t)]
+    unknown = unknown_sprint_labels(data)
+    if unknown:
+        warn.append(f"{sum(unknown.values())} epics carry {len(unknown)} Target Sprint labels the sprint calendar does not know (e.g. {', '.join(sorted(unknown)[:3])}); "
+                    "the page and the Delivery Cycles links count them as having no Target Sprint")
+    return warn
+
+
+def unknown_sprint_labels(data: dict) -> dict:
+    """Target Sprint labels on epics that are not in the sprint calendar, with their epic counts (a label that does not follow the CX.<release>.<number> (<date>) pattern)."""
+    cal = {x.get("n") for x in data.get("sprints") or []}
+    if not cal:
+        return {}
+    out: dict = {}
+    for e in data.get("epics") or []:
+        if e.get("ts") and e["ts"] not in cal:
+            out[e["ts"]] = out.get(e["ts"], 0) + 1
+    return out
+
+
+def drop_people(data: dict) -> None:
+    """No person is held in the payload: an assignee name left in an older snapshot is removed on every save and render."""
+    for rec in list(data.get("epics") or []) + list((data.get("ext") or {}).values()):
+        rec.pop("as", None)
+
+
+def save_data(data: dict) -> None:
+    """Write build/program_data.json atomically and keep the previous file as .prev: a crash while writing, or a bad pull, never costs the only snapshot (a full pull is about 3,000 Jira calls)."""
+    drop_people(data)
+    validate_payload(data)                                                # a bad pull must not replace the snapshot (or, on a second run, its .prev)
+    text = json.dumps(data, ensure_ascii=False)
+    json.loads(text)                                                      # what is written must read back
+    tmp = DATA_PATH.with_suffix(".json.tmp")
+    tmp.write_text(text, encoding="utf-8")
+    if DATA_PATH.exists():
+        shutil.copy2(DATA_PATH, DATA_PATH.with_suffix(".json.prev"))
+    os.replace(tmp, DATA_PATH)
 
 
 def render(data: dict) -> None:
     """The template is a body-only fragment (title, meta, style, markup, script), which is exactly what the
     Artifact tool wants. The standalone file wraps the same fragment in a document and hoists title and meta."""
+    drop_people(data)
     labels = {e.get("ts") for e in data["epics"]} | {x.get("ts") for x in (data.get("ext") or {}).values()}
     data["sprints"] = sprint_calendar(labels) or data.get("sprints", [])
     if not data.get("cloudId"):
@@ -857,6 +954,10 @@ def render(data: dict) -> None:
         except Exception as exc:                                  # the page renders; only Refresh from Jira needs it
             print(f"warning: could not read the Atlassian site id ({exc}); set JIRA_CLOUD_ID to enable Refresh", flush=True)
             data["cloudId"] = ""
+    data.pop("cycles", None); data.pop("quality", None)               # no longer read by the page (the Confluence cycles pull and the changelog error tally)
+    data["schema"] = SCHEMA; data["defs"] = definitions(); data["build"] = build_stamp()
+    for w in validate_payload(data):
+        print("warning:", w, flush=True)
     # an older pull may hold projects that have since been dropped from PROJECTS: keep only the current ones
     data["projects"] = PROJECTS
     data["epics"] = [e for e in data["epics"] if e["p"] in PROJECTS]
@@ -889,65 +990,69 @@ def main() -> int:
     ap.add_argument("--add-bugs", action="store_true", help="re-read the bugs (customer-found bugs by reporter OR Salesforce case, Closed dates) and the Open CFB Root Cause Analysis state into build/program_data.json, then render")
     ap.add_argument("--add-pods", action="store_true", help="read the pod labels of the epics (each project's pod_label_regex from release_planning/config_*.json) into build/program_data.json, then render")
     ap.add_argument("--add-cfb-open", action="store_true", help="pull the root cause analysis state of the customer-found bugs (Open CFBs table) into build/program_data.json, then render")
-    ap.add_argument("--add-capitalization", action="store_true", help="pull the Done Bugs, Stories and Tasks with a sprint (Capitalization %% chart: capitalize field, story points, sprints, fix versions, team) into build/program_data.json, then render")
+    ap.add_argument("--add-capitalization", action="store_true", help="pull the Done Bugs, Stories and Tasks by Closed date (Capitalization %% chart: capitalize field, story points, fix versions, team; Closed day on or after 2025-10-01, Israel time, resolution date when Closed is empty) into build/program_data.json, then render")
     ap.add_argument("--add-capabilities", action="store_true", help="pull the Capability list and all their child epics (Capabilities section, Done Capabilities per Release) into build/program_data.json, then render")
     ap.add_argument("--add-cycles", action="store_true", help="no longer used (kept so old command lines still run): the Confluence pods pull was removed; Group By is Team or Pod from labels")
     args = ap.parse_args()
+    modes = [a for a in ("reuse", "add_nfr", "add_hier", "add_planning", "add_deps", "add_bugs", "add_pods", "add_cfb_open", "add_capitalization", "add_capabilities", "add_cycles") if getattr(args, a)]
+    if len(modes) > 1:      # the branches below are an if/elif chain: a second flag used to be skipped without a word
+        ap.error("use one mode flag at a time (got " + ", ".join("--" + m.replace("_", "-") for m in modes) + "); run them one after another")
     DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
     if args.add_nfr:
         data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
         collect_nfr(E.Jira(), [e for e in data["epics"] if e["p"] in PROJECTS])
-        DATA_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        save_data(data)
     elif args.add_pods:
         data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
         data["podRx"] = collect_pods(E.Jira(), [e for e in data["epics"] if e["p"] in PROJECTS])
-        DATA_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        save_data(data)
     elif args.add_hier:
         data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
         data.update(collect_hier(E.Jira(), [e for e in data["epics"] if e["p"] in PROJECTS], data.get("capabilities", {})))
-        DATA_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        save_data(data)
     elif args.add_planning:
         data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
         eps = [e for e in data["epics"] if e["p"] in PROJECTS]
         data.update(collect_links(E.Jira(), eps))
         j = E.Jira()
         data.update(planning(j, eps, [b for b in data["bugs"] if b["p"] in PROJECTS], data))
-        DATA_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        save_data(data)
     elif args.add_capitalization:
         data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
         data["cap"] = collect_capitalization(E.Jira())
-        DATA_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        save_data(data)
     elif args.add_capabilities:
         data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
         data.update(collect_capabilities(E.Jira(), {e["cp"] for e in data["epics"] if e.get("cp")}))
-        DATA_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        save_data(data)
     elif args.add_bugs:
         data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
         j = E.Jira()
         data["bugs"] = collect_bugs(j)
         collect_bug_updates(j, data["bugs"])
         data["cfbx"] = collect_cfb(j)
-        DATA_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        data["bugsPulledAt"] = dt.datetime.now().astimezone().isoformat(timespec="minutes")
+        save_data(data)
     elif args.add_cfb_open:
         data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
         data["cfbx"] = collect_cfb(E.Jira())
-        DATA_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        save_data(data)
     elif args.add_cycles:
         print("--add-cycles does nothing any more: Delivery Cycle Governance groups by Epic Team or by pod label, both from the main pull (--add-pods for the labels).")
         return 0
     elif args.add_deps:
         data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
         data.update(collect_links(E.Jira(), [e for e in data["epics"] if e["p"] in PROJECTS]))
-        DATA_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        save_data(data)
     elif args.reuse:
         data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
     else:
         data = fetch()
-        DATA_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        save_data(data)
     had_cloud_id = bool(data.get("cloudId"))
     render(data)
     if not had_cloud_id and data.get("cloudId"):                  # keep it in the saved (git-ignored) data so offline re-renders still work
-        DATA_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        save_data(data)
     return 0
 
 
