@@ -263,6 +263,7 @@ section.sec h3.subh { margin:0 0 3px; font-size:var(--t-sub); }
 svg text { font-family:inherit; }
 .chartscroll { overflow-x:auto; max-width:100%; }
 .chartscroll > svg { display:block; max-width:none; }
+.scrollcue { font-size:var(--t-xs); color:var(--muted); margin:2px 0 0; }
 .bpanel + .bpanel { margin-top:14px; }
 .ptitle { font-size:var(--t-xs); font-weight:600; margin:2px 0 0; }
 .pwrap { display:flex; align-items:flex-start; }
@@ -360,7 +361,7 @@ details.vd .tablewrap { max-height:340px; overflow:auto; margin-top:6px; }
 .toggle input { accent-color:var(--blue-ink); }
 .sec h3.sub3 { margin:22px 0 6px; font-size:var(--t-body); }
 
-.tablewrap { overflow-x:auto; max-width:100%; }
+.tablewrap { overflow-x:auto; max-width:100%; position:relative; }      /* position:relative keeps the absolutely placed .sr text inside the scrolling area, so it cannot widen the page */
 .tablewrap.tall { max-height:560px; overflow:auto; }
 .tablewrap.tall thead th { position:sticky; top:0; z-index:1; }
 table { border-collapse:collapse; width:100%; }
@@ -730,7 +731,7 @@ footer.f b { color:var(--ink); }
   <section class="sec cy" id="cy-sec" aria-labelledby="h-cycles">
     <div class="seclabel">Cycles</div>
     <h2 id="h-cycles" tabindex="-1">Delivery Cycle Governance</h2>
-    <div class="sub" id="cy-sub">Cycle 1: release start to end of W6. Cycle 2: W7 to release end.<span class="follows">Follows: Release · Projects · Teams · Commitment Type</span></div>
+    <div class="sub" id="cy-sub">Cycle 1: release start to end of W6. Cycle 2: W7 to release end.</div>
     <div id="cy-notes"></div>
     <div class="periodbar" id="g-cy"><span class="lbl" id="lbl-cy">Delivery Cycle</span>
       <div class="chips seg" id="f-cy" role="radiogroup" aria-labelledby="lbl-cy"></div>
@@ -801,9 +802,14 @@ const DATA = /*__DATA__*/null;
 
 // ---------------------------------------------------------------- definitions
 const BASE = DATA.jiraBase;
-const COMMIT = ["Committed", "Not Set", "Stretch"];
+// The definitions the collector and the page share come from the payload (DATA.defs, written by build_dashboard.py). The literals below are only the fallback for a payload built before that
+// existed; tests/test_definitions_contract.py keeps them equal to the collector's, so a change is made in build_dashboard.py and the fallback follows.
+const PAGE_SCHEMA = 2;
+const BUILD_STALE_DAYS = 7;        // a build older than this says so after a Refresh: the story-level links are only read when the data is built                                        // the payload layout this page reads: build_dashboard.py SCHEMA is the same number
+const DEFS = DATA.defs || {};
+const COMMIT = DEFS.commitTypes || ["Committed", "Not Set", "Stretch"];
 const DEFAULT_COMMIT = COMMIT;                                // every commitment type is shown by default
-const TARGET_COMMIT = ["Committed", "Not Set"];               // the scope target never changes with the filter: Committed + Not Set, Stretch excluded
+const TARGET_COMMIT = DEFS.targetCommit || ["Committed", "Not Set"];               // the scope target never changes with the filter: Committed + Not Set, Stretch excluded
 const CLASS = {                                               // workflow-status-map.yaml, by status NAME
   done: ["Done"],
   flight: ["In Progress", "Validation"],
@@ -816,14 +822,15 @@ const CFB_RESOLUTIONS = ["Fixed", "Fixed - Config"];
 const PRIORITIES = ["P1", "P2", "P3", "P4"];
 const PRI_ALL = PRIORITIES;                                   // the priority control offers P1 to P4; a bug with no P1 to P4 priority stays in the totals (see backlogBugs)
 // A bug is open while its status is not Done, Ready for Deploy, Closed, Resolved or Removed (the status rule of the alert rules). Resolution is not used: 482 imported bugs are Done without one.
-const BUG_CLOSED = ["Done", "Ready for Deploy", "Closed", "Resolved", "Removed"];      // Ready for Deploy counts as Done for bugs (epics keep Done = the status named Done)
+const BUG_CLOSED = DEFS.bugClosed || ["Done", "Ready for Deploy", "Closed", "Resolved", "Removed"];      // Ready for Deploy counts as Done for bugs (epics keep Done = the status named Done)
 const isOpenBug = b => !BUG_CLOSED.includes(b.s);
 const jqlName = x => /\s/.test(x) ? `"${x}"` : x;
 const BUG_CLOSED_IN = `status in (${BUG_CLOSED.map(jqlName).join(", ")})`, OPEN_BUG_JQL = `status not in (${BUG_CLOSED.map(jqlName).join(", ")})`;
 const DAY = 86400000;
 // Every threshold of the Needs Attention panel, with where it came from. Change a number here and the panel, its hover text and its notes follow.
 // The Issue Category values (field 10139) that make an epic an NFR epic, in addition to the label NFR.
-const NFR_CATEGORIES = ["R&D - 3rd party upgrades", "R&D - Arch/infra refactoring", "R&D Infra", "R&D - Low env. cost optimization"];
+const NFR_LABEL = DEFS.nfrLabel || "NFR";                         // the Jira label that makes an epic an NFR epic (exact spelling)
+const NFR_CATEGORIES = DEFS.nfrCategories || ["R&D - 3rd party upgrades", "R&D - Arch/infra refactoring", "R&D Infra", "R&D - Low env. cost optimization"];
 const CFG = {
   asOf: "the snapshot date (asOfDay), not the clock",
   sla: {p1: 3, regression: 7, p2: 14, other: 30, source: "owner-confirmed SLA rules (alert pipeline)"},     // whole calendar days from creation, no pause; P1 3; with regression 7; P2 without 14; P3 and P4 without 30
@@ -1032,7 +1039,9 @@ function bugTeamClause(teams) {
   if (teams.has(NO_TEAM)) parts.push("cf[10098] is EMPTY");
   return ` AND (${parts.join(" OR ")})`;
 }
-const href = jql => `${BASE}/issues/?jql=${encodeURIComponent(jql)}`;
+// A link whose query carries a broken value (NaN, undefined, an object printed as text) would open an empty or wrong list in Jira: no link is better than a misleading one.
+const BAD_JQL = /\b(?:NaN|undefined)\b|\[object /;
+const href = jql => { if (BAD_JQL.test(jql)) { try { console.warn("Delivery Pulse: link dropped, the query holds a broken value:", jql.slice(0, 200)); } catch (e) { /* no console */ } return null; } return `${BASE}/issues/?jql=${encodeURIComponent(jql)}`; };
 function jira(o = {}) {
   const projects = o.projects || [...state.projects], commit = o.commit || state.commit;
   if (!projects.length || !commit.size) return null;
@@ -1077,7 +1086,11 @@ function kpiCards(el, cards) {
 const followsRow = (follows, notApplied = []) => `<span class="follows">Follows: ${follows.join(" · ")}${notApplied.length ? ` · ${notApplied.join(", ")}: not applied` : ""}</span>`;
 // a small info marker next to a label: the bare-minimum sentence on hover, on keyboard focus and on tap; Esc closes it; the same text is its description for assistive technology
 const infoMark = (id, name, text) => `<span class="infomark" id="${id}" tabindex="0" role="img" aria-label="${esc(name)}" aria-describedby="${id}-d" ${tipAttr(text, "")}><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg></span><span class="sr" id="${id}-d">${esc(text)}</span>`;
-const tipAttr = (t, href) => `data-tip="${esc(t)}" data-link="${href ? 1 : 0}"`;
+// A link that opens a list of issue keys (a population Jira cannot search for) says so in its tooltip, once: the list will not follow later changes in Jira.
+const EXACT_NOTE = "This opens the exact issues counted here; Jira cannot search for this rule, so the list will not follow later changes in Jira.";
+const keyCount = h => { try { return new Set(decodeURIComponent(h).match(/\b[A-Z][A-Z0-9]+-\d+\b/g) || []).size; } catch (e) { return 0; } };
+const withExactNote = (tip, h) => h && keyCount(h) > 3 && !/exact|by key/i.test(tip) ? tip + "\n" + EXACT_NOTE : tip;
+const tipAttr = (t, href) => `data-tip="${esc(withExactNote(t, href))}" data-link="${href ? 1 : 0}"`;
 function ga(inner, href, tip) {
   return href ? `<a class="cl" href="${href}" target="_blank" rel="noopener" ${tipAttr(tip, href)} aria-label="${esc(tip.replace(/\n/g, ", "))}. Opens in Jira.">${inner}</a>`
               : `<g class="cl" ${tipAttr(tip, "")} tabindex="0" role="img" aria-label="${esc(tip.replace(/\n/g, ", "))}">${inner}</g>`;
@@ -1208,13 +1221,13 @@ function renderKpis() {
   const list = scopeOf(state.release), dl = doneScope(state.release), c = counts(dl), cy = cycleStats(dl), aiPct = pct(c.ai, c.aiDone);
   const defLabel = "EDCT days", small = c.aiDone < MIN_N, rel = esc(state.release), host = document.getElementById("an-kpis");
   // Where the epics of the release stand: one bar, split into Done, In Flight and Not Started. Each part opens its epics in Jira.
-  const TB = targetBase(state.release), tc = counts(TB.members), RC = scopeRecon(), delivered = releaseBar(state.release).done;
+  const TB = targetBase(state.release), tc = counts(TB.members), RC = scopeRecon(), delivered = doneScope(state.release).filter(e => cls(e.s) === "done").length;
   const tj = kind => jira({release: state.release, commit: new Set(TARGET_COMMIT), kind, ...(!TB.pre && TB.win ? {wasOn: {release: state.release, date: iso(TB.w1)}} : {})});      // the same basis as the Forecast Epics link
   const parts = [["done", "Done", tc.done, "#025AFB"], ["flight", "In Flight", tc.flight, "#3694FC"], ["notStarted", "Not Started", tc.notStarted, "#E3E0D8"]];
   if (tc.other) parts.push(["other", "Other Status", tc.other, "#8A8F98"]);
   const bar = tc.scope ? `<div class="kpi"><div class="v">${tlink(tc.scope, TB.href, `${tc.scope} epics in the target scope: the Forecast Epics scope\n${TB.tip}`)}</div><div class="l">Epics in Target Scope on ${rel}, by Status</div>` +
     (tc.scope >= MIN_N ? `<div class="statusbar" role="group" aria-label="${parts.map(p => `${p[2]} ${p[1]}`).join(", ")}, of ${tc.scope} epics in the target scope">` +
-    parts.filter(p => p[2]).map(p => { const h = p[0] === "other" ? null : tj(p[0]), tip = `${p[1]}\n${p[2].toLocaleString("en-US")} of ${tc.scope.toLocaleString("en-US")} target-scope epics (${pct(p[2], tc.scope)}%)\nCurrent status of the epics that were in the release on the first day of W1.${p[0] === "done" && delivered !== tc.done ? `\nThe burnup and the target line under Epics Delivered count ${delivered.toLocaleString("en-US")} Done target epics: these ${tc.done.toLocaleString("en-US")} plus ${(delivered - tc.done).toLocaleString("en-US")} added after W1.` : ""}`;
+    parts.filter(p => p[2]).map(p => { const h = p[0] === "other" ? null : tj(p[0]), tip = `${p[1]}\n${p[2].toLocaleString("en-US")} of ${tc.scope.toLocaleString("en-US")} target-scope epics (${pct(p[2], tc.scope)}%)\nCurrent status of the epics that were in the release on the first day of W1.${p[0] === "done" && delivered !== tc.done ? `\nEpics Delivered and the burnup count ${delivered.toLocaleString("en-US")} Done epics of any Commitment Type: these ${tc.done.toLocaleString("en-US")} plus ${(delivered - tc.done).toLocaleString("en-US")} added after W1 or outside the target.` : ""}`;
       return h ? `<a href="${h}" target="_blank" rel="noopener" style="flex:${p[2]} 1 0;background:${p[3]}" ${tipAttr(tip, h)} aria-label="${esc(tip.replace(/\n/g, ", "))}. Opens in Jira."></a>`
                : `<span style="flex:${p[2]} 1 0;background:${p[3]}" ${tipAttr(tip, "")} tabindex="0" role="img" aria-label="${esc(tip.replace(/\n/g, ", "))}"></span>`; }).join("") + `</div>` : "") +
     `<div class="key">${parts.map(p => `<span class="it"><i class="sw" style="background:${p[3]}"></i><span>${p[0] === "other" || !p[2] ? p[2].toLocaleString("en-US") : tlink(p[2], tj(p[0]), `${p[2]} target-scope epics, ${p[1]}`)} ${p[1]}${tc.scope >= MIN_N ? ` <span class="muted">${pct(p[2], tc.scope)}%</span>` : ""}</span></span>`).join("")}</div>` +
@@ -1304,12 +1317,12 @@ function paceFacts() {                                       // the same numbers
   const target = targetOf(rel), w1 = utc(win[0]) + 7 * DAY, end = utc(win[1]), snap = asOfDay();
   const N = targetBase(rel).N;
   const D = Math.round((end - w1) / DAY), d = Math.min(D, Math.max(0, Math.round((snap - w1) / DAY)));
-  return {N, D, d, w1, pre: snap < w1, doneNow: target.filter(e => cls(e.s) === "done").length, pace: D ? N * d / D : 0, closed: snap > end, targetSize: target.length};
+  return {N, D, d, w1, pre: snap < w1, doneNow: doneScope(rel).filter(e => cls(e.s) === "done").length, pace: D ? N * d / D : 0, closed: snap > end, targetSize: target.length};
 }
 function renderStatus() {
   const rel = state.release, list = scopeOf(rel), c = counts(list), mo = lastMonths(1)[0], ms = monthStats(mo), mname = mo.mon;
   const projLabel = state.projects.size === projectsAll.length ? "All Projects" : [...state.projects].join(", ") || "No project";
-  const wk = weekOf(rel), noProj = !state.projects.size, TB = targetBase(rel), tgt = TB.tgt, tDone = tgt.filter(e => cls(e.s) === "done").length;
+  const wk = weekOf(rel), noProj = !state.projects.size, TB = targetBase(rel), tgt = TB.tgt, tDone = doneScope(rel).filter(e => cls(e.s) === "done").length;
   document.getElementById("st-rel").textContent = `Release ${rel}`;
   document.getElementById("st-rest").textContent = `${projLabel}${state.teams.size ? " · " + [...state.teams].join(", ") : ""}${wk ? " · " + wk : ""}`;
   document.getElementById("st-state").hidden = !isRunning(rel);
@@ -1322,7 +1335,7 @@ function renderStatus() {
   const pf = paceFacts(), paceTxt = pf && pf.N >= MIN_N && !pf.closed && !pf.pre ? `, ${tDone - Math.round(pf.pace) >= 0 ? "+" : "−"}${Math.abs(tDone - Math.round(pf.pace)).toLocaleString("en-US")} vs even pace` : "";
   const tgtLine = `${tipSpan(`target ${tDone.toLocaleString("en-US")} of ${TB.N.toLocaleString("en-US")}${paceTxt}`, `Target (Committed + Not Set): ${tDone} delivered${TB.win && !TB.pre ? `, scope ${TB.N} on the first day of W1` : ""}${pf && pf.N >= MIN_N && !pf.closed && !pf.pre ? `\nEven-pace reference ${Math.round(pf.pace)} (day ${pf.d} of ${pf.D}); a reference, not a forecast` : ""}`)}`;
   kpiCards(document.getElementById("kpis"), [
-    {k: `Release ${esc(rel)}`, c: "d", v: tlink(c.done, jira({kind: "done"}), `${c.done} epics Done in ${rel} under the filters\nTarget: ${tDone} of ${TB.N} delivered${paceTxt ? "; " + paceTxt.replace(/^, /, "") : ""}`), l: "Epics Delivered", s: `of ${tlink(c.scope, jira(), `${c.scope} epics in ${rel} under the filters (${state.commit.size === COMMIT.length ? "all commitment types" : "the selected types"}); ${TB.N} in the target scope`)} in release`},
+    {k: `Release ${esc(rel)}`, c: "d", v: tlink(tDone, jira({kind: "done", commit: ALLC}), `${tDone} epics Done in ${rel}, any Commitment Type${paceTxt ? "; " + paceTxt.replace(/^, /, "") : ""}\nThe burnup under Epics Delivered counts the same ${tDone}`), l: "Epics Delivered", s: `of ${tlink(TB.N, TB.href, TB.tip)} target scope`},
     {k: `Release ${esc(rel)}`, c: "d", v: tlink(TB.N, TB.href, TB.tip), l: "Forecast Epics",
      s: !TB.win ? "Target scope: Committed + Not Set" : TB.pre ? `Target scope so far; W1 starts ${shortDate(TB.w1)}` : `Committed + Not Set on ${shortDate(TB.w1)}`,
      x: !TB.win || TB.pre ? "" : `${tipSpan(`${TB.added >= 0 ? "+" : "−"}${Math.abs(TB.added).toLocaleString("en-US")} ${TB.added >= 0 ? "" : "removed "}since W1`, `${Math.abs(TB.added)} target epics ${TB.added >= 0 ? "were added to" : "left"} ${rel} after the first day of W1: ${TB.today} today minus ${TB.N} on ${shortDate(TB.w1)}`)} (${tlink(TB.today, TB.hrefToday, `${TB.today} epics are in the target today (Committed + Not Set)`)} today)`},
@@ -1437,17 +1450,18 @@ function renderBurnup() {
   const start = win ? utc(win[0]) : 0, w1 = start + 7 * DAY, end = win ? utc(win[1]) : 0, snap = asOfDay();
   const joinT = e => utc((e.ad && e.ad[rel]) || (win ? win[0] : "1970-01-01"));
   const target = list, TB = targetBase(rel), baseScope = TB.N;
+  const dlist = doneScope(rel);                                  // Done ignores Commitment Type (and the commitment filter): the same Done the Epics Delivered tile shows; scope and Delivery Cycle 1 stay target / Committed
   {
-    const dn = list.filter(e => cls(e.s) === "done"), last = dn.map(e => e.rd).filter(Boolean).sort().pop(), wk = weekOf(rel);
-    document.getElementById("bu-sub").textContent = list.length ? `${dn.length.toLocaleString("en-US")}${win ? ` of ${baseScope.toLocaleString("en-US")}` : ""} target epics delivered${wk ? " · " + wk.replace(/^Week/, "week") : ""}${last ? ` · last epic closed ${last}` : ""}` : "";
+    const dn = dlist.filter(e => cls(e.s) === "done"), last = dn.map(e => e.rd).filter(Boolean).sort().pop(), wk = weekOf(rel);
+    document.getElementById("bu-sub").textContent = list.length ? `${dn.length.toLocaleString("en-US")}${win ? ` of ${baseScope.toLocaleString("en-US")} target scope` : ""} epics delivered${wk ? " · " + wk.replace(/^Week/, "week") : ""}${last ? ` · last epic closed ${last}` : ""}` : "";
   }
   if (!win) { el.innerHTML = `<div class="empty">Jira has no dated version for ${esc(rel)}, so there is no timeline to draw.</div>`; return; }
   if (!list.length) { el.innerHTML = `<div class="empty">${whyEmpty("epics")}</div>`; return; }
 
   const clampWin = t => Math.min(Math.max(t, w1), end);          // earlier closures count at W1, later ones on the last day
-  const early = list.filter(e => cls(e.s) === "done" && e.rd && utc(e.rd) < w1).length;
-  const late = list.filter(e => cls(e.s) === "done" && e.rd && utc(e.rd) > end).length;
-  const doneT = list.filter(e => cls(e.s) === "done" && e.rd).map(e => clampWin(utc(e.rd))).sort((a, b) => a - b);
+  const early = dlist.filter(e => cls(e.s) === "done" && e.rd && utc(e.rd) < w1).length;
+  const late = dlist.filter(e => cls(e.s) === "done" && e.rd && utc(e.rd) > end).length;
+  const doneT = dlist.filter(e => cls(e.s) === "done" && e.rd).map(e => clampWin(utc(e.rd))).sort((a, b) => a - b);
   const D = Math.round((end - w1) / DAY), weeks = Math.round(D / 7);
   const snapD = Math.min(D, Math.max(0, Math.round((snap - w1) / DAY)));
   const done = [];
@@ -1509,7 +1523,7 @@ function renderBurnup() {
     w6Hit = `<rect class="hit" x="${lx - lw - 3}" y="${pt}" width="${lw + 16}" height="${lines.length * 15 + 4}" fill="transparent"/>`;
   }
   g += `<line id="bu-cross" x1="0" x2="0" y1="${pt}" y2="${pt + ph}" stroke="#444" stroke-opacity=".45" style="display:none"/>`;
-  g += `<a id="bu-link" href="${jira({kind: "done", commit: new Set(TARGET_COMMIT)}) || ""}" target="_blank" rel="noopener" aria-label="Open the Done epics in Jira"><rect id="bu-hit" x="${pl}" y="${pt}" width="${pw}" height="${ph}" fill="transparent" style="touch-action:pan-y;cursor:pointer"/></a>`;
+  g += `<a id="bu-link" href="${jira({kind: "done", commit: ALLC}) || ""}" target="_blank" rel="noopener" aria-label="Open the Done epics in Jira"><rect id="bu-hit" x="${pl}" y="${pt}" width="${pw}" height="${ph}" fill="transparent" style="touch-action:pan-y;cursor:pointer"/></a>`;
   g += ga(`<circle cx="${x(D)}" cy="${yS}" r="9" fill="transparent" stroke="none"/><rect class="hit" x="${x(D) - 9}" y="${yS - 16}" width="${pr - 4}" height="34" fill="transparent"/>`, TB.href, `Target scope ${N.toLocaleString("en-US")} on ${shortDate(w1)}\n${TB.tip}`);
   const w6tip = W6 ? `Delivery Cycle 1 (W1 to W6, ends ${W6.w6}): ${W6.within.length} Committed ${epicWord(W6.within.length)} planned by the cycle end, of ${W6.list.length} Committed in the release\n${W6.done.length} Done, ${W6.open.length} not Done; ${W6.none.length} with no due date or Target Sprint.\nCommitted only, Not Set is not included. A Target Sprint counts by its end date (the 2nd sprint of the release or earlier); with both a Target Sprint and a due date the later one counts. The dependency board keeps the due date over the Target Sprint.` : "";
   if (W6) g += ga(w6Hit + w6Dot, W6.hrefs.within, w6tip);
@@ -1523,7 +1537,7 @@ function renderBurnup() {
   const dayAt = d => {                                          // the same tooltip for the pointer and for the keyboard
     const r = svg.getBoundingClientRect(), wr = el.getBoundingClientRect();
     cross.setAttribute("x1", x(d)); cross.setAttribute("x2", x(d)); cross.style.display = "";
-    lk.setAttribute("href", (d >= D ? jira({kind: "done", commit: new Set(TARGET_COMMIT)}) : jira({kind: "done", commit: new Set(TARGET_COMMIT), extra: `resolutiondate < "${iso(w1 + (d + 1) * DAY)}"`})) || "");
+    lk.setAttribute("href", (d >= D ? jira({kind: "done", commit: ALLC}) : jira({kind: "done", commit: ALLC, extra: `resolutiondate < "${iso(w1 + (d + 1) * DAY)}"`})) || "");
     const pace = Math.round(D ? N * d / D : 0);
     lk.setAttribute("aria-label", `${shortDate(w1 + d * DAY)}, week ${Math.floor(d / 7) + 1}: scope ${N}, even pace ${pace}${d > snapD ? "" : `, done ${done[d]}`}. ${lkLabel}. Left and right arrow keys move the day.`);
     tip.innerHTML = `<b>${shortDate(w1 + d * DAY)}</b> (W${Math.floor(d / 7) + 1})<br>Scope ${N}<br>Even pace ${pace}` + (d > snapD ? "" : `<br>Done ${done[d]}<br>Remaining ${Math.max(0, N - done[d])}<br><span style="color:var(--muted)">Click to open the Done epics up to this day</span>`);
@@ -1548,7 +1562,7 @@ function renderBurnup() {
   cap.innerHTML = (TB.pre ? `Target scope so far ${tlink(N, TB.href, TB.tip)}; W1 starts ${shortDate(w1)}.` : `Scope ${tlink(N, TB.href, TB.tip)} on ${shortDate(w1)}, ${added >= 0 ? "+" : ""}${added.toLocaleString("en-US")} since (${tlink(target.length, TB.hrefToday, `${target.length} epics are in the target today (Committed + Not Set)`)} today).`) + ` Target is always Committed + Not Set.` +
     `<details class="vd"><summary>How this is calculated</summary><div class="cap"><b>Delivery Cycle 1</b>: Committed only. An epic is planned in the cycle when its Target Sprint (counted by its end date) or its due date is on or before the cycle end (W1 + 41 days); with both, the later one counts. The dependency board keeps the due date over the Target Sprint. Undated = no due date and no known Target Sprint. The dotted line marks the end of the cycle; the dot on it is at the number planned, on the chart's epic scale. The target is always Committed + Not Set, whatever the Commitment Type filter says; ${snapD < D ? (DATA.refreshedAt ? "refreshed" : "snapshot") : "final"}: ${link(finalDone, jira({kind: "done", commit: new Set(TARGET_COMMIT)}))} Done target epics.<br>Release ${esc(rel)}: ${weeks} delivery weeks, W1 (${shortDate(w1)}) to the release end (${shortDate(end)}), from the Jira version dates; the IP week before W1 is not drawn. ` +
     `Scope is the target epics in the release on the first day of W1. The dashed line is an even pace from zero to that scope, a reference and not a forecast. ` +
-    `Done counts the target epics (Committed + Not Set) closed in the release, including ones added after W1, so Done, scope and the even-pace line always describe the same epics. ` +
+    `Done counts every epic closed in the release, whatever its Commitment Type (a Done Stretch epic is still delivered), including ones added after W1: the same Done as the Epics Delivered tile. Scope and the even-pace line are the target epics. ` +
     (early ? `${early} ${epicWord(early)} closed before W1 ${early === 1 ? "is" : "are"} counted at the start. ` : "") +
     (late ? `${late} ${epicWord(late)} closed after the release end ${late === 1 ? "is" : "are"} counted on its last day. ` : "") + `Follows the project and team filters; the Commitment Type filter does not change this chart.</div></details>`;
   const days = [];
@@ -1674,7 +1688,6 @@ function chartNfr(rels) {
 // Share = capitalized story points / all story points (blank = 0), or capitalized issues / all issues in Count mode.
 let CAPZ = null;                                                  // parsed records, rebuilt after a Refresh
 const capOk = () => !!(DATA.cap && DATA.cap.rows);
-const capKey = r => `${DATA.cap.projects[r.p]}-${r.n}`;
 const capQuarterOf = date => `${date.getUTCFullYear()}-Q${Math.floor(date.getUTCMonth() / 3) + 1}`;
 const capQStart = q => { const [y, n] = q.split("-Q").map(Number); return `${y}-${String((n - 1) * 3 + 1).padStart(2, "0")}-01`; };
 const capQEnd = q => { const [y, n] = q.split("-Q").map(Number); return n === 4 ? `${y + 1}-01-01` : `${y}-${String(n * 3 + 1).padStart(2, "0")}-01`; };       // exclusive
@@ -1694,28 +1707,27 @@ function capFiltered() {
   const C = DATA.cap, ok = r => state.projects.has(C.projects[r.p]) && (!state.teams.size || state.teams.has(capTeam(r)));
   return capRecords().filter(ok);
 }
-const CAP_SKIP_RELEASES = ["25.4"];                               // its window starts before the pull does, so its figures would be partial: counted in a note, not plotted
+const capSkipped = () => DATA.releases.filter(r => DATA.windows[r] && DATA.windows[r][0] < DATA.cap.start);       // a release whose Jira window starts before the pull does would be partial: counted in a note, not plotted
 function capQuarterKeys(cur) { const out = []; let q = capQuarterOf(new Date(utc(DATA.cap.start))); for (let i = 0; i < 40 && q <= cur; i++) { out.push(q); q = capQuarterOf(new Date(utc(capQEnd(q)))); } return out; }
 function capGroups(recs) {                                         // the plotted periods with their sums; Release mode also lists the issues closed in a left-out release or outside every release window
   const C = DATA.cap, by = state.cap.by, cur = capQuarterOf(new Date(asOfDay()));
-  const keys = by === "quarter" ? capQuarterKeys(cur) : DATA.releases.filter(r => !CAP_SKIP_RELEASES.includes(r) && DATA.windows[r]);
+  const keys = by === "quarter" ? capQuarterKeys(cur) : DATA.releases.filter(r => !capSkipped().includes(r) && DATA.windows[r]);
   const g = new Map(keys.map(k => [k, {k, capSP: 0, allSP: 0, capN: 0, allN: 0, noSp: 0, recs: [], capRecs: []}]));
   const out = {outside: [], skippedRelease: [], later: []};
   recs.forEach(r => {
     const key = by === "quarter" ? r.q : (r.rel >= 0 ? DATA.releases[r.rel] : null);
     const G = key === null ? null : g.get(key);
-    if (!G) { if (by === "quarter") out.later.push(r); else if (key !== null && CAP_SKIP_RELEASES.includes(key)) out.skippedRelease.push(r); else out.outside.push(r); return; }
+    if (!G) { if (by === "quarter") out.later.push(r); else if (key !== null && capSkipped().includes(key)) out.skippedRelease.push(r); else out.outside.push(r); return; }
     G.allSP += r.sp; G.allN++; G.recs.push(r); if (r.sp === 0) G.noSp++; if (capIsCap(r)) { G.capSP += r.sp; G.capN++; G.capRecs.push(r); }
   });
   return {groups: [...g.values()], ...out, cur};
 }
 const capRangeOf = k => state.cap.by === "quarter" ? [capQStart(k), capQEnd(k)] : [DATA.windows[k][0], capAddDays(DATA.windows[k][1], 1)];          // [from, before): the quarter, or the release window (inclusive end)
 const capClosedIn = ([a, b]) => `((cf[10099] >= "${a}"${b ? ` AND cf[10099] < "${b}"` : ""}) OR (cf[10099] is EMPTY AND resolutiondate >= "${a}"${b ? ` AND resolutiondate < "${b}"` : ""}))`;      // the Closed day, the resolution date when Closed is empty
-// A link is exact: a key list up to 250 issues, otherwise the range query on the Closed field (and the resolution-date fallback), with the project and team filters.
+// A link is a query, never a frozen key list: the range query on the Closed field (and the resolution-date fallback), with the project and team filters, so Jira always shows today's issues of that bar.
 // ranges: the periods the set lies in (a union; [start, null] is everything since the pull); opts.not: periods to leave out (the issues not plotted); opts.capOnly: capitalized only; opts.noSp: no story points.
 function capLink(recs, ranges, opts = {}) {
   if (!recs.length) return {href: null, approx: false};
-  if (recs.length <= 250) return {href: href(`key in (${recs.map(capKey).join(", ")})`), approx: false};
   const C = DATA.cap, proj = [...state.projects].join(", "), capVals = C.values.filter(v => String(v).startsWith(C.prefix)).map(q).join(", ");
   let jql = `project in (${proj}) AND status = Done AND issuetype in (Bug, Story, Task) AND (${ranges.map(capClosedIn).join(" OR ")})`;
   if (opts.not && opts.not.length) jql += ` AND NOT (${opts.not.map(capClosedIn).join(" OR ")})`;
@@ -1739,31 +1751,34 @@ function renderCapitalization() {
   G.groups.forEach((g, i) => {
     const cx = x(i), pv = plotted(g) ? val(g) : null, nm = g.k + (prov(g.k) ? (by === "quarter" ? " (current quarter)" : " (in progress)") : "");
     const rg = capRangeOf(g.k), num = capLink(g.capRecs, [rg], {capOnly: true}), den = capLink(g.recs, [rg]);
-    const tip = `${nm}\n${sp ? "Story Points" : "Count"}: ${pv == null ? (sp && g.allN >= MIN_N && withSp(g) < MIN_N ? `fewer than ${MIN_N} issues carry story points, so no share is shown` : `n < ${MIN_N}, so no share is shown`) : `${pv}% (${sp ? `${+g.capSP.toFixed(1)} of ${+g.allSP.toFixed(1)} points` : `${g.capN} of ${g.allN} issues`})`}\nStory points: ${+g.capSP.toFixed(1)} of ${+g.allSP.toFixed(1)} capitalized · Count: ${g.capN} of ${g.allN} issues\n${g.noSp} of ${g.allN} issues have no story points (${withSp(g)} with story points)\nClick opens the issues in Jira`;
+    const tip = `${nm}\n${sp ? "Story Points" : "Count"}: ${pv == null ? (sp && g.allN >= MIN_N && withSp(g) < MIN_N ? `fewer than ${MIN_N} issues carry story points, so no share is shown` : `n < ${MIN_N}, so no share is shown`) : `${pv}% (${sp ? `${+g.capSP.toFixed(1)} of ${+g.allSP.toFixed(1)} points` : `${g.capN} of ${g.allN} issues`})`}\nStory points: ${+g.capSP.toFixed(1)} of ${+g.allSP.toFixed(1)} capitalized · Count: ${g.capN} of ${g.allN} issues\nSP: ${withSp(g)} of ${g.allN} issues carry story points${g.allN && withSp(g) / g.allN < .2 ? " (low SP coverage)" : ""}\nClick to open in Jira: the ${num.href ? g.capN : g.allN} issues of this bar${g.capN ? "" : ", none is capitalized"}`;
     let m = `<rect class="hit" x="${cx - step / 2}" y="${PAD.t}" width="${step}" height="${H - PAD.b - PAD.t}" fill="transparent"/>`;
     if (pv == null) m += `<text x="${cx}" y="${H - PAD.b - 8}" text-anchor="middle" font-size="11" fill="#5A5F6B">${g.allN < MIN_N ? "n&lt;5" : sp && withSp(g) < MIN_N ? "n&lt;5 with SP" : "–"}</text>`;
     else { const y = yOf(pv, 100);
       m += `<rect x="${cx - bw / 2}" y="${y}" width="${bw}" height="${Math.max(0, H - PAD.b - y)}" fill="${prov(g.k) ? "var(--chart-capz-tint)" : "var(--chart-capz)"}" stroke="var(--chart-capz)" stroke-width="1.5"${prov(g.k) ? ' stroke-dasharray="3 2"' : ""}/><text x="${cx}" y="${y - 5}" text-anchor="middle" font-size="11" font-weight="600" fill="var(--chart-capz-ink)">${pv}%</text>`; }
-    svg += ga(m, num.href || den.href, tip) + relLabel(g.k, cx) + `<text x="${cx}" y="${H - PAD.b + 30}" text-anchor="middle" font-size="11" fill="#5A5F6B">n=${g.allN}</text>`;
+    svg += ga(m, num.href || den.href, tip) + relLabel(g.k, cx) + `<text x="${cx}" y="${H - PAD.b + 30}" text-anchor="middle" font-size="11" fill="#5A5F6B">n=${g.allN}</text>` + (sp && g.allN >= MIN_N && withSp(g) / g.allN < .2 ? `<text x="${cx}" y="${H - PAD.b + 42}" text-anchor="middle" font-size="9" fill="#8A5200">low SP</text>` : "");
   });
   svgHost.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:${W}px" role="img" aria-label="Capitalization % per ${by}, ${keys.length} periods, ${sp ? "story points" : "issue count"}. The same values are in the data table attached to this chart." aria-describedby="capz-data">${svg}</svg>`;
+  { let cue = document.getElementById("capz-cue"); if (!cue) { cue = document.createElement("div"); cue.id = "capz-cue"; cue.className = "scrollcue"; svgHost.insertAdjacentElement("afterend", cue); }
+    const wide = svgHost.scrollWidth > svgHost.clientWidth + 1; cue.hidden = !wide; cue.textContent = wide ? "Scroll sideways to see all periods; the chart opens on the latest." : ""; if (wide) svgHost.scrollLeft = svgHost.scrollWidth; }       // on a phone the chart scrolls inside its card
   const built = ilLabel(C.pulledAt), refreshed = DATA.capRefreshedAt ? `; the current quarter was refreshed ${ilLabel(DATA.capRefreshedAt)}${DATA.capRefreshedN != null ? ` (${DATA.capRefreshedN} issues)` : ""}` : "";
-  const refShort = DATA.capRefreshedAt ? `, refreshed ${esc(ilLabel(DATA.capRefreshedAt))}${DATA.capRefreshedN != null ? ` (${DATA.capRefreshedN} issues)` : ""}` : "";
-  cap.innerHTML = `Capitalized share of Done Bugs, Stories and Tasks by Closed date${refShort}.`;
-  const winTxt = DATA.releases.filter(r => DATA.windows[r] && !CAP_SKIP_RELEASES.includes(r)).map(r => `${r} ${DATA.windows[r][0]} to ${DATA.windows[r][1]}`).join("; ");
+  const stampTxt = DATA.capRefreshFailed ? `not refreshed: ${esc(DATA.capRefreshFailed)}; as of ${esc(ilStamp(DATA.capRefreshedAt || C.pulledAt))}` : "";      // no per-section stamp: the header carries the one time for every section, and Refresh covers them all; only a failed step is called out here
+  const refShort = stampTxt ? ` · ${stampTxt}` : "";
+  cap.innerHTML = `Capitalized share of Done issues by Closed date${refShort}.`;
+  const winTxt = DATA.releases.filter(r => DATA.windows[r] && !capSkipped().includes(r)).map(r => `${r} ${DATA.windows[r][0]} to ${DATA.windows[r][1]}`).join("; ");
   how.innerHTML = `Capitalized ${sp ? "story points" : "issues"} over all ${sp ? "story points" : "issues"} of Done Bugs, Stories and Tasks, by the day each was closed. Group By ${by === "quarter" ? "Quarter: the calendar quarter of the Closed date (Israel-local day)" : "Release: the release whose Jira version window holds the Closed date"}. Dashed bar: ${by === "quarter" ? "the current quarter" : "a release still running"}. Follows the Projects and Teams filters (Team = Team Name of the issue); the Release and Commitment Type filters do not apply. No share under ${MIN_N} issues. Refresh updates the current quarter only; earlier quarters are as of the build (${esc(built)})${esc(refreshed)}${by === "release" ? "; in Release mode, issues of earlier quarters are not refreshed" : ""}.` +
-    `<p><b>The rule</b> (the owner's Jira logic, read at build time per project): Bugs, Stories and Tasks with the status Done and a Closed date (customfield_10099, the field the CFB section uses) on or after ${esc(C.start)}, the start of 2025-Q4, so that 2025-Q4 and release 26.1 are complete. A Done issue whose Closed field is empty uses its resolution date and is counted in the data-quality line. No sprint, board or fix version is read. <b>Quarter</b>: the calendar quarter of the Closed day. <b>Release</b>: the release whose Jira version window (start date to release date, inclusive, the windows the burnup uses, which include the IP week at the start) contains the Closed day (${esc(winTxt)}); release ${esc(CAP_SKIP_RELEASES.join(", "))} is not plotted because its window starts before the pull does, and a Closed day in no window is counted in the note, not plotted. <b>Capitalized</b>: the Capitalize field (customfield_10079) starts with "${esc(C.prefix)}"; values starting with "Non Capitalize" and an empty value are not. <b>Share</b>: capitalized story points (customfield_10038, blank counted as 0) over all story points, or in Count mode capitalized issues over all issues; n is the issue count. <b>Filters</b>: Projects and Teams (Team Name of the issue, customfield_10098) apply; the Release and Commitment Type filters do not. <b>Quarters and releases</b> come from the same Closed date, so they overlap: a release spans up to two quarters (the crosstab in View Data shows how). Release windows are the shared release dates for all projects. Counted by Closed date, which can differ from the resolution date. <b>Story-point share</b>: shown only when at least 5 issues in the bar carry story points (the bar says "n&lt;5 with SP" otherwise); the hover and the With SP column give the number. <b>Links</b>: exact: a key list when the set has up to 250 issues, otherwise a range query on the Closed field (and the resolution date when Closed is empty), with the project and team filters. Field ids are build constants. Refresh updates the current quarter only.</p>`;
-  // data quality facts, each with an exact link: a key list up to 250 issues, otherwise the range query on the Closed field
-  const START_R = [C.start, null], shownR = G.groups.map(g => capRangeOf(g.k)), skippedR = by === "release" ? CAP_SKIP_RELEASES.filter(r => DATA.windows[r]).map(r => [C.start, capAddDays(DATA.windows[r][1], 1)]) : [];
+    `<p><b>The rule</b> (the owner's Jira logic, read at build time per project): Bugs, Stories and Tasks with the status Done and a Closed date (customfield_10099, the field the CFB section uses) on or after ${esc(C.start)}, the start of 2025-Q4, so that 2025-Q4 and release 26.1 are complete. A Done issue whose Closed field is empty uses its resolution date and is counted in the data-quality line. No sprint, board or fix version is read. <b>Quarter</b>: the calendar quarter of the Closed day. <b>Release</b>: the release whose Jira version window (start date to release date, inclusive, the windows the burnup uses, which include the IP week at the start) contains the Closed day (${esc(winTxt)}); release ${esc(capSkipped().join(", "))} is not plotted because its window starts before the pull does, and a Closed day in no window is counted in the note, not plotted. <b>Capitalized</b>: the Capitalize field (customfield_10079) starts with "${esc(C.prefix)}"; values starting with "Non Capitalize" and an empty value are not. <b>Share</b>: capitalized story points (customfield_10038, blank counted as 0) over all story points, or in Count mode capitalized issues over all issues; n is the issue count. <b>Filters</b>: Projects and Teams (Team Name of the issue, customfield_10098) apply; the Release and Commitment Type filters do not. <b>Quarters and releases</b> come from the same Closed date, so they overlap: a release spans up to two quarters (the crosstab in View Data shows how). Release windows are the shared release dates for all projects. Counted by Closed date, which can differ from the resolution date. <b>Story-point share</b>: shown only when at least 5 issues in the bar carry story points (the bar says "n&lt;5 with SP" otherwise); the hover and the With SP column give the number. <b>Links</b>: exact: a key list when the set has up to 250 issues, otherwise a range query on the Closed field (and the resolution date when Closed is empty), with the project and team filters. Field ids are build constants. Refresh updates the current quarter only.</p>`;
+  // data quality facts, each with a query link (the Closed-field range query), not a key list
+  const START_R = [C.start, null], shownR = G.groups.map(g => capRangeOf(g.k)), skippedR = by === "release" ? capSkipped().filter(r => DATA.windows[r]).map(r => [C.start, capAddDays(DATA.windows[r][1], 1)]) : [];
   const link = (list, what, ranges, opts) => list.length ? tlink(list.length.toLocaleString("en-US"), capLink(list, ranges, opts).href, `${list.length} ${what}\nClick opens the issues in Jira`) : "0";
   const inPlot = G.groups.flatMap(g => g.recs), noSp = inPlot.filter(r => r.sp === 0), fb = recs.filter(r => r.fb);
   const dist = new Map(); recs.forEach(r => { const k = r.v >= 0 ? C.values[r.v] : "(empty)"; dist.set(k, (dist.get(k) || 0) + 1); });
   const pjs = [...state.projects].join(", ");
-  const fbHref = fb.length ? (fb.length <= 250 ? href(`key in (${fb.map(capKey).join(", ")})`) : href(`project in (${pjs}) AND status = Done AND issuetype in (Bug, Story, Task) AND cf[10099] is EMPTY AND resolutiondate >= "${C.start}"${bugTeamClause(state.teams)}`)) : null;
+  const fbHref = fb.length ? (href(`project in (${pjs}) AND status = Done AND issuetype in (Bug, Story, Task) AND cf[10099] is EMPTY AND resolutiondate >= "${C.start}"${bugTeamClause(state.teams)}`)) : null;
   const noSpRanges = by === "release" ? shownR : [START_R];
   const sums0 = list => list.length;
   dq.innerHTML = `<b>Data quality</b>: ${fb.length ? tlink(fb.length.toLocaleString("en-US"), fbHref, `${fb.length} Done issues with no Closed date\nClick opens the issues in Jira`) : "0"} Done issues have no Closed date and use the resolution date; ${link(noSp, "issues with no story points (blank or 0), counted as 0", noSpRanges, {noSp: true})} issues in the periods have no story points and count as 0` +
-    `${by === "release" ? `; ${link(G.outside, "issues closed outside every release window", [START_R], {not: [...shownR, ...skippedR]})} closed outside every release window (not plotted)${G.skippedRelease.length ? `; ${link(G.skippedRelease, "issues closed in a left-out release", skippedR.length ? skippedR : [START_R])} closed in release ${esc(CAP_SKIP_RELEASES.join(", "))}, which is left out: its window starts before the pull (${esc(C.start)}), so it would be partial` : ""}` : ""}${by === "quarter" && G.later.length ? `; ${G.later.length} issues have a Closed date after the current quarter and are not plotted` : ""}. ` +
+    `${by === "release" ? `; ${link(G.outside, "issues closed outside every release window", [START_R], {not: [...shownR, ...skippedR]})} closed outside every release window (not plotted)${G.skippedRelease.length ? `; ${link(G.skippedRelease, "issues closed in a left-out release", skippedR.length ? skippedR : [START_R])} closed in release ${esc(capSkipped().join(", "))}, which is left out: its window starts before the pull (${esc(C.start)}), so it would be partial` : ""}` : ""}${by === "quarter" && G.later.length ? `; ${G.later.length} issues have a Closed date after the current quarter and are not plotted` : ""}. ` +
     `${link(recs, "issues under the filters", [START_R])} issues in all under the filters${by === "release" ? `, of which ${link([...G.outside, ...G.skippedRelease], "issues closed in a left-out release or outside every window", [START_R], {not: shownR})} are not plotted` : ""}. ` +
     `Capitalize field values under the filters: ${[...dist.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${esc(k)} (${n})`).join("; ")}.`;
   // View Data: the periods, then the Quarter x Release crosstab
@@ -1776,7 +1791,7 @@ function renderCapitalization() {
       return [esc(g.k) + (prov(g.k) ? "*" : ""), fmtN(g.capSP), fmtN(g.allSP), g.capN ? tlink(g.capN, num.href, `${g.capN} capitalized issues, ${g.k}\nClick opens the issues in Jira`) : "0", g.allN ? tlink(g.allN, den.href, `${g.allN} issues, ${g.k}\nClick opens the issues in Jira`) : "0", withSp(g), g.noSp, pv == null ? (sp && g.allN >= MIN_N && withSp(g) < MIN_N ? `n &lt; ${MIN_N} with SP` : `n &lt; ${MIN_N}`) : pv + "%"]; })
     .concat(by === "release" ? [["Not plotted (a left-out release or no window)", "–", "–", "–", link(notPlotted, "issues closed in a left-out release or outside every window", [START_R], {not: shownR}), sums(notPlotted).n - sums(notPlotted).noSp, sums(notPlotted).noSp, "–"]] : [])
     .concat([["All issues under the filters", fmtN(sums(all).capSP), fmtN(sums(all).sp), sums(all).capN, link(all, "issues under the filters", [START_R]), sums(all).n - sums(all).noSp, sums(all).noSp, "–"]]));
-  { const rels = DATA.releases.filter(r => DATA.windows[r] && !CAP_SKIP_RELEASES.includes(r)), qs = capQuarterKeys(cur);
+  { const rels = DATA.releases.filter(r => DATA.windows[r] && !capSkipped().includes(r)), qs = capQuarterKeys(cur);
     const cellOf = list => { const t = sums(list); return t.n ? `${t.n} issues (${t.capN} capitalized) · ${fmtN(t.sp)} SP (${fmtN(t.capSP)} capitalized)` : "–"; };
     const head = ["Quarter", ...rels, "No shown release"].map((h, i) => `<th scope="col"${i ? ' class="n"' : ""}>${esc(h)}</th>`).join("");
     const rowsX = qs.map(q => { const inQ = recs.filter(r => r.q === q); return `<tr><th scope="row">${esc(q)}${q >= cur ? "*" : ""}</th>${rels.map(r => `<td class="n">${cellOf(inQ.filter(x => DATA.releases[x.rel] === r))}</td>`).join("")}<td class="n">${cellOf(inQ.filter(x => x.rel < 0 || !rels.includes(DATA.releases[x.rel])))}</td></tr>`; }).join("");
@@ -1964,14 +1979,23 @@ function noPriNote(open) {                                      // the total cou
 function renderBugTable(open) {
   const projects = projectsAll.filter(p => state.projects.has(p) && DATA.bugs.some(b => b.p === p));
   const cell = (n, extra, p) => n ? link(n, jiraBugs({projects: p ? [p] : undefined, extra: `${OPEN_BUG_JQL}${extra ? " AND " + extra : ""}`})) : `<span class="muted">0</span>`;
+  // Trend, 2 weeks: open bugs today against open bugs at the end of the day 14 days ago, by the chart's own rule (created before it and open by status today, or closed on or after it)
+  const all = backlogBugs(), then = asOfDay() - 13 * DAY, thenIso = iso(then);
+  const openThen = p => all.filter(b => (!p || b.p === p) && utc(b.cr) < then && (isOpenBug(b) || (b.rd && utc(b.rd) >= then))).length;
+  const trend = (n, p) => {
+    const t0 = openThen(p), d = n - t0, col = d > 0 ? "var(--red)" : d < 0 ? "#007C58" : "var(--muted)", sym = d > 0 ? "▲ +" : d < 0 ? "▼ −" : "";
+    // the cell is only the symbol and the change; the two counts it comes from sit in the hover text and the screen-reader text (today's count is the linked Total beside it)
+    const word = d > 0 ? "more open bugs" : d < 0 ? "fewer open bugs" : "no change";
+    return `<td class="n">${tipSpan(`<b style="color:${col}" aria-hidden="true">${sym || ""}${Math.abs(d).toLocaleString("en-US")}</b><span class="sr">${word}${d ? ": " + Math.abs(d).toLocaleString("en-US") : ""}</span>`, `${t0.toLocaleString("en-US")} open on ${thenIso}, ${n.toLocaleString("en-US")} open today`)}</td>`;
+  };
   const row = (label, list, p, cls_ = "") => {
     const byP = k => list.filter(b => b.pr === k).length;
     return `<tr class="${cls_}"><th scope="row">${label}</th>` + PRIORITIES.map(k => `<td class="n">${cell(byP(k), `priority = ${k}`, p)}</td>`).join("") +
-      `<td class="n">${cell(list.length, "", p)}</td></tr>`;
+      `<td class="n">${cell(list.length, "", p)}</td>${trend(list.length, p)}</tr>`;
   };
   const rows = projects.map(p => row(p, open.filter(b => b.p === p), p)).join("") + row("All Selected", open, undefined, "total");
   document.getElementById("bug-table").innerHTML = projects.length
-    ? `<table><caption class="sr">Open bugs by project and priority</caption><thead><tr><th>Project</th>${PRIORITIES.map(k => `<th class="n">${k}</th>`).join("")}<th class="n">Total</th></tr></thead><tbody>${rows}</tbody></table>` + noPriNote(open)
+    ? `<table><caption class="sr">Open bugs by project and priority, with the change in open bugs over the last two weeks</caption><thead><tr><th>Project</th>${PRIORITIES.map(k => `<th class="n">${k}</th>`).join("")}<th class="n">Total</th><th class="n">${tipSpan("Trend, 2 Weeks", `Open bugs today against ${shortDate(then)}, 13 days earlier.\n▲ red: more open bugs; ▼ green: fewer.\nHover a figure for the two counts.`)}</th></tr></thead><tbody>${rows}</tbody></table>` + noPriNote(open)
     : `<div class="empty">${whyEmpty("bugs")}</div>`;
 }
 
@@ -2033,7 +2057,7 @@ function renderCfb() {
   // direct value labels above the bars; a label that would touch another bar or label is left out (its bar keeps the hover text and link)
   const bars = [], cands = [];
   rows.forEach((r, i) => { const cx = pl + slot * i + slot / 2;
-    [["n", cx - bw - 1, "#007C58"], ["reg", cx + 1, "#B3261E"]].forEach(([k, x0, col]) => {
+    [["n", cx - bw - 1, "var(--chart-delivery-ink)"], ["reg", cx + 1, "var(--chart-capz-ink)"]].forEach(([k, x0, col]) => {
       bars.push({x0, x1: x0 + bw, y0: yy(r[k]), y1: base0, id: k + i});
       cands.push({k, i, v: r[k], x: x0 + bw / 2, y: yy(r[k]) - 4, w: labelW(String(r[k]), 11), own: k + i, id: "lb" + k + i, col}); }); });
   const kept = placeLabels(cands.slice().sort((a, b) => (b.v - a.v) || (a.i - b.i)), bars, Wc - 2), labelOf = {};
@@ -2041,17 +2065,17 @@ function renderCfb() {
   const lab = (k, i) => { const c = labelOf[k + i]; return c ? `<text x="${c.x}" y="${c.y}" text-anchor="middle" font-size="11" font-weight="600" fill="${c.col}">${c.v}</text>` : ""; };
   const everyLbl = Math.max(1, Math.ceil(54 / slot));
   rows.forEach((r, i) => {
-    const cx = pl + slot * i + slot / 2, dash = r.running ? ' stroke="#007C58" stroke-dasharray="3 2"' : "", dashR = r.running ? ' stroke="#7A1712" stroke-dasharray="3 2"' : "";
+    const cx = pl + slot * i + slot / 2, dash = r.running ? ' stroke="#0A47C2" stroke-dasharray="3 2"' : "", dashR = r.running ? ' stroke="#8A5200" stroke-dasharray="3 2"' : "";
     const op = mode === "version" && cur && !r.sel ? ' opacity=".55"' : "";
-    g += ga(`<rect x="${cx - bw - 1}" y="${yy(r.n)}" width="${bw}" height="${base0 - yy(r.n)}" fill="#009E70"${dash}${op}/>` + lab("n", i), cfbJql(r.start, r.end), `${r.name}\n${r.n} CFB bugs fixed ${U.where}`);
-    g += ga(`<rect x="${cx + 1}" y="${yy(r.reg)}" width="${bw}" height="${base0 - yy(r.reg)}" fill="#B3261E"${dashR}${op}/>` + lab("reg", i), cfbJql(r.start, r.end, "regression = Yes"), `${r.name}\n${r.reg} regressions among the ${r.n} fixed`);
+    g += ga(`<rect x="${cx - bw - 1}" y="${yy(r.n)}" width="${bw}" height="${base0 - yy(r.n)}" fill="#025AFB"${dash}${op}/>` + lab("n", i), cfbJql(r.start, r.end), `${r.name}\n${r.n} CFB bugs fixed ${U.where}`);
+    g += ga(`<rect x="${cx + 1}" y="${yy(r.reg)}" width="${bw}" height="${base0 - yy(r.reg)}" fill="#C77700"${dashR}${op}/>` + lab("reg", i), cfbJql(r.start, r.end, "regression = Yes"), `${r.name}\n${r.reg} regressions among the ${r.n} fixed`);
     if ((rows.length - 1 - i) % everyLbl === 0) {
       { const edge = cx + labelW(r.line1 + "*", 11) / 2 > Wc - 2; g += `<text x="${edge ? Wc - 2 : cx}" y="${base0 + 15}" text-anchor="${edge ? "end" : "middle"}" font-size="11" fill="#4A4F57">${esc(r.line1)}${r.running ? "*" : ""}</text>`; }
     }
   });
   chartEl.innerHTML = rows.length
     ? `<div class="chart"><div class="chartscroll"><svg viewBox="0 0 ${Wc} ${Hc}" width="${Wc}" height="${Hc}" role="img" aria-label="CFB fixed and regressions per ${U.noun}. The same values are in the table beside or below this chart.">${g}</svg></div>` +
-      `<div class="legend"><span style="color:#009E70"><i class="box"></i><span style="color:var(--muted)">CFB Fixed</span></span><span style="color:#B3261E"><i class="box"></i><span style="color:var(--muted)">Regressions</span></span></div></div>`
+      `<div class="legend"><span style="color:#025AFB"><i class="box"></i><span style="color:var(--muted)">CFB Fixed</span></span><span style="color:#C77700"><i class="box"></i><span style="color:var(--muted)">Regressions</span></span></div></div>`
     : `<div class="empty">${mode === "version" ? "No release window has started yet." : "No CFB period has started yet."}</div>`;
 
   const cellN = (n, h) => n ? link(n, h) : `<span class="muted">0</span>`;
@@ -2077,7 +2101,10 @@ function renderCfb() {
 // Every CFB (reported by the CFB account or linked to a Salesforce case) that is not in a final status, with its age against the SLA and its Root Cause Analysis state.
 // Follows the Projects and Teams filters, like the CFB chart; the Priority, CFB and accessibility controls of the bug section do not apply.
 const ocfbBase = () => `project in (${[...state.projects].join(", ")}) AND issuetype = Bug AND ${CFB_Q()}`;
-const ocfbKeys = list => list.length ? href(`issuetype = Bug AND key in (${list.map(r => r.b.k).join(", ")})`) : null;
+const ocfbKeys = list => list.length ? href(`issuetype = Bug AND key in (${list.map(r => r.b.k).join(", ")})`) : null;          // only for the RCA groups: Jira cannot search the analysis state (the field holds a template)
+// Over SLA is a query: the SLA days by priority and regression turn into a created-before date, so Jira recounts it when the link is opened (the dates are the snapshot's as-of day, like every dated link here).
+const overSlaJql = () => { const d = n => iso(asOfDay() - n * DAY), s = CFG.sla, noReg = "(regression is EMPTY OR regression != Yes)";
+  return `(priority = P1 AND created < "${d(s.p1)}") OR (priority in (P2, P3, P4) AND regression = Yes AND created < "${d(s.regression)}") OR (priority = P2 AND ${noReg} AND created < "${d(s.p2)}") OR (priority in (P3, P4) AND ${noReg} AND created < "${d(s.other)}")`; };
 function ocfbModel() {
   const X = (DATA.cfbx && DATA.cfbx.bugs) || null, order = k => projectsAll.indexOf(k);
   const rows = bugsBase().filter(b => b.cfb && isOpenBug(b)).sort((a, b) => order(a.p) - order(b.p) || keyCmp(a.k, b.k)).map(b => {
@@ -2117,10 +2144,10 @@ function renderOpenCfb() {
   kpiCards(kp, [
     {c: "q", v: n ? tlink(n, openHref, `${n} open ${plural(n, "CFB", "CFBs")}\nReported by the CFB account or linked to a Salesforce case; status not Done, Ready for Deploy, Closed, Resolved or Removed.`) : "0", l: "Open CFBs", s: n ? "reported by the CFB account or linked to a Salesforce case" : "none open"},
     {c: "q", v: M.hasX ? sub(notDone, "Root Cause Analysis not done", "Jira cannot search this: the analysis field is pre-filled with a template.") : "–", l: "RCA Not Done", s: M.hasX ? `${sub(done, "RCA Done")} Done · ${sub(na, "Root Cause Analysis not required")} Not Required` : "RCA state is not in this build"},
-    {c: "q", v: sub(over, "past their SLA", `Age is more than the SLA days for the priority, as of ${asOf}.`), l: "Over SLA", s: `of ${n} open ${n === 1 ? "CFB" : "CFBs"}`},
+    {c: "q", v: over.length ? tlink(over.length, href(`${ocfbBase()} AND ${OPEN_BUG_JQL}${bugTeamClause(state.teams)} AND (${overSlaJql()})`), `${over.length} open ${plural(over.length, "CFB", "CFBs")}: past their SLA\nAge is more than the SLA days for the priority, as of ${asOf}.`) : "0", l: "Over SLA", s: `of ${n} open ${n === 1 ? "CFB" : "CFBs"}`},
     {c: "q", v: reg.length ? tlink(reg.length, href(`${ocfbBase()} AND ${OPEN_BUG_JQL} AND regression = Yes${bugTeamClause(state.teams)}`), `${reg.length} open ${plural(reg.length, "CFB", "CFBs")} with regression Yes`) : "0", l: "Regression", s: "Regression field is Yes"},
   ]);
-  document.getElementById("ocfb-note").innerHTML = `${DATA.cfbRefreshedAt ? `Refreshed ${esc(ilLabel(DATA.cfbRefreshedAt))}. ` : ""}${followsRow(["Projects", "Teams"])}`;
+  document.getElementById("ocfb-note").innerHTML = followsRow(["Projects", "Teams"]);
   let inner = "";
   if (!n) { inner = `<div class="empty">No open CFBs in the selected ${state.teams.size ? "projects and teams" : "projects"}.</div>`; }
   else {
@@ -2168,8 +2195,9 @@ function renderBreakdowns() {
     ? `${note}<table><caption class="sr">Epics of release ${esc(r)} under the filters by project, with status and Commitment Type counts</caption>${breakdownHead("Project")}<tbody>${projRows.join("")}${total}</tbody></table><div class="cap">${tableFoot(inScope)}</div>` : `<div class="empty">${whyEmpty("epics")}</div>`;
   const names = new Set();
   any.forEach(e => teamsOf(e).forEach(t => names.add(t)));
+  const activeTeams = teamClause(state.teams).replace(/^\s*AND\s+/, "");
   const teamRows = [...names].sort((a, b) => a === NO_TEAM ? 1 : b === NO_TEAM ? -1 : a.localeCompare(b)).map(t =>
-    breakdownRow(esc(t), inScope.filter(e => teamsOf(e).includes(t)), {teams: new Set([t])}, any.filter(e => teamsOf(e).includes(t))));
+    breakdownRow(esc(t), inScope.filter(e => teamsOf(e).includes(t)), {teams: new Set([t]), extra: activeTeams || undefined}, any.filter(e => teamsOf(e).includes(t))));      // the row's team AND the Teams filter: an epic of two teams counts here only when it is also in the filter
   document.getElementById("tbl-teams").innerHTML = teamRows.length
     ? `${note}<table><caption class="sr">Epics of release ${esc(r)} under the filters by team, listed alphabetically, with status and Commitment Type counts</caption>${breakdownHead("Team")}<tbody>${teamRows.join("")}${total.replace("All Selected", "All Selected (Each Epic Once)")}</tbody></table><div class="cap">${tableFoot(inScope)}</div>`
     : `<div class="empty">${whyEmpty("epics")}</div>`;
@@ -2178,10 +2206,11 @@ function renderBreakdowns() {
 // ---------------------------------------------------------------- dependencies and capability view
 // A dependency is an explicit Jira link between two epics, already normalised to [dependent, provider, "D" for Dependency or "B" for Blocks].
 // This section reviews OPEN dependencies only (neither end Done). Read at build time,
-// so Refresh from Jira does not change dependencies, sprints or the planned sprint derived from them.
+// so the planned sprint derived from them follows the dependency links, due dates and Target Sprints that Refresh from Jira now updates.
 const shortText = (s, n) => { s = String(s || ""); return s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s; };
 const keyIn = keys => keys.length ? href(`key in (${[...new Set(keys)].join(", ")})`) : null;
 const tlink = (text, h, tip) => { const t = typeof text === "number" ? text.toLocaleString("en-US") : text;
+  tip = withExactNote(tip, h);
   return h ? `<a href="${h}" target="_blank" rel="noopener" ${tipAttr(tip, h)} aria-label="${esc(tip.replace(/\n/g, ", "))}. Opens in Jira.">${t}</a>` : `${t}`; };
 const trainOf = r => (r.fv || []).filter(v => DATA.releases.includes(v));
 const relRank = v => DATA.releases.indexOf(v);
@@ -2208,7 +2237,7 @@ function plannedOf(r) {
   if (byLabel) return {sprint: byLabel, how: "Target Sprint", override: false};
   return {sprint: null, how: "", override: false, unknownTs: !!r.ts};
 }
-// Both values stay visible when the due date and the Target Sprint disagree: "Due 2026-09-04 (Sprint 195) overrides Target Sprint 199 (2026-11-25)"
+// Both values stay visible when the due date and the Target Sprint disagree: "Due 2026-01-15 (Sprint 100) overrides Target Sprint 104 (2026-03-12)"
 const overrideNote = (plan, dd) => `Due ${dd} (${sprintName(plan.sprint)}) overrides Target Sprint ${plan.tsSprint.no} (${plan.tsSprint.start})`;
 const tsText = r => { const s = sprintList().find(x => x.n === r.ts); return s ? `Sprint ${s.no} (${s.start})` : (r.ts || "–"); };
 const sprintName = s => s ? `Sprint ${s.no}` : "Not Planned";
@@ -2312,7 +2341,7 @@ function renderDeps() {
     `<b>Story-level links</b>: Dependency or Blocks links on stories, tasks or bugs under the epics of the release, neither end Done, test items not counted; they are not on the board and not in the figures. <b>Not Planned</b> also covers a due date outside the sprint calendar. Figures count dependencies (pairs); a link opens the issues at both ends, and each card says what type of issue the provider is. The quick filter changes the board and the table, not the figures. Cards are sorted by key, not by importance.`);
   document.getElementById("dep-dq").innerHTML = `<details class="vd"><summary>How this is calculated</summary><div class="cap">A link means a dependency is recorded, not that it is risky, and a missing link is not a missing dependency. ` +
     `${m.open.filter(x => x.outside).length ? `${m.open.filter(x => x.outside).length} open ${m.open.filter(x => x.outside).length === 1 ? "pair involves" : "pairs involve"} an epic outside the six projects or outside the release train; it is shown with the status, release, team and dates Jira had at build time. ` : ""}` +
-    `Links to Removed epics are left out (${(DATA.depsDropped && DATA.depsDropped.removed) || 0}). Dependencies, due dates and sprints are read when the page is built (${esc(ilLabel(DATA.refreshedAt || DATA.generated))}), so Refresh from Jira does not update them.</div></details>`;
+    `Links to Removed epics are left out (${(DATA.depsDropped && DATA.depsDropped.removed) || 0}). Links, due dates and Target Sprints are as of ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}; story-level links and the sprint calendar are read when the page is built.</div></details>`;
   // quick filter counts
   const counts4 = {all: all.length, epics: open.length, overdue: overdue.length, external: external.length, unplanned: unplanned.length, gap: gaps.length};
   document.querySelectorAll("#f-dp .cnt").forEach(s => { s.textContent = counts4[s.dataset.k]; });
@@ -2364,7 +2393,7 @@ function boardHtml(shown, m) {
     return `<article class="bcard" ${tipAttr(tip, "")}><div class="bk"><a class="cl" href="${BASE}/browse/${esc(p.k)}" target="_blank" rel="noopener" ${tipAttr(tip, "x")} aria-label="${esc(p.k + ", " + shortText(p.t, 80) + ", blocks " + c.pairs.length + (c.pairs.length === 1 ? " item" : " items") + (c.overdue ? ", overdue" : "") + (c.external ? ", external" : "") + (c.gaps.length ? ", schedule gap with " + c.gaps.length + (c.gaps.length === 1 ? " item" : " items") : ""))}. Opens the ticket in Jira.">${esc(p.k)}</a><span class="bflags">${flags}</span></div>` +
       `<div class="bt2" title="${esc(p.t)}">${esc(shortText(p.t, 90))}</div><div class="bm">${esc(p.ty || "Issue")} · ${esc(p.s || "–")} · ${esc(p.p)}${p.dd ? ` · Due ${p.dd}` : c.plan.how === "Target Sprint" ? " · Target Sprint" : ""}</div>` +
       (c.plan.override ? `<div class="bq">${esc(overrideNote(c.plan, p.dd))}</div>` : "") + (c.plan.outside ? `<div class="bq">Due date outside the sprint calendar</div>` : "") + (c.plan.unknownTs ? `<div class="bq">Target Sprint ${esc(p.ts)} is not in the sprint calendar</div>` : "") + dl(inS, "Blocks in scope:") + dl(outS, "Also blocks outside scope:") + ncHtml +
-      `<div class="bwith"><a href="${keyIn(keys)}" target="_blank" rel="noopener" ${tipAttr(`${keys.length} Jira issues\nThe provider ${p.k} and the ${c.pairs.length} ${c.pairs.length === 1 ? "issue" : "issues"} it blocks`, "x")} aria-label="${esc(p.k + " and the issues it blocks")}. Opens ${keys.length} issues in Jira.">Open with Dependents</a></div></article>`;
+      `<div class="bwith"><a href="${keyIn(keys) || "#"}" target="_blank" rel="noopener" ${tipAttr(`${keys.length} Jira issues\nThe provider ${p.k} and the ${c.pairs.length} ${c.pairs.length === 1 ? "issue" : "issues"} it blocks`, keyIn(keys))} aria-label="${esc(p.k + " and the issues it blocks")}. Opens ${keys.length} issues in Jira.">Open with Dependents</a></div></article>`;
   };
   const colHtml = col => { const n = nPairs(col);
     return `<div class="bcol" role="group" aria-label="${esc(col.title)}${col.state ? ", " + col.state : ""}, ${n} open ${n === 1 ? "dependency" : "dependencies"}"><div class="bh"><div class="bn1">${esc(col.title)}${col.state ? ` <span class="bst ${col.state === "Ended" ? "ended" : ""}">${col.state}</span>` : ""}</div><div class="bd">${esc(col.sub)}</div><div class="bc">${n} ${n === 1 ? "dependency" : "dependencies"}</div></div>` +
@@ -2431,16 +2460,15 @@ function renderCapabilities() {
 
 // ---- Done Capabilities per Release (Release Analysis): the same chart form as the epic charts above. One bar per release: the light bar is every Capability with that fix version,
 // the dark part the Done ones (status named Done), the label "done/total" on top. A Capability with several fix versions counts under each. Follows the Projects filter (project of the Capability); Other only for All Projects.
-const capAllSel = () => state.projects.size === projectsAll.length;          // "Other" (CXCROSS and the other Jira projects) counts only when every project is selected
-const capInSel = c => projectsAll.includes(c.p) ? state.projects.has(c.p) : capAllSel();
+const capAllSel = () => state.projects.size === projectsAll.length;          // "Other" (CXCROSS) counts only when every project is selected
+const capInSel = c => projectsAll.includes(c.p) ? state.projects.has(c.p) : c.p === "CXCROSS" && capAllSel();          // the chart's population is exactly what a query names: project in (the selected projects, and CXCROSS for All Projects)
 function capDoneRows() {
   const L = Object.entries(DATA.capList || {}).map(([k, c]) => ({k, ...c})).filter(capInSel), P = projectsAll;
   return DATA.releases.slice(1).map(r => { const all = L.filter(c => c.fv.includes(r)), done = all.filter(c => c.s === "Done");
     return {r, all, done, byP: [...P, "Other"].map(p => { const l = all.filter(c => p === "Other" ? !P.includes(c.p) : c.p === p); return {p, all: l, done: l.filter(c => c.s === "Done")}; })}; });
 }
-const capKeyHref = (r, list, extra) => !list.length ? null
-  : capAllSel() ? href(`issuetype = Capability AND status != Removed AND fixVersion = ${q(r)} AND key in (${list.map(c => c.k).join(", ")})${extra || ""}`)          // every project: the key list also reaches the Other projects
-  : href(`project in (${projectsAll.filter(p => state.projects.has(p)).join(", ")}) AND issuetype = Capability AND status != Removed AND fixVersion = ${q(r)}${extra || ""}`);
+const capKeyHref = (r, list, extra) => !list.length ? null          // always a query, never a list of keys: Jira recounts it when it is opened
+  : href(`project in (${[...projectsAll.filter(p => state.projects.has(p)), ...(capAllSel() ? ["CXCROSS"] : [])].join(", ")}) AND issuetype = Capability AND status != Removed AND fixVersion = ${q(r)}${extra || ""}`);
 function renderCapDone() {
   const host = document.getElementById("capdone-chart"), data = document.getElementById("capdone-data"); if (!host) return;
   if (!DATA.capList) { host.innerHTML = `<div class="notice">The Capability list is not in this build. Run build_dashboard.py with --add-capabilities.</div>`; data.innerHTML = ""; return; }
@@ -2450,7 +2478,7 @@ function renderCapDone() {
   rows.forEach((row, i) => {
     const r = row.r, cx = x(i), yDone = yOf(row.done.length, sc.max), yTop = yOf(row.all.length, sc.max), nm = r + (isProv(r) ? " (in progress)" : "");
     const split = row.byP.filter(b => b.all.length).map(b => `${b.p} ${b.done.length}/${b.all.length}`).join(", "), few = row.all.length < MIN_N, fade = "";          // a bar's Done part is always the dark Done colour; a small total is flagged in the hover only
-    const tip = `${nm}\n${row.done.length} Done of ${row.all.length} Capabilities${few ? "\nFewer than 5 Capabilities" : ""}\n${split || "no Capabilities"}\n${capAllSel() ? "All projects, including Other (CXCROSS and other Jira projects)" : `Projects: ${projectsAll.filter(p => state.projects.has(p)).join(", ")}`}`;
+    const tip = `${nm}\n${row.done.length} Done of ${row.all.length} Capabilities${few ? "\nFewer than 5 Capabilities" : ""}\n${split || "no Capabilities"}\n${capAllSel() ? "All projects, including Other (CXCROSS)" : `Projects: ${projectsAll.filter(p => state.projects.has(p)).join(", ")}`}`;
     svg += ga(`<rect x="${cx - bw / 2}" y="${yTop}" width="${bw}" height="${H - PAD.b - yTop}" fill="var(--chart-capab-tint)" stroke="var(--chart-capab)" stroke-width="1.5"${fade}${isProv(r) ? ' stroke-dasharray="3 2"' : ""}/>` +
       `<text x="${cx}" y="${yTop - 5}" text-anchor="middle" font-size="11" font-weight="600" fill="var(--chart-capab-ink)">${row.done.length}/${row.all.length}</text>`, capKeyHref(r, row.all), tip);
     if (row.done.length) svg += ga(`<rect x="${cx - bw / 2}" y="${yDone}" width="${bw}" height="${H - PAD.b - yDone}" fill="var(--chart-capab)"${fade}/>`, capKeyHref(r, row.done, " AND status = Done"), `${nm}\n${row.done.length} Done of ${row.all.length} Capabilities\n${split}`);
@@ -2458,16 +2486,16 @@ function renderCapDone() {
   });
   const nf = DATA.capNoFv, others = [...new Set(Object.values(DATA.capList).filter(c => !projectsAll.includes(c.p)).map(c => c.p))].sort();
   host.innerHTML = `<div class="chart cc" data-chart="capab"><h3>Done Capabilities per Release</h3><div class="cc-ctl" aria-hidden="true"></div><div class="chartscroll"><svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:${W}px" role="img" aria-label="Done Capabilities per release, ${rels.length} releases. The same values are in the data table attached to this chart." aria-describedby="capdone-data">${svg}</svg></div>` +
-    chartFoot("capab", "Dark = Done, light = open; label = Done / all.", "Dark green = Done, light green = still open. Label = Done / all Capabilities with that fix version. A dashed outline marks a running release; the hover says when a bar has fewer than 5 Capabilities. Follows the Projects selection (the project of the Capability itself); Other, meaning CXCROSS and the other Jira projects, counts only when All Projects is selected. Teams and Commitment Type do not apply to Capabilities.") + `</div>`;
+    chartFoot("capab", "Dark = Done, light = open; label = Done / all.", "Dark green = Done, light green = still open. Label = Done / all Capabilities with that fix version. A dashed outline marks a running release; the hover says when a bar has fewer than 5 Capabilities. Follows the Projects selection (the project of the Capability itself); Other, meaning CXCROSS, counts only when All Projects is selected. Capabilities of any other project are not counted. Teams and Commitment Type do not apply to Capabilities.") + `</div>`;
   const selP = projectsAll.filter(p => state.projects.has(p)), noFvHref = href(`project in (${(capAllSel() ? [...projectsAll, "CXCROSS"] : selP).join(", ")}) AND issuetype = Capability AND status != Removed AND fixVersion is EMPTY`);
   const note = `Removed Capabilities are excluded. A Capability with several fix versions counts in each release. An asterisk marks a running release. By project in the hover text and the data table. ${capAllSel() ? (nf ? `${tlink(nf.total, noFvHref, `${nf.total} Capabilities with no fix version`)} Capabilities have no fix version (${nf.done} Done) and are in no bar. ` : "") : `${tlink("Capabilities with no fix version", noFvHref, "Opens the Capabilities of the selected projects that have no fix version; they are in no bar")} are in no bar (the count is held for All Projects only). `}Data is the Jira snapshot at ${esc(ilLabel(DATA.capPulledAt || DATA.generated))}.`;
   const P = selP;
-  const cell = (r, l, project) => { const done = l.done, all = l.all, base = project && project !== "Other" ? `project = ${project} AND ` : "";
-    const one = (list, extra, tip) => list.length ? tlink(list.length, project && project !== "Other" ? href(`${base}issuetype = Capability AND status != Removed AND fixVersion = ${q(r)}${extra}`) : capKeyHref(r, list, extra), tip) : "0";
+  const cell = (r, l, project) => { const done = l.done, all = l.all, base = project ? `project = ${project === "Other" ? "CXCROSS" : project} AND ` : "";
+    const one = (list, extra, tip) => list.length ? tlink(list.length, project ? href(`${base}issuetype = Capability AND status != Removed AND fixVersion = ${q(r)}${extra}`) : capKeyHref(r, list, extra), tip) : "0";
     return `${one(done, " AND status = Done", `${done.length} Done Capabilities with fix version ${r}${project ? " in " + project : ""}`)} / ${one(all, "", `${all.length} Capabilities with fix version ${r}${project ? " in " + project : ""}`)}`; };
   const cdTable = dataTable("capdone-data", "Done Capabilities over all Capabilities with that fix version, per release and project of the Capability", ["Release", ...P, ...(capAllSel() ? ["Other"] : []), "Total"],
     rows.map(row => [esc(row.r) + (isProv(row.r) ? "*" : ""), ...row.byP.filter(b => b.p !== "Other" ? P.includes(b.p) : capAllSel()).map(b => cell(row.r, b, b.p)), cell(row.r, {done: row.done, all: row.all}, null)]));
-  { const nt = `<div class="cap">${note} ${capAllSel() ? `Other is ${esc(others.join(", ") || "other projects")}: Capabilities of other projects that have epics of these projects, and CXCROSS; it counts only when All Projects is selected. ` : "Other (CXCROSS and the other Jira projects) is left out unless All Projects is selected. "}Each cell is Done / all. Follows the Projects selection; Teams and Commitment Type do not apply to Capabilities.</div>`; const hc = host.querySelector(".cc-foot details > .cap"); if (hc) hc.insertAdjacentHTML("beforeend", `<br>${nt}<div class="tablewrap">${cdTable}</div>`); const sr = data.querySelector(".sr"); if (sr) sr.insertAdjacentHTML("beforeend", nt); }
+  { const nt = `<div class="cap">${note} ${capAllSel() ? `Other is CXCROSS; it counts only when All Projects is selected. Capabilities of any other project are not counted. ` : "Other (CXCROSS) is left out unless All Projects is selected. "}Each cell is Done / all. Follows the Projects selection; Teams and Commitment Type do not apply to Capabilities.</div>`; const hc = host.querySelector(".cc-foot details > .cap"); if (hc) hc.insertAdjacentHTML("beforeend", `<br>${nt}<div class="tablewrap">${cdTable}</div>`); const sr = data.querySelector(".sr"); if (sr) sr.insertAdjacentHTML("beforeend", nt); }
   const sm = data.querySelector("summary"); if (sm) sm.textContent = "Show data, done Capabilities";
 }
 
@@ -2605,12 +2633,12 @@ function renderAttention() {
       const rs = (M.reasons.get(it.key) || []).slice().sort((a, b) => (a.type === id ? -1 : 0) - (b.type === id ? -1 : 0));
       const tip = attnTip(it, rs);
       const chipHtml = rs.map(r => flagHtml(r.icon, "", esc(r.text))).join("");
-      return `<li class="arow"${i >= lim && !more ? " hidden" : ""} ${tipAttr(tip, "")}><div class="a1"><a class="cl" href="${it.href}" target="_blank" rel="noopener" ${tipAttr(tip, "x")} aria-label="${esc(it.key + (it.title ? ", " + shortText(it.title, 80) : "") + ", " + rs[0].text)}. Evidence, opens in Jira.">${esc(it.key)}</a>${it.title ? ` <span class="at" title="${esc(it.title)}">${esc(shortText(it.title, 80))}</span>` : ""}</div><div class="a2">${esc(it.project)} · ${esc(it.status || "–")}${it.team ? ` · ${esc(it.team)}` : ""}</div><div class="a3">${chipHtml}${it.gapPairs ? `<ul class="agl">${it.card.pairs.map(x => `<li>blocks <a class="cl" href="${BASE}/browse/${esc(x.d.k)}" target="_blank" rel="noopener">${esc(x.d.k)}</a> · ${esc(x.gapParts.dy)}</li>`).join("")}</ul>` : ""}</div><div class="a4"><span class="conf" title="Confidence: ${rs[0].conf}">${rs[0].conf}</span></div></li>`;
+      return `<li class="arow"${i >= lim && !more ? " hidden" : ""} ${tipAttr(tip, "")}><div class="a1"><a class="cl" href="${it.href || "#"}" target="_blank" rel="noopener" ${tipAttr(tip, "x")} aria-label="${esc(it.key + (it.title ? ", " + shortText(it.title, 80) : "") + ", " + rs[0].text)}. Evidence, opens in Jira.">${esc(it.key)}</a>${it.title ? ` <span class="at" title="${esc(it.title)}">${esc(shortText(it.title, 80))}</span>` : ""}</div><div class="a2">${esc(it.project)} · ${esc(it.status || "–")}${it.team ? ` · ${esc(it.team)}` : ""}</div><div class="a3">${chipHtml}${it.gapPairs ? `<ul class="agl">${it.card.pairs.map(x => `<li>blocks <a class="cl" href="${BASE}/browse/${esc(x.d.k)}" target="_blank" rel="noopener">${esc(x.d.k)}</a> · ${esc(x.gapParts.dy)}</li>`).join("")}</ul>` : ""}</div><div class="a4"><span class="conf" title="Confidence: ${rs[0].conf}">${rs[0].conf}</span></div></li>`;
     }).join("");
     const keys = list.flatMap(it => it.card ? [it.key, ...it.card.pairs.map(x => x.d.k)] : [it.key]);
     const moreBtn = n > lim ? `<button type="button" class="btn link" data-act="more-${id}" aria-expanded="${more}">${more ? "Show Fewer" : `Show ${n - lim} More`}</button>` : "";
     return `<div class="agrp"><h3 class="ah"><button type="button" class="abtn" data-act="grp-${id}" aria-expanded="${isOpen}" aria-controls="ag-${id}"><svg class="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2l5 4-5 4z"/></svg><span class="an">${esc(t.name)}</span> <span class="ac">${n}</span><span class="asev">${flagHtml(sevIcon[t.sev], t.sev)}</span></button></h3>` +
-      `<div id="ag-${id}" class="abody"${isOpen ? "" : " hidden"}><ul class="arows">${rows}</ul><div class="amore">${moreBtn}${id === "dep-gap" ? `<button type="button" class="btn link" data-gapjump="1">Open in Dependencies</button>` : ""}<a href="${keyIn(keys) || "#"}" target="_blank" rel="noopener" ${tipAttr(`${keys.length} Jira issues\nThe ${n} ${n === 1 ? "case" : "cases"} in this group${t.items.some(i => i.card) ? " and the epics they block" : ""}`, "x")}>Open all ${n} in Jira</a></div></div></div>`;
+      `<div id="ag-${id}" class="abody"${isOpen ? "" : " hidden"}><ul class="arows">${rows}</ul><div class="amore">${moreBtn}${id === "dep-gap" ? `<button type="button" class="btn link" data-gapjump="1">Open in Dependencies</button>` : ""}<a href="${keyIn(keys) || "#"}" target="_blank" rel="noopener" ${tipAttr(`${keys.length} Jira issues\nThe ${n} ${n === 1 ? "case" : "cases"} in this group${t.items.some(i => i.card) ? " and the epics they block" : ""}`, keyIn(keys))}>Open all ${n} in Jira</a></div></div></div>`;
   };
   const hygOpen = attnUi.open.has("hygiene");
   const hygHtml = M.hygTotal ? `<div class="agrp"><h3 class="ah"><button type="button" class="abtn" data-act="grp-hygiene" aria-expanded="${hygOpen}" aria-controls="ag-hygiene"><svg class="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2l5 4-5 4z"/></svg><span class="an">Jira Hygiene</span> <span class="ac">${M.hygChecks}</span><span class="asev">${flagHtml("info", "Info")}</span></button></h3><div id="ag-hygiene" class="abody"${hygOpen ? "" : " hidden"}><ul class="arows hyg">${M.hyg.filter(h => h.n).map(h => `<li class="arow"><div class="a1">${h.href ? tlink(h.n.toLocaleString("en-US"), h.href, `${h.n} ${h.label}\n${h.note}`) : `<b>${h.n.toLocaleString("en-US")}</b>`} <span class="at">${esc(h.label)}</span></div><div class="a2">${h.noteHtml || esc(h.note)}</div><div class="a3"></div><div class="a4"><span class="conf">Confirmed</span></div></li>`).join("")}</ul></div></div>` : "";
@@ -2727,7 +2755,7 @@ function renderCx() {
     const cell = (r, p) => { const x = r.cells.get(p); if (!x) return `<td class="cxc"><span class="muted" title="No ${esc(p)} epics under this Capability">–</span></td>`;
       const d = x.l.filter(e => cls(e.s) === "done").length, behind = x.bh.length;
       const tip = [`${r.c} · ${p}`, `${d}/${x.l.length} Done`, statusLine(x.l), ...(behind ? [`Behind Required Fix Version (${x.bh.length} ${x.bh.length === 1 ? "epic" : "epics"}), Required Fix Version: ${versionText(r.C.fv)}`, ...x.bh.slice(0, 6).map(({e, w}) => `${e.k} ${shortText(e.t, 50)} (${e.s}): rule ${w.a && w.b ? "a and b" : w.a ? "a, planned later than the Capability" : "b, the Capability's release has ended"}`), ...(x.bh.length > 6 ? [`and ${x.bh.length - 6} more`] : [])] : []), ...x.l.slice(0, 6).map(e => `${e.k} ${shortText(e.t, 50)} (${e.s})`), ...(x.l.length > 6 ? [`and ${x.l.length - 6} more`] : [])].join("\n");
-      return `<td class="cxc"><a href="${cxJira({extra: `parent = ${r.c} AND project = ${p}`})}" target="_blank" rel="noopener" ${tipAttr(tip, "x")} aria-label="${esc(`${r.c}, ${p}: ${d} of ${x.l.length} Done${behind ? ", Behind Required Fix Version" : ""}`)}. Opens in Jira.">${d}/${x.l.length}</a> ${dots(x.l)}${behind ? `<div class="bhd">${flagHtml("warn", "Behind")}</div>` : ""}</td>`; };
+      return `<td class="cxc"><a href="${cxJira({extra: `parent = ${r.c} AND project = ${p}`}) || "#"}" target="_blank" rel="noopener" ${tipAttr(tip, "x")} aria-label="${esc(`${r.c}, ${p}: ${d} of ${x.l.length} Done${behind ? ", Behind Required Fix Version" : ""}`)}. Opens in Jira.">${d}/${x.l.length}</a> ${dots(x.l)}${behind ? `<div class="bhd">${flagHtml("warn", "Behind")}</div>` : ""}</td>`; };
     const body = rows.map(r => { const ini = r.ini ? `${r.ini} ${shortText((H[r.ini] || {}).t, 60)}` : "No Initiative";
       return `<tr><th scope="row"><a href="${BASE}/browse/${esc(r.c)}" target="_blank" rel="noopener" ${tipAttr(`${r.c}\n${r.C.t || ""}\n${r.C.s || "status unknown"} · Initiative: ${r.ini ? r.ini + " " + ((H[r.ini] || {}).t || "") : "none"}`, "x")} aria-label="${esc(r.c + ", " + shortText(r.C.t, 80))}. Opens in Jira.">${esc(shortText(r.C.t, 80))}</a><div class="sub1" title="${esc(r.c + " · " + ini)}"><a href="${BASE}/browse/${esc(r.c)}" target="_blank" rel="noopener" aria-label="${esc(r.c)}. Opens in Jira.">${esc(r.c)}</a> · ${r.ini ? `<a href="${BASE}/browse/${esc(r.ini)}" target="_blank" rel="noopener" aria-label="${esc(r.ini)}, ${esc((H[r.ini] || {}).t || "")}. Opens in Jira.">${esc(r.ini)}</a> ${esc(shortText((H[r.ini] || {}).t, 60))}` : "No Initiative"}</div></th>${projects.map(p => cell(r, p)).join("")}<td class="fvc">${r.L ? esc(versionText(r.C.fv)) : `<span class="flag info"><svg class="ic" viewBox="0 0 12 12" aria-hidden="true">${FLAG_ICON.info}</svg>No Required Fix Version</span>${(r.C.fv || []).length ? `<div class="muted">${esc(versionText(r.C.fv))}</div>` : ""}`}</td></tr>`; }).join("");
     const n = (v, h, tip) => v ? tlink(v, h, tip) : `<span class="muted">0</span>`;
@@ -2746,7 +2774,7 @@ function renderCx() {
 
 // ---------------------------------------------------------------- NFRs: epics that carry the label NFR or one of four Issue Categories
 // An NFR epic is an epic with the label NFR (exact spelling) or an Issue Category from NFR_CATEGORIES. Both are self-reported in Jira.
-const NFR_Q = `(labels = NFR OR cf[10139] in (${NFR_CATEGORIES.map(q).join(", ")}))`;
+const NFR_Q = `(labels = ${NFR_LABEL} OR cf[10139] in (${NFR_CATEGORIES.map(q).join(", ")}))`;
 const NFR_CAT_IN = `cf[10139] in (${NFR_CATEGORIES.map(q).join(", ")})`;
 const NFR_KNOWN_STATUS = () => [...CLASS.done, ...CLASS.flight, ...CLASS.notStarted];
 const NFR_TABS = [["project", "By Project"], ["category", "By Category"], ["commitment", "By Commitment"], ["capability", "By Capability"], ["team", "By Team"]];
@@ -2795,7 +2823,7 @@ function renderNfr() {
   const noCap = nfr.filter(needsCap), noCapExempt = nfr.filter(e => !e.cp && capExempt(e)), noTeam = nfr.filter(e => !e.tm || !e.tm.length), noCommit = nfr.filter(e => !e.c), noDue = nfr.filter(e => !e.dd), noCatLabel = nfr.filter(e => !e.cat);
   const gapLink = (label, list, extra) => `${esc(label)} ${list.length ? tlink(list.length, jira({extra: `${NFR_Q} AND ${extra}`}), `${list.length} NFR epics: ${label}`) : "0"}`;
   document.getElementById("nfr-facts").innerHTML = noProj ? "" :
-    `Matched by label ${mk(lab.length, `labels = NFR AND (cf[10139] is EMPTY OR cf[10139] not in (${NFR_CATEGORIES.map(q).join(", ")}))`, `${lab.length} epics matched by label only`)}, category ${mk(cat.length, `${NFR_CAT_IN} AND (labels is EMPTY OR labels != NFR)`, `${cat.length} epics matched by category only`)}, both ${mk(both.length, `labels = NFR AND ${NFR_CAT_IN}`, `${both.length} epics matched by both`)}.`+
+    `Matched by label ${mk(lab.length, `labels = ${NFR_LABEL} AND (cf[10139] is EMPTY OR cf[10139] not in (${NFR_CATEGORIES.map(q).join(", ")}))`, `${lab.length} epics matched by label only`)}, category ${mk(cat.length, `${NFR_CAT_IN} AND (labels is EMPTY OR labels != NFR)`, `${cat.length} epics matched by category only`)}, both ${mk(both.length, `labels = ${NFR_LABEL} AND ${NFR_CAT_IN}`, `${both.length} epics matched by both`)}.`+
     `<br>Data gaps: ${gapLink("No Capability", noCap, NO_CAP_JQL)}${noCapExempt.length ? ` (${tlink(noCapExempt.length, jira({extra: `${NFR_Q} AND parent is EMPTY AND ${CAP_EXEMPT_IN}`}), capExemptTip(noCapExempt.length))} more exempt by Issue Category)` : ""} · ${gapLink("No Team", noTeam, "cf[10040] is EMPTY AND cf[10098] is EMPTY")} · ${gapLink("No Commitment Type", noCommit, "cf[10094] is EMPTY")} · ${gapLink("No Issue Category", noCatLabel, "cf[10139] is EMPTY")} · ${gapLink("No Due Date", noDue, "duedate is EMPTY")}.`;
   document.getElementById("nfr-cap").innerHTML = defs(`<b>Denominator</b>: ${N.toLocaleString("en-US")} NFR epics, Removed excluded, ${esc(commitTxt)}, projects ${state.projects.size === projectsAll.length ? "all" : esc([...state.projects].join(", "))}${state.teams.size ? ", teams " + esc([...state.teams].join(", ")) : ""}, data as of ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}. <b>Matched by</b>: label only, category only, or both (the three counts above add up to the NFR epics). ` + 
     `<b>Definition</b>: an NFR epic is an epic with the label NFR (this exact spelling, no variants) or an Issue Category of ${NFR_CATEGORIES.map(esc).join(", ")}. Both are self-reported in Jira. An epic that matches only by category is not called "labelled NFR". The three groups are counted separately above.<br>` +
@@ -2819,8 +2847,8 @@ function renderNfr() {
   else if (tab === "category") {
     const labOther = nfr.filter(e => !isCat(e) && e.cat), noCat = nfr.filter(e => !isCat(e) && !e.cat);
     panel = tbl("NFR epics by Issue Category, with status counts", "Issue Category", NFR_CATEGORIES.map(c => row(c, nfr.filter(e => e.cat === c), `cf[10139] = ${q(c)}`)).join("") +
-      row("NFR Label Only (No Category in the NFR List)", labOther, `labels = NFR AND cf[10139] is not EMPTY AND cf[10139] not in (${NFR_CATEGORIES.map(q).join(", ")})`) +
-      row("No Issue Category", noCat, "labels = NFR AND cf[10139] is EMPTY"), totRow("All NFR Epics"));
+      row("NFR Label Only (No Category in the NFR List)", labOther, `labels = ${NFR_LABEL} AND cf[10139] is not EMPTY AND cf[10139] not in (${NFR_CATEGORIES.map(q).join(", ")})`) +
+      row("No Issue Category", noCat, `labels = ${NFR_LABEL} AND cf[10139] is EMPTY`), totRow("All NFR Epics"));
   } else if (tab === "commitment") panel = tbl("NFR epics by Commitment Type, with status counts", "Commitment Type", COMMIT.filter(c => state.commit.has(c)).map(c => row(c === "Not Set" ? "No Commitment Type" : c, nfr.filter(e => commitOf(e) === c), NFR_Q, {commit: new Set([c])})).join(""), totRow("All NFR Epics"));
   else if (tab === "capability") {
     const capName = c => (DATA.capabilities && DATA.capabilities[c]) || (DATA.hier && DATA.hier[c] && DATA.hier[c].t) || c, by = new Map();
@@ -2872,7 +2900,7 @@ const cyBugsOpen = new Set();                                  // epic keys whos
 const plural = (n, one, many) => n === 1 ? one : many;
 const tipFocus = (text, tip) => `<span class="tt" tabindex="0" role="img" aria-label="${esc(`${text}. ${tip}`.replace(/\n/g, ". "))}" ${tipAttr(tip, "")}>${text}</span>`;       // hover text that the keyboard can reach
 const cySlug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "team";
-const CY_RAW_OK = () => !!DATA.eb;                              // Flagged, assignee and the bugs under epics come from the planning pull
+const CY_RAW_OK = () => !!DATA.eb;                              // Flagged and the bugs under epics come from the planning pull
 
 // the planned date of an epic: the later of the due date and the end of its Target Sprint when it has both, otherwise the one it has
 function plannedLater(e) {
@@ -2910,7 +2938,7 @@ function cyBuild() {
   if (!cycles) return (CYM = {none: "window", cycles: null});
   const c = cycles.find(x => x.id === y.cycle) || cyDefaultCycle(cycles);
   const bugsOf = k => ((DATA.eb || {})[k] || []).map(([bk, bs, pr]) => ({k: bk, s: bs, pr, o: isOpenBug({s: bs}) ? 1 : 0}));
-  let eps = scopeOf(state.release).map(e => ({k: e.k, t: e.t, s: e.s, p: e.p, pl: e.pl || [], due: plannedLater(e), dd: e.dd || null, ts: e.ts || null, as: e.as || null, fl: !!e.fl, rd: e.rd || null, edct: e.edct, vl: e.vl, tm: teamsOf(e), cp: e.cp || null, cat: e.cat, bugs: bugsOf(e.k)}));
+  let eps = scopeOf(state.release).map(e => ({k: e.k, t: e.t, s: e.s, p: e.p, pl: e.pl || [], due: plannedLater(e), dd: e.dd || null, ts: e.ts || null, fl: !!e.fl, rd: e.rd || null, edct: e.edct, vl: e.vl, tm: teamsOf(e), cp: e.cp || null, cat: e.cat, bugs: bugsOf(e.k)}));
   // The hierarchy: Project > Team (under its project) > Pod (under its team). Every node holds the DISTINCT epics it counts (an epic with two teams or several pods is under each, once per node).
   const nodes = [], byId = new Map(), used = new Set(), R = cyLabelOk() ? podRegistry() : null;
   const uid = (parent, name) => { const base = (parent ? parent + "." : "") + cySlug(name).slice(0, 28); let id = base, k = 2; while (used.has(id)) id = `${base}-${k++}`; used.add(id); return id; };
@@ -3011,7 +3039,7 @@ function cyEpicTable(list, c, caption) {
     return `<tr class="cybugrow" id="cybug-${esc(e.k)}"${cyBugsOpen.has(e.k) ? "" : " hidden"}><td colspan="7"><div class="stickyin"><div class="cysub">Bugs under ${esc(e.k)} (type Bug, Removed excluded) · ${tlink("Open in Jira", href(`parent = ${e.k} AND issuetype = Bug AND status != Removed`), `Bugs under ${e.k}, open or closed`)}</div>` +
       b.map(x => `<div class="cybug"><a href="${BASE}/browse/${esc(x.k)}" target="_blank" rel="noopener" ${tipAttr(`${x.k}\n${x.s}${x.pr ? ", " + x.pr : ""}`, "x")} aria-label="${esc(x.k)}. Opens in Jira.">${esc(x.k)}</a> <span class="cysub">${esc(x.pr || "No priority")} · ${esc(x.s)}${x.o ? "" : " · closed"}</span></div>`).join("") + "</div></td></tr>"; };
   const viaTs = e => e.ts && e.due && (!e.dd || e.due !== e.dd) ? `<div class="cysub">from the Target Sprint end</div>` : "";
-  const rows = list.slice().sort((a, b) => (a.due || "9999").localeCompare(b.due || "9999") || keyCmp(a.k, b.k)).map(e => `<tr><th scope="row">${cyKey(e)}</th><td class="title">${esc(e.t)}${raw && e.as ? `<div class="cysub">${esc(e.as)}</div>` : ""}</td>` +
+  const rows = list.slice().sort((a, b) => (a.due || "9999").localeCompare(b.due || "9999") || keyCmp(a.k, b.k)).map(e => `<tr><th scope="row">${cyKey(e)}</th><td class="title">${esc(e.t)}</td>` +
     `<td>${e.due || "–"}${viaTs(e)}${cyLate(e) ? `<div class="cysub">${cyDaysLate(e)} ${cyDaysLate(e) === 1 ? "day" : "days"} overdue${cyStale(e) ? `, stale (more than ${CY.stale} days)` : ""}</div>` : ""}</td>` +
     `<td>${week(e)}</td><td class="n">${edct(e)}</td><td>${bugs(e)}</td><td>${esc(e.s)}${e.fl && !cyDone(e) ? ` · ${tipFocus("Flagged", "Flagged as blocked in Jira")}` : ""}</td></tr>${(e.bugs || []).length ? bugRow(e) : ""}`).join("");
   return `<div class="tablewrap"><table class="cytable cyepics"><caption class="sr">${esc(caption)}</caption><colgroup><col style="width:112px"><col><col style="width:150px"><col style="width:68px"><col style="width:104px"><col style="width:132px"><col style="width:170px"></colgroup><thead><tr><th scope="col">Jira</th><th scope="col">Summary</th><th scope="col">Planned</th><th scope="col">Week</th><th scope="col" class="n">EDCT</th><th scope="col">Bugs</th><th scope="col">Status</th></tr></thead><tbody>${rows}</tbody></table></div>`;
@@ -3120,7 +3148,7 @@ const cyPass = (e, qq) => {
   const f = state.cy.st;
   const ok = f === "all" || (f === "open" ? !cyDone(e) : f === "done" ? cyDone(e) : f === "late" ? cyLate(e) : f === "stale" ? cyStale(e) : f === "flag" ? e.fl && !cyDone(e) : f === "bug" ? cyOpenBugs(e).length > 0
     : f === "prog" ? e.s === "In Progress" : f === "val" ? e.s === "Validation" : f === "new" ? cls(e.s) === "notStarted" : f === "oth" ? cyOther(e) : true);
-  return ok && (!qq || `${e.k} ${e.t} ${e.as || ""}`.toLowerCase().includes(qq));
+  return ok && (!qq || `${e.k} ${e.t}`.toLowerCase().includes(qq));
 };
 function cyFilterBar(d) {
   const {g} = d, M = CYM, y = state.cy, rows = d.planned.concat(d.carry, d.noDue), n = fn => rows.filter(fn).length;      // a count is the number of rows the pill shows: planned, carried over and active no-date epics together
@@ -3130,7 +3158,7 @@ function cyFilterBar(d) {
   const c = d.c;
   return `<div class="cyfbar" id="cy-fbar">` +
     cyRow("Status", "st", ids.map(id => cyPill("st", id, names[id], counts[id], y.st === id)).join("")) +
-    `<div class="cyfrow"><label class="lbl" for="cy-q">Search</label><input type="search" class="cysearch" id="cy-q" placeholder="Key, summary or assignee" value="${esc(y.q)}" autocomplete="off"></div>` +
+    `<div class="cyfrow"><label class="lbl" for="cy-q">Search</label><input type="search" class="cysearch" id="cy-q" placeholder="Key or summary" value="${esc(y.q)}" autocomplete="off"></div>` +
     `<div class="cyfrow"><span id="cy-fstat" role="status" aria-live="polite" class="cymeta"></span><button type="button" class="btn link" data-cyact="reset" id="cy-clear" hidden>Clear Filters</button></div></div>`;
 }
 function cyListsHtml(d) {
@@ -3196,7 +3224,7 @@ function cyDefs() {
     `<b>Carry-over</b>: not Done, with a planned date before the cycle starts; shown only once the cycle has started. <b>No planned date, active</b>: In Progress or Validation with neither a due date nor a Target Sprint. <b>Flagged</b>: the Jira Flagged field is set and the epic is not Done. <b>Open Bugs</b>: issues of type Bug whose parent is the epic, Removed excluded; open means a status other than Done, Ready for Deploy, Closed, Resolved or Removed. A read of Jira found no other way a bug is tied to an epic, so there is no other count to show. <b>EDCT</b>: the dashboard's: days an epic ended in In Progress or Validation, flagged days excluded, the Done day not counted; it is read for Done epics, so open epics show a dash.<br>` +
     `<b>Epics with Flags</b> lists each epic that has at least one of these facts, one row, in planned-date order (no ranking): <i>overdue</i> (not Done and planned before ${esc(CY.asOf)}, with the number of days; stale when more than ${CY.stale} days); <i>planned soon and not started</i> (planned ${esc(cyWindow())} and still New, In Definition, Ready for Dev or Candidate); <i>flagged</i>; <i>carried over</i>; <i>no planned date</i> (active). It states what the data shows and does not rate any team or group.<br>` +
     cyPodDefs() +
-    `<b>Overview hierarchy</b>: Project (the projects of the Projects filter, in the usual order), then Team under its project (the Epic Team field; an epic that lists several teams counts under each, epics with none under (No Team)), then Pod under its team; teams and pods in alphabetical order, never ordered by progress. Each row counts its own epics once: a project row the epics of the project, a team row the epics of that team in that project, a pod row the epics with that pod label in that team; an epic with two teams or several pods appears under each, once per row, and the last row counts each epic once. A team with no pod label on any of its epics has no pod rows; the team of a pod is whatever Jira holds in the Epic Team field of its epics. A share is shown only for 5 or more due epics. Weeks run seven days from the cycle start date. The people named (assignee) are factual ownership only: nothing here is counted or compared per person. No verdict (on track, at risk), rating or ranking is shown. Data is the Jira snapshot at ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}; epic bug links, Flagged and assignees are read when the dashboard is built.`);
+    `<b>Overview hierarchy</b>: Project (the projects of the Projects filter, in the usual order), then Team under its project (the Epic Team field; an epic that lists several teams counts under each, epics with none under (No Team)), then Pod under its team; teams and pods in alphabetical order, never ordered by progress. Each row counts its own epics once: a project row the epics of the project, a team row the epics of that team in that project, a pod row the epics with that pod label in that team; an epic with two teams or several pods appears under each, once per row, and the last row counts each epic once. A team with no pod label on any of its epics has no pod rows; the team of a pod is whatever Jira holds in the Epic Team field of its epics. A share is shown only for 5 or more due epics. Weeks run seven days from the cycle start date. No person is named or counted: the Jira link shows an epic's owner. No verdict (on track, at risk), rating or ranking is shown. Data is the Jira snapshot at ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}; epic bug links, Flagged and assignees are read when the dashboard is built.`);
 }
 function cyRenderBody() {
   const y = state.cy, host = document.getElementById("cy-body"), M = CYM;
@@ -3317,11 +3345,11 @@ function renderDQ() {
   const all = scopeOf(state.release, {anyCommit: true});
   const notSet = all.filter(e => commitOf(e) === "Not Set"), inDef = all.filter(e => e.s === "In Definition");
   const noCycle = all.filter(e => cls(e.s) === "done" && (cycleOf(e) == null || e.edct === 0));
-  const exact = noCycle.length <= 250, noCycleHref = noCycle.length ? (exact ? keyIn(noCycle.map(e => e.k)) : jira({commit: new Set(COMMIT), kind: "done"})) : null;
+  const exact = noCycle.length <= 250, noCycleHref = noCycle.length && exact ? keyIn(noCycle.map(e => e.k)) : null;          // above 250 there is no link: a different set of epics would not match the number
   const items = [
     {v: notSet.length, d: tipSpan(`${epicWord(notSet.length)} with no Commitment Type`, "Counted as committed in the target until teams fill it in."), href: jira({commit: new Set(COMMIT), extra: "cf[10094] is EMPTY"}), tip: `${notSet.length} ${epicWord(notSet.length)} with no Commitment Type in ${state.release}\nOpens them in Jira under the Projects and Teams filters.`},
     {v: inDef.length, d: tipSpan(`${epicWord(inDef.length)} still in In Definition`, "Usually means the status was not updated, not that scoping is ongoing."), href: jira({commit: new Set(COMMIT), extra: 'status = "In Definition"'}), tip: `${inDef.length} ${epicWord(inDef.length)} with the status In Definition in ${state.release}\nOpens them in Jira under the Projects and Teams filters.`},
-    {v: noCycle.length, d: tipSpan(`Done ${epicWord(noCycle.length)} with no In Progress time`, "Went straight to Done, or no history yet."), href: noCycleHref, tip: exact ? `${noCycle.length} Done ${epicWord(noCycle.length)} with no In Progress time\nExact list; the rule uses change history.` : `${noCycle.length} Done ${epicWord(noCycle.length)} with no In Progress time\nApproximate link: it opens every Done epic of the release; the exact set uses change history.`},
+    {v: noCycle.length, d: tipSpan(`Done ${epicWord(noCycle.length)} with no In Progress time`, "Went straight to Done, or no history yet."), href: noCycleHref, tip: exact ? `${noCycle.length} Done ${epicWord(noCycle.length)} with no In Progress time\nExact list; the rule uses change history.` : `${noCycle.length} Done ${epicWord(noCycle.length)} with no In Progress time\nToo many to list in a link; the rule uses change history, which Jira cannot search.`},
   ];
   document.getElementById("dq").innerHTML = items.map(i =>
     `<div class="item"><div class="v">${i.href && i.v ? tlink(i.v, i.href, i.tip) : i.v}</div><div class="d">${i.d}</div></div>`).join("");
@@ -3438,6 +3466,7 @@ function renderTeamList() {
   DATA.epics.filter(e => state.projects.has(e.p) && inRelease(e, state.release)).forEach(e => teamsOf(e).forEach(t => m.set(t, (m.get(t) || 0) + 1)));
   DATA.bugs.filter(b => state.projects.has(b.p)).forEach(b => { const t = b.tm || NO_TEAM; if (!m.has(t)) m.set(t, 0); });
   state.teams.forEach(t => { if (!m.has(t)) m.set(t, 0); });
+  if (capOk()) DATA.cap.teams.forEach(t => { if (!m.has(t)) m.set(t, 0); });               // a team that only has Done Bugs, Stories or Tasks (no epics) is listed too
   document.getElementById("f-teams-hint").textContent = `${state.teams.size ? state.teams.size + " selected · " : ""}Epics on ${state.release}, all commitment types. A dash means bugs only.`;
   const names = [...m.keys()].filter(t => t.toLowerCase().includes(needle)).sort((a, b) => a === NO_TEAM ? 1 : b === NO_TEAM ? -1 : a.localeCompare(b));
   const list = document.getElementById("f-teams-list");
@@ -3571,23 +3600,36 @@ function updateCore() {
   syncControls(); saveState(); renderKpis(); renderStatus(); renderBurnup(); renderEfficiency(); renderCharts(); renderBugs(); renderCfb(); renderOpenCfb(); renderCfbAbout(); renderDeps(); renderAttention(); renderCapabilities(); renderCx(); renderNfr(); renderAdoption(); renderCapDone(); renderCycles();
   renderBreakdowns(); renderDQ(); renderMeta(); tipPass(); nowrapDates(); fitSticky();
 }
+// ONE stamp in the header: the oldest time among the sources the viewer sees (after a full Refresh they all carry the refresh time). The per-source times are in its tooltip, and only when they differ.
+function sourceTimes() {
+  const base = DATA.generated, rf = DATA.refreshedAt;
+  const src = [["Epics", rf || base], ["Bugs", rf || DATA.bugsPulledAt || base], ["Open CFBs", DATA.cfbRefreshedAt || (DATA.cfbx && DATA.cfbx.pulledAt) || base], ["Dependency links", DATA.linksPulledAt || base], ["Capabilities", DATA.capPulledAt || base], ["Capitalization", DATA.capRefreshedAt || (DATA.cap && DATA.cap.pulledAt) || base]];
+  const oldest = src.map(x => x[1]).sort()[0];
+  return {src, oldest, differ: src.some(x => Math.abs(new Date(x[1]) - new Date(oldest)) > 60000)};
+}
+const stampText = () => `${RUNTIME ? "Data as of" : "Snapshot from"} ${ilLabel(sourceTimes().oldest)}`;
+function stampTip() {
+  if (refresh.busy) return "Refreshing from Jira. The page updates as each step finishes.";
+  const head = DATA.refreshedAt ? `Updated from Jira ${ilStamp(DATA.refreshedAt)}.` : `Snapshot from ${ilStamp(sourceTimes().oldest)}.${RUNTIME ? " Press Refresh to update it." : ""}`;
+  return [head, ...(DATA.lastRefreshNote ? [DATA.lastRefreshNote] : []), ...(DATA.schema != null && DATA.schema !== PAGE_SCHEMA ? [`Data layout ${DATA.schema}, this page expects ${PAGE_SCHEMA}: rebuild with build_dashboard.py`] : [])].join("\n");
+}
 function renderMeta() {
   const fmtT = ilLabel;
-  const day = x => x ? String(x).slice(0, 10) : "", stamps = [DATA.capPulledAt && `Capabilities ${ilDate(DATA.capPulledAt)}`, DATA.cfbx && DATA.cfbx.pulledAt && `Open CFB RCA ${ilDate(DATA.cfbx.pulledAt)}`].filter(Boolean).map(x => "; " + x).join("");      // the sections with their own pull say when it was read
+  const stamps = "";
   document.getElementById("meta").textContent = DATA.refreshedAt
     ? `Refreshed ${fmtT(DATA.refreshedAt)} from Jira (${DATA.refreshedStats.epics} epics and ${DATA.refreshedStats.bugs} bugs changed since the ${fmtT(DATA.generated)} snapshot) · ${DATA.epics.length} epics · ${DATA.bugs.length} bugs`
     : `Snapshot · data as of ${fmtT(DATA.generated)}${stamps}`;
   document.getElementById("meta").title = `${DATA.epics.length.toLocaleString("en-US")} epics and ${DATA.bugs.length.toLocaleString("en-US")} bugs from ${DATA.projects.length} projects`;
   document.getElementById("badge").textContent = DATA.refreshedAt ? "Refreshed" : "Snapshot";
-  const asof = document.getElementById("asof"); if (asof && !asof.dataset.hold) asof.textContent = `Data as of ${fmtT(DATA.refreshedAt || DATA.generated)}${stamps}`;
+  const asof = document.getElementById("asof"); if (asof && !asof.dataset.hold) { asof.textContent = stampText(); asof.dataset.tip = stampTip(); asof.dataset.link = "0"; }
 }
 
 // ---------------------------------------------------------------- live refresh (published artifact only)
-const LIVE = {server: "Atlassian", tool: "searchJiraIssuesUsingJql", pageLimit: 40};
+const LIVE = {server: "Atlassian", tool: "searchJiraIssuesUsingJql", issueTool: "getJiraIssue", pageLimit: 40};
 const FIELDS = ["summary", "status", "issuetype", "priority", "created", "resolutiondate", "resolution", "reporter", "fixVersions",
   "customfield_10094", "customfield_10040", "customfield_10098", "customfield_15229", "customfield_15264", "customfield_10139",
   "customfield_10055", "customfield_10068", "customfield_10329", "customfield_10099", "customfield_10051",
-  "duedate", "customfield_12697", "assignee", "parent", "customfield_10021", "updated", "labels"];      // planning facts: due date, Target Sprint, assignee, parent Capability, Flagged, last update, labels (NFR)
+  "duedate", "customfield_12697", "parent", "customfield_10021", "updated", "labels"];      // planning facts: due date, Target Sprint, parent Capability, Flagged, last update, labels (NFR)
 const optVal = x => x == null ? null : Array.isArray(x) ? x.map(optVal).filter(Boolean) : typeof x === "object" ? (x.value || x.name || null) : x;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 function describeError(err) {
@@ -3597,13 +3639,20 @@ function describeError(err) {
   if (code === "needs_reauth") return ["The Atlassian connection has expired. Reconnect it in claude.ai under Settings, then Connectors.", "warn"];
   if (code === "not_in_manifest" || code === "blocked_by_policy") return ["This page is not allowed to read Jira for you (turned off or blocked by policy).", "warn"];
   if (code === "not_granted" || code === "capability_disabled" || code === "capability_removed") return ["Live refresh is not available in this view. Open the published page in Claude.", "warn"];
+  if (code === "timeout") return ["Jira did not answer in time. The data on screen is unchanged.", "warn"];
   if (code === "tool_error") return [`Jira reported an error: ${esc((err.message || "").slice(0, 160))}`, "bad"];
   return [`Could not reach Jira (${esc(code || "unknown error")}). The data on screen is unchanged.`, "bad"];
 }
+// One call must answer within the deadline, otherwise Refresh would sit on "Refreshing…" until the page is reloaded. A timed-out call is retried once, like any retryable error.
+const CALL_DEADLINE_MS = () => (typeof window.__dpCallDeadlineMs === "number" && window.__dpCallDeadlineMs > 0) ? window.__dpCallDeadlineMs : 60000;
+const withDeadline = p => new Promise((resolve, reject) => {
+  const t = setTimeout(() => reject({code: "timeout", retryable: true, retryAfterMs: 500, message: "Jira did not answer in time"}), CALL_DEADLINE_MS());
+  p.then(v => { clearTimeout(t); resolve(v); }, e => { clearTimeout(t); reject(e); });
+});
 async function callPage(mcp, input) {
   for (let attempt = 0; ; attempt++) {
     try {
-      const res = await mcp.callTool(LIVE.server, LIVE.tool, input, {cache: false});
+      const res = await withDeadline(Promise.resolve(mcp.callTool(LIVE.server, LIVE.tool, input, {cache: false})));
       return res.payload && res.payload.issues ? res.payload.issues : (() => { throw {code: "tool_error", message: "Unexpected response from Jira"}; })();
     } catch (err) {
       if (err && err.retryable && attempt === 0) { await sleep((err.retryAfterMs || 1500) + Math.random() * 800); continue; }
@@ -3611,26 +3660,94 @@ async function callPage(mcp, input) {
     }
   }
 }
+// EDCT of an epic that became Done after the data was built: the same day accounting as the collector (dashboards/edct_from_jira.py): from the day of the first change to the resolution day,
+// every day that ENDS in In Progress or Validation counts, unless the epic is flagged; the resolution day itself ends in Done, so it is not counted. Day ends are in the offset of the first change.
+function epicDays(histories, resolvedDay) {
+  const toMs = s => Date.parse(String(s).replace(/([+-]\d{2})(\d{2})$/, "$1:$2"));
+  const offMs = s => { const m = /([+-])(\d{2}):?(\d{2})$/.exec(String(s)); return m ? (m[1] === "-" ? -1 : 1) * (+m[2] * 60 + +m[3]) * 60000 : 0; };
+  const ev = [];
+  for (const h of histories || []) for (const it of h.items || []) {
+    if (it.field === "status") ev.push({t: toMs(h.created), c: String(h.created), kind: "status", v: it.toString});
+    else if (it.field === "Flagged") ev.push({t: toMs(h.created), c: String(h.created), kind: "flag", v: it.toString || null});
+  }
+  if (!ev.length) return {ip: 0, vl: 0, cal: null};
+  ev.sort((a, b) => a.t - b.t);
+  const first = ev.map(x => x.c.slice(0, 10)).sort()[0], off = offMs(ev[0].c);
+  let status = null, flagged = false, idx = 0, ip = 0, vl = 0;
+  for (let d = utc(first); d <= utc(resolvedDay); d += DAY) {
+    const dt = new Date(d), boundary = Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate(), 23, 59, 59, 999) - off;
+    while (idx < ev.length && ev[idx].t <= boundary) { if (ev[idx].kind === "status") status = ev[idx].v; else flagged = !!ev[idx].v; idx++; }
+    if (!flagged) { if (status === "In Progress") ip++; if (status === "Validation") vl++; }
+  }
+  const fip = ev.find(x => x.kind === "status" && x.v === "In Progress");
+  return {ip, vl, cal: fip ? Math.round((utc(resolvedDay) - utc(fip.c.slice(0, 10))) / DAY) : null};
+}
+async function callIssue(mcp, key) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await withDeadline(Promise.resolve(mcp.callTool(LIVE.server, LIVE.issueTool, {cloudId: DATA.cloudId, issueIdOrKey: key, fields: ["status"], expand: "changelog"}, {cache: false})));
+      const n = res.payload && res.payload.issues && res.payload.issues.nodes && res.payload.issues.nodes[0];
+      if (!n || !n.changelog) throw {code: "tool_error", message: `No history returned for ${key}`};
+      return n.changelog;
+    } catch (err) {
+      if (err && err.retryable && attempt === 0) { await sleep((err.retryAfterMs || 1500) + Math.random() * 800); continue; }
+      throw err;
+    }
+  }
+}
+// Every epic that is Done but has no cycle time yet (it closed after the build): read its history and set ip, vl, edct and cal. Nothing is applied unless every history was read in full.
+async function edctRefresh(mcp, say) {
+  const todo = DATA.epics.filter(e => cls(e.s) === "done" && e.edct == null && e.rd);
+  if (!todo.length) return null;
+  const out = [], tooLong = [];
+  for (let i = 0; i < todo.length; i++) {
+    say(`Cycle time of epics that closed since the data was built: ${i + 1} of ${todo.length}.`);
+    const cl = await callIssue(mcp, todo[i].k);
+    if (cl.total != null && cl.histories && cl.total > cl.histories.length) { tooLong.push(todo[i].k); continue; }          // a history Jira returned only in part cannot be counted
+    out.push([todo[i], epicDays(cl.histories, todo[i].rd)]);
+  }
+  out.forEach(([e, r]) => { e.ip = r.ip; e.vl = r.vl; e.edct = r.ip + r.vl; e.cal = r.cal; });
+  return {n: out.length, tooLong: tooLong.length};
+}
+// A query over a long `updated` range is read in windows (a few days, split to one day when a window hits the page limit); a one-day window that still hits it is an error, so nothing is applied half-way.
+async function fetchSliced(mcp, baseJql, sinceDay, onPage, fields = FIELDS) {
+  const nodes = [], seen = new Set();
+  const todayEnd = ilDate(new Date()), addDay = (d, n) => iso(utc(d) + n * DAY);
+  const readWindow = async (from, to, span) => {                // [from, to): days
+    const r = await fetchAll(mcp, `${baseJql} AND updated >= "${from}" AND updated < "${to}"`, onPage, fields);
+    if (!r.truncated) { r.nodes.forEach(n => { if (!seen.has(n.key)) { seen.add(n.key); nodes.push(n); } }); return; }
+    if (span <= 1) throw {code: "tool_error", message: `more than ${LIVE.pageLimit * 100} issues updated on ${from}; ask for a full rebuild`};
+    const mid = addDay(from, Math.ceil(span / 2)); await readWindow(from, mid, Math.ceil(span / 2)); await readWindow(mid, to, span - Math.ceil(span / 2));
+  };
+  const end = addDay(todayEnd, 1), span = Math.max(1, Math.round((utc(end) - utc(sinceDay)) / DAY)), step = span <= 14 ? span : 7;      // a recent snapshot is one query; an old one is read in weeks; a window that hits the page limit is halved
+  for (let d = sinceDay; d < end; d = addDay(d, step)) await readWindow(d, addDay(d, step) > end ? end : addDay(d, step), Math.min(step, Math.round((utc(end) - utc(d)) / DAY)));
+  return {nodes, truncated: false};                              // a window that hits the page limit is halved or throws: a sliced read is never partial
+}
 async function fetchAll(mcp, jql, onPage, fields = FIELDS) {
-  const nodes = []; let token, pages = 0;
+  const nodes = [], seenTokens = new Set(); let token, pages = 0, more = false;
   do {
     const input = {cloudId: DATA.cloudId, jql, fields, maxResults: 100};
     if (token) input.nextPageToken = token;
     const issues = await callPage(mcp, input);
     nodes.push(...issues.nodes);
     pages++; onPage(pages, nodes.length);
-    token = issues.pageInfo && issues.pageInfo.hasNextPage ? issues.pageInfo.endCursor : null;
+    if (!issues.pageInfo && issues.nodes.length >= 100) throw {code: "tool_error", message: "Jira returned a full page without paging information; nothing was applied"};      // a full page with no paging data cannot be known to be the last one
+    more = !!(issues.pageInfo && issues.pageInfo.hasNextPage);
+    token = more ? issues.pageInfo.endCursor : null;
+    // Pagination integrity: a page that says "more" but gives no way to continue, or a token seen before, would end the read early without a word. Refuse to apply a partial read.
+    if (more && !token) throw {code: "tool_error", message: "Jira returned a page without a continuation token; nothing was applied"};
+    if (token && seenTokens.has(token)) throw {code: "tool_error", message: "Jira repeated a page; nothing was applied"};
+    if (token) seenTokens.add(token);
   } while (token && pages < LIVE.pageLimit);
   return {nodes, truncated: !!token};
 }
 // Planning facts, named and normalised as the collector's plan_record does: dd due date, ts Target Sprint label, ud last update (first 10 characters),
-// as assignee name, fl Flagged, cp parent Capability key. A field the response carries as empty clears it; a field the response does not carry is left as it was.
+// fl Flagged, cp parent Capability key. A field the response carries as empty clears it; a field the response does not carry is left as it was.
 function mergePlan(rec, f) {
   const set = (name, field, v) => { if (field in f) { if (v) rec[name] = v; else delete rec[name]; } };
   set("dd", "duedate", f.duedate ? String(f.duedate).slice(0, 10) : null);
   if ("customfield_12697" in f) { const t = optVal(f.customfield_12697), v = Array.isArray(t) ? t[0] : t; set("ts", "customfield_12697", v || null); }
   set("ud", "updated", f.updated ? String(f.updated).slice(0, 10) : null);
-  set("as", "assignee", f.assignee && f.assignee.displayName);
   if ("customfield_10021" in f) { const x = f.customfield_10021; if (Array.isArray(x) ? x.length : x) rec.fl = 1; else delete rec.fl; }
   if ("parent" in f) {
     const par = f.parent, ty = par && ((par.fields && par.fields.issuetype && par.fields.issuetype.name) || (par.issuetype && par.issuetype.name));
@@ -3662,7 +3779,7 @@ function mergeDelta(nodes, axKeys) {
       mergePlan(rec, f);
       if (old && old.s !== status) delete rec.ss;                  // the "in this status since" day belongs to the old status; a rebuild fills in the new one
       if (status !== "Done") { delete rec.ip; delete rec.vl; delete rec.edct; delete rec.cal; }     // cycle time exists for Done epics only; a Done epic keeps its own
-      if ("labels" in f) { if ((f.labels || []).includes("NFR")) rec.nf = 1; else delete rec.nf; const pl = podLabelsOf(proj, f.labels); if (pl.length) rec.pl = pl; else delete rec.pl; }       // absent stays, empty clears
+      if ("labels" in f) { if ((f.labels || []).includes(NFR_LABEL)) rec.nf = 1; else delete rec.nf; const pl = podLabelsOf(proj, f.labels); if (pl.length) rec.pl = pl; else delete rec.pl; }       // absent stays, empty clears
       epics.set(key, rec); counts.epics++;
     } else if (type === "Bug") {
       const old = bugs.get(key);
@@ -3692,50 +3809,153 @@ function mergeDelta(nodes, axKeys) {
   DATA.bugs.forEach(b => { if (b.tm) KNOWN_TEAMS.add(b.tm); });
   return counts;
 }
-// ---- Capitalization refresh: the current quarter only. Same rule as the collector (build_dashboard.py): Done Bugs, Stories and Tasks by their Closed day (Israel-local; the resolution date stands in when the Closed field is empty).
-// A stored record whose Closed day is in an earlier quarter is never touched; a stored current-quarter record the query no longer returns (reopened, status changed, Closed date moved) is removed.
+// ---- Capitalization delta refresh, ALL quarters. Every Bug, Story and Task of the dashboard projects updated since the last pull or Refresh is read in ANY status and judged by the population rule again:
+// Done, with a Closed day (Israel-local, the resolution date when Closed is empty) on or after the pull start -> the record is inserted or replaced, in whatever quarter it falls; anything else that comes back
+// (status changed away from Done, Removed, Closed day before the start) -> the stored record is deleted. A record that is not returned is never touched, and an empty response deletes nothing.
 const CAP_FIELDS = ["issuetype", "status", "resolutiondate", "customfield_10099", "customfield_10079", "customfield_10038", "customfield_10098"];
 const capIlDay = x => x ? ilDate(String(x).replace(/([+-]\d\d)(\d\d)$/, "$1:$2")) : null;
 async function capRefresh(mcp, say) {
   const C = DATA.cap; if (!C || !C.rows) return null;
-  const cur = capQuarterOf(new Date(utc(ilDate(new Date())))), qs = capQStart(cur), from = capAddDays(qs, -1);
-  const recs = new Map(capRecords().map(r => [`${r.p}-${r.n}`, r])), seen = new Set(), okProj = new Set();
-  const idx = (list, v) => { let i = list.indexOf(v); if (i < 0) { list.push(v); i = list.length - 1; } return i; };
-  let nCur = 0, unreadable = 0;
+  const last = [C.pulledAt, DATA.capRefreshedAt].filter(Boolean).sort().pop(), since = iso(utc(ilDate(last)) - DAY);
+  const recs = new Map(capRecords().map(r => [`${r.p}-${r.n}`, r])), idx = (list, v) => { let i = list.indexOf(v); if (i < 0) { list.push(v); i = list.length - 1; } return i; };
+  const plan = [];                                                // read everything first, apply at the end: a failure leaves the data as it was
   for (const proj of C.projects) {
     const pi = C.projects.indexOf(proj);
-    const res = await fetchAll(mcp, `project = ${proj} AND status = Done AND issuetype in (Bug, Story, Task) AND (cf[10099] >= "${from}" OR (cf[10099] is EMPTY AND resolutiondate >= "${from}"))`, (pg, n) => say(`Capitalization ${proj}: page ${pg}, ${n} issues read so far.`), CAP_FIELDS);
-    if (res.truncated) throw {code: "tool_error", message: `${proj} has more changed issues than the page limit; ask for a full rebuild`};
-    okProj.add(pi);
-    for (const node of res.nodes) {
-      const f = node.fields || {}, n = Number(node.key.split("-")[1]), id = `${pi}-${n}`;
-      const st = f.status && (f.status.name || f.status); if (st && st !== "Done") continue;                    // no longer Done: not returned, so a stored record goes below
-      const closed = capIlDay(f.customfield_10099), day = closed || capIlDay(f.resolutiondate);
-      if (!day) { unreadable++; seen.add(id); continue; }                // neither date can be read: the old record stays
-      if (day < qs) continue;                                            // closed before the current quarter: another quarter is never touched (a current-quarter record that moved here is removed below)
-      seen.add(id);
-      const old = recs.get(id), r = old ? {...old} : {n, p: pi, v: -1, sp: 0, cd: 0, t: -1, fb: 0};
+    const res = await fetchSliced(mcp, `project = ${proj} AND issuetype in (Bug, Story, Task)`, since, (pg, n) => say(`Capitalization ${proj}: page ${pg}, ${n} issues read so far.`), CAP_FIELDS);
+    for (const node of res.nodes) plan.push({pi, node});
+  }
+  let changed = 0, read = plan.length;
+  for (const {pi, node} of plan) {
+    const f = node.fields || {}, n = Number(node.key.split("-")[1]), id = `${pi}-${n}`, old = recs.get(id);
+    const status = f.status && (f.status.name || f.status), closed = capIlDay(f.customfield_10099), day = closed || capIlDay(f.resolutiondate);
+    if (status === "Done" && day && day >= C.start) {            // in the population: insert or replace
+      const r = old ? {...old} : {n, p: pi, v: -1, sp: 0, cd: 0, t: -1, fb: 0}, before = old ? JSON.stringify([old.v, old.sp, old.cd, old.t, old.fb]) : null;
       if ("customfield_10079" in f) { const v = optVal(f.customfield_10079); r.v = v ? idx(C.values, String(v)) : -1; }
       if ("customfield_10038" in f) r.sp = typeof f.customfield_10038 === "number" ? f.customfield_10038 : 0;
-      if ("customfield_10098" in f) { const t = optVal(f.customfield_10098); r.t = t ? idx(C.teams, String(t)) : -1; }
+      if ("customfield_10098" in f) { const tm = optVal(f.customfield_10098); r.t = tm ? idx(C.teams, String(tm)) : -1; }
       r.cd = Math.round((utc(day) - utc(C.epoch)) / DAY); r.fb = closed ? 0 : 1;
-      recs.set(id, capDerive(r)); nCur++;
+      if (JSON.stringify([r.v, r.sp, r.cd, r.t, r.fb]) !== before) changed++;
+      recs.set(id, capDerive(r));
+    } else if (old && status) {                                  // returned and no longer in the population: delete (never inferred from absence)
+      recs.delete(id); changed++;
     }
   }
-  for (const [id, r] of [...recs]) if (r.d >= qs && okProj.has(r.p) && !seen.has(id)) recs.delete(id);    // a stored current-quarter record the query no longer returns
-  const rows = [...recs.values()];
-  C.rows = rows.map(r => [r.n, r.p, r.v, r.sp, r.cd, r.t, r.fb].join(",")).join(";");
-  CAPZ = null; DATA.capRefreshedAt = new Date().toISOString(); DATA.capRefreshedN = nCur;
-  return {cur, n: nCur, unreadable};
+  C.rows = [...recs.values()].map(r => [r.n, r.p, r.v, r.sp, r.cd, r.t, r.fb].join(",")).join(";");
+  CAPZ = null; DATA.capRefreshedAt = new Date().toISOString(); DATA.capRefreshedN = changed; DATA.capRefreshFailed = null;
+  return {since, read, n: changed, cur: capQuarterOf(new Date(utc(ilDate(new Date()))))};
 }
-async function refresh() {
-  const btn = document.getElementById("refresh"), status = document.getElementById("status");
+// ---- Refresh steps beyond epics and bugs. Each step is independent: a failure is reported on its own and leaves its data as it was; the others still run.
+// The Root Cause Analysis template hash is the build's (cyrb53 over the UTF-16 units of the normalised text); the text of a template is never stored.
+const h53 = (str, seed = 0) => { let h1 = 0xdeadbeef ^ seed, h2 = 0x41c6ce57 ^ seed;
+  for (let i = 0, ch; i < str.length; i++) { ch = str.charCodeAt(i); h1 = Math.imul(h1 ^ ch, 2654435761); h2 = Math.imul(h2 ^ ch, 1597334677); }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return 4294967296 * (2097151 & h2) + (h1 >>> 0); };
+const adfText = v => { if (v == null) return ""; if (typeof v === "string") return v; const out = [];
+  const walk = n => { if (Array.isArray(n)) n.forEach(walk); else if (n && typeof n === "object") { if (n.type === "text") out.push(n.text || ""); else if (["hardBreak", "paragraph", "listItem"].includes(n.type) && out.length) out.push("\n"); (n.content || []).forEach(walk); } };
+  walk(v); return out.join(""); };
+const normText = t => String(t || "").replace(/\s+/g, " ").trim().toLowerCase();
+const CFB_FIELDS = ["summary", "status", "issuetype", "priority", "created", "updated", "resolutiondate", "resolution", "reporter", "customfield_10098", "customfield_10329", "customfield_10055", "customfield_10068", "customfield_10117", "customfield_12643", "customfield_10099", "customfield_10051"];
+const BUG_CLOSED_JQL_LIST = BUG_CLOSED.map(x => /\s/.test(x) ? `"${x}"` : x).join(", ");
+async function cfbRefresh(mcp, say) {                            // Open CFBs: the open set is read again, the ones that left it are read by key, the Root Cause Analysis state is classified as the collector does
+  const X = DATA.cfbx; if (!X || !X.bugs) return null;
+  const tpl = Array.isArray(X.tpl) ? new Set(X.tpl) : null;
+  const open = await fetchAll(mcp, `project in (${DATA.projects.join(", ")}) AND issuetype = Bug AND (reporter = "${DATA.cfbAccount}" OR cf[10329] is not EMPTY) AND status not in (${BUG_CLOSED_JQL_LIST})`, (pg, n) => say(`Open CFBs: page ${pg}, ${n} issues read so far.`), CFB_FIELDS);
+  if (open.truncated) throw {code: "tool_error", message: "more open CFBs than the page limit; ask for a full rebuild"};
+  const now = new Set(open.nodes.map(n => n.key)), left = DATA.bugs.filter(b => b.cfb && isOpenBug(b) && !now.has(b.k)).map(b => b.k), leftNodes = [];
+  for (let i = 0; i < left.length; i += 100) {
+    const r = await fetchAll(mcp, `key in (${left.slice(i, i + 100).join(", ")})`, (pg, n) => say(`Open CFBs that closed: page ${pg}, ${n} issues read so far.`), CFB_FIELDS);
+    if (r.truncated) throw {code: "tool_error", message: "more closed CFBs than the page limit; ask for a full rebuild"};
+    leftNodes.push(...r.nodes);
+  }
+  // nothing is applied half-way: any failure above left everything untouched
+  const ax = new Set(DATA.bugs.filter(b => b.ax).map(b => b.k));
+  mergeDelta([...open.nodes, ...leftNodes], ax);
+  open.nodes.forEach(n => {
+    const f = n.fields || {}, text = normText(adfText(f.customfield_10117)), old = X.bugs[n.key] || {}, rec = {...old, t: f.summary || old.t || ""};
+    if (tpl) rec.rca = text && !tpl.has(h53(text)) ? 1 : 0; else rec.rca = old.rca || 0;       // an older build without the template hashes keeps the flag it had
+    const rv = optVal(f.customfield_12643); if (rv === "Approved") rec.rv = "A"; else if (rv === "Not Required") rec.rv = "N"; else delete rec.rv;
+    if (rec.rca) rec.rt = text.slice(0, 320); else delete rec.rt;
+    X.bugs[n.key] = rec;
+  });
+  leftNodes.forEach(n => { if (X.bugs[n.key]) delete X.bugs[n.key].rt; });
+  X.pulledAt = new Date().toISOString(); DATA.cfbRefreshedAt = X.pulledAt;
+  return {open: open.nodes.length, left: leftNodes.length, tpl: !!tpl};
+}
+async function capsRefresh(mcp, say, sinceDay) {                  // Capabilities of the dashboard projects and CXCROSS changed since the snapshot: status, fix versions, summary; and the child-epic rows we already hold
+  if (!DATA.capList) return null;
+  const rels = DATA.releases.map(r => `"${r}"`).join(", ");
+  const res = await fetchAll(mcp, `project in (${[...DATA.projects, "CXCROSS"].join(", ")}) AND issuetype = Capability AND (updated >= "${sinceDay}" OR fixVersion in (${rels}))`, (pg, n) => say(`Capabilities: page ${pg}, ${n} issues read so far.`), ["summary", "status", "issuetype", "fixVersions", "project", "parent"]);
+  if (res.truncated) throw {code: "tool_error", message: "more Capabilities than the page limit; ask for a full rebuild"};
+  const nofv = await fetchAll(mcp, `project in (${[...DATA.projects, "CXCROSS"].join(", ")}) AND issuetype = Capability AND status != Removed AND fixVersion is EMPTY`, (pg, n) => say(`Capabilities without a fix version: page ${pg}, ${n} issues read so far.`), ["status"]);      // both reads finish before anything is applied
+  const L = DATA.capList, H = DATA.hier || {}; let changed = 0;
+  for (const n of res.nodes) {
+    const f = n.fields || {}, k = n.key, st = f.status && f.status.name, fv = (f.fixVersions || []).map(v => v.name), proj = (f.project && f.project.key) || k.split("-")[0];
+    if (st === "Removed") { if (L[k] || H[k]) changed++; delete L[k]; delete H[k]; continue; }
+    const old = L[k] || H[k] || null, relFv = fv.filter(v => DATA.releases.includes(v));
+    const same = old && old.s === st && old.t === f.summary && JSON.stringify(old.fv || []) === JSON.stringify(fv);
+    if (!same) changed++;
+    if (L[k] || relFv.length) L[k] = {...(L[k] || {}), t: f.summary, s: st, p: proj, fv};
+    if (H[k]) H[k] = {...H[k], t: f.summary, s: st, fv};
+  }
+  const byKey = new Map(DATA.epics.map(e => [e.k, e]));         // child-epic rows of a Capability: status, release fix versions and Issue Category of the epics Refresh has just read
+  (DATA.capEpics || []).forEach(r => { const e = byKey.get(r[0]); if (e) { r[2] = e.s; r[3] = (e.fv || []).filter(v => DATA.releases.includes(v)); r[4] = e.cat || ""; if (e.cp) r[5] = e.cp; } });
+  if (!nofv.truncated) DATA.capNoFv = {total: nofv.nodes.length, done: nofv.nodes.filter(n => (n.fields.status || {}).name === "Done").length};
+  DATA.capPulledAt = new Date().toISOString();
+  return {read: res.nodes.length, changed};
+}
+const DEP_TYPES = ["Dependency", "Blocks"];
+// Dependency links between epics: the links of every release epic changed since the snapshot are read again and the pairs that touch those epics are rebuilt exactly as the collector builds them
+// (Dependency: outward "depends on"; Blocks: outward "blocks"; links to Removed issues left out); an issue at the far end that is not yet known is read once, so the board can show its status, release and team.
+async function linksRefresh(mcp, say, sinceDay) {
+  if (!Array.isArray(DATA.deps)) return null;
+  const rels = DATA.releases.map(r => `"${r}"`).join(", ");
+  const res = await fetchSliced(mcp, `project in (${DATA.projects.join(", ")}) AND issuetype = Epic AND status != Removed AND fixVersion in (${rels})`, sinceDay, (pg, n) => say(`Dependency links: page ${pg}, ${n} issues read so far.`), ["issuelinks", "status"]);
+  if (res.truncated) throw {code: "tool_error", message: "more linked epics than the page limit; ask for a full rebuild"};
+  const touched = new Set(res.nodes.map(n => n.key)), fresh = new Map();            // "dependent|provider" -> kinds
+  for (const n of res.nodes) for (const l of (n.fields && n.fields.issuelinks) || []) {
+    const ty = l.type && l.type.name; if (!DEP_TYPES.includes(ty)) continue;
+    const out = l.outwardIssue, inn = l.inwardIssue, other = out || inn; if (!other) continue;
+    if (((other.fields && other.fields.status) || {}).name === "Removed") continue;
+    const [d, p] = ty === "Dependency" ? (out ? [n.key, other.key] : [other.key, n.key]) : (out ? [other.key, n.key] : [n.key, other.key]);
+    const k = d + "|" + p; fresh.set(k, (fresh.get(k) || "") + (ty === "Dependency" ? "D" : "B"));
+  }
+  const epicKeys = new Set(DATA.epics.map(e => e.k)), ext = DATA.ext || (DATA.ext = {}), need = new Set();
+  fresh.forEach((_, k) => k.split("|").forEach(x => { if (!epicKeys.has(x) && !ext[x]) need.add(x); }));
+  const far = [...need], got = [];
+  for (let i = 0; i < far.length; i += 80) {
+    const r = await fetchAll(mcp, `key in (${far.slice(i, i + 80).join(", ")})`, (pg, n) => say(`Dependency links, far ends: page ${pg}, ${n} issues read so far.`), ["summary", "status", "issuetype", "fixVersions", "parent", "customfield_10040", "customfield_10098", "project", "updated", "duedate", "customfield_12697", "assignee", "customfield_10021"]);
+    if (r.truncated) throw {code: "tool_error", message: "more linked issues than the page limit; ask for a full rebuild"};
+    got.push(...r.nodes);
+  }
+  const before = new Map(DATA.deps.map(d => [d[0] + "|" + d[1], d[2]]));
+  const kept = DATA.deps.filter(([d, p]) => !touched.has(d) && !touched.has(p));
+  const added = [...fresh].map(([k, kinds]) => { const [d, p] = k.split("|"); return [d, p, ["D", "B"].filter(c => kinds.includes(c)).join("")]; });
+  let changed = 0;
+  added.forEach(a => { if (before.get(a[0] + "|" + a[1]) !== a[2]) changed++; });
+  before.forEach((v, k) => { const [d, p] = k.split("|"); if (touched.has(d) || touched.has(p)) if (!fresh.has(k)) changed++; });
+  for (const n of got) {                                                           // nothing is applied before every read above has succeeded
+    const f = n.fields || {}, teams = (optVal(f.customfield_10040) || []).filter(Boolean), tn = optVal(f.customfield_10098); if (tn && !teams.includes(tn)) teams.push(tn);
+    const rec = {p: (f.project && f.project.key) || n.key.split("-")[0], t: f.summary, s: f.status && f.status.name, fv: (f.fixVersions || []).map(v => v.name), tm: teams};
+    mergePlan(rec, f); const ty = f.issuetype && f.issuetype.name; if (ty && ty !== "Epic") rec.ty = ty;
+    ext[n.key] = rec;
+  }
+  DATA.deps = [...kept, ...added].sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0);
+  DATA.linksPulledAt = new Date().toISOString();
+  return {pairs: DATA.deps.length, changed};
+}
+async function refresh(opts = {}) {
+  const auto = !!(opts && opts.auto), btn = document.getElementById("refresh"), status = document.getElementById("status");
+  if (!auto) { const now = Date.now(); if (refresh.last && now - refresh.last < 10000) return; refresh.last = now; }        // a manual retry is rate-limited; the automatic attempt happens once per page load
   const say = (msg, kind = "info") => {
     clearTimeout(refresh.t);
+    if (auto && kind === "info" && msg && !/^Refreshed\b/.test(msg)) msg = "Updating live data: " + msg.replace(/^Reading changes from Jira…$/, "reading changes");
     status.innerHTML = msg ? `<span class="msg ${kind}">${msg}</span>${kind === "info" ? "" : `<button class="x" type="button" aria-label="Dismiss">×</button>`}` : "";
     const x = status.querySelector(".x"); if (x) x.onclick = () => { status.innerHTML = ""; };
   };
-  btn.disabled = true; say("Reading changes from Jira…");
+  refresh.busy = true;
+  const syncTip = () => { const a = document.getElementById("asof"); if (a) a.dataset.tip = stampTip(); };      // the stamp text is held while refreshing; its tooltip is not
+  btn.disabled = true; say("Reading changes from Jira…"); syncTip();
   try {
     const mcp = RUNTIME ? await window.claude.use("mcp") : null;
     if (!mcp) {
@@ -3744,36 +3964,57 @@ async function refresh() {
       return;
     }
     const sinceDay = new Date(utc(asOf().slice(0, 10)) - DAY).toISOString().slice(0, 10);
-    const scope = `project in (${DATA.projects.join(", ")}) AND updated >= "${sinceDay}"`;
+    const scope = `project in (${DATA.projects.join(", ")})`;
     const progress = (label) => (p, n) => say(`${label}: page ${p}, ${n} issues read so far.`);
     btn.textContent = "Refreshing…";
-    const changed = await fetchAll(mcp, `${scope} AND issuetype in (Epic, Bug)`, progress("Reading changes"));
-    const ax = await fetchAll(mcp, `${scope} AND issuetype = Bug AND (summary ~ "\\"[Accessibility]*\\"" OR labels = DWP_Accessibility_Defect)`, progress("Checking accessibility bugs"));
+    const changed = await fetchSliced(mcp, `${scope} AND issuetype in (Epic, Bug)`, sinceDay, progress("Reading changes"));
+    const ax = await fetchSliced(mcp, `${scope} AND issuetype = Bug AND (summary ~ "\\"[Accessibility]*\\"" OR labels = DWP_Accessibility_Defect)`, sinceDay, progress("Checking accessibility bugs"));
     const counts = mergeDelta(changed.nodes, new Set(ax.nodes.map(n => n.key)));
     DATA.refreshedAt = new Date().toISOString();
     DATA.refreshedStats = {epics: (DATA.refreshedStats ? DATA.refreshedStats.epics : 0) + counts.epics, bugs: (DATA.refreshedStats ? DATA.refreshedStats.bugs : 0) + counts.bugs};
-    let capLine = "";
-    try { const cr = await capRefresh(mcp, msg => say(msg)); if (cr) capLine = ` Capitalization: current quarter ${cr.cur} refreshed (${cr.n} issues${cr.unreadable ? `; ${cr.unreadable} with no readable date kept as they were` : ""}); earlier quarters are as of the build.`; }
-    catch (err) { capLine = ` Capitalization could not be refreshed (${esc(String((err && (err.message || err.code)) || "unknown error").slice(0, 120))}); its data is unchanged.`; }
+    update(); syncTip();                                              // epics and bugs are read and merged: show them now, the other steps redraw as each finishes
+    const steps = [], run = async (label, fn) => { try { const r = await fn(); if (r) steps.push({label, ok: true, r}); } catch (err) { const msg = String((err && (err.message || err.code)) || "unknown error").slice(0, 120); if (label === "Capitalization") DATA.capRefreshFailed = msg; steps.push({label, ok: false, msg}); } update(); syncTip(); };
+    await run("Cycle time", () => edctRefresh(mcp, msg => say(msg)));
+    await run("Open CFBs", () => cfbRefresh(mcp, msg => say(msg)));
+    await run("Dependency links", () => linksRefresh(mcp, msg => say(msg), sinceDay));
+    await run("Capabilities", () => capsRefresh(mcp, msg => say(msg), sinceDay));
+    await run("Capitalization", () => capRefresh(mcp, msg => say(msg)));
     update();
-    say(`Refreshed. ${counts.epics} epics and ${counts.bugs} bugs changed since ${sinceDay}.` + capLine +
-        (changed.truncated || ax.truncated ? " A very large number of issues changed, so only the first pages were read. Ask for a full rebuild to get everything." : "") +
-        " Cycle time and release join dates for new activity are filled in at the next full rebuild. Refresh does not update dependency links, story-level links, capabilities or cycles pods: those need a rebuild.", changed.truncated || ax.truncated ? "warn" : "info");
-    if (!(changed.truncated || ax.truncated)) refresh.t = setTimeout(() => { status.innerHTML = ""; }, 8000);
+    const okOf = l => (steps.find(x => x.label === l && x.ok) || {}).r, bad = steps.filter(x => !x.ok);
+    const cfb = okOf("Open CFBs"), caps = okOf("Capabilities"), cz = okOf("Capitalization"), lk = okOf("Dependency links");
+    const pending = DATA.epics.filter(e => cls(e.s) === "done" && e.edct == null).length;
+    const cal = new Set(sprintList().map(s => s.n)), noCal = cal.size ? DATA.epics.filter(e => e.ts && !cal.has(e.ts)).length : 0;
+    const buildDays = Math.floor((asOfDay() - utc(ilDate(DATA.generated))) / 864e5);
+    const notes = [...bad.map(x => `Not refreshed, data unchanged: ${x.label} (${esc(x.msg)}).`),
+      ...(pending ? [`EDCT for ${pending} newly Done ${pending === 1 ? "epic" : "epics"} could not be calculated here (its history was not returned in full); it needs a rebuild.`] : []),
+      ...(noCal ? [`${noCal} ${noCal === 1 ? "epic has" : "epics have"} a Target Sprint that is not in the sprint calendar; a rebuild extends it.`] : []),
+      ...(buildDays > BUILD_STALE_DAYS ? [`Story-level links are from the build of ${ilDate(DATA.generated)}.`] : [])];
+    say(`Refreshed ${ilStamp(DATA.refreshedAt)}: ${counts.epics} ${counts.epics === 1 ? "epic" : "epics"} and ${counts.bugs} ${counts.bugs === 1 ? "bug" : "bugs"} changed.${notes.length ? " " + notes.join(" ") : ""}`, bad.length ? "warn" : "info");
+    DATA.lastRefreshNote = notes.join("\n");
+    { const a = document.getElementById("asof"); if (a) a.dataset.tip = stampTip(); }
+    if (!bad.length) { try { localStorage.setItem("dp.lastRefresh", String(Date.now())); } catch (e) { /* not persisted */ } }
+    if (!steps.some(x => !x.ok)) refresh.t = setTimeout(() => { status.innerHTML = ""; }, 8000);
   } catch (err) {
     const [msg, kind] = describeError(err);
-    say(msg, kind);
+    const ACCESS = ["approval_required", "consent_required", "server_not_connected", "selection_required", "needs_reauth", "not_in_manifest", "blocked_by_policy", "not_granted", "capability_disabled", "capability_removed"];
+    if (auto) { say(`Showing the snapshot from ${esc(ilLabel(sourceTimes().oldest))}. ${ACCESS.includes(err && err.code) ? "Refresh needs Jira access." : msg} <button type="button" class="btn link" id="refresh-retry">Retry</button>`, "warn"); const rb = document.getElementById("refresh-retry"); if (rb) rb.onclick = () => refresh(); }
+    else say(msg, kind);
   } finally {
+    refresh.busy = false;
+    { const a = document.getElementById("asof"); if (a) a.dataset.tip = stampTip(); }      // the tooltip written before this point still said "Refreshing now"
     btn.disabled = false; btn.textContent = "Refresh from Jira";
   }
 }
 
 // ---------------------------------------------------------------- boot
-document.getElementById("refresh").onclick = refresh;
+document.getElementById("refresh").onclick = () => refresh();
+if (DATA.schema != null && DATA.schema !== PAGE_SCHEMA) {      // a payload from another version of the collector: some sections may be empty, say so instead of drawing quietly wrong pages
+  const st = document.getElementById("status"); if (st) st.innerHTML = `<span class="msg warn">This page and its data come from different versions of the dashboard (data layout ${esc(DATA.schema)}, page expects ${PAGE_SCHEMA}); some sections may be empty. Rebuild with build_dashboard.py.</span>`;
+}
 // Presentation of the Refresh states (the refresh logic above is untouched): the data-as-of text becomes progress, then "Updated ...", then settles back.
 {
   const btn = document.getElementById("refresh"), asof = document.getElementById("asof"), status = document.getElementById("status"), why = document.getElementById("refresh-why"), unit = btn.parentElement;
-  const baseline = () => `Data as of ${ilLabel(DATA.refreshedAt || DATA.generated)}`;
+  const baseline = () => stampText();
   let settle;
   const put = (txt, hold) => { asof.textContent = txt; if (hold) asof.dataset.hold = "1"; else delete asof.dataset.hold; };
   const ICON = btn.querySelector("svg").outerHTML;             // the refresh logic rewrites the button text, which removes the icon: put it back
@@ -3783,11 +4024,11 @@ document.getElementById("refresh").onclick = refresh;
     const m = status.querySelector(".msg"); clearTimeout(settle);
     if (!m) { put(baseline(), false); return; }
     const text = m.textContent;
-    if (/^Refreshed\./.test(text)) {
-      const n = text.match(/(\d+) epics and (\d+) bugs changed/);
-      put(`Updated ${ilStamp(DATA.refreshedAt || Date.now()).slice(11)} Israel time${n ? ` · ${n[1]} epics and ${n[2]} bugs changed` : ""}`, true);
+    if (/^Refreshed\b/.test(text) && m.classList.contains("info")) {                           // for a few seconds the stamp slot reads the checklist (no layout shift), then the one stamp again; the full message stays in the tooltip and for screen readers
+      const counts = (text.match(/: (epics [^.]*?)(?:\.|$)/) || [])[1], hm = ilStamp(DATA.refreshedAt || Date.now()).slice(11, 16);
+      put(`Refreshed ${hm} Israel time${counts && !window.matchMedia("(max-width:760px)").matches ? " · " + counts.replace(/ changed$/, "") : ""}`, true);
       settle = setTimeout(() => put(baseline(), false), 8000);
-    } else if (m.classList.contains("info")) { const pg = text.match(/page (\d+)/); put("Refreshing…" + (pg ? ` page ${pg[1]}` : ""), true); }
+    } else if (m.classList.contains("info")) { const auto = text.startsWith("Updating live data"), step = (text.replace(/^Updating live data: /, "").match(/^([^:…]+?)(?::| from Jira|…|$)/) || [])[1]; put(`${auto ? "Updating live data" : "Refreshing"}${step ? ": " + step : ""}…`, true); }
     else put(baseline(), false);
   }).observe(status, {childList: true, subtree: true, characterData: true});
   if (!RUNTIME) {                                              // the standalone file cannot read Jira: the button stays present, looks unavailable, and says why on hover or focus
@@ -3902,12 +4143,15 @@ named Done, not Jira's Done category.
 No percentile, share or trend is shown for fewer than ${MIN_N} items.
 <br><b>Burnup.</b> Done is cumulative by resolution date and counts target epics (Committed + Not Set). Scope is the number of target epics (Committed + Not Set, judged on each epic's current Commitment Type) that were in the release on the first day of W1, from each epic's Fix Version history; the Forecast Epics tile shows the same number, and the epics added since are shown beside it. The IP week is the first seven days of the release. No projection is drawn.
 <br><b>Bugs.</b> The backlog shows created, resolved and open per week, accessibility bugs excluded unless switched on. A bug is open while its status is not Done, Ready for Deploy, Closed, Resolved or Removed; bugs that are Done without a resolution date cannot be placed on the weekly line and are named in its notes. The Open CFBs table lists the customer-found bugs that are not in a final status, with age against the SLA and the Root Cause Analysis state. CFB follows the release closure report: bugs reported by the CFB account, fixed in the release window.
-<br><b>Snapshot and Refresh.</b> Numbers were read from Jira at the time shown above. In the published page, Refresh reads what changed since and updates the page; cycle time and join dates for that new activity wait for a full rebuild.
+<br><b>Snapshot and Refresh.</b> Numbers were read from Jira at the time shown above. In the published page the data refreshes when the page opens, and Refresh does it again: epics, bugs, open customer-found bugs, dependency links, Capabilities and Capitalization. Story-level links, the sprint calendar and the Cycles pods are read only when the data is built.
 <br><b>Hover Text.</b> Hover text follows the pointer and is not itself hoverable; Esc closes it. The same text is in each chart's data table.
 <br><b>Delivery Cycle Governance.</b> The last section has its own data (INT, CXINT and WFM epics by pod label or Epic Team, read at build time, not by Refresh) and follows its own delivery cycle and pod groups, not the filters above. It states facts only: no verdict, no rating of a group.
 <br><b>Scope of Use.</b> Counts describe programs, releases and teams. Facts only: nothing here ranks or scores a team or a person.
 <br>Definitions follow the Program Intelligence Agent (workflow-status-map, commitment-classes, metrics).</div></details>`;
 capInit(); cyInit(); loadState(); buildFilters(); update({anchor: false}); fitSticky(); SEC.observe();
+// Live data on open (the published page with the connector only): one automatic Refresh after the first paint, unless the data is already fresher than 15 minutes; a local file has no connector and says it is a snapshot.
+if (RUNTIME) setTimeout(() => { let recent = false; try { const l = Number(localStorage.getItem("dp.lastRefresh")); recent = l && Date.now() - l < 15 * 60 * 1000; } catch (e) { /* no storage */ }
+  const fresh = Date.now() - new Date(DATA.refreshedAt || DATA.generated) < 15 * 60 * 1000; if (!recent && !fresh) refresh({auto: true}); }, 600);
 if (!RUNTIME && /(^|&)ct=/.test(location.hash.slice(1))) {                  // a shared link with ct=<node> opens at the top of that detail view; the page above it is still settling (charts, fonts), so the jump is repeated until the reader scrolls
   let moved = false; const stop = () => { moved = true; };
   ["wheel", "touchstart", "keydown", "mousedown"].forEach(ev => window.addEventListener(ev, stop, {once: true, passive: true}));
