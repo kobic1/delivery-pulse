@@ -1,0 +1,47 @@
+name: Delivery Pulse checks
+
+# Quality gate for the Delivery Pulse dashboard. It needs NO secrets and publishes NOTHING:
+#  - the collector unit tests and the collector/page contract tests (synthetic data only);
+#  - the leak scan (generic patterns only here: the real data is never in CI);
+#  - the browser harness on a fictitious payload: refresh failure cases, HTML-injection canary, link-versus-count oracle.
+# Never upload program_dashboard/build/ as a workflow artifact: the repository is public and so are its artifacts.
+
+on:
+  pull_request:
+    paths:
+      - "program_dashboard/**"
+      - "tests/test_program_dashboard.py"
+      - "tests/test_definitions_contract.py"
+      - "tests/dashboard_browser/**"
+      - ".github/workflows/dashboard-checks.yml"
+  push:
+    branches: [main]
+    paths:
+      - "program_dashboard/**"
+      - "tests/test_program_dashboard.py"
+      - "tests/test_definitions_contract.py"
+      - "tests/dashboard_browser/**"
+      - ".github/workflows/dashboard-checks.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Collector and contract tests
+        run: python -m pytest tests/test_program_dashboard.py tests/test_definitions_contract.py -q
+      - name: Leak scan (generic patterns)
+        run: python program_dashboard/leak_scan.py
+      - name: Browser harness on the synthetic payload
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
+        run: python tests/dashboard_browser/run_dashboard_checks.py --live --strict
