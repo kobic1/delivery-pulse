@@ -179,7 +179,7 @@ def build_fixture() -> Fx:
                   cfbnode(oD["k"], status="Ready for Deploy", resolutiondate=stamp(TODAY, "10:00"), resolution={"name": "Fixed"}, customfield_10051=stamp(TODAY, "09:00"))]
     fx.oA, fx.oB, fx.oC, fx.oD, fx.oE = oA, oB, oC, oD, oE
     # ---- Capabilities
-    fx.capsnodes = [{"id": "1", "key": cap_key, "webUrl": "x", "fields": {"summary": hier[cap_key]["t"], "status": {"name": "In Progress"}, "issuetype": {"name": "Capability"}, "fixVersions": fv27, "project": {"key": "CXCROSS"}}}]
+    fx.capsnodes = [{"id": "1", "key": cap_key, "webUrl": "x", "fields": {"summary": hier[cap_key]["t"], "status": {"name": "In Progress"}, "issuetype": {"name": "Capability"}, "fixVersions": fv27, "project": {"key": "CXCROSS"}, "customfield_10136": {"value": "Revised Level", "id": "12399"}}}]
     # ---- Dependency links: an epic whose links changed (one pair dropped, a Dependency to a known epic, a Blocks from an unknown far end, a link to a Removed issue, another link type)
     lnk = lambda ty, k, status="In Progress", outward=True: {"type": {"name": ty}, ("outwardIssue" if outward else "inwardIssue"): {"key": k, "fields": {"status": {"name": status}, "issuetype": {"name": "Epic"}}}}
     fx.linknodes = [{"id": "1", "key": E1, "webUrl": "x", "fields": {"status": {"name": "In Progress"}, "issuelinks": [lnk("Dependency", E2), lnk("Blocks", "EXA-98001", outward=False), lnk("Dependency", "EXA-98002", status="Removed"), lnk("Relates", "EXA-98003")]}}]
@@ -469,6 +469,7 @@ def _(t: T):
     a, b = r["after"], r["before"]
     t.check(a["hierFv"] == ["27.1"] and b["hierFv"] == ["26.4"], f"the capability's fix version {b['hierFv']} -> {a['hierFv']} (a fix version moved after the pull) in the CXCROSS data")
     t.check(a["listFv"] == ["27.1"] and a["listS"] == "In Progress", f"the Capability list carries the new fix version and status: {a['listFv']} {a['listS']}")
+    t.check(a["listCl"] == "Revised Level" and b["listCl"] != "Revised Level", f"the Capability's Commitment Level is read again (customfield_10136): {b['listCl']!r} -> {a['listCl']!r}")
     t.check(a["capNoFv"] == {"total": 2, "done": 1} and a["capPulledAt"] != b["capPulledAt"], f"the no-fix-version count is re-read: {a['capNoFv']}")
 
 

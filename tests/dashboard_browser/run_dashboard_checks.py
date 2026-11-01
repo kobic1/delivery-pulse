@@ -34,7 +34,7 @@ sys.path.insert(0, str(HERE))
 import kit                                                                          # noqa: E402
 import make_synthetic as MS                                                         # noqa: E402
 
-SUITES = [("harness", "harness.py"), ("canary", "canary.py"), ("link oracle", "link_oracle.py"), ("link guard", "link_guard.py"), ("cycles links", "link_cycles.py"), ("dependency direction", "dep_oracle.py"), ("headline tiles", "tile_oracle.py")]
+SUITES = [("harness", "harness.py"), ("canary", "canary.py"), ("link oracle", "link_oracle.py"), ("link guard", "link_guard.py"), ("cycles links", "link_cycles.py"), ("dependency direction", "dep_oracle.py"), ("capabilities commitment level", "cap_oracle.py"), ("headline tiles", "tile_oracle.py")]
 
 
 def step_pytest() -> dict:
