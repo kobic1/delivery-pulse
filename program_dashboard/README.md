@@ -79,13 +79,8 @@ Refresh runs in **two tiers**. The page has no values that are never refreshed: 
 ## Filters
 Release (bare numbers; a release that is running gets an "In Progress" chip), Projects, Teams and Commitment Type (**all
 three types by default**). Reset Filters counts every changed control. Section-level controls: Week / Month / Quarter for the
-<<<<<<< HEAD
-EDCT and AI charts, Priority, CFB All/Yes/No and Accessibility Bugs All/Yes/No for the Bugs Backlog, and Version / Month / Quarter for the
-CFB chart and table.
-=======
-EDCT and AI charts, Priority, CFB Yes/No and an accessibility toggle for the Bugs Backlog, Version / Month / Quarter for the
+EDCT and AI charts, Priority, CFB All/Yes/No and Accessibility Bugs All/Yes/No for the Bugs Backlog, Version / Month / Quarter for the
 CFB chart and table, and **Commitment Level** (checkbox chips, Capabilities section only, described under Capabilities below).
->>>>>>> origin/main
 
 **Projects** is a segmented control (`All Projects | PMN | CXCO | CXSUP | CXWFM | WFM | CXINT | INT`) plus a **Multi-Select** toggle
 (tooltip: "Select several projects: click chips to add or remove them. Shift-click does the same."; a first-use hint, "Click projects
