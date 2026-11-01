@@ -275,3 +275,27 @@ def test_the_edct_and_ai_tiles_say_last_30_days_not_a_calendar_month():
     assert "The EDCT Days tile at the top is a different window" in BLOCKS["eff"]
     assert "The Epics by AI tile at the top is a different window" in BLOCKS["ai"]
     assert "const lastMonths" not in TEMPLATE and "function lastMonths(n = 4)" in TEMPLATE
+
+
+def test_blocking_external_scope_is_the_only_outside_scope_chip_and_says_what_it_counts():
+    """Owner decision: one chip, Blocked by External (dp=blocking): an item in scope waits on a provider whose project is not selected and is not CXCROSS.
+    The chip Blocked by Outside Scope is gone: no chip, no hash value, no count, no label, no empty text. An old dp=blockedby link opens the default view."""
+    assert 'value="blocking"> Blocked by External <span class="cnt" data-k="blocking">' in TEMPLATE
+    assert 'value="blockedby"' not in TEMPLATE and 'data-k="blockedby"' not in TEMPLATE
+    assert "blockedby" not in TEMPLATE and "Blocked by Outside Scope" not in TEMPLATE and "Blocking Outside Scope" not in TEMPLATE
+    assert '"gap", "blocking"].includes(h.get("dp"))' in TEMPLATE                                # the whitelist: an old dp=blockedby falls back to the default view
+    assert 'blocking: "Blocked by External"}' in TEMPLATE                                    # the Showing line's name for the filter
+    # the rule: the provider's project is neither a selected project nor CXCROSS, compared as whole keys
+    assert re.search(r'extBlock: inScope\.has\(a\) && !state\.projects\.has\(p\.p\) && p\.p !== DEP_CX\}', TEMPLATE)
+    assert 'const DEP_CX = "CXCROSS";' in TEMPLATE and "startsWith(DEP_CX)" not in TEMPLATE and "includes(DEP_CX)" not in TEMPLATE
+    assert 'state.depFilter === "blocking" ? x.extBlock' in TEMPLATE and "blocking: extBlock.length" in TEMPLATE
+    # the headline clause, the empty state, the definition, the Direction column
+    assert "where an item in the selected projects waits on an external provider (not selected, not CXCROSS)." in TEMPLATE
+    assert "No external item (not selected, not CXCROSS) blocks an item in the selected projects." in TEMPLATE
+    dep = BLOCKS["dep"]
+    assert '["Blocked by External", `an item in the selected projects waits on a provider in a project that is not selected and is not CXCROSS' in dep
+    assert "CXCROSS items are shown in the CXCROSS section." in dep
+    assert "Blocked by outside scope" not in dep and "Blocking outside scope" not in dep
+    assert 'x.extBlock ? "Waits on external scope"' in TEMPLATE
+    # the headline link is a query with the project clause, inside the URL budget
+    assert "project not in (${pkeys([...projectsAll.filter(p => state.projects.has(p)), DEP_CX])})" in TEMPLATE and "h.length <= CY_URL_MAX" in TEMPLATE
