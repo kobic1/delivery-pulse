@@ -176,8 +176,9 @@ def check_view(page: dict, O: dict, v: View, dp: str) -> list[str]:
         bad.append(f"{tag} the removed chip Blocked by Outside Scope is back")
     for k in ("blocking",):
         denom = len(O["all"])
-        if chips.get(k, {}).get("title") != f"{want[k]} of {denom} open":
-            bad.append(f"{tag} chip {k} hover says '{chips.get(k, {}).get('title')}', expected '{want[k]} of {denom} open'")
+        exp = f"{want[k]} open {'dependency' if want[k] == 1 else 'dependencies'} of {denom}"
+        if chips.get(k, {}).get("title") != exp:
+            bad.append(f"{tag} chip {k} hover says '{chips.get(k, {}).get('title')}', expected '{exp}'")
     if not chips.get(dp, {}).get("on"):
         bad.append(f"{tag} the {dp} radio is not checked")
     shown = expected_shown(O, dp)
@@ -186,7 +187,7 @@ def check_view(page: dict, O: dict, v: View, dp: str) -> list[str]:
     # ---- the headline clause: pair counts at any issue type, whatever the quick filter
     sub, links = page["sub"], page["subLinks"]
     pairs = O["ext"]
-    found = [a for a in links if re.search(r"waits on an external provider", a["tip"])]
+    found = [a for a in links if re.search(r"on a provider in a project that is not selected", a["tip"])]
     if pairs:
         if len(found) != 1:
             bad.append(f"{tag} headline: {len(found)} links, expected one")
@@ -413,7 +414,7 @@ def _(t: T):
         bad = check_view(page, O2, v, "blocking")
         t.check(not bad, f"{name} dp=blocking: {bad[:2]}")
         t.check(page["empty"] and "blocks an item in the selected projects" in page["empty"] and "Epics Only" in page["empty"], f"{name} dp=blocking: empty text '{page['empty']}'")
-        t.check(page["chips"]["blocking"]["n"] == "0" and page["chips"]["blocking"]["title"] == f"0 of {len(O2['all'])} open", f"{name} dp=blocking: chip {page['chips']['blocking']}")
+        t.check(page["chips"]["blocking"]["n"] == "0" and page["chips"]["blocking"]["title"] == f"0 open dependencies of {len(O2['all'])}", f"{name} dp=blocking: chip {page['chips']['blocking']}")
 
 
 @SUITE.test("direction_no_open_pair_at_all_stays_calm_under_both_quick_filters")

@@ -406,7 +406,7 @@ def cycle_check_page(url, data, spec: str, label: str):
         elif ok and [_fmt(_pct(vals, .5)), _fmt(_pct(vals, .9))] != [_fmt(x) for x in got_labels]:
             probs.append(f"{tag} {rel}: plotted P50/P90 {got_labels}, the recount gives {_fmt(_pct(vals, .5))}/{_fmt(_pct(vals, .9))}")
         # 2. the hover text names the same n
-        hover_n = re.search(r"\n(\d+) Done epics\n", m["tip"])
+        hover_n = re.search(r"\n(\d+) Done epics?\n", m["tip"])
         if not hover_n or int(hover_n.group(1)) != ns[i]:
             probs.append(f"{tag} {rel}: the hover text says {hover_n.group(1) if hover_n else None} Done epics, the chart plots n={ns[i]}")
         # 3. the table row

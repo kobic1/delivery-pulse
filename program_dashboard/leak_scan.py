@@ -20,7 +20,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "program_dashboard" / "build" / "program_data.json"
-SCOPES = ("program_dashboard/", "tests/dashboard_browser/", "tests/test_program_dashboard.py", "tests/test_definitions_contract.py", "tests/test_dashboard_copy.py", ".github/workflows/dashboard-checks.yml")
+SCOPES = ("program_dashboard/", "tests/dashboard_browser/", "tests/test_program_dashboard.py", "tests/test_definitions_contract.py", "tests/test_dashboard_copy.py", "tests/test_dashboard_tooltips.py", ".github/workflows/dashboard-checks.yml")
 OUTSIDE = ("config/", "release_closure/", "dashboards/", "release_planning/")      # other parts of the repo: reported, never failing (they predate the dashboard and belong to other pipelines)
 SKIP = ("program_dashboard/build/", "leak_scan.py")          # this file spells the patterns it looks for; build/ is git-ignored
 TEXT_SUFFIXES = {".py", ".md", ".html", ".js", ".json", ".yml", ".yaml", ".txt", ".css", ".toml", ".cfg", ".sh"}
