@@ -581,7 +581,7 @@ footer.f b { color:var(--ink); }
       <label class="chip"><input type="radio" name="f-gran" value="month"> Month</label>
       <label class="chip"><input type="radio" name="f-gran" value="quarter"> Quarter</label>
     </div>
-    <span class="hintline">Both charts below; tiles stay monthly.</span>
+    <span class="hintline">Both charts below; the tiles use the last 30 days.</span>
   </div>
   <div class="pair">
     <section class="sec e" aria-labelledby="h-eff">
@@ -959,7 +959,7 @@ function percentile(sorted, p) {
   return sorted[lo] + (sorted[hi] - sorted[lo]) * (i - lo);
 }
 // ONE list of excluded Issue Categories (Jira field cf10139, stored spelling, compared case-insensitively) is shared by Epics by AI and Cycle Time per Release, so the two cannot drift: one list drives the numbers
-// (aiExcluded / cycleExcluded) and every link (AI_KEPT_JQL / AI_EXCLUDED_JQL / CYCLE_KEPT_JQL). AI Adoption leaves these epics out of EVERY AI figure: the tile and its previous-month line, the chart, its View Data
+// (aiExcluded / cycleExcluded) and every link (AI_KEPT_JQL / AI_EXCLUDED_JQL / CYCLE_KEPT_JQL). AI Adoption leaves these epics out of EVERY AI figure: the tile and its previous-30-days line, the chart, its View Data
 // table and all their Jira links, the Release Analysis AI share. EDCT is not an AI figure: Efficiency keeps its own rule (Maintenance out, AI-implemented only; EFFICIENCY_KEPT_JQL, monthStats).
 const AI_EXCLUDED_CATEGORIES = ["Maintenance", "SOW"];
 const aiExcluded = e => AI_EXCLUDED_CATEGORIES.some(c => String(e.cat || "").toLowerCase() === c.toLowerCase());
@@ -1252,6 +1252,14 @@ function lastMonths(n = 4) {
   }
   return out;
 }
+// The window of the two Release headline tiles (EDCT Days, Epics by AI): the 30 days ending on the as-of day, inclusive, so a resolution day is in or out by the same day base as every other figure (asOfDay, Israel-local days).
+// back = 0 is the window [asOf-29d, asOf+1d); back = 1 is the 30 days before it [asOf-59d, asOf-29d). A period-like object ({s, e}) so monthStats and jiraMonth serve it: the figures and the Jira queries share the bounds.
+const WINDOW_DAYS = 30;
+function lastDays(back = 0, n = WINDOW_DAYS) {
+  const e = asOfDay() + DAY - back * n * DAY, s = e - n * DAY;
+  return {s, e, from: iso(s), to: iso(e - DAY)};
+}
+const windowWords = w => `${w.from} to ${w.to}`;
 const pname = mo => state.gran === "week" ? `Week of ${mo.label}` : mo.label;
 const pwords = mo => state.gran === "month" ? mo.mon : pname(mo).replace("*", "");      // prose: 2026-10, Week of 2026-10-19, 2026-Q4
 const GRAN = {week: {noun: "week", plural: "weeks", todate: "week-to-date", head: "Week Starting"},
@@ -1318,14 +1326,14 @@ function paceFacts() {                                       // the same numbers
   return {N, D, d, w1, pre: snap < w1, doneNow: doneScope(rel).filter(e => cls(e.s) === "done").length, pace: D ? N * d / D : 0, closed: snap > end, targetSize: target.length};
 }
 function renderStatus() {
-  const rel = state.release, list = scopeOf(rel), c = counts(list), mo = lastMonths(1)[0], ms = monthStats(mo), mname = mo.mon;
+  const rel = state.release, list = scopeOf(rel), c = counts(list), mo = lastDays(), ms = monthStats(mo), inWin = `in the last ${WINDOW_DAYS} days (${windowWords(mo)})`;
   const projLabel = state.projects.size === projectsAll.length ? "All Projects" : [...state.projects].join(", ") || "No project";
   const wk = weekOf(rel), noProj = !state.projects.size, TB = targetBase(rel), tgt = TB.tgt, tDone = doneScope(rel).filter(e => cls(e.s) === "done").length;
   document.getElementById("st-rel").textContent = `Release ${rel}`;
   document.getElementById("st-rest").textContent = `${projLabel}${state.teams.size ? " · " + [...state.teams].join(", ") : ""}${wk ? " · " + wk : ""}`;
   document.getElementById("st-state").hidden = !isRunning(rel);
   const bugs = backlogBugs(), open = bugs.filter(isOpenBug), filtered = state.bugPri.size !== PRI_ALL.length || state.cfb !== "all";
-  const aiMonth = " AND cf[15229] = Yes", to = `${mname} to Date`, f = statusFacts(ms, mname), reason = "No project is selected";
+  const aiMonth = " AND cf[15229] = Yes", to = `Last ${WINDOW_DAYS} Days`, f = statusFacts(ms), reason = "No project is selected";
   if (noProj) {
     kpiCards(document.getElementById("kpis"), [["d", "Epics Delivered"], ["d", "Forecast Epics"], ["e", "EDCT Days"], ["q", "Open Bugs"], ["a", "Epics by AI"]].map(([c, l]) => ({c, v: "–", l, s: reason})));
     return;
@@ -1338,15 +1346,15 @@ function renderStatus() {
      s: !TB.win ? "Target scope: Committed + Not Set" : TB.pre ? `Target scope so far; W1 starts ${shortDate(TB.w1)}` : `Committed + Not Set on ${shortDate(TB.w1)}`,
      x: !TB.win || TB.pre ? "" : `${tipSpan(`${TB.added >= 0 ? "+" : "−"}${Math.abs(TB.added).toLocaleString("en-US")} ${TB.added >= 0 ? "" : "removed "}since W1`, `${Math.abs(TB.added)} target epics ${TB.added >= 0 ? "were added to" : "left"} ${rel} after the first day of W1: ${TB.today} today minus ${TB.N} on ${shortDate(TB.w1)}`)} (${tlink(TB.today, TB.hrefToday, `${TB.today} epics are in the target today (Committed + Not Set)`)} today)`},
     {k: to, c: "e", v: ms.edctN >= MIN_N ? link(Math.round(ms.edctAvg), jiraMonth(mo, aiMonth, "edct")) : "–", l: "EDCT Days",
-     s: ms.edctN >= MIN_N ? "average of AI-implemented epics" : `only ${ms.edctN} epics, need ${MIN_N}`, x: f.edct && f.edct.t, xc: f.edct && f.edct.c},
+     s: ms.edctN >= MIN_N ? tipSpan("average of AI-implemented epics", `Average over ${ms.edctN} AI-implemented epics with an EDCT, resolved ${inWin}\nMaintenance epics are left out. The link opens the AI-implemented epics resolved in the same window; Jira cannot search for the EDCT, so an epic that has none yet is listed but not averaged.`) : `only ${ms.edctN} epics, need ${MIN_N}`, x: f.edct && f.edct.t, xc: f.edct && f.edct.c},
     {k: "Today", c: "q", v: link(open.length, jiraBugs({extra: OPEN_BUG_JQL})), l: "Open Bugs", s: `${state.ax ? "including" : "excluding"} accessibility bugs${filtered ? "; Priority or CFB filter on" : ""}`, x: f.bugs && f.bugs.t, xc: f.bugs && f.bugs.c},
-    {k: to, c: "a", v: ms.done >= MIN_N ? link(pct(ms.ai, ms.done) + "%", jiraMonth(mo, aiMonth)) : "–", l: `Epics by AI${infoMark("ai-excl", "Maintenance and SOW excluded", `Excludes ${AI_EXCL_TEXT} epics (${ms.excl} resolved in ${mname}).`)}`,
-     s: ms.done ? `${tlink(ms.ai, jiraMonth(mo, aiMonth), `${ms.ai} epics implemented by AI, resolved in ${mname}\nEpics with a fix version from ${DATA.releases[0]} to ${DATA.releases[DATA.releases.length - 1]}, ${AI_EXCL_TEXT} excluded.`)} of ${tlink(ms.done, jiraMonth(mo), `${ms.done} epics resolved in ${mname}\nEpics with a fix version from ${DATA.releases[0]} to ${DATA.releases[DATA.releases.length - 1]}, ${AI_EXCL_TEXT} excluded.`)} resolved${ms.done < MIN_N ? ", too few for a share" : ""} · ${ms.done - ms.ai ? tlink(ms.done - ms.ai, jiraMonth(mo, AI_NOT), aiNotTip(ms.done - ms.ai, `resolved in ${mname}`)) : "0"} not AI${f.ai ? ` · ${f.ai}` : ""}` : "no epics resolved",
+    {k: to, c: "a", v: ms.done >= MIN_N ? link(pct(ms.ai, ms.done) + "%", jiraMonth(mo, aiMonth)) : "–", l: `Epics by AI${infoMark("ai-excl", "Maintenance and SOW excluded", `Excludes ${AI_EXCL_TEXT} epics: ${ms.excl} resolved ${inWin}.`)}`,
+     s: ms.done ? `${tlink(ms.ai, jiraMonth(mo, aiMonth), `${ms.ai} epics implemented by AI, resolved ${inWin}\nEpics with a fix version from ${DATA.releases[0]} to ${DATA.releases[DATA.releases.length - 1]}, ${AI_EXCL_TEXT} excluded.`)} of ${tlink(ms.done, jiraMonth(mo), `${ms.done} epics resolved ${inWin}\nEpics with a fix version from ${DATA.releases[0]} to ${DATA.releases[DATA.releases.length - 1]}, ${AI_EXCL_TEXT} excluded.`)} resolved${ms.done < MIN_N ? ", too few for a share" : ""} · ${ms.done - ms.ai ? tlink(ms.done - ms.ai, jiraMonth(mo, AI_NOT), aiNotTip(ms.done - ms.ai, `resolved ${inWin}`)) : "0"} not AI${f.ai ? ` · ${f.ai}` : ""}` : `no epics resolved in the last ${WINDOW_DAYS} days`,
      },
   ]);
 }
 // Plain facts shown under the headline numbers. No verdict on the burnup (its reference line is not a forecast); the others compare with an explicit target or with an earlier period.
-function statusFacts(ms, mname) {
+function statusFacts(ms) {
   const out = {};
   if (!state.projects.size) return out;
   const p = paceFacts();
@@ -1358,8 +1366,8 @@ function statusFacts(ms, mname) {
   const s4 = bugSeries().slice(-4), cr = s4.reduce((a, x) => a + x.created, 0), rs = s4.reduce((a, x) => a + x.resolved, 0), net = rs - cr;
   if (cr + rs >= MIN_N && backlogBugs().filter(isOpenBug).length >= MIN_N) out.bugs = net === 0 ? {t: "Unchanged over the last 4 weeks"}
     : {c: net > 0 ? "ok" : "watch", t: `${net > 0 ? "▼" : "▲"} ${Math.abs(net).toLocaleString("en-US")} ${net > 0 ? "fewer" : "more"} than 4 weeks ago`};
-  const prev = lastMonths(2)[0], pm = monthStats(prev);                   // the previous full month, for comparison
-  if (ms.done >= MIN_N && pm.done >= MIN_N) out.ai = tlink(`${prev.mon} ${pct(pm.ai, pm.done)}%`, jiraMonth(prev, " AND cf[15229] = Yes"), `${prev.mon} was ${pct(pm.ai, pm.done)}%: ${pm.ai} of ${pm.done} epics resolved; ${pm.done - pm.ai} not marked as AI\nOpens the ${pm.ai} epics implemented by AI`);
+  const prev = lastDays(1), pm = monthStats(prev);                        // the 30 days before the window, for comparison
+  if (ms.done >= MIN_N && pm.done >= MIN_N) out.ai = tlink(`Previous ${WINDOW_DAYS} days ${pct(pm.ai, pm.done)}%`, jiraMonth(prev, " AND cf[15229] = Yes"), `The previous ${WINDOW_DAYS} days (${windowWords(prev)}) were ${pct(pm.ai, pm.done)}%: ${pm.ai} of ${pm.done} epics resolved; ${pm.done - pm.ai} not marked as AI\nOpens the ${pm.ai} epics implemented by AI`);
   return out;
 }
 function monthChart(hostId, capId, dataId, rows, o) {       // o: value(r), label(r), sc, fmtv, fill, target
@@ -1433,7 +1441,7 @@ function renderEfficiency() {
       ["Average", `the mean EDCT of those epics. None is shown for fewer than 5 epics.`]
     ],
     left: `Epics in the Maintenance Issue Category, and epics not marked as AI.`,
-    know: `Follows Projects and Teams. Cycle Time per Release also counts epics that AI did not implement, so the two are not comparable. * and the dashed outline mark the running ${GRAN[state.gran].noun}.`}));
+    know: `Follows Projects and Teams. Cycle Time per Release also counts epics that AI did not implement, so the two are not comparable. The EDCT Days tile at the top is a different window: the last ${WINDOW_DAYS} days, not this chart's running ${GRAN[state.gran].noun}. * and the dashed outline mark the running ${GRAN[state.gran].noun}.`}));
 }
 function renderAdoption() {
   const rows = periods().map(mo => { const m = monthStats(mo); return {mo, n: m.done, ai: m.ai, excl: m.excl, share: m.done >= MIN_N ? pct(m.ai, m.done) : null}; });
@@ -1455,7 +1463,7 @@ function renderAdoption() {
       ["Share", `marked epics over resolved epics. None is shown for fewer than 5.`]
     ],
     left: `<b>${esc(AI_EXCL_TEXT)} epics</b> are left out of every AI figure (Issue Category is ${AI_EXCLUDED_CATEGORIES.join(" or ")}). AI adoption is not measured on them. The data table counts them per period, with links.`,
-    know: `The Jira links use the same filter, so they open the epics counted. * and the dashed outline mark the running ${GRAN[state.gran].noun}.`}));
+    know: `The Jira links use the same filter, so they open the epics counted. The Epics by AI tile at the top is a different window: the last ${WINDOW_DAYS} days, not this chart's running ${GRAN[state.gran].noun}. * and the dashed outline mark the running ${GRAN[state.gran].noun}.`}));
 }
 
 // ---------------------------------------------------------------- burnup
