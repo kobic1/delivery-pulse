@@ -870,11 +870,7 @@ DATA.epics.forEach(e => (e.tm || []).forEach(t => KNOWN_TEAMS.add(t)));
 DATA.bugs.forEach(b => { if (b.tm) KNOWN_TEAMS.add(b.tm); });
 
 // ---------------------------------------------------------------- state (kept in the URL when opened as a file, in browser storage in the viewer)
-<<<<<<< HEAD
-const defaults = () => ({release: DATA.current, projects: new Set(projectsAll), teams: new Set(), commit: new Set(DEFAULT_COMMIT), ax: "no", bugPri: new Set(PRI_ALL), cfb: "all", gran: "month", cfbGroup: "version", depFilter: "epics", nfrTab: "project", cx: "all", cap: {by: "quarter", measure: "sp"}, cy: cyDefaults()});
-=======
-const defaults = () => ({release: DATA.current, projects: new Set(projectsAll), teams: new Set(), commit: new Set(DEFAULT_COMMIT), ax: false, bugPri: new Set(PRI_ALL), cfb: "all", capLvlOff: new Set(), gran: "month", cfbGroup: "version", depFilter: "epics", nfrTab: "project", cx: "all", cap: {by: "quarter", measure: "sp"}, cy: cyDefaults()});
->>>>>>> origin/main
+const defaults = () => ({release: DATA.current, projects: new Set(projectsAll), teams: new Set(), commit: new Set(DEFAULT_COMMIT), ax: "no", bugPri: new Set(PRI_ALL), cfb: "all", capLvlOff: new Set(), gran: "month", cfbGroup: "version", depFilter: "epics", nfrTab: "project", cx: "all", cap: {by: "quarter", measure: "sp"}, cy: cyDefaults()});
 const state = {...defaults()};
 let projMulti = false;                                         // the Multi-Select toggle; the mode is derived: 2 to 5 projects are always in multi-select mode, nothing is stored
 const resetFilters = () => { projMulti = false; cyBugsOpen.clear(); CY_FIND = ""; CY_PODLIST = null; CY_RET = null; return Object.assign(state, defaults()); };
@@ -3974,11 +3970,7 @@ function renderTeamList() {
 function filterChanges() {
   const same = (a, b) => a.size === b.length && b.every(x => a.has(x));
   return {release: state.release !== DATA.current, projects: !same(state.projects, projectsAll), teams: state.teams.size > 0, commit: !same(state.commit, DEFAULT_COMMIT),
-<<<<<<< HEAD
-    bugpri: state.bugPri.size !== PRI_ALL.length, cfb: state.cfb !== "all", ax: state.ax !== "no", period: state.gran !== "month", cfbgrp: state.cfbGroup !== "version", depfilter: state.depFilter !== "epics", nfrtab: state.nfrTab !== "project", cx: state.cx !== "all", cap: state.cap.by !== "quarter" || state.cap.measure !== "sp", cycles: cyChanged()};
-=======
-    bugpri: state.bugPri.size !== PRI_ALL.length, cfb: state.cfb !== "all", caplevel: capLevelChanged(), ax: state.ax, period: state.gran !== "month", cfbgrp: state.cfbGroup !== "version", depfilter: state.depFilter !== "epics", nfrtab: state.nfrTab !== "project", cx: state.cx !== "all", cap: state.cap.by !== "quarter" || state.cap.measure !== "sp", cycles: cyChanged()};
->>>>>>> origin/main
+    bugpri: state.bugPri.size !== PRI_ALL.length, cfb: state.cfb !== "all", caplevel: capLevelChanged(), ax: state.ax !== "no", period: state.gran !== "month", cfbgrp: state.cfbGroup !== "version", depfilter: state.depFilter !== "epics", nfrtab: state.nfrTab !== "project", cx: state.cx !== "all", cap: state.cap.by !== "quarter" || state.cap.measure !== "sp", cycles: cyChanged()};
 }
 function syncControls() {
   const ch = filterChanges(), nCh = Object.values(ch).filter(Boolean).length;
