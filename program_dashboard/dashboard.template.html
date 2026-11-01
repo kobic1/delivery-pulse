@@ -721,7 +721,7 @@ footer.f b { color:var(--ink); }
     </div>
     <div class="sub" id="cy-after"></div>
     <div class="kpis five" id="cy-kpis1"></div>
-    <div class="cyblock" id="cy-pods"><h3 id="cy-pods-h">Pods</h3><div class="cymeta" id="cy-pods-scope"></div><div id="cy-notes"></div><div class="kpis five" id="cy-kpis2"></div><div id="cy-podlist" hidden></div></div>
+    <div class="cyblock" id="cy-pods"><h3 id="cy-pods-h">Pods</h3><div id="cy-notes"></div><div class="kpis five" id="cy-kpis2"></div><div id="cy-podlist" hidden></div></div>
     <div id="cy-cap"></div>
     <div id="cy-body"></div>
   </section>
@@ -3584,7 +3584,6 @@ function renderCycles() {
   document.getElementById("cy-after").textContent = "";
   const planned = M.planned(), x = {s: cyStats(planned, M.carry()), c: M.c, g: null, fig: (CY_PODFIG = cyPodFig(M.epics, planned))};
   document.getElementById("cy-pods-h").textContent = `Pods in ${state.release}`;
-  document.getElementById("cy-pods-scope").textContent = "Under the Release, Projects, Teams and Commitment Type filters; Idle Pods follows the selected cycle, the other tile covers the whole release.";
   kpiCards(document.getElementById("cy-kpis1"), cyTiles("overview", x)); kpiCards(document.getElementById("cy-kpis2"), cyTiles("pods", x)); cyPodList();
   const after = M.epics.filter(e => e.due && e.due > M.cycles[M.cycles.length - 1].end);
   if (after.length) document.getElementById("cy-after").innerHTML += `After Release End: ${tlink(after.length, cyQ("after", null, M.cycles[M.cycles.length - 1]), `${cyEp(after.length)} planned after the release end (${M.cycles[M.cycles.length - 1].end}); in no cycle.\n${CY_TIP}`)}`;
