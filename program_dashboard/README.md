@@ -79,7 +79,7 @@ Refresh runs in **two tiers**. The page has no values that are never refreshed: 
 ## Filters
 Release (bare numbers; a release that is running gets an "In Progress" chip), Projects, Teams and Commitment Type (**all
 three types by default**). Reset Filters counts every changed control. Section-level controls: Week / Month / Quarter for the
-EDCT and AI charts, Priority, CFB Yes/No and an accessibility toggle for the Bugs Backlog, and Version / Month / Quarter for the
+EDCT and AI charts, Priority, CFB All/Yes/No and Accessibility Bugs All/Yes/No for the Bugs Backlog, and Version / Month / Quarter for the
 CFB chart and table.
 
 **Projects** is a segmented control (`All Projects | PMN | CXCO | CXSUP | CXWFM | WFM | CXINT | INT`) plus a **Multi-Select** toggle
@@ -97,7 +97,7 @@ chips are 44px tall and Multi-Select takes its own row.
 
 In a file the filter state is kept in the URL hash, so a view can be shared as a link, e.g.
 `#r=26.4&p=PMN&t=Team%20Alpha&c=Committed|Not%20Set`: `r` release, `p` projects, `t` teams, `c` commitment types
-(omitted when all three), `ax=1` include accessibility bugs, `bp` bug priorities, `cfb=yes|no`, `g=week|quarter`
+(omitted when all three), `ax=all|yes` Accessibility Bugs All or Yes (omitted for No, the default; an older `ax=1` link opens as All), `bp` bug priorities, `cfb=yes|no`, `g=week|quarter`
 (EDCT and AI period), `cg=month|quarter` (CFB grouping), `dp=epics|all|overdue|external|unplanned|gap|blocking` (dependency board quick filter), `cx=committed|notset|stretch` (CXCROSS Commitment Type radio, All by default), `nt` (NFR tab); `p` is written in the canonical project order (PMN, CXCO, CXSUP, CXWFM, WFM, CXINT, INT) whatever order the chips were clicked in; there is no empty selection, and an older link with `p=none` or `c=none` reads as all projects or all three types. In the published page the filters are remembered in the
 viewer's browser instead. A section whose filters leave nothing to show says why.
 
@@ -131,8 +131,12 @@ Taken from the Program Intelligence Agent (`.claude/agents/program-intelligence-
   status with no resolution date has no dated evidence of ever being open and is left out of the weekly line, with a note and
   a Jira link in the section's About text. The priority control offers P1 to P4; open bugs with no P1 to P4 priority stay in
   the table's Total and are named under it with a link. Accessibility bugs
-  (`summary ~ "[Accessibility]*"` or label `DWP_Accessibility_Defect`) are excluded unless switched on. Its own
-  Priority and CFB filters apply to this section only and the Jira links carry them.
+  (`summary ~ "[Accessibility]*"` or label `DWP_Accessibility_Defect`) follow the **Accessibility Bugs** control, a three-way segmented
+  control built like the CFB one (All / Yes / No, native radios, same keyboard use): **No** (the default, no `ax` in the address) leaves them out, as in the weekly email;
+  **All** (`ax=all`) counts them with the other bugs; **Yes** (`ax=yes`) counts only them. The tiles, the trend, the table, the sentence under the title and the About text say which
+  (`excluding`, `including` or `only accessibility bugs`). Every Jira link carries the state as a query (No: `summary !~ ... AND (labels != DWP_Accessibility_Defect OR labels is EMPTY)`;
+  Yes: `(summary ~ "\"[Accessibility]*\"" OR labels = DWP_Accessibility_Defect)`; All: no clause). The Customer-Found Bugs section does not follow the control. Its own
+  Priority, CFB and Accessibility Bugs filters apply to this section only and the Jira links carry them.
 - **Open CFBs** section: removed from the page (the table of open customer-found bugs with SLA age and Root Cause Analysis state). The Customer-Found Bugs section keeps the chart and table of fixed CFBs and regressions; the Needs Attention rules still read open CFBs from the bugs list. The collector still writes `cfbx` (`--add-cfb-open`), which the page no longer reads.
 - **CFB (customer-found bug)** everywhere on the page (the Customer-Found Bugs section, Open CFBs, the Needs Attention production-bug rules, the "Open CFB Now" counts, the bug section's CFB filter and every Jira link): a Bug **reported by the CFB account (`release_closure/config_pmn.json`) OR linked to a Salesforce case** (the field SF Connection Case Reference, customfield 10329, is not empty); the Jira links use `(reporter = "<account>" OR cf[10329] is not EMPTY)`. **This is broader than the alerting rules** (`config/rules.yaml`, the Teams alerts), which are not changed and use the reporter only. Open still means a status other than Done, Ready for Deploy, Closed, Resolved or Removed. The fixed chart and table (the Fixed / Regressions / PQCR Cases computations, their total row and every Jira link of the section) count only Bugs with **status Done** and resolution Fixed or Fixed - Config **by their Closed date** (the Jira field Closed, customfield 10099, taken as the Israel-local day), not by the resolution date; the Jira links use `cf[10099]`, and a Done CFB with no Closed date uses its resolution date (the section's About text counts them, with a link). **A CFB in Ready for Deploy is not counted as fixed here until it moves to Done**, although the open-bug rule, the Open CFBs table and Needs Attention still treat Ready for Deploy as final, so such a CFB is neither open nor fixed in the dashboard meanwhile; a line under the chart says how many ('N CFBs are in Ready for Deploy; counted as fixed once Done.', linked). The Open Bugs trend and the Open CFBs table do not use the Closed date. Version = the release windows; Month = the last 12 calendar months (its total row says "Last 12 Months"); Quarter = calendar quarters since the data starts. Regressions use the Regression field; PQCR Cases sums Number of Incidents. A line in the About text counts the CFBs that carry a Salesforce case although another person reported them. The bugs are read with `--add-bugs` (a full build includes it).
 - **Dependencies** (open ones only): an explicit Jira link of type "Dependency" (outward "depends on") or "Blocks"
