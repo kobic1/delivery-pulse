@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Dependency direction oracle: the Dependencies quick filter Blocked by External (hash dp=blocking), and the removal of Blocked by Outside Scope (an old dp=blockedby link opens the default view).
 
-Blocked by External counts the open pairs where an item IN SCOPE (the dependent: the page's own scope of release, projects, teams and Commitment Types) waits on a PROVIDER whose Jira project
+Blocked by External counts the open pairs where an item IN SCOPE (the dependent: the page's own scope of release, projects and teams) waits on a PROVIDER whose Jira project
 is not one of the selected projects and is not CXCROSS (whole project keys compared: OLDCXCROSS is not CXCROSS), at any issue type, whichever of Epics Only and All is chosen. A provider in CXCROSS, or in
-a selected project that the release, team or Commitment Type filters leave out, is not external. Pairs with a Done end never count.
+a selected project that the release or team filters leave out, is not external. Pairs with a Done end never count.
 
 An independent Python recount of the open dependency pairs (from the baked links, epics and far-end issues; nothing of the page's code is reused) is compared with what the page prints, in several
 filter states and under every quick filter that shows the board:
@@ -42,7 +42,6 @@ SUITE = kit.Suite("Delivery Pulse dependency direction")
 KEYRE = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
 URL_BUDGET = 6000
 NO_TEAM = "(No Team)"
-COMMITS = ("Committed", "Not Set", "Stretch")
 DIR_TEXT = {"ext": "Waits on external scope", "in": "Waits on outside scope", "out": "Needed by outside scope", "within": "Within scope"}
 FILTER_NAME = {"blocking": "Blocked by External"}
 EXT_PHRASE = "where an item in the selected projects waits on an external provider (not selected, not CXCROSS)"
@@ -50,15 +49,15 @@ EXT_PHRASE = "where an item in the selected projects waits on an external provid
 
 # --------------------------------------------------------------------------------------------- the independent recount
 class View:
-    def __init__(self, hash_: str, rel: str = "27.1", projects=None, teams=(), commits=COMMITS):
-        self.hash, self.rel, self.projects, self.teams, self.commits = hash_, rel, projects, set(teams), set(commits)
+    def __init__(self, hash_: str, rel: str = "27.1", projects=None, teams=()):
+        self.hash, self.rel, self.projects, self.teams = hash_, rel, projects, set(teams)
 
 
 def recount(data: dict, v: View) -> dict:
     epics = {e["k"]: e for e in data["epics"]}
     ext = data.get("ext") or {}
     projects = set(v.projects or {e["p"] for e in data["epics"]})
-    scope = {e["k"] for e in data["epics"] if e["p"] in projects and v.rel in e["fv"] and (e.get("c") or "Not Set") in v.commits
+    scope = {e["k"] for e in data["epics"] if e["p"] in projects and v.rel in e["fv"]
              and (not v.teams or v.teams & set(e.get("tm") or [NO_TEAM]))}
 
     def rec(k: str) -> dict:
@@ -284,7 +283,7 @@ def fixture() -> dict:
 def views(data: dict, team: str) -> list[View]:
     tq = urllib.parse.quote(team)
     return [View("r=27.1"), View("r=27.1&p=PMN", projects={"PMN"}), View("r=27.1&p=PMN|CXCO", projects={"PMN", "CXCO"}), View("r=26.4", rel="26.4"), View("r=27.2", rel="27.2"),
-            View("r=27.1&c=Committed|Not%20Set", commits=("Committed", "Not Set")), View("r=27.1&c=Stretch", commits=("Stretch",)), View(f"r=27.1&t={tq}", teams={team})]
+            View("r=27.1&c=Stretch"), View("r=27.1&dc=1"), View(f"r=27.1&t={tq}", teams={team})]      # c=Stretch is an older link (the removed Commitment Type filter): ignored; the Delivery Cycle filter does not touch the dependencies
 
 
 def run_views(url: str, data: dict, vs: list[View], dps=("epics", "all", "blocking")) -> list[str]:

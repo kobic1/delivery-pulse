@@ -3,7 +3,7 @@
 The page counts pods with podRegistry / cyPodsOf / cyPodFig. This module counts them again from the BAKED epics, in plain Python, from the definitions the owner decided and nothing else:
 
   * a POD is one pod label per project, compared without regard to case; an epic with several labels counts once under each pod; an epic with no label is in no pod;
-  * Idle Pods: pods that carry at least one epic of the release (under the page's Release, Projects, Teams and Commitment Type filters) and have NO epic planned in the selected cycle;
+  * Idle Pods: pods that carry at least one epic of the release (under the page's Release, Projects and Teams filters) and have NO epic planned in the selected cycle;
   * Pods With More Than 3 Epics in Flight: more than POD_LEVEL epics In Progress or Validation among the epics of the release, and the number of those epics, each once;
   * the four proactive tiles (act_oracle below): Not-Started Epics Due Within 7 Days, Waiting Dependents Due Soon, Pods To Level, In-Flight Epics Without a Pod Label, with their lists.
 
@@ -26,7 +26,7 @@ POD_JS = r"""(() => {
   const M = CYM; if (!M || M.none) return null;
   const tile = (box, id) => { const t = document.querySelector(box + ' [data-kpi="' + id + '"]'); return t ? {v: t.querySelector('.v').textContent.trim(), s: t.querySelector('.s').textContent.trim(), btn: !!t.querySelector('.v button')} : null; };
   const ids = box => [...document.querySelectorAll(box + ' [data-kpi]')].map(t => t.dataset.kpi);
-  return {release: state.release, projects: [...state.projects], teams: [...state.teams], commit: [...state.commit], cycle: {start: M.c.start, end: M.c.end, name: M.c.name},
+  return {release: state.release, projects: [...state.projects], teams: [...state.teams], cycle: {start: M.c.start, end: M.c.end, name: M.c.name},
     due: Object.fromEntries(M.epics.map(e => [e.k, e.due])), ids1: ids('#cy-kpis1'), ids2: ids('#cy-kpis2'), asof: CY.asOf, grid: document.getElementById('cy-kpis2').className, tiles: Object.fromEntries(ids('#cy-kpis2').map(id => [id, tile('#cy-kpis2', id)])),
     texts: [...document.querySelectorAll('#cy-kpis1 .kpi, #cy-kpis2 .kpi')].map(t => t.textContent), shown: document.getElementById('cy-pods').hidden === false,
     heading: document.getElementById('cy-pods-h').textContent};
@@ -76,9 +76,9 @@ def figures(epics: list, due: dict, cycle: dict) -> dict:
 
 
 def oracle(data: dict, st: dict) -> dict:
-    """The recount of a view: the epics of the release under the view's Projects, Teams and Commitment Type filters."""
-    teams, commit, sel = set(st["teams"]), set(st["commit"]), set(st["projects"])
-    scope = [e for e in data["epics"] if e["p"] in sel and st["release"] in e["fv"] and (e.get("c") or "Not Set") in commit
+    """The recount of a view: the epics of the release under the view's Projects and Teams filters."""
+    teams, sel = set(st["teams"]), set(st["projects"])
+    scope = [e for e in data["epics"] if e["p"] in sel and st["release"] in e["fv"]
              and (not teams or any(t in teams for t in (e.get("tm") or ["(No Team)"])))]
     return figures(scope, st["due"], st["cycle"])
 
@@ -217,8 +217,8 @@ def _days(iso: str, n: int) -> str:
 
 
 def _scope(data: dict, st: dict) -> list:
-    teams, commit, sel = set(st["teams"]), set(st["commit"]), set(st["projects"])
-    return [e for e in data["epics"] if e["p"] in sel and st["release"] in e["fv"] and (e.get("c") or "Not Set") in commit
+    teams, sel = set(st["teams"]), set(st["projects"])
+    return [e for e in data["epics"] if e["p"] in sel and st["release"] in e["fv"]
             and (not teams or any(t in teams for t in (e.get("tm") or ["(No Team)"])))]
 
 

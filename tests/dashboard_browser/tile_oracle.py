@@ -38,8 +38,8 @@ EXCL = ("maintenance", "sow")
 
 # the 1st of a month, a window across a month boundary, the 1st of the next month, across a year boundary, across a leap day, and a day in the middle of a month
 AS_OF_DAYS = [dt.date(2026, 11, 1), dt.date(2026, 11, 12), dt.date(2026, 12, 1), dt.date(2027, 1, 10), dt.date(2028, 3, 1), dt.date(2026, 10, 20)]
-# Release and Commitment Type must not move the tiles; Projects and Teams do
-STATES = ["", "p=PMN", "p=PMN|CXCO", "TEAM", "p=CXWFM|WFM", "p=CXSUP", "r=26.2&c=Stretch"]
+# Release and Delivery Cycle must not move the tiles; Projects and Teams do
+STATES = ["", "p=PMN", "p=PMN|CXCO", "TEAM", "p=CXWFM|WFM", "p=CXSUP", "r=26.2&dc=2"]
 
 TILE_JS = r"""(() => {
   const txt = n => n ? n.textContent.replace(/\s+/g, ' ').trim() : null;

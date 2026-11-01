@@ -47,7 +47,7 @@ MODEL_JS = r"""(() => {
     const s = g ? d.s : cyStats(d.planned, d.carry);
     const add = (kind, list, arg) => { const u = cyQ(kind, g, c, arg); out.push({tag: sc.tag, kind: arg ? kind + ":w" + arg[2] : kind, jql: dec(u), len: u ? u.length : 0, exp: K(list)}); };
     add("planned", s.planned); add("done", s.done); add("over", s.over); add("stale", s.staleIn); add("next", s.next); add("nextNs", s.nextNs);
-    add("flag", s.flag); add("flagCarry", s.flagCarry); add("carry", d.carry); add("noDue", d.noDue);
+    add("flag", s.flag); add("flagCarry", s.flagCarry); add("carry", d.carry); if (M.dcAll) add("noDue", d.noDue);      // epics with no planned date are in no cycle: with one cycle ticked the page lists none and offers no such link
     add("nsSoon", (g ? g.epics : M.epics).filter(cyNsSoon)); add("flightIn", (g ? g.epics : M.epics).filter(cyInFlight));
     if (g && g.level === "team") add("noPodFlight", g.epics.filter(e => cyInFlight(e) && !e.pl.length));
     if (g) { add("scope", g.epics); add("concerns", cyConcerns(d).map(r => r.e)); }
@@ -58,7 +58,7 @@ MODEL_JS = r"""(() => {
       add("week", list, [ws, we, w]); add("weekDone", list.filter(cyDone), [ws, we, w]); add("weekOpen", list.filter(e => !cyDone(e)), [ws, we, w]);
     }
     if (!g) {
-      const u = cyQ("after", null, last); out.push({tag: "top", kind: "after", jql: dec(u), len: u ? u.length : 0, exp: K(M.epics.filter(e => e.due && e.due > last.end))});
+      if (M.dcAll) { const u = cyQ("after", null, last); out.push({tag: "top", kind: "after", jql: dec(u), len: u ? u.length : 0, exp: K(M.epics.filter(e => e.due && e.due > last.end))}); }      // likewise After Release End
       if (cyLabelOk()) {
         add("podWith", M.epics.filter(e => e.pl.length)); add("podNone", M.epics.filter(e => !e.pl.length));
         add("podNoneFlight", M.epics.filter(e => cyInFlight(e) && !e.pl.length)); add("nsSoonRfd", M.epics.filter(e => cyNsSoon(e) && e.s === "Ready for Dev"));
@@ -189,7 +189,7 @@ def page(kind: str = "stock") -> tuple[dict, str]:
 
 def views(full: bool, data: dict, name: str = "stock") -> list[str]:
     rels = data["releases"] if full else (["26.4", "27.1"] if name == "stock" else ["27.1", "27.2"])
-    psets = ["", "p=PMN", "p=PMN|CXCO", "p=INT", "t=Team%20Alpha", "c=Committed|Not%20Set"] + (["p=CXWFM|WFM|CXINT|INT", "c=Stretch"] if full else [])      # c=Committed|Not Set: Stretch unticked
+    psets = ["", "p=PMN", "p=PMN|CXCO", "p=INT", "t=Team%20Alpha", "dc=1"] + (["p=CXWFM|WFM|CXINT|INT", "dc=2"] if full else [])      # dc=1 / dc=2: one Delivery Cycle ticked (the section offers only that cycle; a cy= naming the other falls back to it)
     return [f"r={r}&{p}&cy={c}".replace("&&", "&") for r in rels for p in psets for c in ("DC1", "DC2")]
 
 
@@ -499,12 +499,10 @@ def _(t: T):
         return {k: (ch.js(PO.LIST2_JS + f"({json.dumps(k)})") or {"rows": []})["rows"] for k in ("nsSoon", "wait", "level", "noPod")}
 
     allc = lists("r=27.1&cy=DC1")
-    noss = lists("r=27.1&c=Committed|Not%20Set&cy=DC1")
 
     def ns(rows):
         return {(r["cells"][0] if r["rep"] else "*"): int(r["cells"][2]) for r in rows if r["th"] == "Team Seed Ns"}
     t.check(ns(allc["nsSoon"]) == {"*": 5, "Pod-Ns-A": 2, "Pod-Ns-B": 1, "No Pod Label": 2}, f"not-started due soon in Team Seed Ns: {ns(allc['nsSoon'])} (today, +7, the later date, the Target Sprint alone and the Stretch epic count; +8, the later date outside, In Progress, Done and overdue do not)")
-    t.check(ns(noss["nsSoon"]) == {"*": 4, "Pod-Ns-A": 2, "Pod-Ns-B": 1, "No Pod Label": 1}, f"with Stretch unticked the Stretch epic leaves: {ns(noss['nsSoon'])}")
     lvl = {}
     for r in allc["level"]:
         lvl.setdefault(r["th"], {})[r["cells"][1]] = (int(r["cells"][2]), r["cells"][4])
@@ -535,8 +533,7 @@ MUTANTS = [
     ("the in-flight union link drops the project guard", "arg.map(p => `(${cyPodClause(p)})`).join(\" OR \")", "arg.map(p => `(labels in (${p.sp.map(q).join(\", \")}))`).join(\" OR \")"),
     ("Not-started due soon counts 8 days instead of 7", "e.due <= cyAdd(CY.asOf, CY.next);\nconst cyTeamNodes", "e.due <= cyAdd(CY.asOf, CY.next + 1);\nconst cyTeamNodes"),
     ("Not-started due soon uses the due date instead of the later date", "cls(e.s) === \"notStarted\" && !!e.due && e.due >= CY.asOf && e.due <= cyAdd(CY.asOf, CY.next);", "cls(e.s) === \"notStarted\" && !!e.dd && e.dd >= CY.asOf && e.dd <= cyAdd(CY.asOf, CY.next);"),
-    ("Stretch epics stay in when Stretch is unticked", "let eps = scopeOf(state.release).map(", "let eps = scopeOf(state.release, {anyCommit: true}).map("),
-    ("Pods To Level flags from 30% instead of 40%", "levelSpread: 0.40,", "levelSpread: 0.30,"),
+        ("Pods To Level flags from 30% instead of 40%", "levelSpread: 0.40,", "levelSpread: 0.30,"),
     ("Pods To Level flags from 50% instead of 40%", "levelSpread: 0.40,", "levelSpread: 0.50,"),
     ("Pods To Level ignores the minimum of 5 in flight", "const flagged = total >= MIN_N && spread >= CY.levelSpread - 1e-9;", "const flagged = spread >= CY.levelSpread - 1e-9;"),
     ("Pods To Level divides by the busiest pod instead of the team total", "spread = total ? (hi - lo) / total : 0;", "spread = hi ? (hi - lo) / hi : 0;"),
@@ -548,7 +545,7 @@ MUTANTS = [
 ]
 
 
-LIGHT = range(6, 17)                                                                    # MUTANTS[6:17] are the proactive-tile defects (see their order above)
+LIGHT = range(6, 16)                                                                    # MUTANTS[6:16] are the proactive-tile defects (see their order above)
 
 
 @SUITE.test("selftest_cycles_suite_catches_seeded_defects")
@@ -560,7 +557,7 @@ def _(t: T):
             raise kit.Skip(f"the seeding anchor for '{what}' is not in this template exactly once")
         tmp = Path(ctx.dir) / f"cycles_mutant_{i}.html"
         tmp.write_text(src.replace(old, new, 1), encoding="utf-8")
-        r = sweep(tmp, kinds=("variant",), hashes=["r=27.1&cy=DC1", "r=27.1&c=Committed|Not%20Set&cy=DC1"], with_nodes=not light)
+        r = sweep(tmp, kinds=("variant",), hashes=["r=27.1&cy=DC1", "r=27.1&dc=1&cy=DC1"], with_nodes=not light)
         caught = sum(r["bad"].values()) + len(r["dom_bad"]) + len(r["pod_bad"])
         t.check(caught > 0, f"the suite did not notice the seeded defect: {what}")
 
