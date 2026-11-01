@@ -43,6 +43,7 @@ KEYRE = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
 ALLOW: list[tuple[str, str, str, str]] = []      # (regex on the elided JQL, regex on the link's hover title or "", reason, what a query could do instead)
 PROPOSED_ALLOW = [      # the accepted gaps: every entry is a population Jira cannot express as a query, or a documented pending decision; the list may only shrink      # sites whose population Jira's native JQL cannot express (reasons checked on the synthetic payload, see the QA report)
     (r"\bparent in \(<keys>\)", "", "child epics / bugs selected by an attribute of their PARENT (the Capability's fix version, the epic's planned date): not searchable in native JQL", "none; the Capabilities query is the closest"),
+    (r"^key in \(<keys>\) OR \(key in \(<keys>\) AND project not in \(", "", "Blocked by External headline: the dependents by key, and the external providers by key AND a project clause (not in the selected projects and CXCROSS); which pairs are open is a linked issue's status, not searchable", "issueLinkType in (...) is a superset"),
     (r"^key in \(<keys>\)$", "", "pairs whose far end is not Done, story-level links, dependency cards, Needs Attention groups, DQ 'no cycle time' (changelog-derived): a linked issue's status / the changelog is not searchable", "issueLinkType in (...) is a superset"),
 ]
 ALLOW_CALENDAR: list[tuple[str, str]] = [(r"fixVersion in \(", "the release list is the dashboard's own release set, fixed when the data is built (a new release needs a rebuild)")]
@@ -72,7 +73,7 @@ def views(full: bool, data: dict) -> list[str]:
     rels = data["releases"] if full else ["26.4", "27.1"]
     psets = ["", "p=PMN", "p=PMN|CXCO", "p=INT"] + (["p=CXWFM|WFM|CXINT|INT"] if full else [])
     out = [f"r={r}&{p}&cy={c}".replace("&&", "&") for r in rels for p in psets for c in ("DC1", "DC2")]
-    facets = ["c=Stretch", "ax=1", "cfb=yes", "g=week", "g=quarter", "cg=quarter", "dp=all", "dp=overdue", "dp=gap", "dp=blockedby", "dp=blocking", "nt=capability", "nt=team", "cx=committed", "cpg=release", "cpm=count"]
+    facets = ["c=Stretch", "ax=1", "cfb=yes", "g=week", "g=quarter", "cg=quarter", "dp=all", "dp=overdue", "dp=gap", "dp=blocking", "p=PMN&dp=blocking", "dp=blockedby", "nt=capability", "nt=team", "cx=committed", "cpg=release", "cpm=count"]
     out += [f"r=27.1&{f}" for f in facets]
     teams = sorted({t for e in data["epics"] for t in (e.get("tm") or [])})                   # every team ticked: the longest queries (team clauses and sprint names together)
     allt = "t=" + "|".join(urllib.parse.quote(t) for t in teams)

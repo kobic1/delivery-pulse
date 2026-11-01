@@ -1,18 +1,24 @@
 #!/usr/bin/env python3
-"""Dependency direction oracle: the two Dependencies quick filters Blocked by Outside Scope (hash dp=blockedby) and Blocking Outside Scope (dp=blocking).
+"""Dependency direction oracle: the Dependencies quick filter Blocked by External (hash dp=blocking), and the removal of Blocked by Outside Scope (an old dp=blockedby link opens the default view).
 
-An independent Python recount of the open dependency pairs (from the baked links, epics and far-end issues; nothing of the page's code is reused) is compared with what the page
-prints, in several filter states and under every quick filter that shows the board:
+Blocked by External counts the open pairs where an item IN SCOPE (the dependent: the page's own scope of release, projects, teams and Commitment Types) waits on a PROVIDER whose Jira project
+is not one of the selected projects and is not CXCROSS (whole project keys compared: OLDCXCROSS is not CXCROSS), at any issue type, whichever of Epics Only and All is chosen. A provider in CXCROSS, or in
+a selected project that the release, team or Commitment Type filters leave out, is not external. Pairs with a Done end never count.
+
+An independent Python recount of the open dependency pairs (from the baked links, epics and far-end issues; nothing of the page's code is reused) is compared with what the page prints, in several
+filter states and under every quick filter that shows the board:
 
   * the chip counts, the 'Showing N of M open' line, the provider cards (the keys of each card's 'Open with Dependents' link), the Show data rows, and the Direction column;
-  * the two numbers in the headline clause, with the issues their links open (the keys at both ends of every counted pair) and the 6,000 character budget;
-  * the cues in text (never color alone): 'Outside scope · ' on the card meta line, 'Blocks outside scope:' against 'Also blocks outside scope:', the aria-label of the key link,
+  * the one headline clause, with the issues its link opens (the dependents and the external providers of every counted pair; the link is also run through the JQL evaluator over every issue the payload
+    knows and must return exactly those issues, and its project clause must name the selected projects and CXCROSS) and the 6,000 character budget;
+  * the cues in text (never color alone): 'Outside scope \u00b7 ' on the card meta line, 'Blocks outside scope:' against 'Also blocks outside scope:', the aria-label of the key link,
     and 'Planning data not tracked here' for a provider the page holds no planning data for;
-  * the hash round trip, native radios in the one radiogroup, the 320 px layout, the empty states and the omitted half of the headline clause.
+  * the hash round trip, native radios in the one radiogroup, the 320 px layout, the empty state and the omitted headline clause.
 
-The direction is the pair's own: inbound = the dependent is in scope and the provider is not (an epic in scope waits on something outside), outbound = the reverse; 'in scope' is the page's
-scope (release, projects, teams and Commitment Types). Both directions read every OPEN pair (neither end Done) at ANY issue type, whichever of Epics Only and All is chosen.
-Four seeded defects (swapped direction, non-epic providers dropped, Done pairs counted, the Direction column swapped) must each be caught: a green oracle is not a blind one.
+Direction column: 'Waits on external scope' (a counted pair), 'Waits on outside scope' (the provider is outside scope but not external: CXCROSS, or a selected project outside the filters),
+'Needed by outside scope' (the dependent is outside scope), 'Within scope'.
+Seeded defects (swapped direction, CXCROSS providers counted, selected-project providers counted, CXCROSS matched loosely (a project key that merely contains it), non-epic providers dropped, Done pairs counted, the Direction column swapped,
+the link's project clause without CXCROSS) must each be caught: a green oracle is not a blind one.
 
     python3 dep_oracle.py [--live] [--only NAME]
 """
@@ -27,6 +33,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+import jql_eval                                                                     # noqa: E402
 import kit                                                                          # noqa: E402
 import make_synthetic as MS                                                         # noqa: E402
 from kit import ctx, T                                                              # noqa: E402
@@ -36,8 +43,9 @@ KEYRE = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
 URL_BUDGET = 6000
 NO_TEAM = "(No Team)"
 COMMITS = ("Committed", "Not Set", "Stretch")
-DIR_TEXT = {"in": "Waits on outside scope", "out": "Needed by outside scope", "within": "Within scope"}
-FILTER_NAME = {"blockedby": "Blocked by Outside Scope", "blocking": "Blocking Outside Scope"}
+DIR_TEXT = {"ext": "Waits on external scope", "in": "Waits on outside scope", "out": "Needed by outside scope", "within": "Within scope"}
+FILTER_NAME = {"blocking": "Blocked by External"}
+EXT_PHRASE = "where an item in the selected projects waits on an external provider (not selected, not CXCROSS)"
 
 
 # --------------------------------------------------------------------------------------------- the independent recount
@@ -56,36 +64,35 @@ def recount(data: dict, v: View) -> dict:
     def rec(k: str) -> dict:
         e = epics.get(k)
         if e:
-            return {"ty": "Epic", "s": e["s"], "held": True, "dd": e.get("dd"), "ts": e.get("ts")}
+            return {"ty": "Epic", "s": e["s"], "held": True, "dd": e.get("dd"), "ts": e.get("ts"), "p": e["p"]}
         x = ext.get(k)
         if x:
-            return {"ty": x.get("ty") or "Epic", "s": x["s"], "held": False, "dd": x.get("dd"), "ts": x.get("ts")}
-        return {"ty": "", "s": "", "held": False, "dd": None, "ts": None}
+            return {"ty": x.get("ty") or "Epic", "s": x["s"], "held": False, "dd": x.get("dd"), "ts": x.get("ts"), "p": x.get("p") or k.split("-")[0]}
+        return {"ty": "", "s": "", "held": False, "dd": None, "ts": None, "p": k.split("-")[0]}
 
     pairs = {}
     for a, b, _ty in data["deps"]:
         pairs[(a, b)] = True                                           # the same pair as Dependency and as Blocks counts once
-    out = {"inbound": [], "outbound": [], "within": [], "epics": [], "all": [], "done_in": 0, "done_out": 0, "scope": scope, "rec": rec}
+    out = {"ext": [], "inbound": [], "outbound": [], "within": [], "epics": [], "all": [], "done_ext_provider": 0, "done_ext_dependent": 0, "done_out": 0, "scope": scope, "rec": rec, "projects": projects,
+           "issues": [{"key": k, "project": rec(k)["p"]} for k in sorted({k for a, b, _ in data["deps"] for k in (a, b)} | set(epics) | set(ext))]}
     for (a, b) in sorted(pairs):
         if a not in scope and b not in scope:
             continue
         ra, rb = rec(a), rec(b)
-        direction = "in" if (a in scope and b not in scope) else "out" if (b in scope and a not in scope) else "within"
+        if a in scope and b not in scope:                              # the dependent is in scope, the provider is not: external when the provider's project is neither selected nor CXCROSS
+            direction = "ext" if (rb["p"] not in projects and rb["p"] != "CXCROSS") else "in"
+        else:
+            direction = "out" if (b in scope and a not in scope) else "within"
         if ra["s"] == "Done" or rb["s"] == "Done":
-            if direction == "in":
-                out["done_in"] += 1
+            if direction == "ext":
+                out["done_ext_provider" if rb["s"] == "Done" else "done_ext_dependent"] += 1
             elif direction == "out":
                 out["done_out"] += 1
             continue
         out["all"].append((a, b, direction))
         if ra["ty"] == "Epic" and rb["ty"] == "Epic":
             out["epics"].append((a, b, direction))
-        if direction == "in":
-            out["inbound"].append((a, b, direction))
-        elif direction == "out":
-            out["outbound"].append((a, b, direction))
-        else:
-            out["within"].append((a, b, direction))
+        out[{"ext": "ext", "in": "inbound", "out": "outbound", "within": "within"}[direction]].append((a, b, direction))
     return out
 
 
@@ -129,7 +136,28 @@ def load(url: str, hash_: str) -> dict:
 
 
 def expected_shown(O: dict, dp: str) -> list:
-    return {"epics": O["epics"], "all": O["all"], "blockedby": O["inbound"], "blocking": O["outbound"]}[dp]
+    return {"epics": O["epics"], "all": O["all"], "blocking": O["ext"]}[dp]
+
+
+def check_ext_query(tag: str, href: str, O: dict, pairs) -> list[str]:
+    """The headline link is a query: the dependents by key, and the providers by key AND a project clause. Run over every issue the payload knows it must return exactly the issues at both ends of the
+    counted pairs, and its project clause must name the selected projects and CXCROSS (nothing else)."""
+    jql = urllib.parse.parse_qs(urllib.parse.urlsplit(href).query).get("jql", [""])[0]
+    m = re.search(r"project not in \(([^)]*)\)", jql)
+    if not m:
+        return [f"{tag} the headline link has no 'project not in (...)' clause: {jql[:160]}"]
+    bad: list[str] = []
+    named = {x.strip().strip('"') for x in m.group(1).split(",")}
+    if named != set(O["projects"]) | {"CXCROSS"}:
+        bad.append(f"{tag} the headline link's project clause names {sorted(named)}, expected the selected projects {sorted(O['projects'])} and CXCROSS")
+    try:
+        tree = jql_eval.parse(jql)
+        got = {i["key"] for i in O["issues"] if jql_eval.evaluate(tree, i)}
+    except (jql_eval.Malformed, jql_eval.Unsupported) as e:
+        return bad + [f"{tag} the headline query cannot be evaluated: {e}: {jql[:160]}"]
+    if got != pair_keys(pairs):
+        bad.append(f"{tag} the headline query returns {len(got)} issues, the counted pairs have {len(pair_keys(pairs))}; extra {sorted(got - pair_keys(pairs))[:3]} missing {sorted(pair_keys(pairs) - got)[:3]}")
+    return bad
 
 
 def check_view(page: dict, O: dict, v: View, dp: str) -> list[str]:
@@ -140,44 +168,48 @@ def check_view(page: dict, O: dict, v: View, dp: str) -> list[str]:
         bad.append(f"{tag} console errors {page['console'][:2]}")
         return bad
     chips = page["chips"]
-    want = {"epics": len(O["epics"]), "all": len(O["all"]), "blockedby": len(O["inbound"]), "blocking": len(O["outbound"])}
+    want = {"epics": len(O["epics"]), "all": len(O["all"]), "blocking": len(O["ext"])}
     for k, n in want.items():
         if chips.get(k, {}).get("n") != str(n):
             bad.append(f"{tag} chip {k} prints {chips.get(k, {}).get('n')}, the recount is {n}")
-    for k in ("blockedby", "blocking"):
+    if "blockedby" in chips:
+        bad.append(f"{tag} the removed chip Blocked by Outside Scope is back")
+    for k in ("blocking",):
         denom = len(O["all"])
         if chips.get(k, {}).get("title") != f"{want[k]} of {denom} open":
             bad.append(f"{tag} chip {k} hover says '{chips.get(k, {}).get('title')}', expected '{want[k]} of {denom} open'")
     if not chips.get(dp, {}).get("on"):
         bad.append(f"{tag} the {dp} radio is not checked")
     shown = expected_shown(O, dp)
-    any_type = dp in ("all", "blockedby", "blocking")
+    any_type = dp in ("all", "blocking")
     denom = len(O["all"] if any_type else O["epics"])
     # ---- the headline clause: pair counts at any issue type, whatever the quick filter
     sub, links = page["sub"], page["subLinks"]
-    for name, pairs, tipre, phrase in (("inbound", O["inbound"], r"waiting on a provider outside scope", "where an epic waits on a provider outside scope"),
-                                       ("outbound", O["outbound"], r"where an item outside scope waits on a provider in scope", "where an item outside scope waits on a provider in scope")):
-        found = [a for a in links if re.search(tipre, a["tip"])]
-        if pairs:
-            if len(found) != 1:
-                bad.append(f"{tag} headline {name}: {len(found)} links, expected one")
-                continue
+    pairs = O["ext"]
+    found = [a for a in links if re.search(r"waits on an external provider", a["tip"])]
+    if pairs:
+        if len(found) != 1:
+            bad.append(f"{tag} headline: {len(found)} links, expected one")
+        else:
             a = found[0]
             if a["text"] != str(len(pairs)):
-                bad.append(f"{tag} headline {name} prints {a['text']}, the recount is {len(pairs)}")
+                bad.append(f"{tag} headline prints {a['text']}, the recount is {len(pairs)}")
             if a["href"] and keys_of(a["href"]) != pair_keys(pairs):
-                bad.append(f"{tag} headline {name} link opens {len(keys_of(a['href']))} issues, the pairs have {len(pair_keys(pairs))}")
+                bad.append(f"{tag} headline link opens {len(keys_of(a['href']))} issues, the pairs have {len(pair_keys(pairs))}")
+            if a["href"]:
+                bad += check_ext_query(tag, a["href"], O, pairs)
             if a["href"] and len(a["href"]) > URL_BUDGET:
-                bad.append(f"{tag} headline {name} link is {len(a['href'])} characters")
-            if not a["href"] and len(urllib.parse.quote("key in (" + ", ".join(sorted(pair_keys(pairs))) + ")")) < URL_BUDGET - 200:
-                bad.append(f"{tag} headline {name} is plain text although the list is short")
-            if phrase not in sub:
-                bad.append(f"{tag} headline {name} lacks '{phrase}'")
-        else:
-            if found or phrase in sub:
-                bad.append(f"{tag} headline {name} is shown although the recount is 0")
-    if not O["inbound"] and not O["outbound"] and re.search(r"overdue\.\s*\d", sub):
-        bad.append(f"{tag} a headline clause is shown with both directions at 0")
+                bad.append(f"{tag} headline link is {len(a['href'])} characters")
+            if not a["href"] and len(urllib.parse.quote("key in (" + ", ".join(sorted(pair_keys(pairs))) + ")")) < URL_BUDGET - 700:
+                bad.append(f"{tag} headline is plain text although the list is short")
+            if EXT_PHRASE not in sub:
+                bad.append(f"{tag} headline lacks '{EXT_PHRASE}'")
+    elif found or "external provider" in sub:
+        bad.append(f"{tag} headline clause is shown although the recount is 0")
+    if re.search(r"waits on a provider (?:outside scope|in scope)|where an epic waits|where an item outside scope", sub):
+        bad.append(f"{tag} an old headline half is back: {sub[-200:]}")
+    if not pairs and re.search(r"overdue\.\s*\d", sub):
+        bad.append(f"{tag} a headline clause is shown with no external pair")
     if re.search(r"\b0 and 0\b|\b0 where\b", sub):
         bad.append(f"{tag} the headline says a zero: {sub[-160:]}")
     # ---- the board, the table and the 'Showing' line
@@ -211,8 +243,8 @@ def check_view(page: dict, O: dict, v: View, dp: str) -> list[str]:
         if not pairs:
             bad.append(f"{tag} a card for {c['key']} that has no pair in the recount")
             continue
-        prov_out = all(d == "in" for _, d in pairs)                        # the provider is outside scope exactly when every one of its pairs is inbound
-        if any(d == "in" for _, d in pairs) != prov_out:
+        prov_out = all(d in ("in", "ext") for _, d in pairs)               # the provider is outside scope exactly when every one of its pairs has the dependent in scope and the provider not
+        if any(d in ("in", "ext") for _, d in pairs) != prov_out:
             bad.append(f"{tag} {c['key']}: a provider is both inside and outside scope in the recount")
         if prov_out != c["meta"].startswith("Outside scope · "):
             bad.append(f"{tag} {c['key']}: meta line '{c['meta'][:40]}', provider outside scope is {prov_out}")
@@ -255,7 +287,7 @@ def views(data: dict, team: str) -> list[View]:
             View("r=27.1&c=Committed|Not%20Set", commits=("Committed", "Not Set")), View("r=27.1&c=Stretch", commits=("Stretch",)), View(f"r=27.1&t={tq}", teams={team})]
 
 
-def run_views(url: str, data: dict, vs: list[View], dps=("epics", "all", "blockedby", "blocking")) -> list[str]:
+def run_views(url: str, data: dict, vs: list[View], dps=("epics", "all", "blocking")) -> list[str]:
     bad: list[str] = []
     for v in vs:
         O = recount(data, v)
@@ -270,15 +302,22 @@ def run_views(url: str, data: dict, vs: list[View], dps=("epics", "all", "blocke
 def _(t: T):
     F = fixture()
     O = recount(F["data"], View("r=27.1"))
-    prov = [O["rec"](b) for _, b, _ in O["inbound"]]
+    ext = [O["rec"](b) for _, b, _ in O["ext"]]
+    notext = [O["rec"](b) for _, b, _ in O["inbound"]]
     dep = [O["rec"](a) for a, _, _ in O["outbound"]]
-    t.check(len(O["inbound"]) >= 8 and len(O["outbound"]) >= 8 and len(O["within"]) >= 3, f"inbound {len(O['inbound'])}, outbound {len(O['outbound'])}, within {len(O['within'])}")
-    t.check({"Epic", "Task", "Bug", "Story", "Capability"} <= {p["ty"] for p in prov}, f"inbound provider types {sorted({p['ty'] for p in prov})}")
+    t.check(len(O["ext"]) >= 6 and len(O["inbound"]) >= 5 and len(O["outbound"]) >= 3 and len(O["within"]) >= 3, f"external {len(O['ext'])}, inbound not external {len(O['inbound'])}, outbound {len(O['outbound'])}, within {len(O['within'])}")
+    t.check({"Epic", "Task", "Bug", "Capability"} <= {p["ty"] for p in ext}, f"external provider types {sorted({p['ty'] for p in ext})}")
     t.check({"Epic", "Task", "Story"} <= {p["ty"] for p in dep}, f"outbound dependent types {sorted({p['ty'] for p in dep})}")
-    t.check(any(not p["held"] and not p["dd"] and not p["ts"] for p in prov) and any(not p["held"] and p["dd"] for p in prov), "providers with and without planning data are both present")
-    t.check(O["done_in"] >= 1 and O["done_out"] >= 1, f"Done pairs of both directions (inbound {O['done_in']}, outbound {O['done_out']})")
-    t.note(f"release 27.1, all projects: inbound {len(O['inbound'])} (epic providers {sum(1 for p in prov if p['ty'] == 'Epic')}), outbound {len(O['outbound'])}, within {len(O['within'])}, "
-           f"epics only {len(O['epics'])}, all open {len(O['all'])}")
+    t.check(any(not p["held"] and not p["dd"] and not p["ts"] for p in ext + notext) and any(not p["held"] and p["dd"] for p in ext + notext), "providers with and without planning data are both present")
+    t.check(any(p["p"] == "CXCROSS" for p in notext) and not any(p["p"] == "CXCROSS" for p in ext), "a CXCROSS provider is in the data and is not external")
+    t.check(any(p["p"] == "OLDCXCROSS" for p in ext), "an OLDCXCROSS provider (not CXCROSS) is external")
+    t.check(any(p["p"] in F["data"]["projects"] for p in notext), "a provider in a selected project outside the release is in the data and is not external")
+    t.check(O["done_ext_provider"] >= 1 and O["done_ext_dependent"] >= 1 and O["done_out"] >= 1, f"Done pairs of every kind (Done external provider {O['done_ext_provider']}, Done dependent {O['done_ext_dependent']}, outbound {O['done_out']})")
+    pmn = recount(F["data"], View("r=27.1&p=PMN", projects={"PMN"}))
+    t.check(any(O["rec"](b)["p"] == "CXCO" for _, b, _ in pmn["ext"]) and not any(O["rec"](b)["p"] == "CXCO" for _, b, _ in O["ext"]),
+            "a provider in a tracked project is external when that project is not selected (PMN only) and is not when it is (all projects)")
+    t.note(f"release 27.1, all projects: external {len(O['ext'])}, inbound not external {len(O['inbound'])}, outbound {len(O['outbound'])}, within {len(O['within'])}, epics only {len(O['epics'])}, all open {len(O['all'])}; "
+           f"PMN only: external {len(pmn['ext'])}")
 
 
 @SUITE.test("direction_chips_board_table_headline_and_cues_equal_an_independent_recount")
@@ -288,31 +327,46 @@ def _(t: T):
     for b in bad[:12]:
         t.failures.append(b)
     t.passed += 0 if bad else 1
-    t.note(f"{len(views(F['data'], F['team']))} views x 4 quick filters compared")
+    t.note(f"{len(views(F['data'], F['team']))} views x 3 quick filters compared")
 
 
-@SUITE.test("direction_the_two_chips_are_native_radios_in_the_one_group_and_the_hash_round_trips")
+@SUITE.test("direction_the_chip_is_a_native_radio_in_the_one_group_and_the_hash_round_trips")
 def _(t: T):
     F = fixture()
-    page = load(F["url"], "r=27.1&dp=blockedby")
+    page = load(F["url"], "r=27.1&dp=blocking")
     t.check(page["group"] == "radiogroup", "the chips are in a radiogroup")
-    t.check(all(r["type"] == "radio" and r["name"] == "f-dp" and r["tab"] is None for r in page["radios"]) and len(page["radios"]) == 8, f"eight native radios, no tabindex: {page['radios']}")
-    t.check(page["chips"]["blockedby"]["on"] and not page["chips"]["blocking"]["on"], "dp=blockedby selects Blocked by Outside Scope")
-    t.check("Blocked by Outside Scope" in page["chips"]["blockedby"]["label"] and "Blocking Outside Scope" in page["chips"]["blocking"]["label"], "Title Case labels")
+    t.check(all(r["type"] == "radio" and r["name"] == "f-dp" and r["tab"] is None for r in page["radios"]) and len(page["radios"]) == 7, f"seven native radios, no tabindex: {page['radios']}")
+    t.check(page["chips"]["blocking"]["on"], "dp=blocking selects Blocked by External")
+    t.check("Blocked by External" in page["chips"]["blocking"]["label"], f"Title Case label: {page['chips']['blocking']['label']}")
     ch = ctx.chrome
     click = "(() => { const i = document.querySelector('#f-dp input[value=\"%s\"]'); i.click(); return location.hash; })()"
-    h = ch.js(click % "blocking")
-    time.sleep(0.2)
-    h = ch.js("location.hash")
-    t.check("dp=blocking" in h, f"selecting Blocking Outside Scope writes dp=blocking: {h}")
-    t.check(ch.js("document.querySelector('#f-dp input[value=\"blocking\"]').checked && document.getElementById('dep-showing').textContent.includes('Blocking Outside Scope')") is True, "and the board follows")
     ch.js(click % "epics")
     time.sleep(0.2)
     t.check("dp=" not in ch.js("location.hash"), "Epics Only (the default) writes no dp")
+    ch.js(click % "blocking")
+    time.sleep(0.2)
+    h = ch.js("location.hash")
+    t.check("dp=blocking" in h, f"selecting Blocked by External writes dp=blocking: {h}")
+    t.check(ch.js("document.querySelector('#f-dp input[value=\"blocking\"]').checked && document.getElementById('dep-showing').textContent.includes('Blocked by External')") is True, "and the board follows")
     page = load(F["url"], "r=27.1&dp=blocking")
     t.check(page["chips"]["blocking"]["on"], "dp=blocking round trips")
     page = load(F["url"], "r=27.1&dp=nonsense")
     t.check(page["chips"]["epics"]["on"], "an unknown dp value falls back to Epics Only")
+
+
+@SUITE.test("direction_blocked_by_outside_scope_is_gone_and_an_old_link_opens_the_default_view")
+def _(t: T):
+    F = fixture()
+    O = recount(F["data"], View("r=27.1"))
+    page = load(F["url"], "r=27.1&dp=blockedby")
+    t.check(not page["console"], f"an old dp=blockedby link raises errors: {page['console'][:2]}")
+    t.check(page["chips"].get("epics", {}).get("on") and not any(c["on"] for k, c in page["chips"].items() if k != "epics"), f"dp=blockedby falls back to Epics Only: {page['chips']}")
+    t.check("blockedby" not in page["chips"] and not any("Blocked by Outside Scope" in c["label"] for c in page["chips"].values()), f"a chip named Blocked by Outside Scope exists: {list(page['chips'])}")
+    t.check(not any(r["value"] == "blockedby" for r in page["radios"]), "no radio has the value blockedby")
+    t.check("dp=blockedby" not in page["hash"], f"the address still carries dp=blockedby: {page['hash']}")
+    bad = check_view(page, O, View("r=27.1"), "epics")
+    t.check(not bad, f"the fallback view differs from the default view: {bad[:2]}")
+    t.check(ctx.chrome.js("!/Blocked by Outside Scope/.test(document.body.innerText)") is True, "the words Blocked by Outside Scope appear nowhere on the page")
 
 
 @SUITE.test("direction_320px_chips_wrap_and_the_page_does_not_scroll_sideways")
@@ -322,12 +376,13 @@ def _(t: T):
     try:
         for w in (320, 800):
             ch.viewport(w, 900, mobile=False)
-            load(F["url"], "r=27.1&dp=blockedby")
+            load(F["url"], "r=27.1&dp=blocking")
             m = ch.js("(() => { const g = document.getElementById('f-dp').getBoundingClientRect(); return {sw: document.documentElement.scrollWidth, w: window.innerWidth, right: Math.max(...[...document.querySelectorAll('#f-dp .chip')].map(c => c.getBoundingClientRect().right)), "
                       "rows: new Set([...document.querySelectorAll('#f-dp .chip')].map(c => Math.round(c.getBoundingClientRect().top))).size}; })()")
             t.check(m["sw"] <= m["w"], f"{w} px: the page scrolls sideways ({m})")
             t.check(m["right"] <= m["w"] + 1, f"{w} px: a chip leaves the viewport ({m})")
-            t.check(m["rows"] >= 2, f"{w} px: the eight chips are on one row ({m})")
+            if w == 320:
+                t.check(m["rows"] >= 2, f"{w} px: the seven chips are on one row ({m})")
     finally:
         ch.viewport(1400, 900)
 
@@ -339,41 +394,59 @@ def _variant_page(drop: set) -> str:
     return ctx.write(kit.fragment_for(data), "depvar"), data
 
 
-@SUITE.test("direction_a_half_with_zero_is_omitted_and_the_empty_state_says_why")
+@SUITE.test("direction_without_external_pairs_the_clause_is_omitted_and_the_empty_state_says_why")
 def _(t: T):
     F = fixture()
     O = recount(F["data"], View("r=27.1"))
-    inb, outb = {(a, b) for a, b, _ in O["inbound"]}, {(a, b) for a, b, _ in O["outbound"]}
-    for name, drop in (("no inbound pairs", inb), ("no outbound pairs", outb), ("neither direction", inb | outb)):
+    ext, other = {(a, b) for a, b, _ in O["ext"]}, {(a, b) for a, b, _ in O["inbound"] + O["outbound"]}
+    for name, drop in (("no external pairs", ext), ("no external and no other direction", ext | other)):
         url, data = _variant_page(drop)
         v = View("r=27.1")
         O2 = recount(data, v)
         t.check(bool(O2["all"]), f"{name}: the variant keeps other pairs")
+        t.check(not O2["ext"], f"{name}: the variant still has external pairs")
         page = load(url, "r=27.1")
         sub = page["sub"]
-        t.check(("waits on a provider outside scope" in sub) == bool(O2["inbound"]) and ("waits on a provider in scope" in sub) == bool(O2["outbound"]), f"{name}: headline clause halves wrong: {sub[-200:]}")
-        t.check(not re.search(r"\b0 (?:dependenc|where)|0 and 0", sub), f"{name}: a zero is printed: {sub[-160:]}")
-        if not O2["inbound"] and not O2["outbound"]:
-            t.check(sub.rstrip().split("overdue.")[-1].strip().startswith("Follows:"), f"{name}: something follows the overdue sentence: {sub[-120:]}")
-        for dp, left in (("blockedby", O2["inbound"]), ("blocking", O2["outbound"])):
-            page = load(url, f"r=27.1&dp={dp}")
-            bad = check_view(page, O2, v, dp)
-            t.check(not bad, f"{name} dp={dp}: {bad[:2]}")
-            if not left:
-                t.check(page["empty"] and ("waits on a provider outside scope" if dp == "blockedby" else "waits on a provider in scope") in page["empty"] and "Epics Only" in page["empty"], f"{name} dp={dp}: empty text '{page['empty']}'")
-                t.check(page["chips"][dp]["n"] == "0" and page["chips"][dp]["title"] == f"0 of {len(O2['all'])} open", f"{name} dp={dp}: chip {page['chips'][dp]}")
+        t.check("external provider" not in sub and not re.search(r"\b0 (?:dependenc|where)|0 and 0", sub), f"{name}: a clause or a zero is printed: {sub[-160:]}")
+        t.check(sub.rstrip().split("overdue.")[-1].strip().startswith("Follows:"), f"{name}: something follows the overdue sentence: {sub[-120:]}")
+        page = load(url, "r=27.1&dp=blocking")
+        bad = check_view(page, O2, v, "blocking")
+        t.check(not bad, f"{name} dp=blocking: {bad[:2]}")
+        t.check(page["empty"] and "blocks an item in the selected projects" in page["empty"] and "Epics Only" in page["empty"], f"{name} dp=blocking: empty text '{page['empty']}'")
+        t.check(page["chips"]["blocking"]["n"] == "0" and page["chips"]["blocking"]["title"] == f"0 of {len(O2['all'])} open", f"{name} dp=blocking: chip {page['chips']['blocking']}")
 
 
 @SUITE.test("direction_no_open_pair_at_all_stays_calm_under_both_quick_filters")
 def _(t: T):
     F = fixture()
     url, data = _variant_page({(d[0], d[1]) for d in F["data"]["deps"]})
-    for dp in ("epics", "blockedby", "blocking"):
+    for dp in ("epics", "blocking"):
         page = load(url, f"r=27.1&dp={dp}")
         t.check(not page["console"], f"dp={dp}: console errors {page['console'][:2]}")
         t.check(page["empty"] is not None and "No open dependencies in view" in page["empty"] and not page["cards"] and not page["rows"], f"dp={dp}: empty state '{page['empty']}'")
-        t.check("outside scope" not in page["sub"], f"dp={dp}: a headline clause without pairs: {page['sub'][:120]}")
-        t.check(page["chips"]["blockedby"]["n"] == "0" and page["chips"]["blocking"]["n"] == "0", f"dp={dp}: chips {page['chips']['blockedby']['n']} / {page['chips']['blocking']['n']}")
+        t.check("external provider" not in page["sub"], f"dp={dp}: a headline clause without pairs: {page['sub'][:120]}")
+        t.check(page["chips"]["blocking"]["n"] == "0", f"dp={dp}: chip {page['chips']['blocking']['n']}")
+
+
+@SUITE.test("direction_the_rule_in_plain_cases_cxcross_oldcxcross_and_selected_projects")
+def _(t: T):
+    """The oracle's own rule, spelled out with fixed fixture keys, so a wrong recount cannot make a wrong page look right."""
+    F = fixture()
+    prov = lambda page: {r["p"] for r in page["rows"]}
+    page = load(F["url"], "r=27.1&dp=blocking")
+    got = prov(page)
+    t.check("CXCROSS-97010" not in got and "CXCROSS-97015" not in got, f"a CXCROSS provider is counted: {sorted(got)}")
+    t.check("OLDCXCROSS-97014" in got, "OLDCXCROSS-97014 (a project that only ends in CXCROSS) is not counted")
+    t.check({"EXA-97001", "EXB-97002", "EXC-97005", "EXE-97013"} <= got, f"providers in untracked projects missing: {sorted(got)}")
+    t.check("PMN-97003" not in got, "a PMN provider outside the release is counted although PMN is selected")
+    t.check("EXA-97006" not in got and "EXE-97017" not in got, "a Done external provider is counted")
+    cx = {e["k"] for e in F["data"]["epics"] if e["p"] == "CXCO" and MS.CURRENT not in e["fv"]}
+    t.check(not (cx & got), "a CXCO provider is counted although CXCO is selected")
+    page = load(F["url"], "r=27.1&p=PMN&dp=blocking")
+    t.check(bool(cx & prov(page)), "a CXCO provider is not counted although only PMN is selected")
+    t.check("CXCROSS-97010" not in prov(page), "a CXCROSS provider is counted with PMN only")
+    page = load(F["url"], "r=27.1&p=PMN|CXCO&dp=blocking")
+    t.check(not (cx & prov(page)), "a CXCO provider is counted with PMN and CXCO selected")
 
 
 # --------------------------------------------------------------------------------------------- seeded defects
@@ -391,18 +464,22 @@ def _caught(src: str, old: str, new: str, name: str) -> list[str]:
     ctx.template = p
     try:
         url = ctx.write(kit.fragment_for(F["data"]), "depmut")
-        return run_views(url, F["data"], [View("r=27.1"), View("r=27.1&p=PMN", projects={"PMN"})], dps=("epics", "blockedby", "blocking"))
+        return run_views(url, F["data"], [View("r=27.1"), View("r=27.1&p=PMN", projects={"PMN"})], dps=("epics", "blocking"))
     finally:
         ctx.template = saved
 
 
 SEEDS = [
-    ("swapped_direction", "inbound: inScope.has(a) && !inScope.has(b), outbound: !inScope.has(a) && inScope.has(b)}", "inbound: !inScope.has(a) && inScope.has(b), outbound: inScope.has(a) && !inScope.has(b)}"),
-    ("counts_drop_non_epic_providers", "const inbound = all.filter(x => x.inbound), outbound = all.filter(x => x.outbound);", "const inbound = all.filter(x => x.inbound && x.epicsOnly), outbound = all.filter(x => x.outbound);"),
-    ("board_drops_non_epic_providers", 'const depAnyType = () => state.depFilter === "all" || state.depFilter === "blockedby" || state.depFilter === "blocking";', 'const depAnyType = () => state.depFilter === "all";'),
-    ("counts_include_done_pairs", "const inbound = all.filter(x => x.inbound), outbound = all.filter(x => x.outbound);", "const inbound = m.inView.filter(x => x.inbound), outbound = all.filter(x => x.outbound);"),
-    ("direction_column_swapped", 'const depDirOf = x => x.inbound ? "Waits on outside scope" : x.outbound ? "Needed by outside scope" : "Within scope";', 'const depDirOf = x => x.inbound ? "Needed by outside scope" : x.outbound ? "Waits on outside scope" : "Within scope";'),
-    ("provider_cue_dropped", 'c.provOut ? "Outside scope · " : ""', '""'),
+    ("swapped_direction", "extBlock: inScope.has(a) && !state.projects.has(p.p) && p.p !== DEP_CX};", "extBlock: inScope.has(b) && !state.projects.has(d.p) && d.p !== DEP_CX};"),
+    ("cxcross_providers_counted", "extBlock: inScope.has(a) && !state.projects.has(p.p) && p.p !== DEP_CX};", "extBlock: inScope.has(a) && !state.projects.has(p.p)};"),
+    ("selected_project_providers_counted", "extBlock: inScope.has(a) && !state.projects.has(p.p) && p.p !== DEP_CX};", "extBlock: inScope.has(a) && p.p !== DEP_CX};"),
+    ("cxcross_matched_loosely", "extBlock: inScope.has(a) && !state.projects.has(p.p) && p.p !== DEP_CX};", "extBlock: inScope.has(a) && !state.projects.has(p.p) && !p.p.includes(DEP_CX)};"),
+    ("counts_drop_non_epic_providers", "const extBlock = all.filter(x => x.extBlock);", "const extBlock = all.filter(x => x.extBlock && x.epicsOnly);"),
+    ("board_drops_non_epic_providers", 'const depAnyType = () => state.depFilter === "all" || state.depFilter === "blocking";', 'const depAnyType = () => state.depFilter === "all";'),
+    ("counts_include_done_pairs", "const extBlock = all.filter(x => x.extBlock);", "const extBlock = m.inView.filter(x => x.extBlock);"),
+    ("direction_column_swapped", 'x.extBlock ? "Waits on external scope" : x.inbound ? "Waits on outside scope"', 'x.extBlock ? "Waits on outside scope" : x.inbound ? "Waits on external scope"'),
+    ("link_project_clause_misses_cxcross", "pkeys([...projectsAll.filter(p => state.projects.has(p)), DEP_CX])", "pkeys([...projectsAll.filter(p => state.projects.has(p))])"),
+    ("provider_cue_dropped", 'c.provOut ? "Outside scope \u00b7 " : ""', '""'),
     ("planning_note_dropped", "(!c.plan.sprint && !c.plan.outside && !c.plan.unknownTs && noPlanData(p) ? `<div class=\"bq\">${NO_PLAN_DATA}</div>` : \"\")", '""'),
 ]
 

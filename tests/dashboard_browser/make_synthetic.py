@@ -440,6 +440,22 @@ class Gen:
                [live[4]["k"], "EXA-97006", "D"],                               # inbound, provider Done: not open
                ["EXB-97007", live[5]["k"], "B"], ["EXA-97008", live[5]["k"], "D"], ["EXA-97008", live[6]["k"], "D"],      # outbound: a Task and a Story outside scope wait on providers in scope
                ["EXD-97009", live[7]["k"], "D"]]                                # outbound, dependent Done: not open
+        # ---- Blocked by External: an item in scope (the dependent) waits on a PROVIDER whose Jira project is not a selected project and is not CXCROSS. Untracked projects (EXA, EXB, EXC above, and EXE here)
+        # count; a CXCROSS provider never counts; OLDCXCROSS is not CXCROSS and counts; a provider in a selected project never counts (PMN-97003 above is a Story of PMN outside the release, and a held PMN epic
+        # outside the release below). A held epic of CXCO outside the release is a provider in an UNSELECTED tracked project when only PMN is selected (counts) and in a selected project when CXCO is selected
+        # (does not). Two Done pairs must not count: an external provider that is Done, and a Done dependent. Fixed keys and fixed picks (the first matching epic), no random draw.
+        more = {"CXCROSS-97010": ("Task", "In Progress"), "CXCROSS-97015": ("Epic", "New"), "OLDCXCROSS-97014": ("Task", "New"), "EXE-97013": ("Epic", "In Progress"), "EXA-97016": ("Bug", "New"),
+                "EXE-97017": ("Task", "Done"), "EXE-97018": ("Task", "In Progress")}
+        for k, (ty, st) in more.items():
+            assert k not in ext and not any(e["k"] == k for e in epics), k
+            ext[k] = {"p": k.split("-")[0], "t": f"Far-end {ty} {k[-4:]}", "s": st, "fv": [], "tm": [], "ud": self.d(self.today - dt.timedelta(days=3)), "ty": ty}
+        scope_keys = {x["k"] for x in scope}
+        sel_pmn = next(e for e in epics if e["p"] == "PMN" and CURRENT not in e["fv"] and e["s"] != "Done" and e["k"] not in scope_keys)
+        sel_cxco = next(e for e in epics if e["p"] == "CXCO" and CURRENT not in e["fv"] and e["s"] != "Done")
+        done_dep = next(e for e in epics if e["p"] == "PMN" and e["fv"] == [CURRENT] and e["s"] == "Done")
+        add += [[live[1]["k"], "CXCROSS-97010", "D"], [live[2]["k"], "CXCROSS-97015", "B"], [live[3]["k"], "OLDCXCROSS-97014", "D"], [live[0]["k"], "EXE-97013", "D"], [live[4]["k"], "EXA-97016", "D"],
+                [live[5]["k"], sel_pmn["k"], "D"], [live[6]["k"], sel_cxco["k"], "D"], [live[2]["k"], sel_cxco["k"], "B"],
+                [live[7]["k"], "EXE-97017", "D"], [done_dep["k"], "EXE-97018", "D"]]
         have = {(d[0], d[1]) for d in deps}
         deps += [x for x in add if (x[0], x[1]) not in have]
         deps.sort(key=lambda d: (d[0], d[1]))

@@ -668,8 +668,7 @@ footer.f b { color:var(--ink); }
         <label class="chip"><input type="radio" name="f-dp" value="external"> External <span class="cnt" data-k="external"></span></label>
         <label class="chip"><input type="radio" name="f-dp" value="unplanned"> Not Planned <span class="cnt" data-k="unplanned"></span></label>
         <label class="chip"><input type="radio" name="f-dp" value="gap"> Schedule Gaps <span class="cnt" data-k="gap"></span></label>
-        <label class="chip"><input type="radio" name="f-dp" value="blockedby"> Blocked by Outside Scope <span class="cnt" data-k="blockedby"></span></label>
-        <label class="chip"><input type="radio" name="f-dp" value="blocking"> Blocking Outside Scope <span class="cnt" data-k="blocking"></span></label>
+        <label class="chip"><input type="radio" name="f-dp" value="blocking"> Blocked by External <span class="cnt" data-k="blocking"></span></label>
       </div>
       <span class="hintline">Filters the board and table, not the tiles.</span>
     </div>
@@ -874,7 +873,7 @@ function readParams(h) {
   if (["yes", "no"].includes(h.get("cfb"))) state.cfb = h.get("cfb");
   if (["week", "quarter"].includes(h.get("g"))) state.gran = h.get("g");
   if (["month", "quarter"].includes(h.get("cg"))) state.cfbGroup = h.get("cg");
-  if (["all", "epics", "overdue", "external", "unplanned", "gap", "blockedby", "blocking"].includes(h.get("dp"))) state.depFilter = h.get("dp");
+  if (["all", "epics", "overdue", "external", "unplanned", "gap", "blocking"].includes(h.get("dp"))) state.depFilter = h.get("dp");
   if (["category", "commitment", "capability", "team"].includes(h.get("nt"))) state.nfrTab = h.get("nt");
   if (["committed", "notset", "stretch"].includes(h.get("cx"))) state.cx = h.get("cx");
   if (h.get("cpg") === "release") state.cap.by = "release";
@@ -2336,6 +2335,7 @@ const GAP_SHORT = "Provider planned in the same sprint as the dependent, or late
 const GAP_RULE = "A schedule gap: provider X blocks dependent Y, and X is planned in the same sprint as Y or later. Then X is not planned to finish before Y's sprint. The planned sprint is the due date's sprint, else the Target Sprint. Inside one sprint it is no gap only when both due dates are known and X is due before Y; equal due dates are a gap. If X or Y has no planned sprint, the pair cannot be compared and no gap is shown.";
 
 // ---- the open dependency pairs in view (the dependent or the provider is in the scope of the selected release)
+const DEP_CX = "CXCROSS";                                       // CXCROSS items have their own section; they are never "external" here
 function depModel() {
   const rel = state.release, scope = scopeOf(rel), inScope = new Set(scope.map(e => e.k));
   const map = new Map(DATA.epics.map(e => [e.k, e])), deps = DATA.deps || [];
@@ -2346,16 +2346,17 @@ function depModel() {
     const d = epicRec(map, a), p = epicRec(map, b), plan = plannedOf(p), planD = plannedOf(d), g = depGap(d, p, plan, planD);
     return {d, p, ty, dIn: inScope.has(a), pIn: inScope.has(b), plan, planD, gap: g.gap, nc: g.nc, gapText: g.text, gapParts: g.parts, overdue: sprintEnded(plan.sprint), external: d.p !== p.p, unplanned: !plan.sprint,
       open: p.s !== "Done" && d.s !== "Done", outside: d.ext || p.ext, epicsOnly: d.ty === "Epic" && p.ty === "Epic",
-      inbound: inScope.has(a) && !inScope.has(b), outbound: !inScope.has(a) && inScope.has(b)};      // direction against the chosen scope (release, projects, teams, Commitment Types): inbound = an epic in scope waits on a provider outside it; outbound = an item outside it waits on a provider in scope. Not the same test as external (two projects).
+      inbound: inScope.has(a) && !inScope.has(b), outbound: !inScope.has(a) && inScope.has(b),
+      extBlock: inScope.has(a) && !state.projects.has(p.p) && p.p !== DEP_CX};      // direction against the chosen scope (release, projects, teams, Commitment Types): inbound = an epic in scope waits on a provider outside it; outbound = an item outside it waits on a provider in scope. extBlock (Blocked by External) = the dependent is in scope and the PROVIDER's Jira project is neither one of the selected projects nor CXCROSS (whole project keys compared, so OLDCXCROSS is not CXCROSS). Not the same test as external (two projects).
   }).sort((x, y) => x.d.k.localeCompare(y.d.k, "en", {numeric: true}) || x.p.k.localeCompare(y.p.k, "en", {numeric: true}));
   const openAll = inView.filter(x => x.open), open = openAll.filter(x => x.epicsOnly);      // the default view and every figure count the pairs between epics; All adds the links to other issue types
   return {rel, scope, inScope, map, inView, open, openAll, leftOut: inView.filter(x => x.epicsOnly).length - open.length, withDep: scope.filter(e => involved.has(e.k))};
 }
 let depCache = null;                                             // the model is shared with the Needs Attention panel within one render
 const depOpen = () => (depCache = depModel());
-const depPassFilter = x => state.depFilter === "all" || state.depFilter === "epics" || (state.depFilter === "overdue" ? x.overdue : state.depFilter === "external" ? x.external : state.depFilter === "gap" ? x.gap : state.depFilter === "blockedby" ? x.inbound : state.depFilter === "blocking" ? x.outbound : x.unplanned);
-const depDirOf = x => x.inbound ? "Waits on outside scope" : x.outbound ? "Needed by outside scope" : "Within scope";
-const depAnyType = () => state.depFilter === "all" || state.depFilter === "blockedby" || state.depFilter === "blocking";      // the two outside-scope filters read every pair at any issue type: the provider (or the dependent) outside scope can be a Task, Bug, Story or Capability
+const depPassFilter = x => state.depFilter === "all" || state.depFilter === "epics" || (state.depFilter === "overdue" ? x.overdue : state.depFilter === "external" ? x.external : state.depFilter === "gap" ? x.gap : state.depFilter === "blocking" ? x.extBlock : x.unplanned);
+const depDirOf = x => x.extBlock ? "Waits on external scope" : x.inbound ? "Waits on outside scope" : x.outbound ? "Needed by outside scope" : "Within scope";
+const depAnyType = () => state.depFilter === "all" || state.depFilter === "blocking";      // All and Blocked by External read every pair at any issue type: the external provider can be a Task, Bug, Story or Capability
 const noPlanData = r => !!r.ext && !r.dd && !r.ts;               // the page holds no planning data for this issue (another project, or not an epic it reads): "Not Planned" would be a claim it cannot make
 const NO_PLAN_DATA = "Planning data not tracked here";
 
@@ -2402,12 +2403,13 @@ function renderDeps() {
   const otherTypes = (() => { const c = new Map(); all.filter(x => !x.epicsOnly).forEach(x => [x.d, x.p].forEach(r => { if (r.ty && r.ty !== "Epic") c.set(r.ty, (c.get(r.ty) || 0) + 1); }));
     const nm = t => t.endsWith("y") ? t.slice(0, -1) + "ies" : t + "s", top = [...c.entries()].sort((a, b) => b[1] - a[1]).map(x => x[0]);
     return top.length ? top.slice(0, 3).map(nm).join(", ") + (top.length > 3 ? " and other issue types" : "") : "other issue types"; })();
-  const inbound = all.filter(x => x.inbound), outbound = all.filter(x => x.outbound);      // direction counts read every open pair, at any issue type, whatever the Epics Only / All view
+  const extBlock = all.filter(x => x.extBlock);      // read from every open pair, at any issue type, whatever the Epics Only / All view
   const keyInCap = list => { const h = keyIn(depKeys(list)); return h && h.length <= CY_URL_MAX ? h : null; };      // a list too long for Jira's front door is plain text, not a link
   const dWord = n => n === 1 ? "dependency" : "dependencies";
-  const outsideClause = (inbound.length || outbound.length) ? ` ${[
-    inbound.length ? `${tlink(inbound.length, keyInCap(inbound), `${inbound.length} open ${dWord(inbound.length)} waiting on a provider outside scope (${epicsOf(inbound)} issues)\nAn epic in scope depends on a provider outside the chosen release, projects, teams and Commitment Types, any issue type, neither end Done. Opens the issues at both ends in Jira.`)} ${dWord(inbound.length)} where an epic waits on a provider outside scope` : "",
-    outbound.length ? `${tlink(outbound.length, keyInCap(outbound), `${outbound.length} open ${dWord(outbound.length)} where an item outside scope waits on a provider in scope (${epicsOf(outbound)} issues)\nA provider in scope blocks a dependent outside the chosen release, projects, teams and Commitment Types, any issue type, neither end Done. Opens the issues at both ends in Jira.`)} ${inbound.length ? "" : dWord(outbound.length) + " "}where an item outside scope waits on a provider in scope` : ""].filter(Boolean).join(", ")}.` : "";
+  const extLink = list => { if (!list.length) return null;      // the dependents by key, and the providers by key AND the project clause, so a provider that has since moved into a selected project or CXCROSS drops out in Jira
+    const h = href(`key in (${[...new Set(list.map(x => x.d.k))].join(", ")}) OR (key in (${[...new Set(list.map(x => x.p.k))].join(", ")}) AND project not in (${pkeys([...projectsAll.filter(p => state.projects.has(p)), DEP_CX])}))`);
+    return h && h.length <= CY_URL_MAX ? h : null; };      // a list too long for Jira's front door is plain text, not a link
+  const outsideClause = extBlock.length ? ` ${tlink(extBlock.length, extLink(extBlock), `${extBlock.length} open ${dWord(extBlock.length)} where an item in the selected projects waits on an external provider (${epicsOf(extBlock)} issues)\nThe provider is in a project that is not selected and is not CXCROSS, any issue type, neither end Done. Opens the dependents and those providers in Jira; the providers are checked against the project clause when Jira runs the query.`)} ${dWord(extBlock.length)} where an item in the selected projects waits on an external provider (not selected, not CXCROSS).` : "";
   const withOthers = all.length > open.length ? `${tlink(all.length, nOf(all), `${all.length} open dependencies including links to other issue types\nAt least one end is an epic; the other end is any issue type, neither end Done. Opens ${epicsOf(all)} issues in Jira.`)} including links to ${esc(otherTypes)}` : "";
   document.getElementById("dep-sub").innerHTML = !state.projects.size ? "" : open.length || all.length
     ? `${tlink(open.length.toLocaleString("en-US"), nOf(open), `${open.length} open dependencies between epics\nBoth ends are epics and neither is Done; ${m.leftOut ? `${m.leftOut} complete pairs are left out` : "none left out"}.`)} open ${open.length === 1 ? "dependency" : "dependencies"} between epics; ${tlink(external.length, nOf(external), `${external.length} external dependencies`)} external, ${tlink(gaps.length, nOf(gaps), `${gaps.length} schedule gaps`)} schedule ${gaps.length === 1 ? "gap" : "gaps"}, ${tlink(overdue.length, nOf(overdue), `${overdue.length} overdue dependencies`)} overdue.${outsideClause}${followsRow(["Release", "Projects", "Teams"])}` : "";
@@ -2428,14 +2430,13 @@ function renderDeps() {
       ["Overdue", `the planned sprint has ended and the provider is not Done.`],
       ["External", `the provider is in a different Jira project.`],
       ["Schedule gap", `the provider is planned in the same sprint as the dependent, or later.`],
-      ["Blocked by outside scope", `an epic in scope depends on a provider that is not in scope (any issue type; planning data for projects this page does not track is often missing).`],
-      ["Blocking outside scope", `a provider in scope blocks a dependent that is not.`]
+      ["Blocked by External", `an item in the selected projects waits on a provider in a project that is not selected and is not CXCROSS (any issue type; planning data for projects this page does not track is often missing). CXCROSS items are shown in the CXCROSS section.`]
     ],
     left: `Pairs with a Done end (${m.leftOut} recorded), links to Removed epics (${(DATA.depsDropped && DATA.depsDropped.removed) || 0}) and other link types. Story, task and bug links under the release's epics are a separate fact line.`,
     know: `A link means a dependency is recorded, not that it is risky, and a missing link is not a missing dependency. Overdue and schedule gaps are facts about planned dates, not a verdict on a team or person. Data as of ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}.`,
     more: [
       ["Epics Only and All", `The figures and the default view count pairs between epics. All also shows links where one end is an epic and the other end is another issue type (Capability, Initiative, Story, Task and so on), counted in the secondary line. A pair is in view when an epic at one end is in scope for ${esc(rel)} under the current filters.`],
-      ["Outside scope", `outside the chosen release, projects, teams and Commitment Types. This is separate from External, which compares the two projects only. The Blocked by Outside Scope and Blocking Outside Scope quick filters show every open pair of that direction at any issue type, whichever of Epics Only and All is chosen; the provider's issue type is on its card. Facts only, no ranking. A link means a dependency is recorded, not that it is risky; no link is not no dependency.`],
+      ["Outside scope", `outside the chosen release, projects, teams and Commitment Types. This is separate from External, which compares the two projects only. The Blocked by External quick filter shows every open pair where an item of the selected projects, in the chosen release, teams and Commitment Types, waits on a provider in a project that is not selected and is not CXCROSS (CXCROSS is in its own section), at any issue type, whichever of Epics Only and All is chosen. A provider in CXCROSS, or in a selected project but outside the release, team or Commitment Type filters, is not counted there; the Direction column says Waits on outside scope for it. The provider's issue type is on its card. Facts only, no ranking. A link means a dependency is recorded, not that it is risky; no link is not no dependency.`],
       ["Planned sprint, detail", `In a gap between sprints, the next sprint that starts is used. A due date outside the sprint calendar also makes the provider Not Planned. Sprint dates are read from the Target Sprint labels: the date in the label is the start, and a sprint runs three weeks.`],
       ["Overdue, as-of date", `the planned sprint ended before ${shortDate(asOfDay())}. It is a fact about dates, not a forecast.`],
       ["Schedule gap rule", `${esc(GAP_RULE)}`],
@@ -2447,13 +2448,13 @@ function renderDeps() {
       ["Freshness", `Links, due dates and Target Sprints are updated by Refresh. Story-level links and the sprint calendar are read only when the page is built.`]
     ]}));
   // quick filter counts
-  const counts4 = {all: all.length, epics: open.length, overdue: overdue.length, external: external.length, unplanned: unplanned.length, gap: gaps.length, blockedby: inbound.length, blocking: outbound.length};
-  const denom4 = {all: all.length, epics: open.length, overdue: open.length, external: open.length, unplanned: open.length, gap: open.length, blockedby: all.length, blocking: all.length};      // the pool each chip counts within
+  const counts4 = {all: all.length, epics: open.length, overdue: overdue.length, external: external.length, unplanned: unplanned.length, gap: gaps.length, blocking: extBlock.length};
+  const denom4 = {all: all.length, epics: open.length, overdue: open.length, external: open.length, unplanned: open.length, gap: open.length, blocking: all.length};      // the pool each chip counts within
   document.querySelectorAll("#f-dp .cnt").forEach(s => { const k = s.dataset.k; s.textContent = counts4[k]; s.parentElement.title = `${counts4[k]} of ${denom4[k]} open`; });
   const pool = depAnyType() ? all : open, shown = pool.filter(depPassFilter);
   if (!state.projects.size || !scope.length) host.innerHTML = `<div class="empty">${whyEmpty("epics")}</div>`;
   else if (!pool.length) host.innerHTML = `<div class="empty">No open dependencies in view for this selection${m.leftOut ? `; the ${m.leftOut} recorded ${m.leftOut === 1 ? "pair is" : "pairs are"} complete` : ""}.</div>`;
-  else if (!shown.length) host.innerHTML = `<div class="empty">${state.depFilter === "blockedby" ? "No open dependency waits on a provider outside scope for this selection." : state.depFilter === "blocking" ? "No item outside scope waits on a provider in scope for this selection." : "No open dependency matches this quick filter."} Choose Epics Only to see the ${open.length} between epics.</div>`;
+  else if (!shown.length) host.innerHTML = `<div class="empty">${state.depFilter === "blocking" ? "No external item (not selected, not CXCROSS) blocks an item in the selected projects." : "No open dependency matches this quick filter."} Choose Epics Only to see the ${open.length} between epics.</div>`;
   else host.innerHTML = boardHtml(shown, m) + depDataHtml(shown, m);
   depStoryLine(m);
 }
@@ -2504,7 +2505,7 @@ function boardHtml(shown, m) {
     return `<div class="bcol" role="group" aria-label="${esc(col.title)}${col.state ? ", " + col.state : ""}, ${n} open ${n === 1 ? "dependency" : "dependencies"}"><div class="bh"><div class="bn1">${esc(col.title)}${col.state ? ` <span class="bst ${col.state === "Ended" ? "ended" : ""}">${col.state}</span>` : ""}</div><div class="bd">${esc(col.sub)}</div><div class="bc">${n} ${n === 1 ? "dependency" : "dependencies"}</div></div>` +
       (col.cards.length ? col.cards.map(cardHtml).join("") : `<div class="bempty">None</div>`) + `</div>`; };
   const total = shown.length;
-  const FNAME = {unplanned: "Not Planned", overdue: "Overdue", gap: "Schedule Gaps", external: "External", blockedby: "Blocked by Outside Scope", blocking: "Blocking Outside Scope"};
+  const FNAME = {unplanned: "Not Planned", overdue: "Overdue", gap: "Schedule Gaps", external: "External", blocking: "Blocked by External"};
   return `<div class="cap" id="dep-showing">Showing ${total} of ${(depAnyType() ? m.openAll : m.open).length} open${state.depFilter === "all" ? " (all issue types)" : state.depFilter === "epics" ? "" : ` (quick filter: ${FNAME[state.depFilter]}${depAnyType() ? ", all issue types" : ""})`}.</div>` +
     `<a class="skip" href="#h-capview" data-skip="h-capview">Skip to Capability View</a>` +
     `<div class="board" role="region" aria-label="Open dependencies by planned sprint, scrolls sideways" tabindex="0">${cols.map(colHtml).join("")}</div>`;
