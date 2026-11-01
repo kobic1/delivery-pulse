@@ -239,7 +239,7 @@ class Gen:
 
         # ---- dependency links, story links, bugs under epics, external issues
         deps, ext, sdeps, sinfo, eb = self.links(epics, bugs)
-        self.anchor_deps(epics, deps)
+        self.anchor_deps(epics, deps, ext)
 
         # ---- INT, last: its bugs, customer-found bugs, dependency links and issues under epics, from its own stream
         with self.stream("INT"):
@@ -418,13 +418,31 @@ class Gen:
         assert pm, "no plain open PMN bug"
         bugs.sort(key=lambda b: -int(b["k"].split("-")[1]))
 
-    def anchor_deps(self, epics, deps):
+    def anchor_deps(self, epics, deps, ext):
         scope = [e for e in epics if e["fv"] == [CURRENT] and e["p"] == "PMN" and e["s"] != "Done"]
         provider = next(e for e in scope if e.get("cp") and e.get("ts") and e["s"] == "In Progress")
         other = next(e for e in epics if e["fv"] == [CURRENT] and e["p"] != "PMN" and e["s"] != "Done")
         if not any(d[1] == provider["k"] for d in deps):
             deps.append([other["k"], provider["k"], "D"])
             deps.sort(key=lambda d: (d[0], d[1]))
+        # ---- direction against the selected scope (no random draw, fixed fictitious keys, so no other record moves). In scope = release CURRENT; outside = any other release, another project the page
+        # does not hold, or another issue type. The pairs: inbound provider that is a Task / Bug / Story / Capability / an epic the page does not hold (with and without planning data), a Done
+        # inbound provider (must not count), an outbound dependent that is a Task / Story, and an outbound Done dependent (must not count).
+        dd = next(e["dd"] for e in epics if e.get("dd") and e["fv"] == [CURRENT])
+        far = {"EXA-97001": ("Task", "In Progress", None), "EXB-97002": ("Bug", "New", None), "PMN-97003": ("Story", "In Progress", dd), "EXA-97004": ("Capability", "New", None),
+               "EXC-97005": ("Epic", "In Progress", None), "EXA-97006": ("Task", "Done", None), "EXB-97007": ("Task", "In Progress", None), "EXA-97008": ("Story", "New", None),
+               "EXD-97009": ("Task", "Done", None)}
+        for k, (ty, st, due) in far.items():
+            assert k not in ext and not any(e["k"] == k for e in epics), k
+            ext[k] = {"p": k.split("-")[0], "t": f"Far-end {ty} {k[-4:]}", "s": st, "fv": [], "tm": [], "ud": self.d(self.today - dt.timedelta(days=3)), "ty": ty, **({"dd": due} if due else {})}
+        live = [e for e in scope if e["k"] != provider["k"]][:8]
+        add = [[live[0]["k"], "EXA-97001", "D"], [live[1]["k"], "EXB-97002", "B"], [live[1]["k"], "PMN-97003", "D"], [live[2]["k"], "EXA-97004", "DB"], [live[3]["k"], "EXC-97005", "D"],
+               [live[4]["k"], "EXA-97006", "D"],                               # inbound, provider Done: not open
+               ["EXB-97007", live[5]["k"], "B"], ["EXA-97008", live[5]["k"], "D"], ["EXA-97008", live[6]["k"], "D"],      # outbound: a Task and a Story outside scope wait on providers in scope
+               ["EXD-97009", live[7]["k"], "D"]]                                # outbound, dependent Done: not open
+        have = {(d[0], d[1]) for d in deps}
+        deps += [x for x in add if (x[0], x[1]) not in have]
+        deps.sort(key=lambda d: (d[0], d[1]))
 
     # ---- bugs
     def bugs(self, epics, projects=None) -> list:
