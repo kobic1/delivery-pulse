@@ -942,6 +942,23 @@ def _(t: T):
         t.check(not ch.js("window.__x === 1") and ch.js("document.querySelectorAll('#status img').length") == 0, f"{label}: the hostile text did not run and made no element")
 
 
+@SUITE.test("refresh_accessibility_bug_follows_the_three_way_control")
+def _(t: T):
+    """A bug the Refresh reads through the accessibility query is flagged, and the Quality section places it by the Accessibility Bugs control: out under No, in under All, the only kind under Yes
+    (a new plain bug is the other way round). Driven through the real buttons after the Refresh."""
+    fx = build_fixture()
+    r = scenario("ok", cache=False)
+    t.check(not r["errors"], f"no uncaught page errors: {r['errors'][:2]}")
+    ch = ctx.chrome
+    js = ("(() => { const out = {}; for (const v of ['no', 'yes', 'all']) { document.querySelector('#f-ax input[value=\"' + v + '\"]').click(); const open = backlogBugs().filter(isOpenBug).map(b => b.k);"
+          " out[v] = {ax: open.includes('%s'), plain: open.includes('%s'), n: open.length, tile: document.querySelector('#bug-kpis .kpi .v').textContent.replace(/,/g, '')}; } return out; })()") % (fx.S["axBug"], fx.S["newBug"])
+    seen = ch.js(js)
+    t.check(seen["no"]["ax"] is False and seen["no"]["plain"] is True, f"No: the new accessibility bug is out, the new plain bug is in: {seen['no']}")
+    t.check(seen["yes"]["ax"] is True and seen["yes"]["plain"] is False, f"Yes: only the accessibility bug: {seen['yes']}")
+    t.check(seen["all"]["ax"] is True and seen["all"]["plain"] is True, f"All: both: {seen['all']}")
+    t.check(seen["all"]["n"] == seen["no"]["n"] + seen["yes"]["n"] and all(str(v["n"]) == v["tile"] for v in seen.values()), f"All = No + Yes and the tile shows the count: {seen}")
+
+
 @SUITE.test("refresh_redraws_after_the_first_step_not_only_at_the_end")
 def _(t: T):
     """Epics and bugs are merged first; the page must show them as soon as that step is done, while a later step (Dependency links) is still running."""

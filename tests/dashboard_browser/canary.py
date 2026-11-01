@@ -31,7 +31,7 @@ A, B = MS.CANARY_A, MS.CANARY_B
 
 STATES = [
     ("default", ""), ("release 26.4", "r=26.4"), ("release 27.2", "r=27.2"), ("one project", "p=PMN"), ("two projects", "p=PMN|CXWFM"), ("the INT project", "p=INT"),
-    ("hostile team", "TEAM"), ("stretch only", "c=Stretch"), ("committed and not set", "c=Committed|Not%20Set"), ("accessibility, P1+P2", "ax=1&bp=P1|P2"),
+    ("hostile team", "TEAM"), ("stretch only", "c=Stretch"), ("committed and not set", "c=Committed|Not%20Set"), ("accessibility only, P1+P2", "ax=yes&bp=P1|P2"), ("accessibility all", "ax=all"),
     ("CFB yes", "cfb=yes"), ("CFB no", "cfb=no"), ("quarter groupings", "g=quarter&cg=quarter"), ("month CFB grouping", "cg=month"),
     ("dependencies all", "dp=all"), ("dependencies overdue", "dp=overdue"), ("dependencies external", "dp=external"), ("dependencies gap", "dp=gap"), ("dependencies blocked by external", "dp=blocking"),
     ("NFR by category", "nt=category"), ("NFR by commitment", "nt=commitment"), ("NFR by capability", "nt=capability"), ("NFR by team", "nt=team"),

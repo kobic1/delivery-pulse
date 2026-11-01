@@ -74,7 +74,7 @@ def views(full: bool, data: dict) -> list[str]:
     rels = data["releases"] if full else ["26.4", "27.1"]
     psets = ["", "p=PMN", "p=PMN|CXCO", "p=INT"] + (["p=CXWFM|WFM|CXINT|INT"] if full else [])
     out = [f"r={r}&{p}&cy={c}".replace("&&", "&") for r in rels for p in psets for c in ("DC1", "DC2")]
-    facets = ["c=Stretch", "ax=1", "cfb=yes", "g=week", "g=quarter", "cg=quarter", "dp=all", "dp=overdue", "dp=gap", "dp=blocking", "p=PMN&dp=blocking", "dp=blockedby", "nt=capability", "nt=team", "cx=committed", "cpg=release", "cpm=count"]
+    facets = ["c=Stretch", "ax=yes", "ax=all", "cfb=yes", "g=week", "g=quarter", "cg=quarter", "dp=all", "dp=overdue", "dp=gap", "dp=blocking", "p=PMN&dp=blocking", "dp=blockedby", "nt=capability", "nt=team", "cx=committed", "cpg=release", "cpm=count"]
     out += [f"r=27.1&{f}" for f in facets]
     teams = sorted({t for e in data["epics"] for t in (e.get("tm") or [])})                   # every team ticked: the longest queries (team clauses and sprint names together)
     allt = "t=" + "|".join(urllib.parse.quote(t) for t in teams)
