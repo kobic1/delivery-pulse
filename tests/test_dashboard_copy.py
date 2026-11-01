@@ -146,7 +146,7 @@ def test_the_page_footer_no_longer_cites_the_agent_or_describes_cycles_wrongly()
     assert "nothing here ranks or scores a team or a person" in page                      # the one mandated "no ranking" sentence
     for stale in ("The last section has its own data", "not by Refresh", "its own delivery cycle and pod groups", "counts target epics (Committed + Not Set)", "CFB follows the release closure report"):
         assert stale not in TEMPLATE, stale
-    assert "Cycles section" in page and "Release, Projects, Teams and Commitment Type filters" in page
+    assert "Cycles section" in page and "Release, Projects, Teams and Delivery Cycle filters" in page
 
 
 def test_no_stale_statement_about_what_refresh_does_not_update():
@@ -369,3 +369,31 @@ def test_the_proactive_tiles_reuse_the_page_rules_and_add_no_second_copy():
 
 def test_the_pod_coverage_note_is_still_in_the_pods_block():
     assert 'id="cy-podnote"' in TEMPLATE and "epics carry a pod label;" in TEMPLATE and "have none (No Pod Label)" in TEMPLATE
+
+
+# ---------------------------------------------------------------------------------------------- the Delivery Cycle filter replaced the Commitment Type filter
+def test_the_commitment_type_filter_is_gone_from_the_page():
+    for stale in ("f-commit", "g-commit", "state.commit", "anyCommit", "DEFAULT_COMMIT", "Commitment Type filter", "Commitment Type checkbox", "Commitment Type, Projects", "selected commitment", "(Selected Types)",
+                  "commitment type must stay selected", "Commitment Types selected", "commitment filter", "Stretch unticked", "No commitment type is selected"):
+        assert stale not in TEMPLATE, stale
+    assert 'id="g-dc"' in TEMPLATE and 'id="f-dc"' in TEMPLATE and 'h.set("dc"' in TEMPLATE and "At least one delivery cycle must stay selected" in TEMPLATE
+
+
+def test_the_burnup_says_which_cycle_rules_the_filter_uses_and_what_history_it_can_recompute():
+    bu = BLOCKS["bu"]
+    assert "Delivery Cycle filter" in bu and "on or before the end of W6" in bu and "W7 to the release end" in bu
+    assert "neither cycle" in bu and "counted only when both cycles are ticked" in bu                      # no planned date, or planned after the release end
+    assert "uses today's planned dates for every day of the timeline" in bu                                 # history is not stored: said once, here
+    assert "Delivery Cycle 1 line is not drawn" in bu
+
+
+def test_the_tiles_that_name_the_burnup_say_it_matches_only_while_every_cycle_is_shown():
+    assert "counts the same ${tDone} while every Delivery Cycle is shown" in TEMPLATE
+    assert "Epics Delivered, and the burnup while every Delivery Cycle is shown, count" in TEMPLATE
+
+
+def test_the_cycles_section_says_how_the_filter_changes_it():
+    cy = BLOCKS["cy"]
+    assert "The Delivery Cycle filter in the filter bar decides which cycles the selector offers" in cy
+    assert "epics in no cycle (no planned date, or planned after the release end) are left out" in cy
+    assert "The Epics in Release column and the pod tiles that count the whole release do not follow it" in cy

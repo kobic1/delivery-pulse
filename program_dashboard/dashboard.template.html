@@ -123,14 +123,15 @@ input[type=search] { width:200px; }
 #g-projects > .lbl { grid-area:lbl; } #g-projects > .chips { grid-area:chips; } #g-projects > .btn.multi { grid-area:btn; } #g-projects > .multihint { grid-area:hint; } #g-projects > .sr { grid-area:lbl; }
 #g-projects button.btn.multi { min-height:24px; padding:0 9px; font-size:var(--t-xs); }
 #filterbar #g-projects .seg .chip { padding:4px 10px; }
-.multihint { font-size:var(--t-xs); color:var(--muted); }
+.multihint, .fnote { font-size:var(--t-xs); color:var(--muted); }
+.chip.dis { opacity:.55; cursor:not-allowed; }
 button.chip { font-family:inherit; }
 #filterbar #g-projects .chip.on { background:var(--blue-tint); border-color:var(--blue-ink); font-weight:500; }
 #filterbar #g-projects .seg .chip.on { background:var(--blue); font-weight:600; }
 #filterbar #g-projects .seg .chip.on::before { color:var(--ink); }
 button.btn.multi[aria-pressed="true"] { border-color:var(--blue-ink); background:var(--blue-tint); font-weight:600; }
 button.btn.multi[aria-pressed="true"]::before { content:"\2713\00a0"; color:var(--blue-ink); }
-@media (max-width:760px) { #g-projects { grid-template-columns:minmax(0,1fr); grid-template-areas:"lbl" "chips" "btn" "hint"; } #f-projects, #f-projects.seg { flex-wrap:wrap; gap:6px; } #f-projects .chip, #f-projects .chip:first-child, #f-projects .chip:last-child { margin-left:0; border-radius:var(--radius-s); min-height:44px; } #g-projects button.btn.multi { width:100%; min-height:44px; font-size:var(--t-body); } #f-commit .chip { min-height:44px; } }
+@media (max-width:760px) { #g-projects { grid-template-columns:minmax(0,1fr); grid-template-areas:"lbl" "chips" "btn" "hint"; } #f-projects, #f-projects.seg { flex-wrap:wrap; gap:6px; } #f-projects .chip, #f-projects .chip:first-child, #f-projects .chip:last-child { margin-left:0; border-radius:var(--radius-s); min-height:44px; } #g-projects button.btn.multi { width:100%; min-height:44px; font-size:var(--t-body); } #f-dc .chip { min-height:44px; } }
 .teampanel .rowwrap { display:flex; align-items:center; gap:4px; }
 .teampanel .rowwrap .row { flex:1; min-width:0; }
 .teampanel .only { border:none; background:none; color:var(--blue-ink); text-decoration:underline; font:inherit; font-size:var(--t-xs); padding:4px 6px; min-height:28px; cursor:pointer; opacity:0; }
@@ -547,7 +548,7 @@ footer.f b { color:var(--ink); }
           <div id="f-teams-list"></div>
         </div>
       </div>
-      <div class="fg hideable" id="g-commit"><span class="lbl" id="lbl-commit">Commitment Type</span><div class="chips" id="f-commit" role="group" aria-labelledby="lbl-commit"></div></div>
+      <div class="fg hideable" id="g-dc"><span class="lbl" id="lbl-dc">Delivery Cycle</span><div class="chips" id="f-dc" role="group" aria-labelledby="lbl-dc" aria-describedby="f-dc-note"></div><span class="fnote" id="f-dc-note"></span></div>
       <button class="btn link freset" id="f-reset" type="button" disabled>Reset Filters</button>
     </div>
   </div>
@@ -693,7 +694,7 @@ footer.f b { color:var(--ink); }
     <h2 id="h-cx" tabindex="-1">CXCROSS Capabilities by Project</h2>
     <div class="periodbar" id="g-cx"><span class="lbl" id="lbl-cx">Commitment Type</span>
       <div class="chips seg" id="f-cx" role="radiogroup" aria-labelledby="lbl-cx"></div>
-      <span class="hintline">Replaces the Commitment Type filter in this section.</span>
+      <span class="hintline">Applies to this section only.</span>
     </div>
     <div class="sub" id="cx-sub"></div>
     <div class="kpis five" id="cx-kpis"></div>
@@ -757,7 +758,7 @@ footer.f b { color:var(--ink); }
 
   <section class="sec plain" aria-labelledby="h-proj">
     <h3 id="h-proj" class="subh">By Project</h3>
-    <div class="sub">Epics in the release of the selected Commitment Types.</div>
+    <div class="sub">Epics in the release.</div>
     <div class="tablewrap" id="tbl-projects"></div>
   </section>
 
@@ -770,7 +771,7 @@ footer.f b { color:var(--ink); }
 
   <section class="sec plain" aria-labelledby="h-dq">
     <h3 id="h-dq" class="subh">Data Quality</h3>
-    <div class="sub">Jira gaps that weaken the figures above; all commitment types.</div>
+    <div class="sub">Jira gaps that weaken the figures above.</div>
     <div class="dq" id="dq"></div>
   </section>
 
@@ -794,8 +795,7 @@ const PAGE_SCHEMA = 2;
 const BUILD_STALE_DAYS = 7;        // a build older than this says so after a Refresh: the story-level links are only read when the data is built                                        // the payload layout this page reads: build_dashboard.py SCHEMA is the same number
 const DEFS = DATA.defs || {};
 const COMMIT = DEFS.commitTypes || ["Committed", "Not Set", "Stretch"];
-const DEFAULT_COMMIT = COMMIT;                                // every commitment type is shown by default
-const TARGET_COMMIT = DEFS.targetCommit || ["Committed", "Not Set"];               // the scope target never changes with the filter: Committed + Not Set, Stretch excluded
+const TARGET_COMMIT = DEFS.targetCommit || ["Committed", "Not Set"];               // the scope target: Committed + Not Set, Stretch excluded
 const CLASS = {                                               // workflow-status-map.yaml, by status NAME
   done: ["Done"],
   flight: ["In Progress", "Validation"],
@@ -860,7 +860,8 @@ DATA.epics.forEach(e => (e.tm || []).forEach(t => KNOWN_TEAMS.add(t)));
 DATA.bugs.forEach(b => { if (b.tm) KNOWN_TEAMS.add(b.tm); });
 
 // ---------------------------------------------------------------- state (kept in the URL when opened as a file, in browser storage in the viewer)
-const defaults = () => ({release: DATA.current, projects: new Set(projectsAll), teams: new Set(), commit: new Set(DEFAULT_COMMIT), ax: false, bugPri: new Set(PRI_ALL), cfb: "all", gran: "month", cfbGroup: "version", depFilter: "epics", nfrTab: "project", cx: "all", cap: {by: "quarter", measure: "sp"}, cy: cyDefaults()});
+const DC_IDS = ["1", "2"];                                   // the Delivery Cycle filter: the cycles that can be ticked (Delivery Cycle 1 and 2); both are ticked by default
+const defaults = () => ({release: DATA.current, projects: new Set(projectsAll), teams: new Set(), dc: new Set(DC_IDS), ax: false, bugPri: new Set(PRI_ALL), cfb: "all", gran: "month", cfbGroup: "version", depFilter: "epics", nfrTab: "project", cx: "all", cap: {by: "quarter", measure: "sp"}, cy: cyDefaults()});
 const state = {...defaults()};
 let projMulti = false;                                         // the Multi-Select toggle; the mode is derived: 2 to 5 projects are always in multi-select mode, nothing is stored
 const resetFilters = () => { projMulti = false; cyBugsOpen.clear(); CY_FIND = ""; CY_PODLIST = null; CY_RET = null; return Object.assign(state, defaults()); };
@@ -870,7 +871,7 @@ function readParams(h) {
   if (h.get("r") && DATA.releases.includes(h.get("r"))) state.release = h.get("r");
   { const p = (list("p") || []).filter(x => projectsAll.includes(x)); if (p.length) state.projects = new Set(projectsAll.filter(x => p.includes(x))); }      // p=none (an older link) reads as all projects: no view has an empty selection
   const t = (list("t") || []).filter(x => KNOWN_TEAMS.has(x)); if (t.length) state.teams = new Set(t);
-  { const c = (list("c") || []).filter(x => COMMIT.includes(x)); if (c.length) state.commit = new Set(c); }      // c=none reads as all three
+  { const d = (list("dc") || []).filter(x => DC_IDS.includes(x)); if (d.length) state.dc = new Set(d); }      // dc=1 or dc=2; an empty or unknown value reads as both. An older link with c=... (a removed filter) is not read
   if (h.get("ax") === "1") state.ax = true;
   if (h.get("bp") === "none") state.bugPri = new Set(); else { const bp = (list("bp") || []).filter(x => PRI_ALL.includes(x)); if (bp.length) state.bugPri = new Set(bp); }
   if (["yes", "no"].includes(h.get("cfb"))) state.cfb = h.get("cfb");
@@ -888,7 +889,7 @@ function serialize() {
   h.set("r", state.release);
   if (state.projects.size !== projectsAll.length && state.projects.size) h.set("p", projectsAll.filter(x => state.projects.has(x)).join("|"));      // canonical project order, whatever order they were clicked in
   if (state.teams.size) h.set("t", [...state.teams].join("|"));
-  if ([...state.commit].sort().join() !== [...DEFAULT_COMMIT].sort().join()) if (state.commit.size) h.set("c", COMMIT.filter(x => state.commit.has(x)).join("|"));
+  if (state.dc.size !== DC_IDS.length) h.set("dc", DC_IDS.filter(x => state.dc.has(x)).join("|"));      // omitted when both cycles are ticked
   if (state.ax) h.set("ax", "1");
   if (state.bugPri.size !== PRI_ALL.length) h.set("bp", state.bugPri.size ? [...state.bugPri].join("|") : "none");
   if (state.cfb !== "all") h.set("cfb", state.cfb);
@@ -922,10 +923,9 @@ const inTeams = e => !state.teams.size || teamsOf(e).some(t => state.teams.has(t
 const base = e => state.projects.has(e.p) && inTeams(e);
 const inRelease = (e, r) => e.fv.includes(r);
 const targetOf = r => DATA.epics.filter(e => base(e) && inRelease(e, r) && TARGET_COMMIT.includes(commitOf(e)));
-const scopeOf = (r, opts = {}) => DATA.epics.filter(e =>
-  base(e) && inRelease(e, r) && (opts.anyCommit || state.commit.has(commitOf(e))));
+const scopeOf = r => DATA.epics.filter(e => base(e) && inRelease(e, r));
 const ALLC = new Set(COMMIT);                                  // Done-based per-release figures (cycle time, AI share) count Done epics of any Commitment Type (each applies its own Issue Category rule)
-const doneScope = r => scopeOf(r, {anyCommit: true});
+const doneScope = r => scopeOf(r);
 const cycleOf = e => e.edct;                                  // cycle time is always EDCT, as in the weekly email
 // bugs carry one team (Team Name)
 const bugTeamOk = b => !state.teams.size || state.teams.has(b.tm || NO_TEAM);
@@ -939,7 +939,6 @@ function whyEmpty(kind) {
   const rel = esc(state.release);
   if (!state.projects.size) return "No project is selected. Choose at least one project in the filter bar.";
   if (kind === "bugs" && !state.bugPri.size) return "No priority is selected. Choose at least one in the Bugs Backlog filters.";
-  if (kind === "epics" && !state.commit.size) return "No commitment type is selected. Choose at least one in the filter bar.";
   if (state.teams.size) {
     const names = [...state.teams].map(esc).join(", "), many = state.teams.size > 1;
     if (kind === "epics" && !DATA.epics.some(e => state.projects.has(e.p) && inRelease(e, state.release) && inTeams(e)))
@@ -948,8 +947,6 @@ function whyEmpty(kind) {
       return `No bugs are recorded for ${names} in the selected projects.`;
   }
   if (kind === "epics") {
-    const anyC = scopeOf(state.release, {anyCommit: true}).length;
-    if (anyC && !scopeOf(state.release).length) return `No epics on ${rel} have the selected commitment types. ${anyC} ${epicWord(anyC)} have other types; change Commitment Type in the filter bar.`;
     return `No epics on ${rel} match these filters.`;
   }
   return "No bugs match these filters. Priority, CFB and the accessibility switch also apply to this section.";
@@ -1043,7 +1040,7 @@ function bugTeamClause(teams) {
 const BAD_JQL = /\b(?:NaN|undefined)\b|\[object /;
 const href = jql => { if (BAD_JQL.test(jql)) { try { console.warn("Delivery Pulse: link dropped, the query holds a broken value:", jql.slice(0, 200)); } catch (e) { /* no console */ } return null; } return `${BASE}/issues/?jql=${encodeURIComponent(jql)}`; };
 function jira(o = {}) {
-  const projects = o.projects || [...state.projects], commit = o.commit || state.commit;
+  const projects = o.projects || [...state.projects], commit = o.commit || ALLC;
   if (!projects.length || !commit.size) return null;
   const teams = o.teams === undefined ? state.teams : o.teams;
   let jql = `project in (${pkeys(projects)}) AND issuetype = Epic AND status != Removed AND fixVersion = ${q(o.release || state.release)}`;
@@ -1204,16 +1201,16 @@ function dataTable(id, caption, head, rows) {
 const chartWidth = (el, min) => Math.max(min, Math.floor(el.clientWidth) || min);
 
 // The target scope (Forecast Epics: Committed + Not Set epics that were in the release on the first day of W1) against every epic of the release under the Projects and Teams filters.
-// target scope + not in the target scope = all epics in the release under the filters. The Commitment Type checkboxes do not change the target scope.
+// target scope + not in the target scope = all epics in the release under the filters.
 function scopeRecon(rel = state.release) {
-  const TB = targetBase(rel), all = scopeOf(rel, {anyCommit: true}), stretch = all.filter(e => commitOf(e) === "Stretch"), added = TB.tgt.length - TB.N, N = all.length - TB.N, other = N - stretch.length - added;
+  const TB = targetBase(rel), all = scopeOf(rel), stretch = all.filter(e => commitOf(e) === "Stretch"), added = TB.tgt.length - TB.N, N = all.length - TB.N, other = N - stretch.length - added;
   const wasClause = !TB.pre && TB.win ? `NOT (fixVersion WAS ${q(rel)} ON ${q(iso(TB.w1))})` : null;
   const part = (n, text, href, tip) => n ? tlink(n, href, `${n} ${epicWord(n)}: ${tip}`) + " " + text : `0 ${text}`;
   const otherKeys = other > 0 ? all.filter(e => !TARGET_COMMIT.includes(commitOf(e)) && commitOf(e) !== "Stretch").map(e => e.k) : [];
   const notIn = N ? jira({commit: new Set(COMMIT), extra: wasClause ? `(cf[10094] = Stretch OR (${wasClause}))` : "cf[10094] = Stretch"}) : null;
   const html = `Not in the target scope: ${N ? tlink(N, notIn, `${N} epics of ${rel} under the filters that are not in the target scope`) : "0"} ${epicWord(N)} (` +
     `${part(stretch.length, "Stretch", jira({commit: new Set(["Stretch"])}), "Commitment Type Stretch")}; ${part(added, "added since W1", wasClause ? jira({commit: new Set(TARGET_COMMIT), extra: wasClause}) : null, `Committed or Not Set epics that were not in ${rel} on the first day of W1`)}; ${other > 0 ? part(other, "other", keyIn(otherKeys), "another Commitment Type") : "0 other"}). ` +
-    `${tipSpan(`${TB.N.toLocaleString("en-US")} + ${N.toLocaleString("en-US")} = ${all.length.toLocaleString("en-US")} epics in ${esc(rel)}`, "Target scope plus the epics outside it, under the filters. The Commitment Type checkboxes do not change the target scope.")}.`;
+    `${tipSpan(`${TB.N.toLocaleString("en-US")} + ${N.toLocaleString("en-US")} = ${all.length.toLocaleString("en-US")} epics in ${esc(rel)}`, "Target scope plus the epics outside it, under the filters.")}.`;
   return {html, N, TB, all, stretch, added, other};
 }
 // ---------------------------------------------------------------- epic KPIs
@@ -1227,7 +1224,7 @@ function renderKpis() {
   if (tc.other) parts.push(["other", "Other Status", tc.other, "#8A8F98"]);
   const bar = tc.scope ? `<div class="kpi"><div class="v">${tlink(tc.scope, TB.href, `${tc.scope} epics in the target scope: the Forecast Epics scope\n${TB.tip}`)}</div><div class="l">Epics in Target Scope on ${rel}, by Status</div>` +
     (tc.scope >= MIN_N ? `<div class="statusbar" role="group" aria-label="${parts.map(p => `${p[2]} ${p[1]}`).join(", ")}, of ${tc.scope} epics in the target scope">` +
-    parts.filter(p => p[2]).map(p => { const h = p[0] === "other" ? null : tj(p[0]), tip = `${p[1]}\n${p[2].toLocaleString("en-US")} of ${tc.scope.toLocaleString("en-US")} target-scope epics (${pct(p[2], tc.scope)}%)\nCurrent status of the epics that were in the release on the first day of W1.${p[0] === "done" && delivered !== tc.done ? `\nEpics Delivered and the burnup count ${delivered.toLocaleString("en-US")} Done epics of any Commitment Type: these ${tc.done.toLocaleString("en-US")} plus ${(delivered - tc.done).toLocaleString("en-US")} added after W1 or outside the target.` : ""}`;
+    parts.filter(p => p[2]).map(p => { const h = p[0] === "other" ? null : tj(p[0]), tip = `${p[1]}\n${p[2].toLocaleString("en-US")} of ${tc.scope.toLocaleString("en-US")} target-scope epics (${pct(p[2], tc.scope)}%)\nCurrent status of the epics that were in the release on the first day of W1.${p[0] === "done" && delivered !== tc.done ? `\nEpics Delivered, and the burnup while every Delivery Cycle is shown, count ${delivered.toLocaleString("en-US")} Done epics of any Commitment Type: these ${tc.done.toLocaleString("en-US")} plus ${(delivered - tc.done).toLocaleString("en-US")} added after W1 or outside the target.` : ""}`;
       return h ? `<a href="${h}" target="_blank" rel="noopener" style="flex:${p[2]} 1 0;background:${p[3]}" ${tipAttr(tip, h)} aria-label="${esc(tip.replace(/\n/g, ", "))}. Opens in Jira."></a>`
                : `<span style="flex:${p[2]} 1 0;background:${p[3]}" ${tipAttr(tip, "")} tabindex="0" role="img" aria-label="${esc(tip.replace(/\n/g, ", "))}"></span>`; }).join("") + `</div>` : "") +
     `<div class="key">${parts.map(p => `<span class="it"><i class="sw" style="background:${p[3]}"></i><span>${p[0] === "other" || !p[2] ? p[2].toLocaleString("en-US") : tlink(p[2], tj(p[0]), `${p[2]} target-scope epics, ${p[1]}`)} ${p[1]}${tc.scope >= MIN_N ? ` <span class="muted">${pct(p[2], tc.scope)}%</span>` : ""}</span></span>`).join("")}</div>` +
@@ -1343,7 +1340,7 @@ function renderStatus() {
   const pf = paceFacts(), paceTxt = pf && pf.N >= MIN_N && !pf.closed && !pf.pre ? `, ${tDone - Math.round(pf.pace) >= 0 ? "+" : "−"}${Math.abs(tDone - Math.round(pf.pace)).toLocaleString("en-US")} vs even pace` : "";
   const tgtLine = `${tipSpan(`target ${tDone.toLocaleString("en-US")} of ${TB.N.toLocaleString("en-US")}${paceTxt}`, `Target (Committed + Not Set): ${tDone} delivered${TB.win && !TB.pre ? `, scope ${TB.N} on the first day of W1` : ""}${pf && pf.N >= MIN_N && !pf.closed && !pf.pre ? `\nEven-pace reference ${Math.round(pf.pace)} (day ${pf.d} of ${pf.D}); a reference, not a forecast` : ""}`)}`;
   kpiCards(document.getElementById("kpis"), [
-    {k: `Release ${esc(rel)}`, c: "d", v: tlink(tDone, jira({kind: "done", commit: ALLC}), `${tDone} epics Done in ${rel}, any Commitment Type${paceTxt ? "; " + paceTxt.replace(/^, /, "") : ""}\nThe burnup under Epics Delivered counts the same ${tDone}`), l: "Epics Delivered", s: `of ${tlink(TB.N, TB.href, TB.tip)} target scope`},
+    {k: `Release ${esc(rel)}`, c: "d", v: tlink(tDone, jira({kind: "done", commit: ALLC}), `${tDone} epics Done in ${rel}, any Commitment Type${paceTxt ? "; " + paceTxt.replace(/^, /, "") : ""}\nThe burnup under Epics Delivered counts the same ${tDone} while every Delivery Cycle is shown`), l: "Epics Delivered", s: `of ${tlink(TB.N, TB.href, TB.tip)} target scope`},
     {k: `Release ${esc(rel)}`, c: "d", v: tlink(TB.N, TB.href, TB.tip), l: "Forecast Epics",
      s: !TB.win ? "Target scope: Committed + Not Set" : TB.pre ? `Target scope so far; W1 starts ${shortDate(TB.w1)}` : `Committed + Not Set on ${shortDate(TB.w1)}`,
      x: !TB.win || TB.pre ? "" : `${tipSpan(`${TB.added >= 0 ? "+" : "−"}${Math.abs(TB.added).toLocaleString("en-US")} ${TB.added >= 0 ? "" : "removed "}since W1`, `${Math.abs(TB.added)} target epics ${TB.added >= 0 ? "were added to" : "left"} ${rel} after the first day of W1: ${TB.today} today minus ${TB.N} on ${shortDate(TB.w1)}`)} (${tlink(TB.today, TB.hrefToday, `${TB.today} epics are in the target today (Committed + Not Set)`)} today)`},
@@ -1493,14 +1490,21 @@ function renderBurnup() {
   // (W1), after the IP week. Scope is the one number set on that day.
   const start = win ? utc(win[0]) : 0, w1 = start + 7 * DAY, end = win ? utc(win[1]) : 0, snap = asOfDay();
   const joinT = e => utc((e.ad && e.ad[rel]) || (win ? win[0] : "1970-01-01"));
-  const target = list, TB = targetBase(rel), baseScope = TB.N;
-  const dlist = doneScope(rel);                                  // Done ignores Commitment Type (and the commitment filter): the same Done the Epics Delivered tile shows; scope and Delivery Cycle 1 stay target / Committed
+  const TB = targetBase(rel), dc = dcState(rel), keep = dcKeep(dc, rel), nm = dcWord(dc), cy1 = dc.all ? "" : DC_NAME(dc.shown[0]);      // the Delivery Cycle filter: the cycles shown (every epic when all are)
+  const target = dc.all ? list : list.filter(keep), baseScope = dc.all ? TB.N : TB.members.filter(keep).length;
+  // The epics of the cycles shown as a Jira query ("" when all are shown, so the links are then the ones of the whole release); J is jira() with that clause added, null over the URL budget.
+  const dcx = dc.all ? "" : (CY_SPR = cySprints(), dcQuery(rel, dc)), ex = more => [dcx, more].filter(Boolean).join(" AND ") || undefined;
+  const J = o => { const u = jira({...o, extra: ex(o.extra)}); return u && !dc.all && u.length > CY_URL_MAX ? null : u; };
+  const scopeHref = dc.all ? TB.href : J({release: rel, commit: new Set(TARGET_COMMIT), ...(!TB.pre ? {wasOn: {release: rel, date: iso(TB.w1)}} : {})}), todayHref = dc.all ? TB.hrefToday : J({release: rel, commit: new Set(TARGET_COMMIT)});
+  const scopeTip = dc.all ? TB.tip : TB.pre ? `${baseScope} target epics so far in ${rel}, planned in ${cy1}; W1 starts ${shortDate(TB.w1)}` : `${baseScope} epics planned in ${cy1} were in ${rel} on ${shortDate(TB.w1)}, the first day of W1 (Committed + Not Set).\nThe link opens them as Jira lists them now; ${target.length} are in the target today.`;
+  const dlist = dc.all ? doneScope(rel) : doneScope(rel).filter(keep);                                  // Done ignores Commitment Type: the same Done the Epics Delivered tile shows; scope and Delivery Cycle 1 stay target / Committed
   {
     const dn = dlist.filter(e => cls(e.s) === "done"), last = dn.map(e => e.rd).filter(Boolean).sort().pop(), wk = weekOf(rel);
-    document.getElementById("bu-sub").textContent = list.length ? `${dn.length.toLocaleString("en-US")}${win ? ` of ${baseScope.toLocaleString("en-US")} target scope` : ""} epics delivered${wk ? " · " + wk.replace(/^Week/, "week") : ""}${last ? ` · last epic closed ${last}` : ""}` : "";
+    document.getElementById("bu-sub").textContent = list.length ? `${dn.length.toLocaleString("en-US")}${win ? ` of ${baseScope.toLocaleString("en-US")} target scope` : ""} epics delivered${wk ? " · " + wk.replace(/^Week/, "week") : ""}${last ? ` · last epic closed ${last}` : ""}${nm ? ` · ${nm}` : ""}` : "";
   }
   if (!win) { el.innerHTML = `<div class="empty">Jira has no dated version for ${esc(rel)}, so there is no timeline to draw.</div>`; return; }
   if (!list.length) { el.innerHTML = `<div class="empty">${whyEmpty("epics")}</div>`; return; }
+  if (!dc.all && !target.length && !dlist.some(e => cls(e.s) === "done")) { el.innerHTML = `<div class="empty">No target epics of ${esc(rel)} are planned in ${esc(cy1)}, and none of its epics is Done. Tick both cycles in the filter bar to see the whole release.</div>`; return; }
 
   const clampWin = t => Math.min(Math.max(t, w1), end);          // earlier closures count at W1, later ones on the last day
   const early = dlist.filter(e => cls(e.s) === "done" && e.rd && utc(e.rd) < w1).length;
@@ -1546,7 +1550,8 @@ function renderBurnup() {
   g += `<text x="${tx}" text-anchor="${anc}" y="${ty}" font-size="12" font-weight="600" fill="#025AFB" stroke="#fff" stroke-width="3" paint-order="stroke">${doneTxt}${paceTxt && !narrow ? " · " + paceTxt : ""}</text>`;
   if (paceTxt && narrow) g += `<text x="${tx}" text-anchor="${anc}" y="${ty + 15}" font-size="11" fill="#025AFB" stroke="#fff" stroke-width="3" paint-order="stroke">${paceTxt}</text>`;
   g += `<text x="${x(D * .64)}" y="${y(N * .64) - 8}" text-anchor="middle" font-size="11" fill="#5A5F6B" stroke="#fff" stroke-width="3" paint-order="stroke">Even pace</text>`;
-  const W6 = D >= 41 && state.projects.size ? w6Model(rel, w1) : null;
+  if (nm) g += `<text pointer-events="none" x="${x(D) - 8}" y="${pt + ph - 10}" text-anchor="end" font-size="12" font-weight="600" fill="#3B3F4A" stroke="#fff" stroke-width="3" paint-order="stroke">${esc(nm)}</text>`;      // the chart says which cycles it shows
+  const W6 = D >= 41 && state.projects.size && (dc.all || dc.shown.includes("1")) ? w6Model(rel, w1) : null;      // Delivery Cycle 2 only: the Cycle 1 line is not drawn (its epics are not in the chart)
   let w6Dot = "", w6Hit = "";
   if (W6) {
     // The cycle's count is printed on the chart: "Delivery Cycle 1 · N epics planned" and "N Done" (the same numbers as the fact line under it), left of the dotted line at the top of the plot,
@@ -1568,13 +1573,13 @@ function renderBurnup() {
     w6Hit = `<rect class="hit" x="${lx - lw - 3}" y="${pt}" width="${lw + 16}" height="${lines.length * 15 + 4}" fill="transparent"/>`;
   }
   g += `<line id="bu-cross" x1="0" x2="0" y1="${pt}" y2="${pt + ph}" stroke="#444" stroke-opacity=".45" style="display:none"/>`;
-  g += `<a id="bu-link" href="${jira({kind: "done", commit: ALLC}) || ""}" target="_blank" rel="noopener" aria-label="Open the Done epics in Jira"><rect id="bu-hit" x="${pl}" y="${pt}" width="${pw}" height="${ph}" fill="transparent" style="touch-action:pan-y;cursor:pointer"/></a>`;
-  g += ga(`<circle cx="${x(D)}" cy="${yS}" r="9" fill="transparent" stroke="none"/><rect class="hit" x="${x(D) - 92}" y="${sTop - 13}" width="${92 + 12}" height="${addTxt ? 34 : 20}" fill="transparent"/>`, TB.href, `Target scope ${N.toLocaleString("en-US")} on ${shortDate(w1)}\n${TB.tip}`);
-  const w6tip = W6 ? `Delivery Cycle 1 (W1 to W6, ends ${W6.w6}): ${W6.within.length} Committed ${epicWord(W6.within.length)} planned by the cycle end, of ${W6.list.length} Committed in the release\n${W6.done.length} Done, ${W6.open.length} not Done; ${W6.none.length} with no due date or Target Sprint.\nCommitted only, Not Set is not included. A Target Sprint counts by its end date (the 2nd sprint of the release or earlier); with both a Target Sprint and a due date the later one counts. The dependency board keeps the due date over the Target Sprint.` : "";
+  g += `<a id="bu-link" href="${J({kind: "done", commit: ALLC}) || ""}" target="_blank" rel="noopener" aria-label="Open the Done epics in Jira"><rect id="bu-hit" x="${pl}" y="${pt}" width="${pw}" height="${ph}" fill="transparent" style="touch-action:pan-y;cursor:pointer"/></a>`;
+  g += ga(`<circle cx="${x(D)}" cy="${yS}" r="9" fill="transparent" stroke="none"/><rect class="hit" x="${x(D) - 92}" y="${sTop - 13}" width="${92 + 12}" height="${addTxt ? 34 : 20}" fill="transparent"/>`, scopeHref, `Target scope ${N.toLocaleString("en-US")} on ${shortDate(w1)}\n${scopeTip}`);
+  const w6tip = W6 ? `Delivery Cycle 1 (W1 to W6, ends ${W6.w6}): ${W6.within.length} Committed ${epicWord(W6.within.length)} planned by the cycle end${dc.all ? `, of ${W6.list.length} Committed in the release` : ""}\n${W6.done.length} Done, ${W6.open.length} not Done${dc.all ? `; ${W6.none.length} with no due date or Target Sprint` : ""}.\nCommitted only, Not Set is not included. A Target Sprint counts by its end date (the 2nd sprint of the release or earlier); with both a Target Sprint and a due date the later one counts. The dependency board keeps the due date over the Target Sprint.` : "";
   if (W6) g += ga(w6Hit + w6Dot, W6.hrefs.within, w6tip);
   const w6n = (list, href, what) => list.length ? tlink(list.length, href, `${list.length} Committed ${epicWord(list.length)} ${what}\nCommitted only; with both a Target Sprint and a due date the later one counts (a sprint by its end date).`) : "0";
-  document.getElementById("bu-w6").innerHTML = W6 ? (W6.list.length ? `<b>Delivery Cycle 1</b> (ends ${W6.w6}): ${w6n(W6.within, W6.hrefs.within, "planned in Delivery Cycle 1")} of ${tlink(W6.list.length, W6.hrefs.all, `${W6.list.length} Committed epics in ${rel}`)} Committed ${epicWord(W6.list.length)} planned; ${w6n(W6.done, W6.hrefs.done, "Done, planned in Delivery Cycle 1")} Done, ${w6n(W6.open, W6.hrefs.open, "not Done, planned in Delivery Cycle 1")} not Done, ${w6n(W6.none, W6.hrefs.none, "with no due date and no known Target Sprint (undated)")} undated.` : `No Committed epics on ${esc(rel)}.`) : "";
-  el.innerHTML = `<div class="chartscroll"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Burnup for ${esc(rel)}, weeks 1 to ${weeks}: ${finalDone} epics Done against a scope of ${N}. Daily values are in the data table below.">${g}</svg></div><div class="bu-tip" id="bu-tip"></div>`;
+  document.getElementById("bu-w6").innerHTML = W6 ? (W6.list.length ? `<b>Delivery Cycle 1</b> (ends ${W6.w6}): ${w6n(W6.within, W6.hrefs.within, "planned in Delivery Cycle 1")}${dc.all ? ` of ${tlink(W6.list.length, W6.hrefs.all, `${W6.list.length} Committed epics in ${rel}`)} Committed ${epicWord(W6.list.length)}` : ` Committed ${epicWord(W6.within.length)}`} planned; ${w6n(W6.done, W6.hrefs.done, "Done, planned in Delivery Cycle 1")} Done, ${w6n(W6.open, W6.hrefs.open, "not Done, planned in Delivery Cycle 1")} not Done${dc.all ? `, ${w6n(W6.none, W6.hrefs.none, "with no due date and no known Target Sprint (undated)")} undated` : ""}.` : `No Committed epics on ${esc(rel)}.`) : (dc.all ? "" : `<b>Delivery Cycle 1</b> is not drawn: only ${esc(cy1)} is selected in the filter bar.`);
+  el.innerHTML = `<div class="chartscroll"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Burnup for ${esc(rel)}, weeks 1 to ${weeks}: ${finalDone} epics Done against a scope of ${N}${nm ? `, ${esc(nm)}` : ""}. Daily values are in the data table below.">${g}</svg></div><div class="bu-tip" id="bu-tip"></div>`;
 
   const svg = el.querySelector("svg"), tip = document.getElementById("bu-tip"), cross = document.getElementById("bu-cross");
   const hit = document.getElementById("bu-hit");
@@ -1582,10 +1587,10 @@ function renderBurnup() {
   const dayAt = d => {                                          // the same tooltip for the pointer and for the keyboard
     const r = svg.getBoundingClientRect(), wr = el.getBoundingClientRect();
     cross.setAttribute("x1", x(d)); cross.setAttribute("x2", x(d)); cross.style.display = "";
-    lk.setAttribute("href", (d >= D ? jira({kind: "done", commit: ALLC}) : jira({kind: "done", commit: ALLC, extra: `resolutiondate < "${iso(w1 + (d + 1) * DAY)}"`})) || "");
+    lk.setAttribute("href", (d >= D ? J({kind: "done", commit: ALLC}) : J({kind: "done", commit: ALLC, extra: `resolutiondate < "${iso(w1 + (d + 1) * DAY)}"`})) || "");
     const pace = Math.round(D ? N * d / D : 0);
-    lk.setAttribute("aria-label", `${shortDate(w1 + d * DAY)}, week ${Math.floor(d / 7) + 1}: scope ${N}, even pace ${pace}${d > snapD ? "" : `, done ${done[d]}`}. ${lkLabel}. Left and right arrow keys move the day.`);
-    tip.innerHTML = `<b>${shortDate(w1 + d * DAY)}</b> (W${Math.floor(d / 7) + 1})<br>Scope ${N}<br>Even pace ${pace}` + (d > snapD ? "" : `<br>Done ${done[d]}<br>Remaining ${Math.max(0, N - done[d])}<br><span style="color:var(--muted)">Click to open the Done epics up to this day</span>`);
+    lk.setAttribute("aria-label", `${shortDate(w1 + d * DAY)}, week ${Math.floor(d / 7) + 1}${nm ? ` (${nm})` : ""}: scope ${N}, even pace ${pace}${d > snapD ? "" : `, done ${done[d]}`}. ${lkLabel}. Left and right arrow keys move the day.`);
+    tip.innerHTML = `<b>${shortDate(w1 + d * DAY)}</b> (W${Math.floor(d / 7) + 1})${nm ? ` · ${esc(nm)}` : ""}<br>Scope ${N}<br>Even pace ${pace}` + (d > snapD ? "" : `<br>Done ${done[d]}<br>Remaining ${Math.max(0, N - done[d])}<br><span style="color:var(--muted)">Click to open the Done epics up to this day</span>`);
     tip.style.display = "block";
     tip.style.left = Math.max(0, Math.min(r.left - wr.left + x(d) * (r.width / W) + 12, wr.width - tip.offsetWidth - 4)) + "px";
     tip.style.top = "8px";
@@ -1604,32 +1609,34 @@ function renderBurnup() {
   });
 
   legend.innerHTML = "";
-  cap.innerHTML = (TB.pre ? `Target scope so far ${tlink(N, TB.href, TB.tip)}; W1 starts ${shortDate(w1)}.` : `Scope ${tlink(N, TB.href, TB.tip)} on ${shortDate(w1)}, ${added >= 0 ? "+" : ""}${added.toLocaleString("en-US")} since (${tlink(target.length, TB.hrefToday, `${target.length} epics are in the target today (Committed + Not Set)`)} today).`) + ` Target is always Committed + Not Set.` +
+  cap.innerHTML = (nm ? `<b>${esc(nm)}</b>: only the epics planned in that cycle. ` : "") + (TB.pre ? `Target scope so far ${tlink(N, scopeHref, scopeTip)}; W1 starts ${shortDate(w1)}.` : `Scope ${tlink(N, scopeHref, scopeTip)} on ${shortDate(w1)}, ${added >= 0 ? "+" : ""}${added.toLocaleString("en-US")} since (${tlink(target.length, todayHref, `${target.length} epics are in the target today (Committed + Not Set)${cy1 ? `, planned in ${cy1}` : ""}`)} today).`) + ` Target is always Committed + Not Set.` +
     defs(howBody({id: "bu",
     bl: `Use this to see whether delivery keeps pace with the target scope. The line adds up epics that are Done, by resolution date.`,
     defs: [
-      ["Target scope", `Committed and Not Set epics in the release on the first day of W1. Stretch is not in it. The Commitment Type filter does not change it.`],
+      ["Target scope", `Committed and Not Set epics in the release on the first day of W1. Stretch is not in it.`],
       ["Done", `every epic with the status Done in the release, whatever its Commitment Type.`],
       ["Even pace", `a straight line from zero to the target scope: a reference, not a forecast.`],
       ["Delivery Cycle 1 (dotted line)", `Committed epics only, planned on or before the end of W6. The dot shows how many.`],
-      ["Planned date", `the later of the due date and the Target Sprint end. If only one exists, that one. If neither, the epic is undated.`]
+      ["Planned date", `the later of the due date and the Target Sprint end. If only one exists, that one. If neither, the epic is undated.`],
+      ["Delivery Cycle filter", `both cycles ticked: the chart as described here. One cycle ticked: the same timeline, counting only the epics planned in that cycle (Delivery Cycle 1: on or before the end of W6; Delivery Cycle 2: W7 to the release end).`]
     ],
     left: `Removed epics, and the IP week (the first seven days of the release), which is not drawn.`,
-    know: `Epics closed before W1 count at the start; epics closed after the release end count on its last day. The chart follows Projects and Teams, not Commitment Type.`,
+    know: `Epics closed before W1 count at the start; epics closed after the release end count on its last day. The chart follows Projects and Teams.`,
     this: ["This release", `${esc(rel)}: ${weeks} delivery weeks, W1 (${shortDate(w1)}) to the release end (${shortDate(end)}).`],
     more: [
       ["Scope", `uses each epic's current Commitment Type and its Fix Version history. Epics added after W1 are in Done but not in the scope.`],
       ["Planned date on the dependency board", `The dependency board keeps the due date over the Target Sprint.`],
-      ["Done against the target", `${link(finalDone, jira({kind: "done", commit: new Set(TARGET_COMMIT)}))} Done target epics (Committed and Not Set), ${snapD < D ? (DATA.refreshedAt ? "as of the last Refresh" : "as of the snapshot") : "final"}.`],
+      ["Done against the target", `${link(finalDone, J({kind: "done", commit: new Set(TARGET_COMMIT)}))} Done target epics (Committed and Not Set), ${snapD < D ? (DATA.refreshedAt ? "as of the last Refresh" : "as of the snapshot") : "final"}.`],
       ...((early || late) ? [["Counted at the edges", `${early ? `${early} ${epicWord(early)} closed before W1 ${early === 1 ? "is" : "are"} counted at the start. ` : ""}${late ? `${late} ${epicWord(late)} closed after the release end ${late === 1 ? "is" : "are"} counted on its last day.` : ""}`]] : []),
-      ["Delivery Cycle 1, other uses", `Delivery Cycle 1 leaves out Not Set and Stretch epics here. The Cycles section counts every Commitment Type selected in the filter.`]
+      ["Delivery Cycle filter, details", `With one cycle ticked, Scope, Done, Remaining, the even-pace line, the day readout, the data table and their links count only epics in that cycle. A cycle holds the epics whose planned date falls in it: Delivery Cycle 1 is every planned date on or before the end of W6 (earlier dates included, such as carry-over), Delivery Cycle 2 is W7 to the release end. This is the rule of the Delivery Cycle 1 line. An epic with no planned date, or planned after the release end, is in neither cycle and is counted only when both cycles are ticked. With Delivery Cycle 2 only the Delivery Cycle 1 line is not drawn. The cycle of an epic uses today's planned dates for every day of the timeline: Jira does not keep earlier planned dates here, so the history of one cycle is today's view of it, not what it looked like on that day. The Done line starts from the epics Done before W1 that are planned in the cycle.`],
+      ["Delivery Cycle 1, other uses", `Delivery Cycle 1 leaves out Not Set and Stretch epics here. The Cycles section counts every Commitment Type.`]
     ]}));
   const days = [];
   for (let d = 0; d <= D; d += 7) days.push(d);
   [snapD, D, ...(W6 ? [41] : [])].forEach(d => { if (!days.includes(d)) days.push(d); });
   days.sort((a, b) => a - b);
   // Delivery Cycle 1 columns: on the row of the cycle end (W1 start + 41 days) the Committed epics planned by then and how many of them are Done, linked like the fact line.
-  dataTable("bu-data", `Burnup for ${rel}, weekly, at the latest day and at the end of Delivery Cycle 1`, ["Date", "Week", "Scope", "Done", "Remaining"].concat(W6 ? ["Delivery Cycle 1 Planned", "Delivery Cycle 1 Done"] : []),
+  dataTable("bu-data", `Burnup for ${rel}, weekly, at the latest day${dc.all || W6 ? " and at the end of Delivery Cycle 1" : ""}${nm ? `, ${nm}` : ""}`, ["Date", "Week", "Scope", "Done", "Remaining"].concat(W6 ? ["Delivery Cycle 1 Planned", "Delivery Cycle 1 Done"] : []),
     days.map(d => [shortDate(w1 + d * DAY), "W" + (Math.min(d, D - 1) >= 0 ? Math.floor(Math.min(d, D - 1) / 7) + 1 : 1), N, d > snapD ? "–" : done[d], d > snapD ? "–" : Math.max(0, N - done[d])]
       .concat(W6 ? (d === 41 ? [w6n(W6.within, W6.hrefs.within, "planned in Delivery Cycle 1"), w6n(W6.done, W6.hrefs.done, "Done, planned in Delivery Cycle 1")] : ["–", "–"]) : [])));
 }
@@ -1648,7 +1655,7 @@ const yOf = (v, max) => H - PAD.b - (H - PAD.b - PAD.t) * (max ? v / max : 0);
 const relLabel = (r, x) => `<text x="${x}" y="${H - PAD.b + 16}" text-anchor="middle" font-size="11" fill="#4A4F57">${esc(r)}${isProv(r) ? "*" : ""}</text>`;
 
 // Epics per Release: the bar is the HIGHER of the target scope and the target epics Done. Scope is the Forecast Epics number (targetBase: Committed + Not Set epics that were in the release on the first day of W1,
-// the target so far before W1; Projects and Teams filters apply, Commitment Type does not); Done is the target epics (Committed + Not Set) with status Done in the release, the burnup's Done.
+// the target so far before W1; Projects and Teams filters apply); Done is the target epics (Committed + Not Set) with status Done in the release, the burnup's Done.
 // the footer of a chart card: one short line, and everything else in a closed "How this is calculated" (its open state survives a re-render)
 const CHART_OPEN = new Set();
 const chartFoot = (key, short, how) => `<div class="cc-foot"><div class="cap one">${short}</div><details class="vd cdet" data-dk="${key}"${CHART_OPEN.has(key) ? " open" : ""}><summary>How this is calculated</summary><div class="cap">${how}</div></details></div>`;
@@ -1673,7 +1680,7 @@ function chartDelivery(rels) {
   });
   return {svg: s, short: `Done against target scope, per release. Dark part: Done. Light part: the higher of the two.`, how: howBody({id: "ch-delivery",
     defs: [
-      ["Target scope", `Committed and Not Set epics in the release on the first day of W1 (the Forecast Epics number). The Commitment Type filter does not change it.`],
+      ["Target scope", `Committed and Not Set epics in the release on the first day of W1 (the Forecast Epics number).`],
       ["Done", `target epics with the status Done.`],
       ["Label", `the higher of target scope and Done. Done can be higher because epics added after W1 count in Done.`]
     ],
@@ -1766,7 +1773,7 @@ function chartNfr(rels) {
       ["Running release (dashed bar)", `Committed NFR epics over the target scope (NFR Committed / Target Scope), the share the NFR section shows.`]
     ],
     left: `No share is shown when the denominator is under 5 epics.`,
-    know: `The two definitions are never mixed in one bar's label. Projects and Teams filters apply; Commitment Type does not.`})};
+    know: `The two definitions are never mixed in one bar's label. Projects and Teams filters apply.`})};
 }
 // ---------------------------------------------------------------- Capitalization % (owner's Jira logic, Closed-date rule; data read when the data is built, then updated by Refresh in every quarter)
 // Population: Done Bugs, Stories and Tasks of the seven projects with a Closed date (customfield_10099; the resolution date stands in when it is empty). Quarter = the calendar quarter of the Closed day (Israel-local).
@@ -1861,7 +1868,7 @@ function renderCapitalization() {
       ["Share", `capitalized story points over all story points (blank counts as 0). In Count mode: capitalized issues over all issues.`]
     ],
     left: `Issues that are not Done, issues with no Closed date and no resolution date, and issues closed before the start of the data.`,
-    know: `No share for fewer than 5 issues; Story Points mode also needs 5 issues with story points. Projects and Teams apply; Release and Commitment Type do not. Refresh updates all quarters (first open of each day, first two clicks). Data as of ${esc(built)}${esc(refreshed)}.`,
+    know: `No share for fewer than 5 issues; Story Points mode also needs 5 issues with story points. Projects and Teams apply; Release does not. Refresh updates all quarters (first open of each day, first two clicks). Data as of ${esc(built)}${esc(refreshed)}.`,
     more: [
       ["Quarters and releases overlap", `both come from the same Closed day, so a release spans up to two quarters. The Quarter by release table at the end of this list shows the split.`],
       ["Release windows", `the Jira version dates, shared by all projects, include the IP week (the first seven days). ${esc(winTxt)}.`],
@@ -1919,12 +1926,11 @@ function renderCharts() {
   const nfrC = chartNfr(rels), defs = [["Epics per Release", chartDelivery(rels)], ["Cycle Time per Release", chartCycle(rels)], ["Epics by AI, Share of Done Epics", chartAI(rels)], ["NFR Share per Release", nfrC]];
   document.getElementById("charts").innerHTML = defs.map(([t, c], i) =>
     `<div class="chart cc" data-chart="${["delivery", "cycle", "ai", "nfr"][i]}"><h3>${t}</h3><div class="cc-ctl" aria-hidden="true"></div><div class="chartscroll"><svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:${W}px" role="img" aria-label="${t}, ${rels.length} releases. The same values are in the data table attached to this chart." aria-describedby="${i === 3 ? "nfrshare-data" : "trend-data"}">${c.svg}</svg></div>${chartFoot(["delivery", "cycle", "ai", "nfr"][i], c.short, c.how)}</div>`).join("");
-  document.getElementById("trend-sub").innerHTML = `* = release in progress.${followsRow(["Projects", "Teams"], ["Commitment Type"])}`;
+  document.getElementById("trend-sub").innerHTML = `* = release in progress.${followsRow(["Projects", "Teams"])}`;
   document.getElementById("trend-how-body").innerHTML = howBody({id: "trend",
     bl: `Use this to see which filters change which chart. The selected release does not filter these charts.`,
     defs: [
       ["Projects and Teams", `apply to every chart. Done Capabilities follows Projects only (a Capability has no team).`],
-      ["Commitment Type", `changes no chart. It changes only the "selected types" columns of the table and the By Project and By Team tables.`],
       ["Done epics per release", `Cycle Time per Release counts the Done epics that have an EDCT, outside ${esc(AI_EXCL_TEXT)}, whether or not AI implemented them. Epics by AI counts the Done epics outside ${esc(AI_EXCL_TEXT)}. Both ignore Commitment Type.`],
       ["Target epics", `Epics per Release and NFR Share use the target scope: Committed and Not Set epics.`],
       ["Running releases", `marked * and dashed: ${esc(DATA.provisional.join(", "))}. Their numbers can still change.`]
@@ -1938,8 +1944,8 @@ function renderCharts() {
       cd.aiDone >= MIN_N ? pct(cd.ai, cd.aiDone) + "%" : cd.aiDone ? `${cd.ai} of ${cd.aiDone}` : "–",
       cd.aiExcl ? tlink(cd.aiExcl, jira({release: r, kind: "done", commit: ALLC, extra: AI_EXCLUDED_JQL}), `${cd.aiExcl} ${AI_EXCL_TEXT} Done ${epicWord(cd.aiExcl)} in ${r}\nLeft out of every AI figure.`) : "0"];
   });
-  dataTable("trend-data", "Target scope and done, the Epics per Release bar, epics of the selected commitment types, and cycle time (Done epics outside Maintenance and SOW) and AI share (Done epics outside Maintenance and SOW) per release",
-    ["Release", "Target Scope", "Target Done", "Epics per Release Bar (Higher)", "Epics in Scope (Selected Types)", "Done (Selected Types)", "Cycle P50", "Cycle P90", "Done with Cycle Time", "Epics by AI", `Excluded From AI (${AI_EXCLUDED_CATEGORIES.join(", ")})`], rows);
+  dataTable("trend-data", "Target scope and done, the Epics per Release bar, epics in the release, and cycle time (Done epics outside Maintenance and SOW) and AI share (Done epics outside Maintenance and SOW) per release",
+    ["Release", "Target Scope", "Target Done", "Epics per Release Bar (Higher)", "Epics in Scope", "Done", "Cycle P50", "Cycle P90", "Done with Cycle Time", "Epics by AI", `Excluded From AI (${AI_EXCLUDED_CATEGORIES.join(", ")})`], rows);
   { const aiHelp = document.querySelector('[data-chart="ai"] .cc-foot details > .cap'); if (aiHelp) aiHelp.insertAdjacentHTML("beforeend", `<br><b>Excluded from the AI share, per release</b> (${esc(AI_EXCL_TEXT)} Done epics): ${rels.map((r, i) => `${esc(r)} ${rows[i][10]}`).join(" · ")}.`); }
   nfrShareData(nfrC.rows); renderCapitalization();        // two tables sit under the chart grid: say which charts each one belongs to
 }
@@ -2007,7 +2013,7 @@ function renderBugs() {
       ["Weeks", `the last ${WEEKS}, starting Monday. A dashed bar is the running week.`]
     ],
     left: `Accessibility bugs are ${state.ax ? "included" : "excluded, as in the weekly email"}. ${bugNoDateNote()}`,
-    know: `Follows Projects and Teams. Release and Commitment Type filters do not apply. The Priority and CFB filters below apply here only. Links use Jira's own dates, so a bug at the edge of a day can differ by one.`,
+    know: `Follows Projects and Teams. The Release filter does not apply. The Priority and CFB filters below apply here only. Links use Jira's own dates, so a bug at the edge of a day can differ by one.`,
     more: [
       ["The chart", `values are printed on top of each bar and on the line; every bar and point also has its value on hover. A narrow card scrolls the chart sideways.`]
     ]}));
@@ -2244,11 +2250,11 @@ function renderCfbAbout() {
     ]}));
 }
 // ---------------------------------------------------------------- breakdown tables
-function breakdownRow(label, list, jiraOpts, anyList) {
+function breakdownRow(label, list, jiraOpts) {
   const c = counts(list);
   const cell = (n, kind) => `<td class="n">${n ? link(n, jira({...jiraOpts, kind})) : `<span class="muted">0</span>`}</td>`;
   const commitCell = k => {
-    const n = anyList.filter(e => commitOf(e) === k).length;
+    const n = list.filter(e => commitOf(e) === k).length;
     return `<td class="n">${n ? link(n, jira({...jiraOpts, commit: new Set([k])})) : `<span class="muted">0</span>`}</td>`;
   };
   const share = c.scope >= MIN_N ? pct(c.done, c.scope) + "%" : c.scope ? `<span title="Fewer than ${MIN_N} epics, so no share is shown">–</span>` : "–";
@@ -2258,22 +2264,22 @@ function breakdownRow(label, list, jiraOpts, anyList) {
 const breakdownHead = first => `<thead><tr><th scope="col"><span class="sr">${first}</span></th><th class="n" scope="col">In Scope</th><th class="n" scope="col">Done</th><th class="n" scope="col">In Flight</th>
   <th class="n" scope="col">Not Started</th><th class="n" scope="col">% Done</th><th class="n" scope="col">Committed</th><th class="n" scope="col">Not Set</th><th class="n" scope="col">Stretch</th></tr></thead>`;
 function tableFoot(inScope) {                                    // the total row against the target scope
-  const RC = scopeRecon(), sel = state.commit.size === COMMIT.length;
+  const RC = scopeRecon();
   return `Total row: ${inScope.length.toLocaleString("en-US")} epics (${RC.TB.N.toLocaleString("en-US")} in the target scope, ${RC.N.toLocaleString("en-US")} not in it).`;
 }
 function renderBreakdowns() {
-  const r = state.release, any = scopeOf(r, {anyCommit: true}), inScope = scopeOf(r);
+  const r = state.release, inScope = scopeOf(r);
   const note = "";
   const projRows = projectsAll.filter(p => state.projects.has(p)).map(p =>
-    breakdownRow(p, inScope.filter(e => e.p === p), {projects: [p]}, any.filter(e => e.p === p)));
-  const total = breakdownRow("All Selected", inScope, {}, any).replace("<tr>", '<tr class="total">');
+    breakdownRow(p, inScope.filter(e => e.p === p), {projects: [p]}));
+  const total = breakdownRow("All Selected", inScope, {}).replace("<tr>", '<tr class="total">');
   document.getElementById("tbl-projects").innerHTML = projRows.length
     ? `${note}<table><caption class="sr">Epics of release ${esc(r)} under the filters by project, with status and Commitment Type counts</caption>${breakdownHead("Project")}<tbody>${projRows.join("")}${total}</tbody></table><div class="cap">${tableFoot(inScope)}</div>` : `<div class="empty">${whyEmpty("epics")}</div>`;
   const names = new Set();
-  any.forEach(e => teamsOf(e).forEach(t => names.add(t)));
+  inScope.forEach(e => teamsOf(e).forEach(t => names.add(t)));
   const activeTeams = teamClause(state.teams).replace(/^\s*AND\s+/, "");
   const teamRows = [...names].sort((a, b) => a === NO_TEAM ? 1 : b === NO_TEAM ? -1 : a.localeCompare(b)).map(t =>
-    breakdownRow(esc(t), inScope.filter(e => teamsOf(e).includes(t)), {teams: new Set([t]), extra: activeTeams || undefined}, any.filter(e => teamsOf(e).includes(t))));      // the row's team AND the Teams filter: an epic of two teams counts here only when it is also in the filter
+    breakdownRow(esc(t), inScope.filter(e => teamsOf(e).includes(t)), {teams: new Set([t]), extra: activeTeams || undefined}));      // the row's team AND the Teams filter: an epic of two teams counts here only when it is also in the filter
   document.getElementById("tbl-teams").innerHTML = teamRows.length
     ? `${note}<table><caption class="sr">Epics of release ${esc(r)} under the filters by team, listed alphabetically, with status and Commitment Type counts</caption>${breakdownHead("Team")}<tbody>${teamRows.join("")}${total.replace("All Selected", "All Selected (Each Epic Once)")}</tbody></table><div class="cap">${tableFoot(inScope)}</div>`
     : `<div class="empty">${whyEmpty("epics")}</div>`;
@@ -2350,7 +2356,7 @@ function depModel() {
     return {d, p, ty, dIn: inScope.has(a), pIn: inScope.has(b), plan, planD, gap: g.gap, nc: g.nc, gapText: g.text, gapParts: g.parts, overdue: sprintEnded(plan.sprint), external: d.p !== p.p, unplanned: !plan.sprint,
       open: p.s !== "Done" && d.s !== "Done", outside: d.ext || p.ext, epicsOnly: d.ty === "Epic" && p.ty === "Epic",
       inbound: inScope.has(a) && !inScope.has(b), outbound: !inScope.has(a) && inScope.has(b),
-      extBlock: inScope.has(a) && !state.projects.has(p.p) && p.p !== DEP_CX};      // direction against the chosen scope (release, projects, teams, Commitment Types): inbound = an epic in scope waits on a provider outside it; outbound = an item outside it waits on a provider in scope. extBlock (Blocked by External) = the dependent is in scope and the PROVIDER's Jira project is neither one of the selected projects nor CXCROSS (whole project keys compared, so OLDCXCROSS is not CXCROSS). Not the same test as external (two projects).
+      extBlock: inScope.has(a) && !state.projects.has(p.p) && p.p !== DEP_CX};      // direction against the chosen scope (release, projects, teams): inbound = an epic in scope waits on a provider outside it; outbound = an item outside it waits on a provider in scope. extBlock (Blocked by External) = the dependent is in scope and the PROVIDER's Jira project is neither one of the selected projects nor CXCROSS (whole project keys compared, so OLDCXCROSS is not CXCROSS). Not the same test as external (two projects).
   }).sort((x, y) => x.d.k.localeCompare(y.d.k, "en", {numeric: true}) || x.p.k.localeCompare(y.p.k, "en", {numeric: true}));
   const openAll = inView.filter(x => x.open), open = openAll.filter(x => x.epicsOnly);      // the default view and every figure count the pairs between epics; All adds the links to other issue types
   return {rel, scope, inScope, map, inView, open, openAll, leftOut: inView.filter(x => x.epicsOnly).length - open.length, withDep: scope.filter(e => involved.has(e.k))};
@@ -2373,7 +2379,7 @@ function cardTip(c) {
   const p = c.p, pl = c.plan, gapKeys = new Set(c.gaps.map(x => x.d.k));
   const planned = pl.sprint ? `Planned ${sprintName(pl.sprint)} (${pl.how === "Due date" ? `due ${p.dd}` : "Target Sprint"})${pl.override ? `, overrides Target Sprint ${pl.tsSprint.no}` : ""}` : pl.outside ? "Not planned: the due date is outside the sprint calendar" : pl.unknownTs ? `Not planned: Target Sprint ${p.ts} is not in the sprint calendar` : noPlanData(p) ? NO_PLAN_DATA : "Not planned: no due date or Target Sprint";
   const lines = [`${p.k} ${shortText(p.t, 60)}`, planned, `${p.ty && p.ty !== "Epic" ? p.ty + " · " : ""}${p.s || "status unknown"} · ${p.p}${p.tm.length ? " · " + shortText(p.tm.join(", "), 40) : ""}`,
-    ...(c.provOut ? ["Outside scope: this provider is not in the chosen release, projects, teams and Commitment Types"] : []), ...(c.outDep ? ["Needed by items outside scope"] : []),
+    ...(c.provOut ? ["Outside scope: this provider is not in the chosen release, projects and teams"] : []), ...(c.outDep ? ["Needed by items outside scope"] : []),
     ...(c.overdue ? [`Overdue: the planned sprint ended ${pl.sprint.end}`] : []), ...(c.external ? [`External: ${p.p} differs from the dependent's project`] : []),
     ...(c.gaps.length ? [`Schedule gap with ${c.gaps.length} blocked ${c.gaps.length === 1 ? "item" : "items"}: hover or focus the flag`] : [])];
   const rest = c.pairs.filter(x => !gapKeys.has(x.d.k)).map(x => x.d).sort((x, y) => x.k.localeCompare(y.k, "en", {numeric: true}));     // a blocked item that is in a gap line above is not listed twice
@@ -2439,7 +2445,7 @@ function renderDeps() {
     know: `A link means a dependency is recorded, not that it is risky, and a missing link is not a missing dependency. Overdue and schedule gaps are facts about planned dates, not a verdict on a team or person. Data as of ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}.`,
     more: [
       ["Epics Only and All", `The figures and the default view count pairs between epics. All also shows links where one end is an epic and the other end is another issue type (Capability, Initiative, Story, Task and so on), counted in the secondary line. A pair is in view when an epic at one end is in scope for ${esc(rel)} under the current filters.`],
-      ["Outside scope", `outside the chosen release, projects, teams and Commitment Types. This is separate from External, which compares the two projects only. The Blocked by External quick filter shows every open pair where an item of the selected projects, in the chosen release, teams and Commitment Types, waits on a provider in a project that is not selected and is not CXCROSS (CXCROSS is in its own section), at any issue type, whichever of Epics Only and All is chosen. A provider in CXCROSS, or in a selected project but outside the release, team or Commitment Type filters, is not counted there; the Direction column says Waits on outside scope for it. The provider's issue type is on its card. Facts only, no ranking. A link means a dependency is recorded, not that it is risky; no link is not no dependency.`],
+      ["Outside scope", `outside the chosen release, projects and teams. This is separate from External, which compares the two projects only. The Blocked by External quick filter shows every open pair where an item of the selected projects, in the chosen release and teams, waits on a provider in a project that is not selected and is not CXCROSS (CXCROSS is in its own section), at any issue type, whichever of Epics Only and All is chosen. A provider in CXCROSS, or in a selected project but outside the release or team filters, is not counted there; the Direction column says Waits on outside scope for it. The provider's issue type is on its card. Facts only, no ranking. A link means a dependency is recorded, not that it is risky; no link is not no dependency.`],
       ["Planned sprint, detail", `In a gap between sprints, the next sprint that starts is used. A due date outside the sprint calendar also makes the provider Not Planned. Sprint dates are read from the Target Sprint labels: the date in the label is the start, and a sprint runs three weeks.`],
       ["Overdue, as-of date", `the planned sprint ended before ${shortDate(asOfDay())}. It is a fact about dates, not a forecast.`],
       ["Schedule gap rule", `${esc(GAP_RULE)}`],
@@ -2574,7 +2580,7 @@ function renderCapabilities() {
       ["% Done", `Done child epics over all child epics, for 5 or more epics.`]
     ],
     left: `Removed Capabilities and epics. CXCROSS Capabilities have their own section. An epic whose Issue Category is ${esc(CAP_EXEMPT.join(", "))} needs no Capability and is not flagged for a missing parent.`,
-    know: `The tables follow Release and Projects. Teams and Commitment Type do not apply: a Capability has neither, and child epics count whatever their commitment. The missing-parent line follows every filter. Data as of ${esc(ilLabel(DATA.capPulledAt || DATA.generated))}; Refresh updates Capabilities.`}));
+    know: `The tables follow Release and Projects. Teams do not apply: a Capability has no team, and child epics count whatever their commitment. The missing-parent line follows every filter. Data as of ${esc(ilLabel(DATA.capPulledAt || DATA.generated))}; Refresh updates Capabilities.`}));
 }
 
 // ---- Done Capabilities per Release (Release Analysis): the same chart form as the epic charts above. One bar per release: the light bar is every Capability with that fix version,
@@ -2615,7 +2621,7 @@ function renderCapDone() {
       ["Other", `CXCROSS Capabilities. They count only when All Projects is selected.`]
     ],
     left: `Removed Capabilities, and Capabilities of projects that are not on this page.`,
-    know: `Follows Projects only (the project of the Capability); Teams and Commitment Type do not apply. A dashed outline marks a running release; the hover says when a bar has fewer than 5 Capabilities. Data as of ${esc(ilLabel(DATA.capPulledAt || DATA.generated))}; Refresh updates Capabilities.`,
+    know: `Follows Projects only (the project of the Capability); Teams do not apply. A dashed outline marks a running release; the hover says when a bar has fewer than 5 Capabilities. Data as of ${esc(ilLabel(DATA.capPulledAt || DATA.generated))}; Refresh updates Capabilities.`,
     more: [
       ["Capabilities with no fix version", `${noFvTxt}`]
     ]})) + `</div>`;
@@ -2784,7 +2790,7 @@ function renderAttention() {
       ["Business days", `Sunday to Thursday. Friday, Saturday and Israeli public holidays are not counted.`]
     ],
     left: `Comments and story data are not checked. The list cannot see why an epic is in Validation, whether it is ready to close, blocked flags or scope churn.`,
-    know: `Epic rules follow the selected release and the Commitment Type, Projects and Teams filters; bug rules follow Projects and Teams only. The as-of date is the date of the data, not today.`,
+    know: `Epic rules follow the selected release and the Projects and Teams filters; bug rules follow Projects and Teams only. The as-of date is the date of the data, not today.`,
     more: [
       ["No SLA", `a bug with no priority, or a priority outside P1 to P4, has no SLA. It is listed under Jira Hygiene as "No SLA", never in the SLA groups.`],
       ["Where the thresholds come from", `SLA days: ${CFG.sla.source}. Due soon: ${CFG.dueSoonSource}. No update: ${CFG.noUpdateSource}. In Validation: ${CFG.validationSource}.`],
@@ -2830,13 +2836,13 @@ function versionsOf(fv) {                                        // release-name
 const versionText = fv => { const v = versionsOf(fv), parts = [...v.rel, ...(v.unsched ? ["Unscheduled"] : [])]; return parts.length ? parts.join(", ") : "None"; };
 const keyCmp = (a, b) => a.localeCompare(b, "en", {numeric: true});
 const epicListTip = (head, list) => [head, ...list.slice(0, 6).map(e => `${e.k} ${shortText(e.t, 60)} (${e.s}, ${e.p})`), ...(list.length > 6 ? [`and ${list.length - 6} more`] : [])].join("\n");
-// The CXCROSS section chooses its own Commitment Type (radio); the global Commitment Type checkboxes do not apply here, Projects and Teams still do.
+// The CXCROSS section chooses its own Commitment Type (radio); Projects and Teams still apply.
 const CX_TYPES = {all: ["All", null], committed: ["Committed", "Committed"], notset: ["Not Set", "Not Set"], stretch: ["Stretch", "Stretch"]};
 const cxPass = e => state.cx === "all" || commitOf(e) === CX_TYPES[state.cx][1];
 const cxCommit = () => state.cx === "all" ? new Set(COMMIT) : new Set([CX_TYPES[state.cx][1]]);
 const cxJira = (o = {}) => jira({commit: cxCommit(), ...o});
 function cxModel() {
-  const H = DATA.hier || {}, rel = state.release, scope = scopeOf(rel, {anyCommit: true}).filter(cxPass);
+  const H = DATA.hier || {}, rel = state.release, scope = scopeOf(rel).filter(cxPass);
   const all = scope.filter(e => e.cp && e.cp.startsWith("CXCROSS")), removedCap = c => H[c] && H[c].s === "Removed";
   const epics = all.filter(e => !removedCap(e.cp)), leftOut = all.length - epics.length;
   const byCap = new Map(); epics.forEach(e => { if (!byCap.has(e.cp)) byCap.set(e.cp, []); byCap.get(e.cp).push(e); });
@@ -2901,14 +2907,14 @@ function renderCx() {
     know: `The marking is a fact about versions and dates, not a verdict on a project or a team. Rows are sorted by title and columns follow the standard project order, so neither expresses lateness.`,
     more: [
       ["Planned later", `the epic's earliest release version is later than the Capability's latest release version. The hover lists those epics and the rule.`],
-      ["Commitment Type", `the choice in this section replaces the filter bar checkboxes here. A Capability is listed when at least one of its epics has the chosen type, and its cells count only those epics.`],
+      ["Commitment Type", `the choice in this section. A Capability is listed when at least one of its epics has the chosen type, and its cells count only those epics.`],
       ["Fix versions", `Capability fix versions can be stale. "Future Release" is read as Unscheduled, and sprint-named versions are ignored because they are not releases. An epic with several fix versions is counted once.`],
       ["Coverage", `${ep.length} of ${M.scope.length} epics in this selection have a CXCROSS parent; across all releases ${cxEver.length.toLocaleString("en-US")} of ${DATA.epics.length.toLocaleString("en-US")} epics do, and ${cxTop} supplies most of them. No comments or emails were read.`],
       ["Freshness", `Data as of ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}.`]
     ]}));
   if (noProj) { host.innerHTML = `<div class="empty">${whyEmpty("epics")}</div>`; document.getElementById("cx-none").innerHTML = ""; document.getElementById("cx-dq").innerHTML = ""; return; }
   if (!ep.length) {
-    const other = scopeOf(M.rel, {anyCommit: true}).filter(e => e.cp && e.cp.startsWith("CXCROSS")).length;
+    const other = scopeOf(M.rel).filter(e => e.cp && e.cp.startsWith("CXCROSS")).length;
     host.innerHTML = `<div class="empty">${state.cx !== "all" && other ? `No epic with Commitment Type ${esc(CX_TYPES[state.cx][0])} has a CXCROSS parent in ${esc(rel)}; ${other} ${epicWord(other)} of other types ${other === 1 ? "does" : "do"}. Choose All or another type.` : M.scope.length ? "No epic in this selection has a CXCROSS parent." : whyEmpty("epics")}</div>`;
   }
   else {
@@ -2944,9 +2950,9 @@ function nfrSelect(tab, viaKey) {                                       // switc
   const b = document.getElementById("nt-" + tab); if (b) { b.focus({preventScroll: true}); if (viaKey) { b.scrollIntoView({block: "nearest", inline: "nearest"}); anchorUserAt = performance.now(); } }
   enhanceScrollers();
 }
-// Two populations, never mixed. The headline count is every NFR epic under the page filters (all Commitment Types by default). The SHARE is the Committed NFR epics of the target scope, taken of the target scope, the same set
-// as the Forecast Epics tile: Committed + Not Set epics that were in the release on the first day of W1 (the target so far before W1), under the Projects and Teams filters; the Commitment
-// Type checkboxes do not change it. Its denominator is that tile's number, printed and linked; a share only from a denominator of 5.
+// Two populations, never mixed. The headline count is every NFR epic under the page filters (all Commitment Types). The SHARE is the Committed NFR epics of the target scope, taken of the target scope, the same set
+// as the Forecast Epics tile: Committed + Not Set epics that were in the release on the first day of W1 (the target so far before W1), under the Projects and Teams filters.
+// Its denominator is that tile's number, printed and linked; a share only from a denominator of 5.
 function nfrTargetShare(isNfr, rel = state.release) {
   const TB = targetBase(rel), X = TB.members.filter(e => isNfr(e) && e.c === "Committed"), D = TB.N;     // the numerator is the NFR epics that are Committed, the denominator the whole target scope
   const o = {release: rel, commit: new Set(["Committed"]), extra: NFR_Q};
@@ -2956,7 +2962,7 @@ function nfrTargetShare(isNfr, rel = state.release) {
   return {X: X.length, D, html: D >= MIN_N ? `<b>${pct(X.length, D)}%</b> of ${den} target-scope epics are Committed NFR epics (${xl} of ${den}): the Forecast Epics scope` : `${xl} Committed NFR epics of ${den} target-scope epics; no share under ${MIN_N}`};
 }
 function nfrHeadline(N, scope, commitTxt) {                      // the count under the page filters, with its own denominator
-  const M = scope.length, den = M ? tlink(M.toLocaleString("en-US"), jira({}), `${M} epics under the current filters\nThe selected release under the Projects, Teams and Commitment Type filters; Removed excluded.`) : "0";
+  const M = scope.length, den = M ? tlink(M.toLocaleString("en-US"), jira({}), `${M} epics under the current filters\nThe selected release under the Projects and Teams filters; Removed excluded.`) : "0";
   return `${N} NFR ${N === 1 ? "epic" : "epics"} under the current filters (${esc(commitTxt)}), of ${den} epics in the release under them (${targetBase().N} in the target scope)`;
 }
 function renderNfr() {
@@ -2967,9 +2973,9 @@ function renderNfr() {
   const nfr = scope.filter(e => isLabel(e) || isCat(e)), N = nfr.length;
   const stat = l => ({ns: l.filter(e => cls(e.s) === "notStarted").length, ip: l.filter(e => e.s === "In Progress").length, val: l.filter(e => e.s === "Validation").length, done: l.filter(e => cls(e.s) === "done").length,
     oth: l.filter(e => cls(e.s) === "other" || (cls(e.s) === "flight" && !["In Progress", "Validation"].includes(e.s))).length, total: l.length});
-  const T = stat(nfr), commitTxt = state.commit.size === COMMIT.length ? "all Commitment Types" : [...state.commit].join(" + ") || "no Commitment Type";
+  const T = stat(nfr), commitTxt = "all Commitment Types";
   const both = nfr.filter(e => isLabel(e) && isCat(e)), lab = nfr.filter(e => isLabel(e) && !isCat(e)), cat = nfr.filter(e => !isLabel(e) && isCat(e));
-  document.getElementById("nfr-sub").innerHTML = noProj ? "" : `${tlink(N, N ? jira({extra: NFR_Q}) : null, `${N} NFR epics (label or Issue Category) of ${scope.length} in ${rel} under the current filters`)} NFR ${N === 1 ? "epic" : "epics"}${N ? `; ${T.done} Done${N >= MIN_N ? ` (${pct(T.done, N)}%)` : ""}, ${T.ns} not started` : ""}.${followsRow(["Release", "Projects", "Teams", "Commitment Type"])}`;
+  document.getElementById("nfr-sub").innerHTML = noProj ? "" : `${tlink(N, N ? jira({extra: NFR_Q}) : null, `${N} NFR epics (label or Issue Category) of ${scope.length} in ${rel} under the current filters`)} NFR ${N === 1 ? "epic" : "epics"}${N ? `; ${T.done} Done${N >= MIN_N ? ` (${pct(T.done, N)}%)` : ""}, ${T.ns} not started` : ""}.${followsRow(["Release", "Projects", "Teams"])}`;
   const fig = (n, extra, label, kind) => n ? tlink(n, jira({kind, extra: `${NFR_Q}${extra ? " AND " + extra : ""}`}), `${n} of ${N} NFR epics: ${label}\nRemoved excluded; ${commitTxt}; release ${rel}.`) : "0";
   const sub = n => N ? tipSpan(N >= MIN_N ? `${pct(n, N)}% of ${N.toLocaleString("en-US")}` : `${n} of ${N}`, `${n} of ${N} NFR epics in ${rel}; the number above opens them`) : "none in this selection";
   if (noProj) kpiCards(kp, ["NFR Epics in Scope", "Done", "In Progress", "Validation", "Not Started"].map(l => ({c: "nf", v: "–", l, s: "No project is selected"})));
@@ -2998,8 +3004,8 @@ function renderNfr() {
     know: `An epic with several fix versions counts in each release, so totals across releases do not add up. ${isProv(rel) ? `${esc(rel)} is still running, so these counts can still change. ` : ""}By Team counts an epic under each team it lists; the total row counts each epic once.`,
     this: ["This selection", `${N.toLocaleString("en-US")} NFR epics, ${esc(commitTxt)}, projects ${state.projects.size === projectsAll.length ? "all" : esc([...state.projects].join(", "))}${state.teams.size ? ", teams " + esc([...state.teams].join(", ")) : ""}, data as of ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}.`],
     more: [
-      ["Headline count", `every NFR epic under the page filters (Release, Projects, Teams, Commitment Type), out of all epics under those filters.`],
-      ["Target-scope share, detail", `the target scope is the Committed and Not Set epics that were in the release on the first day of W1 (the target so far before W1), under the Projects and Teams filters. The Commitment Type checkboxes do not change it. A share needs a target scope of 5 or more.`],
+      ["Headline count", `every NFR epic under the page filters (Release, Projects, Teams), out of all epics under those filters.`],
+      ["Target-scope share, detail", `the target scope is the Committed and Not Set epics that were in the release on the first day of W1 (the target so far before W1), under the Projects and Teams filters. A share needs a target scope of 5 or more.`],
       ["Status", `Not Started is New, In Definition, Ready for Dev or Candidate. In Progress, Validation and Done are the statuses of those names. Done is the status named Done, not Jira's Done category. A status that fits none shows as Other Status. In Definition counts as Not Started because that status is unmaintained. The workflow of some projects is not documented, so the mapping can differ there.`],
       ["Tabs", `each tab regroups the same NFR epics. By Capability uses the epic's parent Capability. No team is compared with another.`]
     ]}));
@@ -3021,7 +3027,7 @@ function renderNfr() {
     panel = tbl("NFR epics by Issue Category, with status counts", "Issue Category", NFR_CATEGORIES.map(c => row(c, nfr.filter(e => e.cat === c), `cf[10139] = ${q(c)}`)).join("") +
       row("NFR Label Only (No Category in the NFR List)", labOther, `labels = ${NFR_LABEL} AND cf[10139] is not EMPTY AND cf[10139] not in (${NFR_CATEGORIES.map(q).join(", ")})`) +
       row("No Issue Category", noCat, `labels = ${NFR_LABEL} AND cf[10139] is EMPTY`), totRow("All NFR Epics"));
-  } else if (tab === "commitment") panel = tbl("NFR epics by Commitment Type, with status counts", "Commitment Type", COMMIT.filter(c => state.commit.has(c)).map(c => row(c === "Not Set" ? "No Commitment Type" : c, nfr.filter(e => commitOf(e) === c), NFR_Q, {commit: new Set([c])})).join(""), totRow("All NFR Epics"));
+  } else if (tab === "commitment") panel = tbl("NFR epics by Commitment Type, with status counts", "Commitment Type", COMMIT.map(c => row(c === "Not Set" ? "No Commitment Type" : c, nfr.filter(e => commitOf(e) === c), NFR_Q, {commit: new Set([c])})).join(""), totRow("All NFR Epics"));
   else if (tab === "capability") {
     const capName = c => (DATA.capabilities && DATA.capabilities[c]) || (DATA.hier && DATA.hier[c] && DATA.hier[c].t) || c, by = new Map();
     nfr.filter(e => e.cp).forEach(e => { if (!by.has(e.cp)) by.set(e.cp, []); by.get(e.cp).push(e); });
@@ -3046,7 +3052,7 @@ function renderNfr() {
 }
 
 // ---------------------------------------------------------------- delivery cycle governance
-// A view of the dashboard's own epics: the selected release under the Release, Projects, Teams and Commitment Type filters. The cycles are derived from the Jira release window,
+// A view of the dashboard's own epics: the selected release under the Release, Projects and Teams filters, and the cycles the Delivery Cycle filter leaves in. The cycles are derived from the Jira release window,
 // not configured: Delivery Cycle 1 runs from the release start to the end of W6 (start + 48 days, the boundary of the Epic Delivery marker), Delivery Cycle 2 from the next day to the release end.
 // An epic belongs to the cycle that holds its planned date (the later of its due date and the end of its Target Sprint, otherwise the one it has). Groups are the Epic Teams of the selected epics, in
 // alphabetical order; an optional pod grouping (pods pull, git-ignored configuration) can replace them. Facts only: no verdict, no colour for a group, no ranking, no share under 5 items.
@@ -3085,6 +3091,26 @@ function cyCycles(rel = state.release) {
   return [{id: "DC1", name: "Delivery Cycle 1", start: w[0], end: w6}, {id: "DC2", name: "Delivery Cycle 2", start: cyAdd(w6, 1), end: w[1]}];
 }
 const cyDefaultCycle = cycles => cycles.find(c => CY.asOf <= c.end) || cycles[cycles.length - 1];
+// ---- the Delivery Cycle filter (filter bar): the Delivery burnup and this section only; every other section keeps its numbers.
+// A cycle holds the epics whose planned date (the later of the due date and the Target Sprint end, plannedLater) falls in it: Delivery Cycle 1 on or before the end of W6 (earlier dates, such as carry-over, included: the rule of the
+// burnup's Delivery Cycle 1 line), Delivery Cycle 2 from W7 to the release end. An epic with no planned date, or planned after the release end (the Cycles section's "in no cycle"), is in neither cycle: it counts only when every cycle is shown.
+// A release shorter than W6 has Delivery Cycle 1 only; a stored choice that names a cycle the release does not have falls back to the cycles it has.
+const DC_NAME = id => `Delivery Cycle ${id}`;
+function dcState(rel = state.release) {
+  const cs = cyCycles(rel), ids = cs ? cs.map(c => c.id.slice(2)) : [];            // the cycles this release has: "1", or "1" and "2"; none without a dated version
+  const ticked = ids.filter(i => state.dc.has(i)), shown = ticked.length ? ticked : ids;
+  return {ids, shown, all: shown.length === ids.length, win: !!cs, has2: ids.includes("2")};
+}
+const dcWord = d => d.all ? "" : `${DC_NAME(d.shown[0])} only`;
+function dcKeep(d, rel = state.release) {                      // e => is the epic in a cycle shown (every epic when all the cycles are shown)
+  if (d.all) return () => true;
+  const w = DATA.windows[rel], w6 = cyAdd(w[0], 48), end = w[1];
+  return e => { const p = plannedLater(e), m = !p ? null : p <= w6 ? "1" : p <= end ? "2" : null; return m !== null && d.shown.includes(m); };
+}
+function dcQuery(rel, d) {                                     // the same epics as a Jira query, in the form of the Delivery Cycles links (call after CY_SPR = cySprints())
+  const parts = cyCycles(rel).filter(c => d.shown.includes(c.id.slice(2))).map(c => `(${c.id === "DC1" ? cyPlan(null, c.end) : cyPlan(c.start, c.end)})`);
+  return parts.length === 1 ? parts[0] : `(${parts.join(" OR ")})`;
+}
 // ---- pods from labels: the release planning report's rule, with each project's own pattern (DATA.podRx, read at build time). An epic's labels are tested case-insensitively; the matched ones are stored on the epic (pl).
 // Pods are grouped case-insensitively and shown with the first spelling found; an epic with several pod labels counts under each pod once; no pod label means No Pod Label.
 const cyLabelOk = () => !!DATA.podRx;
@@ -3163,7 +3189,7 @@ function cyQ(kind, g, c, arg) {
       const bits = [CY_FLAG];
       if (late >= S) bits.push(`(${cyUp(late)})`);
       if (win[0] <= win[1]) bits.push(`(${cyUp(win[1])} AND ${cyLow(win[0], win[1])}${NS})`);
-      w = `((${cyPlan(S, E)} AND ${ND} AND (${bits.join(" OR ")}))${A >= S ? ` OR (${cyPlan(null, cyAdd(S, -1))} AND ${ND})` : ""} OR (${cyNoDueQ()}))`; break;
+      w = `((${cyPlan(S, E)} AND ${ND} AND (${bits.join(" OR ")}))${A >= S ? ` OR (${cyPlan(null, cyAdd(S, -1))} AND ${ND})` : ""}${!CYM || CYM.dcAll ? ` OR (${cyNoDueQ()})` : ""})`; break;
     }
     case "podEpics": w = cyPodClause(arg); break;                                                // a pod's epics in the release (arg: the pod of cyPodsOf)
     case "podFlight": w = `${cyPodClause(arg)} AND ${CY_FLIGHT}`; break;                         // ... of them in flight
@@ -3190,7 +3216,9 @@ function cyBuild() {
   CY.asOf = iso(asOfDay()); CY_SPR = cySprints();
   const cycles = cyCycles(), y = state.cy;
   if (!cycles) return (CYM = {none: "window", cycles: null});
-  const c = cycles.find(x => x.id === y.cycle) || cyDefaultCycle(cycles);
+  const dcs = dcState(), shown = cycles.filter(x => dcs.shown.includes(x.id.slice(2)));      // the cycles the Delivery Cycle filter leaves in: the section shows one of them at a time
+  if (y.cycle && !shown.some(x => x.id === y.cycle)) y.cycle = null;                           // a cycle the filter leaves out cannot be the selected one
+  const c = shown.find(x => x.id === y.cycle) || cyDefaultCycle(shown);
   const bugsOf = k => ((DATA.eb || {})[k] || []).map(([bk, bs, pr]) => ({k: bk, s: bs, pr, o: isOpenBug({s: bs}) ? 1 : 0}));
   let eps = scopeOf(state.release).map(e => ({k: e.k, t: e.t, s: e.s, p: e.p, pl: e.pl || [], due: plannedLater(e), dd: e.dd || null, ts: e.ts || null, fl: !!e.fl, rd: e.rd || null, edct: e.edct, vl: e.vl, tm: teamsOf(e), cp: e.cp || null, cat: e.cat, bugs: bugsOf(e.k)}));
   // The hierarchy: Project > Team (under its project) > Pod (under its team). Every node holds the DISTINCT epics it counts (an epic with two teams or several pods is under each, once per node).
@@ -3215,7 +3243,7 @@ function cyBuild() {
     });
   });
   nodes.forEach(n => n.epics.forEach(e => e.gs.push(n.id)));
-  const m = {cycles, c, epics: eps, groups: nodes, byId, noDue: eps.filter(e => !e.due && !cyDone(e) && ["In Progress", "Validation"].includes(e.s))};
+  const m = {cycles, shown, dcAll: dcs.all, c, epics: eps, groups: nodes, byId, noDue: dcs.all ? eps.filter(e => !e.due && !cyDone(e) && ["In Progress", "Validation"].includes(e.s)) : []};      // epics with no planned date are in no cycle: listed only when every cycle is shown
   m.planned = (cc = c) => eps.filter(e => e.due && e.due >= cc.start && e.due <= cc.end);
   m.carry = (cc = c) => CY.asOf >= cc.start ? eps.filter(e => !cyDone(e) && e.due && e.due < cc.start) : [];      // only once the cycle has started
   m.liveSet = new Set(m.planned().concat(m.carry(), m.noDue));
@@ -3581,7 +3609,7 @@ function cyDefs() {
       ["Overdue", `planned in the cycle, before the as-of date, and not Done.`],
       [`Due next ${CY.next} days`, `planned in the cycle, not Done, from the as-of date up to ${CY.next} days later.`],
       ["Flagged", `planned in the cycle, not Done, and flagged as blocked in Jira (the Flagged field is set).`],
-      ["Idle Pods", `pods that have at least one epic in ${esc(state.release)} and no epic planned in the selected cycle, under the Release, Projects, Teams and Commitment Type filters.`],
+      ["Idle Pods", `pods that have at least one epic in ${esc(state.release)} and no epic planned in the selected cycle, under the Release, Projects and Teams filters.`],
       [`Pods with more than ${CY.podWip} epics in flight`, `pods with more than ${CY.podWip} epics In Progress or Validation in ${esc(state.release)}, counted over the whole release, not the selected cycle. The level ${CY.podWip} is a reference chosen by the owner, not a program rule.`],
       [`Not-started epics due within ${CY.next} days`, `epics in Candidate, New, In Definition or Ready for Dev whose planned date is from the as-of date up to ${CY.next} days later; the later date counts (the later of the due date and the Target Sprint end). Any cycle, under the same filters.`],
       ["Waiting dependents due soon", `open dependencies, neither end Done, where an epic of ${esc(state.release)} blocks an item of any issue type that is planned from the as-of date up to ${CY.next} days later (the due date first, else the Target Sprint end). Each waiting item counts once.`],
@@ -3589,7 +3617,7 @@ function cyDefs() {
       ["In-flight epics without a pod label", `epics In Progress or Validation in ${esc(state.release)} with no pod label, out of all in-flight epics. The share shows from ${MIN_N} in-flight epics.`]
     ],
     left: `Removed epics. Epics with no planned date, or planned after the release end, are in no cycle. Stale, Carry-over, No planned date and Open bugs: see More detail.`,
-    know: `Tiles follow the Release, Projects, Teams and Commitment Type filters. The as-of date is the date of the data, shown at the top of the page. No team or person is ranked or scored. The pod tiles are facts about the plan, not a verdict on people, and are not ranked.`,
+    know: `Tiles follow the Release, Projects and Teams filters. The Delivery Cycle filter in the filter bar decides which cycles the selector offers; with one cycle ticked, only that cycle is offered and epics in no cycle (no planned date, or planned after the release end) are left out of the lists, the After Release End line and the Epics with Flags. The Epics in Release column and the pod tiles that count the whole release do not follow it. The as-of date is the date of the data, shown at the top of the page. No team or person is ranked or scored. The pod tiles are facts about the plan, not a verdict on people, and are not ranked.`,
     this: ["This release", `${esc(state.release)}: ${esc(win[0].name)} ${win[0].start} to ${win[0].end}${win[1] ? `; ${esc(win[1].name)} ${win[1].start} to ${win[1].end}` : ""}. As-of date ${esc(CY.asOf)}.`],
     more: [
       ["Stale", `more than ${CY.stale} days overdue, counted over planned and carry-over epics together. The "of them stale" figure under Overdue counts planned epics only.`],
@@ -3701,7 +3729,7 @@ function cyPodList() {                                           // DOM only: sh
 }
 function cyControls() {                                          // the cycle radios (dates of the selected release)
   const M = CYM, y = state.cy;
-  document.getElementById("f-cy").innerHTML = M.cycles.map(c => `<label class="chip"><input type="radio" name="f-cy" value="${esc(c.id)}"> ${esc(c.name)} <span class="cnt">${c.start} to ${c.end}</span></label>`).join("");
+  document.getElementById("f-cy").innerHTML = M.shown.map(c => `<label class="chip"><input type="radio" name="f-cy" value="${esc(c.id)}"> ${esc(c.name)} <span class="cnt">${c.start} to ${c.end}</span></label>`).join("");
   document.querySelectorAll("#f-cy input").forEach(i => { i.checked = i.value === M.c.id; i.parentElement.classList.toggle("on", i.checked); });
 }
 function renderCycles() {
@@ -3713,10 +3741,11 @@ function renderCycles() {
   cySanitise();
   cyNotes(); cyDefs(); cyControls();
   document.getElementById("cy-after").textContent = "";
+  sub.textContent = "Delivery Cycle 1: release start to the end of W6. Delivery Cycle 2: W7 to the release end." + (M.dcAll ? "" : ` The filter bar shows ${dcWord(dcState())}; epics in no cycle are left out.`);
   const planned = M.planned(), x = {s: cyStats(planned, M.carry()), c: M.c, g: null, fig: (CY_PODFIG = cyPodFig(M.epics, planned)), act: (CY_ACT = cyActFig(M))};
   document.getElementById("cy-pods-h").textContent = `Pods in ${state.release}`;
   kpiCards(document.getElementById("cy-kpis1"), cyTiles("overview", x)); kpiCards(document.getElementById("cy-kpis2"), cyTiles("pods", x)); cyPodList();
-  const after = M.epics.filter(e => e.due && e.due > M.cycles[M.cycles.length - 1].end);
+  const after = M.dcAll ? M.epics.filter(e => e.due && e.due > M.cycles[M.cycles.length - 1].end) : [];      // planned after the release end: in no cycle, so listed only when every cycle is shown
   if (after.length) document.getElementById("cy-after").innerHTML += `After Release End: ${tlink(after.length, cyQ("after", null, M.cycles[M.cycles.length - 1]), `${cyEp(after.length)} planned after the release end (${M.cycles[M.cycles.length - 1].end}); in no cycle.\n${CY_TIP}`)}`;
   cyRenderBody();
 }
@@ -3785,7 +3814,7 @@ function cyInit() {
 
 // ---------------------------------------------------------------- data quality
 function renderDQ() {
-  const all = scopeOf(state.release, {anyCommit: true});
+  const all = scopeOf(state.release);
   const notSet = all.filter(e => commitOf(e) === "Not Set"), inDef = all.filter(e => e.s === "In Definition");
   const noCycle = all.filter(e => cls(e.s) === "done" && (cycleOf(e) == null || e.edct === 0) && !edctPending(e)), cycleWait = all.filter(edctPending).length;
   const exact = noCycle.length <= 250, noCycleHref = noCycle.length && exact ? keyIn(noCycle.map(e => e.k)) : null;          // above 250 there is no link: a different set of epics would not match the number
@@ -3864,11 +3893,13 @@ function buildFilters() {
   pc.addEventListener("keydown", projKey);
   pc.addEventListener("focusin", e => { const b = e.target.closest && e.target.closest("button.chip"); if (b) projRove = b; });
   document.getElementById("f-multi").onclick = projMultiToggle;
-  const cc = document.getElementById("f-commit");
-  cc.innerHTML = COMMIT.map(c => `<label class="chip"><input type="checkbox" value="${c}"> ${c}</label>`).join("");
-  cc.onchange = e => {
-    if (!e.target.checked && state.commit.size === 1) { e.target.checked = true; announce("At least one commitment type must stay selected"); return; }       // the last one cannot be switched off
-    e.target.checked ? state.commit.add(e.target.value) : state.commit.delete(e.target.value); update({hold: holdSel(e.target)});
+  const dce = document.getElementById("f-dc");
+  dce.innerHTML = DC_IDS.map(id => `<label class="chip"><input type="checkbox" value="${id}"> Cycle ${id}</label>`).join("");
+  dce.onchange = e => {
+    const id = e.target.value, d = dcState();
+    if (!e.target.checked && d.shown.length === 1 && d.shown[0] === id) { e.target.checked = true; announce("At least one delivery cycle must stay selected"); return; }       // the last cycle cannot be switched off
+    e.target.checked ? state.dc.add(id) : state.dc.delete(id); update({hold: holdSel(e.target)});
+    const n = dcState(); announce(n.all ? "Showing every delivery cycle in the Delivery chart and the Cycles section" : `Showing ${dcWord(n)} in the Delivery chart and the Cycles section`);
   };
   document.getElementById("f-ax").onchange = e => { state.ax = e.target.checked; update({hold: holdSel(e.target)}); };
   const bp = document.getElementById("f-bpri");
@@ -3910,7 +3941,7 @@ function renderTeamList() {
   DATA.bugs.filter(b => state.projects.has(b.p)).forEach(b => { const t = b.tm || NO_TEAM; if (!m.has(t)) m.set(t, 0); });
   state.teams.forEach(t => { if (!m.has(t)) m.set(t, 0); });
   if (capOk()) DATA.cap.teams.forEach(t => { if (!m.has(t)) m.set(t, 0); });               // a team that only has Done Bugs, Stories or Tasks (no epics) is listed too
-  document.getElementById("f-teams-hint").textContent = `${state.teams.size ? state.teams.size + " selected · " : ""}Epics on ${state.release}, all commitment types. A dash means bugs only.`;
+  document.getElementById("f-teams-hint").textContent = `${state.teams.size ? state.teams.size + " selected · " : ""}Epics on ${state.release}. A dash means bugs only.`;
   const names = [...m.keys()].filter(t => t.toLowerCase().includes(needle)).sort((a, b) => a === NO_TEAM ? 1 : b === NO_TEAM ? -1 : a.localeCompare(b));
   const list = document.getElementById("f-teams-list");
   const allRow = `<div class="rowwrap"><label class="row allrow"><input type="checkbox" data-allteams="1" ${state.teams.size ? "" : "checked"}> <span>All Teams</span></label></div>`;
@@ -3927,12 +3958,12 @@ function renderTeamList() {
 }
 function filterChanges() {
   const same = (a, b) => a.size === b.length && b.every(x => a.has(x));
-  return {release: state.release !== DATA.current, projects: !same(state.projects, projectsAll), teams: state.teams.size > 0, commit: !same(state.commit, DEFAULT_COMMIT),
+  return {release: state.release !== DATA.current, projects: !same(state.projects, projectsAll), teams: state.teams.size > 0, dc: !dcState().all,
     bugpri: state.bugPri.size !== PRI_ALL.length, cfb: state.cfb !== "all", ax: state.ax, period: state.gran !== "month", cfbgrp: state.cfbGroup !== "version", depfilter: state.depFilter !== "epics", nfrtab: state.nfrTab !== "project", cx: state.cx !== "all", cap: state.cap.by !== "quarter" || state.cap.measure !== "sp", cycles: cyChanged()};
 }
 function syncControls() {
   const ch = filterChanges(), nCh = Object.values(ch).filter(Boolean).length;
-  [["g-release", ch.release], ["g-projects", ch.projects], ["teamsel", ch.teams], ["g-commit", ch.commit], ["g-bpri", ch.bugpri], ["g-cfb", ch.cfb], ["g-ax", ch.ax], ["g-gran", ch.period], ["g-cfbgrp", ch.cfbgrp], ["g-dep", ch.depfilter], ["g-cx", ch.cx]].forEach(([id, on]) => document.getElementById(id).classList.toggle("changed", on));
+  [["g-release", ch.release], ["g-projects", ch.projects], ["teamsel", ch.teams], ["g-dc", ch.dc], ["g-bpri", ch.bugpri], ["g-cfb", ch.cfb], ["g-ax", ch.ax], ["g-gran", ch.period], ["g-cfbgrp", ch.cfbgrp], ["g-dep", ch.depfilter], ["g-cx", ch.cx]].forEach(([id, on]) => document.getElementById(id).classList.toggle("changed", on));
   const rb = document.getElementById("f-reset"); rb.disabled = !nCh; rb.textContent = nCh ? `Reset Filters (${nCh})` : "Reset Filters";
   document.getElementById("f-toggle").textContent = nCh ? `Filters (${nCh} Applied)` : "Filters";
   document.getElementById("f-release").value = state.release;
@@ -3950,7 +3981,10 @@ function syncControls() {
     chips.forEach(b => { b.tabIndex = b === rove ? 0 : -1; });
     const cb = document.getElementById("f-multi"); cb.setAttribute("aria-pressed", String(cmp)); cb.textContent = cmp && n > 1 && n < N ? `Multi-Select (${n} of ${N})` : "Multi-Select";
     document.getElementById("f-multihint").hidden = !cmp || projHintDone; }
-  document.querySelectorAll("#f-commit input").forEach(i => { i.checked = state.commit.has(i.value); i.parentElement.classList.toggle("on", i.checked); });
+  { const d = dcState(), note = document.getElementById("f-dc-note");      // a cycle the release does not have is disabled, with its reason in plain words
+    document.querySelectorAll("#f-dc input").forEach(i => { const has = d.ids.includes(i.value); i.disabled = !has; i.checked = d.win ? d.shown.includes(i.value) : state.dc.has(i.value); i.parentElement.classList.toggle("on", i.checked); i.parentElement.classList.toggle("dis", !has);
+      i.parentElement.title = has ? "" : d.win ? `${state.release} ends by the end of W6, so it has no ${DC_NAME(i.value)}` : `Jira has no dated version for ${state.release}`; });
+    note.textContent = !d.win ? "No cycle dates for this release" : !d.has2 ? "No Cycle 2: the release ends by W6" : d.all ? "Delivery chart and Cycles only" : `Delivery chart and Cycles: ${d.shown[0] === "1" ? "Cycle 1" : "Cycle 2"} only`; }
   const n = state.teams.size;
   document.getElementById("f-teams-btn").textContent = n === 0 ? "All Teams" : n === 1 ? [...state.teams][0] : `${n} Teams`;
   renderTeamList();
@@ -4033,6 +4067,7 @@ function update(opts) {
   updateCore(); uiRestore(ui); anchorRestore(st);
 }
 function updateCore() {
+  { const d = dcState(); if (state.cy.cycle && !d.shown.includes(state.cy.cycle.slice(2))) state.cy.cycle = null; }      // a Cycles-section choice the Delivery Cycle filter leaves out is dropped before the address is written
   syncControls(); saveState(); renderKpis(); renderStatus(); renderBurnup(); renderEfficiency(); renderCharts(); renderBugs(); renderCfb(); renderCfbAbout(); renderDeps(); renderAttention(); renderCapabilities(); renderCx(); renderNfr(); renderAdoption(); renderCapDone(); renderCycles();
   renderBreakdowns(); renderDQ(); renderMeta(); tipPass(); nowrapDates(); fitSticky();
 }
@@ -4622,7 +4657,7 @@ document.getElementById("footer").innerHTML = `<details class="vd"><summary>How 
     bl: `This page shows release status from Jira. The numbers are facts about scope, status and dates; nothing here ranks or scores a team or a person.`,
     defs: [
       ["Scope", `Fix Version plus Commitment Type. Status never defines scope.`],
-      ["Target scope", `Committed and Not Set epics counted on the first day of W1. Stretch is left out. Forecast Epics and the burnup use it, whatever the Commitment Type filter shows.`],
+      ["Target scope", `Committed and Not Set epics counted on the first day of W1. Stretch is left out. Forecast Epics and the burnup use it.`],
       ["Removed", `Removed epics are excluded from every number.`],
       ["Done", `the status named Done, not Jira's Done category. The Bugs section says which bug statuses count as open.`],
       ["Share", `a percentage, percentile or trend is shown only for ${MIN_N} or more items.`],
@@ -4634,7 +4669,7 @@ document.getElementById("footer").innerHTML = `<details class="vd"><summary>How 
       ["Read only when the page is built", `story-level dependency links, the sprint calendar, bugs under epics, status-since dates and the pod label pattern.`],
       ["Section strip", `The strip under the Release heading jumps between the sections and marks the one being read. Tab reaches it once; then Left, Right, Home and End move along it, Enter jumps and Esc returns focus to the current section heading. Alt + Down and Alt + Up go to the next and previous section from anywhere outside a form field.`],
       ["Hover text", `Hover or keyboard focus shows a short explanation, and Esc closes it. The same values are in each chart's data table.`],
-      ["Cycles section", `follows the Release, Projects, Teams and Commitment Type filters and has its own Delivery Cycle choice. It uses the same epics as the rest of the page. It states facts only: no verdict, no rating of a group.`],
+      ["Cycles section", `follows the Release, Projects, Teams and Delivery Cycle filters, and its own cycle choice picks one of the cycles the filter leaves in. It uses the same epics as the rest of the page. It states facts only: no verdict, no rating of a group.`],
       ["Scope of use", `Counts describe programs, releases and teams.`]
     ]})}</div></details>`;
 if (RUNTIME) slowLoad();                                     // the last limited refresh kept in this browser, before anything is drawn
