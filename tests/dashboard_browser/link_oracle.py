@@ -34,7 +34,7 @@ STATES = [
     "", "r=26.4", "r=26.2&p=PMN", "p=PMN", "p=CXWFM|WFM", "p=PMN|CXCO|CXSUP", "TEAM", "p=PMN&TEAM", "c=Stretch", "ax=1", "bp=P1|P2", "bp=P3&ax=1", "cfb=yes", "cfb=no", "cfb=yes&p=PMN",
     "cg=quarter", "cg=month&p=CXCO", "g=quarter", "cpg=release", "cpg=release&cpm=count", "cpm=count", "cpg=release&p=PMN", "cpg=release&TEAM", "cpg=release&p=CXWFM|WFM&cpm=count",
     "p=CXINT&cpm=count", "p=WFM&cg=quarter&bp=P1|P2|P3&ax=1",
-    "p=INT", "p=CXINT|INT&cfb=yes", "cpg=release&p=INT&cpm=count",
+    "p=INT", "p=CXINT|INT&cfb=yes", "cpg=release&p=INT&cpm=count", "dp=blockedby", "dp=blocking", "dp=blockedby&p=PMN",
 ]
 
 COLLECT_JS = """(() => {

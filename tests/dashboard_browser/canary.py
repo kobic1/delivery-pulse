@@ -33,7 +33,7 @@ STATES = [
     ("default", ""), ("release 26.4", "r=26.4"), ("release 27.2", "r=27.2"), ("one project", "p=PMN"), ("two projects", "p=PMN|CXWFM"), ("the INT project", "p=INT"),
     ("hostile team", "TEAM"), ("stretch only", "c=Stretch"), ("committed and not set", "c=Committed|Not%20Set"), ("accessibility, P1+P2", "ax=1&bp=P1|P2"),
     ("CFB yes", "cfb=yes"), ("CFB no", "cfb=no"), ("quarter groupings", "g=quarter&cg=quarter"), ("month CFB grouping", "cg=month"),
-    ("dependencies all", "dp=all"), ("dependencies overdue", "dp=overdue"), ("dependencies external", "dp=external"), ("dependencies gap", "dp=gap"),
+    ("dependencies all", "dp=all"), ("dependencies overdue", "dp=overdue"), ("dependencies external", "dp=external"), ("dependencies gap", "dp=gap"), ("dependencies blocked by outside scope", "dp=blockedby"), ("dependencies blocking outside scope", "dp=blocking"),
     ("NFR by category", "nt=category"), ("NFR by commitment", "nt=commitment"), ("NFR by capability", "nt=capability"), ("NFR by team", "nt=team"),
     ("CXCROSS committed", "cx=committed"), ("CXCROSS not set", "cx=notset"), ("CXCROSS stretch", "cx=stretch"),
     ("capitalization by release, count", "cpg=release&cpm=count"), ("cycle 2", "cy=DC2"), ("old release, all projects, hostile team", "r=26.2&TEAM"),
