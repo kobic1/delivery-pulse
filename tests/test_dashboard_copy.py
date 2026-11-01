@@ -187,7 +187,7 @@ def test_the_pod_tiles_are_defined_as_the_code_counts_them():
     assert "no epic planned in the selected cycle" in cy                                     # Idle Pods follows the cycle
     assert "counted over the whole release, not the selected cycle" in cy                   # the other tile does not
     assert "${CY.podWip}" in cy and "reference chosen by the owner, not a program rule" in cy
-    assert "except the two pod tiles" in cy                                                   # their numbers open a list in the page, not Jira
+    assert "except the Pods tiles" in cy                                                   # their numbers open a list in the page, not Jira
 
 
 def test_dependencies_have_one_disclosure_and_the_gap_rule_has_its_reason():
