@@ -369,3 +369,12 @@ def test_the_proactive_tiles_reuse_the_page_rules_and_add_no_second_copy():
 
 def test_the_pod_coverage_note_is_still_in_the_pods_block():
     assert 'id="cy-podnote"' in TEMPLATE and "epics carry a pod label;" in TEMPLATE and "have none (No Pod Label)" in TEMPLATE
+
+
+def test_the_capabilities_disclosure_names_the_commitment_level_filter_and_what_does_not_apply():
+    cap = BLOCKS["cap"]
+    assert "Commitment Level" in cap and "Not Set means the field is empty" in cap
+    assert "the Commitment Level filter above them, which applies to this section only" in cap
+    assert "Teams and the Commitment Type in the filter bar do not apply to Capabilities" in cap
+    assert "a Capability has neither" not in cap and "Teams and Commitment Type do not apply" not in cap
+    assert "Filters the Capabilities in this section only." in TEMPLATE
