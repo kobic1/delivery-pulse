@@ -958,25 +958,27 @@ function percentile(sorted, p) {
   const i = (sorted.length - 1) * p, lo = Math.floor(i), hi = Math.ceil(i);
   return sorted[lo] + (sorted[hi] - sorted[lo]) * (i - lo);
 }
-// Cycle Time per Release (the selected-release tile, the chart and the Release Analysis row all read cycleStats, so they agree): Done epics with an EDCT, EXCEPT the Maintenance Issue Category
-// (Jira field cf10139, stored spelling, compared case-insensitively; SOW is not excluded here). Implemented by AI plays no part: Yes, No and empty all count. Every link that opens these epics adds
-// CYCLE_KEPT_JQL, so the query lists the same epics (Jira cannot search for an EDCT, which is read from change history: `linked` counts the epics the link lists, `n` those with an EDCT).
-const CYCLE_EXCLUDED_CATEGORY = "Maintenance";
-const cycleExcluded = e => String(e.cat || "").toLowerCase() === CYCLE_EXCLUDED_CATEGORY.toLowerCase();
-const CYCLE_KEPT_JQL = `(cf[10139] is EMPTY OR cf[10139] != "${CYCLE_EXCLUDED_CATEGORY}")`;
-function cycleStats(list) {
-  const pop = list.filter(e => cls(e.s) === "done" && !cycleExcluded(e)), vals = pop.map(cycleOf).filter(v => v != null).sort((a, b) => a - b);
-  return {n: vals.length, linked: pop.length, ok: vals.length >= MIN_N, p50: percentile(vals, .5), p75: percentile(vals, .75), p90: percentile(vals, .9), p95: percentile(vals, .95)};
-}
-const cycleHref = rel => jira({release: rel, kind: "done", commit: ALLC, extra: CYCLE_KEPT_JQL});
-const cycleNote = c => `${CYCLE_EXCLUDED_CATEGORY} epics excluded; AI, non-AI and empty all count` + (c.linked > c.n ? `\nThe link lists ${c.linked} Done epics: ${c.linked - c.n} of them have no EDCT yet and are not in ${c.n}` : "");
-// AI Adoption leaves out epics in these Issue Categories (Jira field cf10139, stored spelling, compared case-insensitively) from EVERY AI figure: the tile and its previous-month line, the chart, its View Data
-// table and all their Jira links, the Release Analysis AI share. One list drives the numbers (aiExcluded) and every link (AI_KEPT_JQL / AI_EXCLUDED_JQL). EDCT is not an AI figure: Efficiency keeps its own rule (Maintenance out, AI-implemented only) and Cycle Time per Release has its own (Maintenance out, AI or not).
+// ONE list of excluded Issue Categories (Jira field cf10139, stored spelling, compared case-insensitively) is shared by Epics by AI and Cycle Time per Release, so the two cannot drift: one list drives the numbers
+// (aiExcluded / cycleExcluded) and every link (AI_KEPT_JQL / AI_EXCLUDED_JQL / CYCLE_KEPT_JQL). AI Adoption leaves these epics out of EVERY AI figure: the tile and its previous-month line, the chart, its View Data
+// table and all their Jira links, the Release Analysis AI share. EDCT is not an AI figure: Efficiency keeps its own rule (Maintenance out, AI-implemented only; EFFICIENCY_KEPT_JQL, monthStats).
 const AI_EXCLUDED_CATEGORIES = ["Maintenance", "SOW"];
 const aiExcluded = e => AI_EXCLUDED_CATEGORIES.some(c => String(e.cat || "").toLowerCase() === c.toLowerCase());
 const AI_KEPT_JQL = `(cf[10139] is EMPTY OR cf[10139] not in (${AI_EXCLUDED_CATEGORIES.join(", ")}))`;
 const AI_EXCLUDED_JQL = `cf[10139] in (${AI_EXCLUDED_CATEGORIES.join(", ")})`;
 const AI_EXCL_TEXT = `${AI_EXCLUDED_CATEGORIES.slice(0, -1).join(", ")} and ${AI_EXCLUDED_CATEGORIES[AI_EXCLUDED_CATEGORIES.length - 1]}`;
+// Cycle Time per Release (the selected-release tile, the chart and the Release Analysis row all read cycleStats, so they agree): Done epics with an EDCT, outside the excluded Issue Categories above. It takes no part in
+// Implemented by AI (Yes, No and empty all count) and none in Flagged (the population never reads it; EDCT itself skips flagged days, which is how the measure is defined, not who is counted). Every link that opens these epics
+// adds CYCLE_KEPT_JQL, so the query lists the same epics (Jira cannot search for an EDCT, which is read from change history: `linked` counts the epics the link lists, `n` those with an EDCT).
+const cycleExcluded = aiExcluded;
+const CYCLE_KEPT_JQL = AI_KEPT_JQL;
+function cycleStats(list) {
+  const pop = list.filter(e => cls(e.s) === "done" && !cycleExcluded(e)), vals = pop.map(cycleOf).filter(v => v != null).sort((a, b) => a - b);
+  return {n: vals.length, linked: pop.length, ok: vals.length >= MIN_N, p50: percentile(vals, .5), p75: percentile(vals, .75), p90: percentile(vals, .9), p95: percentile(vals, .95)};
+}
+const cycleHref = rel => jira({release: rel, kind: "done", commit: ALLC, extra: CYCLE_KEPT_JQL});
+const cycleNote = c => `${AI_EXCL_TEXT} epics excluded; AI, non-AI and empty all count` + (c.linked > c.n ? `\nThe link lists ${c.linked} Done epics: ${c.linked - c.n} of them have no EDCT yet and are not in ${c.n}` : "");
+// Efficiency (EDCT of AI-implemented epics) has its own, narrower rule: only the Maintenance Issue Category is left out. Its query text is its own constant, not the shared list.
+const EFFICIENCY_KEPT_JQL = `(cf[10139] is EMPTY OR cf[10139] != "Maintenance")`;
 const AI_EXCL_WHY = `Epics in the Issue Categories ${AI_EXCL_TEXT} are not product delivery that AI adoption is measured on, so they are left out of the numerator, the denominator and every Jira link of the AI figures.`;
 function counts(list) {
   const c = {scope: list.length, done: 0, flight: 0, notStarted: 0, other: 0, ai: 0, aiDone: 0, aiExcl: 0};         // ai, aiDone and aiExcl follow the AI rule: Done epics outside the excluded Issue Categories
@@ -1271,7 +1273,7 @@ function periods(g = state.gran) {
   }
   return out;
 }
-// Epics resolved in a month (status Done). The AI figures leave out the AI-excluded Issue Categories (Maintenance, SOW); EDCT keeps its own rule, Maintenance only, as the email counts it.
+// Epics resolved in a month (status Done). The AI figures leave out the AI-excluded Issue Categories (Maintenance, SOW); Efficiency (EDCT, AI-implemented epics) keeps its own rule, Maintenance only, as the email counts it.
 function monthStats(mo) {
   const pop = DATA.epics.filter(e => base(e) && e.s === "Done" && e.rd && utc(e.rd) >= mo.s && utc(e.rd) < mo.e);
   const kept = pop.filter(e => !aiExcluded(e)), ai = kept.filter(e => e.ai);
@@ -1282,9 +1284,9 @@ function monthStats(mo) {
 // Every link carries the population of the number it explains: the epics held in this page, which are the epics with a fix version from the first to the last release listed.
 const AI_NOT = " AND (cf[15229] is EMPTY OR (cf[15229] = No AND cf[15229] != Yes))";          // "not Yes": the field is a multi-select; empty, or No without Yes. Never != Yes alone (it drops the empty ones); an epic with both Yes and No counts as AI
 const aiNotTip = (n, what) => `${n} ${epicWord(n)} not marked as AI, ${what}\nImplemented by AI Agent is empty, or No without Yes.`;
-function jiraMonth(mo, extra = "", basis = "ai") {                 // basis: "ai" the AI population (excluded categories out), "excluded" the epics those categories leave out, "edct" the EDCT population (Maintenance out)
+function jiraMonth(mo, extra = "", basis = "ai") {                 // basis: "ai" the AI population (excluded categories out), "excluded" the epics those categories leave out, "edct" the Efficiency population (Maintenance out; Cycle Time per Release links use CYCLE_KEPT_JQL through cycleHref, not this basis)
   if (!state.projects.size) return null;
-  const cat = basis === "edct" ? CYCLE_KEPT_JQL : basis === "excluded" ? AI_EXCLUDED_JQL : AI_KEPT_JQL;
+  const cat = basis === "edct" ? EFFICIENCY_KEPT_JQL : basis === "excluded" ? AI_EXCLUDED_JQL : AI_KEPT_JQL;
   return href(`project in (${pkeys(state.projects)}) AND issuetype = Epic AND status = Done AND resolutiondate >= "${iso(mo.s)}" AND resolutiondate < "${iso(mo.e)}" AND ${cat} AND fixVersion in (${DATA.releases.map(q).join(", ")})` + teamClause(state.teams) + extra);
 }
 function weekOf(rel) {                                       // where the release stands today, in its own 12-week frame
@@ -1693,8 +1695,8 @@ function chartCycle(rels) {
       ["P50 and P90", `the median and the 90th percentile of EDCT (linear interpolation) over the Done epics of the release.`],
       ["n", `Done epics of the release that have an EDCT, whatever their Commitment Type and whether Implemented by AI Agent is Yes, No or empty.`]
     ],
-    left: `Epics in the ${CYCLE_EXCLUDED_CATEGORY} Issue Category, and epics with no EDCT. A release with fewer than 5 epics left is not plotted.`,
-    know: `Projects and Teams filters apply. Unlike Efficiency, this is not limited to AI-implemented epics; like Efficiency, it leaves out ${CYCLE_EXCLUDED_CATEGORY}. The bar link opens the Done epics of the release outside ${CYCLE_EXCLUDED_CATEGORY} as a Jira query; Jira cannot search for an EDCT, so an epic with no EDCT is listed there and not counted in n.`})};
+    left: `Epics in the ${AI_EXCL_TEXT} Issue Categories, and epics with no EDCT. A release with fewer than 5 epics left is not plotted.`,
+    know: `Projects and Teams filters apply. Unlike Efficiency, this is not limited to AI-implemented epics; it leaves out ${AI_EXCL_TEXT}, which Efficiency does not (Efficiency leaves out Maintenance only). The bar link opens the Done epics of the release outside ${AI_EXCL_TEXT} as a Jira query; Jira cannot search for an EDCT, so an epic with no EDCT is listed there and not counted in n.`})};
 }
 function chartAI(rels) {
   const rows = rels.map(r => counts(doneScope(r)));
@@ -1913,7 +1915,7 @@ function renderCharts() {
     defs: [
       ["Projects and Teams", `apply to every chart. Done Capabilities follows Projects only (a Capability has no team).`],
       ["Commitment Type", `changes no chart. It changes only the "selected types" columns of the table and the By Project and By Team tables.`],
-      ["Done epics per release", `Cycle Time per Release counts the Done epics that have an EDCT, outside ${CYCLE_EXCLUDED_CATEGORY}, whether or not AI implemented them. Epics by AI counts the Done epics outside ${esc(AI_EXCL_TEXT)}. Both ignore Commitment Type.`],
+      ["Done epics per release", `Cycle Time per Release counts the Done epics that have an EDCT, outside ${esc(AI_EXCL_TEXT)}, whether or not AI implemented them. Epics by AI counts the Done epics outside ${esc(AI_EXCL_TEXT)}. Both ignore Commitment Type.`],
       ["Target epics", `Epics per Release and NFR Share use the target scope: Committed and Not Set epics.`],
       ["Running releases", `marked * and dashed: ${esc(DATA.provisional.join(", "))}. Their numbers can still change.`]
     ],
@@ -1926,7 +1928,7 @@ function renderCharts() {
       cd.aiDone >= MIN_N ? pct(cd.ai, cd.aiDone) + "%" : cd.aiDone ? `${cd.ai} of ${cd.aiDone}` : "–",
       cd.aiExcl ? tlink(cd.aiExcl, jira({release: r, kind: "done", commit: ALLC, extra: AI_EXCLUDED_JQL}), `${cd.aiExcl} ${AI_EXCL_TEXT} Done ${epicWord(cd.aiExcl)} in ${r}\nLeft out of every AI figure.`) : "0"];
   });
-  dataTable("trend-data", "Target scope and done, the Epics per Release bar, epics of the selected commitment types, and cycle time (Done epics outside Maintenance) and AI share (Done epics outside Maintenance and SOW) per release",
+  dataTable("trend-data", "Target scope and done, the Epics per Release bar, epics of the selected commitment types, and cycle time (Done epics outside Maintenance and SOW) and AI share (Done epics outside Maintenance and SOW) per release",
     ["Release", "Target Scope", "Target Done", "Epics per Release Bar (Higher)", "Epics in Scope (Selected Types)", "Done (Selected Types)", "Cycle P50", "Cycle P90", "Done with Cycle Time", "Epics by AI", `Excluded From AI (${AI_EXCLUDED_CATEGORIES.join(", ")})`], rows);
   { const aiHelp = document.querySelector('[data-chart="ai"] .cc-foot details > .cap'); if (aiHelp) aiHelp.insertAdjacentHTML("beforeend", `<br><b>Excluded from the AI share, per release</b> (${esc(AI_EXCL_TEXT)} Done epics): ${rels.map((r, i) => `${esc(r)} ${rows[i][10]}`).join(" · ")}.`); }
   nfrShareData(nfrC.rows); renderCapitalization();        // two tables sit under the chart grid: say which charts each one belongs to

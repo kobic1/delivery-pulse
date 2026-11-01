@@ -319,7 +319,9 @@ def _(t: T):
 
 
 # ================================================================ Cycle Time per Release: the chart's n, the table's n, the tile and the Jira link query are one population
-# Owner decision: Cycle Time per Release counts the Done epics with an EDCT of the release, Maintenance (Issue Category) excluded, whatever Implemented by AI says (Yes, No, empty). SOW stays in.
+# Owner decision: Cycle Time per Release counts the Done epics with an EDCT of the release, the Issue Categories Maintenance AND SOW excluded (the same two as the AI figures), whatever Implemented by AI says
+# (Yes, No, empty) and whatever the Flagged field says (it plays no part in who is counted).
+CYCLE_EXCLUDED = ("maintenance", "sow")
 CYCLE_STATES = ["", "p=PMN", "p=PMN|CXCO", "p=CXWFM|WFM&c=Stretch", "TEAM", "p=PMN&TEAM"]
 CYCLE_JS = r"""(() => {
   const chart = document.querySelector('[data-chart="cycle"]'), svg = chart.querySelector('svg');
@@ -353,21 +355,21 @@ def _fmt(v):
 
 
 def cycle_expected(data: dict, rel: str, projects, teams):
-    """The independent recount, from the baked epics: Done, in the release, in the selected projects and teams, Issue Category not Maintenance, with an EDCT. Nothing about AI."""
+    """The independent recount, from the baked epics: Done, in the release, in the selected projects and teams, Issue Category neither Maintenance nor SOW, with an EDCT. Nothing about AI, nothing about Flagged."""
     out = []
     for e in data["epics"]:
         if e["s"] != "Done" or rel not in e["fv"] or e["p"] not in projects or e.get("edct") is None:
             continue
         if teams and not (set(e.get("tm") or []) & set(teams)):
             continue
-        if str(e.get("cat") or "").lower() == "maintenance":
+        if str(e.get("cat") or "").lower() in CYCLE_EXCLUDED:
             continue
         out.append(e)
     return out
 
 
 def cycle_population_ok(data: dict) -> list[str]:
-    """The fixture must contain the epics the rule is about, or the check is blind: Done epics with an EDCT that are Maintenance, SOW, not AI, AI, and have no Issue Category."""
+    """The fixture must contain the epics the rule is about, or the check is blind: Done epics with an EDCT that are Maintenance, SOW, not AI, AI, and have no Issue Category (Maintenance and SOW are the two categories the rule leaves out; the others must stay in)."""
     done = [e for e in data["epics"] if e["s"] == "Done" and e.get("edct") is not None]
     need = {"Maintenance with an EDCT": [e for e in done if e.get("cat") == "Maintenance"], "SOW with an EDCT": [e for e in done if e.get("cat") == "SOW"],
             "not AI with an EDCT": [e for e in done if not e.get("ai")], "AI with an EDCT": [e for e in done if e.get("ai")], "no Issue Category with an EDCT": [e for e in done if not e.get("cat")]}
@@ -421,11 +423,13 @@ def cycle_check_page(url, data, spec: str, label: str):
                     probs.append(f"{tag} {rel}: the {name} has no Jira link for n={ns[i]}")
                 continue
             j = jql_of(h)
-            if "Maintenance" not in (j or "") or "cf[10139]" not in j:
-                probs.append(f"{tag} {rel}: the {name} link does not exclude Maintenance: {j}")
+            if not j or "cf[10139]" not in j or "Maintenance" not in j or "SOW" not in j:
+                probs.append(f"{tag} {rel}: the {name} link does not exclude both Maintenance and SOW: {j}")
                 continue
             if "cf[15229]" in j:
                 probs.append(f"{tag} {rel}: the {name} link filters on Implemented by AI: {j}")
+            if "flag" in j.lower():
+                probs.append(f"{tag} {rel}: the {name} link mentions Flagged: {j}")
             try:
                 tree = J.parse(j)
                 found = [x for x in universe if J.evaluate(tree, x)]
@@ -462,7 +466,7 @@ def cycle_problems(url=None) -> list[str]:
 @SUITE.test("cycle_time_per_release_n_and_the_jira_link_are_one_population")
 def _(t: T):
     """The chart n, its hover text, the Release Analysis row, the selected-release tile and the Jira link (evaluated with the repo's JQL evaluator) all equal the independent recount:
-    Done epics with an EDCT, Maintenance out, AI / not AI / empty all in. Run in six filter states."""
+    Done epics with an EDCT, Maintenance and SOW out, AI / not AI / empty all in, Flagged irrelevant. Run in six filter states."""
     F = fixture()
     probs = cycle_problems()
     for p in probs[:15]:
@@ -478,8 +482,8 @@ def _(t: T):
     F = fixture()
     d = copy.deepcopy(F["data"])
     rel = "26.4"
-    cand = [e for e in d["epics"] if e["s"] == "Done" and rel in e["fv"] and e["p"] == "PMN" and e.get("cat") != "Maintenance" and e.get("edct") is not None][:2]
-    t.check(len(cand) == 2, "the fixture has two PMN Done epics in 26.4 outside Maintenance")
+    cand = [e for e in d["epics"] if e["s"] == "Done" and rel in e["fv"] and e["p"] == "PMN" and str(e.get("cat") or "").lower() not in CYCLE_EXCLUDED and e.get("edct") is not None][:2]
+    t.check(len(cand) == 2, "the fixture has two PMN Done epics in 26.4 outside Maintenance and SOW")
     for e in cand:
         e["edct"] = None
     url = ctx.write(kit.fragment_for(d), "cycle_noedct")
@@ -496,14 +500,36 @@ def _(t: T):
 
 
 
+@SUITE.test("cycle_time_per_release_ignores_the_flagged_field")
+def _(t: T):
+    """Cycle Time per Release has no relation to Flagged: set Flagged on a few Done epics that have an EDCT (the fixture has none) and the plotted n, percentiles, hover, table, tile and link must still equal the
+    recount, which never reads Flagged. The links must not mention Flagged either (checked in cycle_check_page)."""
+    import copy
+    F = fixture()
+    d = copy.deepcopy(F["data"])
+    hit = [e for e in d["epics"] if e["s"] == "Done" and e.get("edct") is not None and "26.4" in e["fv"]][:12]
+    t.check(len(hit) == 12, "the fixture has twelve Done epics with an EDCT in 26.4 to flag")
+    for e in hit:
+        e["fl"] = True
+    url = ctx.write(kit.fragment_for(d), "cycle_flagged")
+    for spec in ("", "p=PMN"):
+        probs, facts = cycle_check_page(url, d, spec, "flagged")
+        for p in probs[:10]:
+            t.failures.append(p)
+        t.passed += 0 if probs else 1
+        t.note(f"flagged Done epics, filter '{spec or '(default)'}': " + "; ".join(facts))
+
+
 # ================================================================ the oracle must not be blind: seed each known defect into a copy of the template and require it to be caught
 MUTATIONS = [
     ("a NaN date in the 'since the pull' range (Quarter mode defect)", "const START_R = [C.start, null]", 'const START_R = ["0-NaN-01", null]', quarter_mode_problems),
     ("an unscoped 'no story points' range in Release mode", 'const noSpRanges = by === "release" ? shownR : [START_R];', "const noSpRanges = [START_R];", release_mode_problems),
     ("the reserved project key INT left unquoted", "const pkey = k => JQL_RESERVED_KEYS.includes(k) ? q(k) : k;", "const pkey = k => k;", quoting_problems),
+    ('Cycle Time per Release counting SOW epics again', 'const cycleExcluded = aiExcluded;', 'const cycleExcluded = e => String(e.cat || "").toLowerCase() === "maintenance";', cycle_problems),
+    ('the Cycle Time per Release link keeping SOW epics (Maintenance-only query)', 'const CYCLE_KEPT_JQL = AI_KEPT_JQL;', 'const CYCLE_KEPT_JQL = `(cf[10139] is EMPTY OR cf[10139] != "Maintenance")`;', cycle_problems),
     ('Cycle Time per Release counting Maintenance epics again', 'const pop = list.filter(e => cls(e.s) === "done" && !cycleExcluded(e)),', 'const pop = list.filter(e => cls(e.s) === "done"),', cycle_problems),
     ('Cycle Time per Release dropping the epics AI did not implement', 'const pop = list.filter(e => cls(e.s) === "done" && !cycleExcluded(e)),', 'const pop = list.filter(e => cls(e.s) === "done" && !cycleExcluded(e) && e.ai),', cycle_problems),
-    ('the Cycle Time per Release link losing the Maintenance exclusion', 'const cycleHref = rel => jira({release: rel, kind: "done", commit: ALLC, extra: CYCLE_KEPT_JQL});', 'const cycleHref = rel => jira({release: rel, kind: "done", commit: ALLC});', cycle_problems),
+    ('the Cycle Time per Release link losing the exclusion', 'const cycleHref = rel => jira({release: rel, kind: "done", commit: ALLC, extra: CYCLE_KEPT_JQL});', 'const cycleHref = rel => jira({release: rel, kind: "done", commit: ALLC});', cycle_problems),
     ('the Cycle Time per Release link filtering on AI', 'const cycleHref = rel => jira({release: rel, kind: "done", commit: ALLC, extra: CYCLE_KEPT_JQL});', 'const cycleHref = rel => jira({release: rel, kind: "done", commit: ALLC, extra: `${CYCLE_KEPT_JQL} AND cf[15229] = Yes`});', cycle_problems),
     ("accessibility bugs left in the Open Bugs links", "const AX_EXCLUDE = ", 'const AX_EXCLUDE = ""; const AX_EXCLUDE_UNUSED = ', None),
 ]

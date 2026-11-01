@@ -175,8 +175,8 @@ def test_links_are_described_as_what_they_are():
 def test_populations_are_named_where_two_numbers_could_be_confused():
     assert "every epic with the status Done in the release, whatever its Commitment Type" in BLOCKS["bu"]
     assert "Cycle Time per Release also counts epics that AI did not implement, so the two are not comparable" in BLOCKS["eff"]
-    cyc = BLOCKS["ch-cycle"].replace("${CYCLE_EXCLUDED_CATEGORY}", "Maintenance")
-    assert "not limited to AI-implemented epics" in cyc and "leaves out Maintenance" in cyc
+    cyc = BLOCKS["ch-cycle"].replace("${AI_EXCL_TEXT}", "Maintenance and SOW")
+    assert "not limited to AI-implemented epics" in cyc and "it leaves out Maintenance and SOW, which Efficiency does not (Efficiency leaves out Maintenance only)" in cyc
     trend = BLOCKS["trend"]
     assert "Done Capabilities follows Projects only" in trend and "Commitment Type" in trend
     assert "Projects and Teams filters apply to every chart" not in TEMPLATE                  # the old sentence contradicted itself
@@ -212,19 +212,34 @@ def test_the_cfb_text_names_its_unit_from_its_own_table_not_a_variable_of_anothe
     assert "CFB_UNIT[state.cfbGroup].noun" in cfb and "${U.noun}" not in cfb
 
 
-def test_cycle_time_per_release_is_described_as_maintenance_out_ai_or_not():
-    """Owner decision: Cycle Time per Release leaves out the Maintenance Issue Category (only), and counts AI, non-AI and empty-AI Done epics with an EDCT."""
-    cyc = BLOCKS["ch-cycle"].replace("${CYCLE_EXCLUDED_CATEGORY}", "Maintenance")
-    assert "Epics in the Maintenance Issue Category" in cyc
+def test_cycle_time_per_release_is_described_as_maintenance_and_sow_out_ai_or_flagged_not_involved():
+    """Owner decision: Cycle Time per Release leaves out the Maintenance AND SOW Issue Categories (the one shared list), counts AI, non-AI and empty-AI Done epics with an EDCT, and has no relation to Flagged."""
+    cyc = BLOCKS["ch-cycle"].replace("${AI_EXCL_TEXT}", "Maintenance and SOW")
+    assert "Epics in the Maintenance and SOW Issue Categories" in cyc
     assert "whether Implemented by AI Agent is Yes, No or empty" in cyc
-    assert "SOW" not in cyc                                                                     # SOW is excluded from Epics by AI only
-    trend = BLOCKS["trend"].replace("${CYCLE_EXCLUDED_CATEGORY}", "Maintenance")
-    assert "Cycle Time per Release counts the Done epics that have an EDCT, outside Maintenance, whether or not AI implemented them" in trend
-    for stale in ("count every Done epic of the release", "counts all Done epics", "counts every Done epic", "of every category"):
+    trend = BLOCKS["trend"].replace("${esc(AI_EXCL_TEXT)}", "Maintenance and SOW")
+    assert "Cycle Time per Release counts the Done epics that have an EDCT, outside Maintenance and SOW, whether or not AI implemented them" in trend
+    for stale in ("count every Done epic of the release", "counts all Done epics", "counts every Done epic", "of every category", "SOW stays in", "SOW is not excluded"):
         assert stale not in TEMPLATE, stale
-    assert 'const CYCLE_KEPT_JQL = `(cf[10139] is EMPTY OR cf[10139] != "${CYCLE_EXCLUDED_CATEGORY}")`;' in TEMPLATE
-    assert 'const CYCLE_EXCLUDED_CATEGORY = "Maintenance";' in TEMPLATE
-    assert "Epics by AI" in trend and "${esc(AI_EXCL_TEXT)}" in trend                           # Epics by AI keeps its own rule (Maintenance and SOW)
+    assert "Maintenance only" not in cyc.replace("(Efficiency leaves out Maintenance only)", "") and "Maintenance only" not in trend     # only Efficiency is Maintenance-only
+    # one list: the cycle population and its link are the AI list, not a second hard-coded copy
+    assert 'const AI_EXCLUDED_CATEGORIES = ["Maintenance", "SOW"];' in TEMPLATE
+    assert "const cycleExcluded = aiExcluded;" in TEMPLATE and "const CYCLE_KEPT_JQL = AI_KEPT_JQL;" in TEMPLATE
+    assert "CYCLE_EXCLUDED_CATEGORY" not in TEMPLATE
+    # Efficiency keeps its own Maintenance-only rule and query text
+    assert 'const EFFICIENCY_KEPT_JQL = `(cf[10139] is EMPTY OR cf[10139] != "Maintenance")`;' in TEMPLATE
+    assert 'basis === "edct" ? EFFICIENCY_KEPT_JQL :' in TEMPLATE
+    assert 'e.cat !== "Maintenance" && e.ai && e.edct != null' in TEMPLATE
+
+
+def test_cycle_time_per_release_has_no_relation_to_flagged():
+    """The population (cycleStats), its link (cycleHref) and its copy never read or name Flagged. The EDCT definition sentence ("Flagged days ... not counted") describes the measure, not who is counted."""
+    body = TEMPLATE[TEMPLATE.index("function cycleStats"):TEMPLATE.index("const EFFICIENCY_KEPT_JQL")]
+    assert not re.search(r"flag|\.fl\b|\bfl\b", body, re.I), body
+    cyc = BLOCKS["ch-cycle"]
+    for sentence in re.split(r"(?<=\.)\s+", cyc):
+        if re.search(r"flag", sentence, re.I):
+            assert "Flagged days and the Done day are not counted" in sentence, sentence
 
 
 def test_flagged_always_means_blocked_in_the_cycles_copy():
