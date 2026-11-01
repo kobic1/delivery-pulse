@@ -205,6 +205,9 @@ tbody tr:hover > * { background:var(--panel); }
 .kpis.four { grid-template-columns:repeat(4,minmax(0,1fr)); }
 @media (max-width:1100px) { .kpis, .kpis.five { grid-template-columns:repeat(3,minmax(0,1fr)); } .kpis.four { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media (max-width:620px) { .kpis, .kpis.five { grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 20px; } }
+.kpis.three { grid-template-columns:repeat(3,minmax(0,1fr)); }
+@media (max-width:1100px) { .kpis.three { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width:620px) { .kpis.three { gap:0 20px; } }
 .kpi { border-top:2px solid var(--kc,var(--line)); padding:10px 0 12px; min-width:0; }
 .kpi.d { --kc:var(--blue); } .kpi.e { --kc:var(--teal); } .kpi.q { --kc:var(--emerald); } .kpi.cx { --kc:var(--blue-ink); } .kpi.nf { --kc:var(--ctl); } .kpi.x { --kc:var(--coral); } .kpi.a { --kc:var(--indigo); }
 .kpi .k { font-size:var(--t-xs); font-weight:600; color:var(--muted); margin-bottom:2px; }
@@ -720,7 +723,7 @@ footer.f b { color:var(--ink); }
     </div>
     <div class="sub" id="cy-after"></div>
     <div class="kpis five" id="cy-kpis1"></div>
-    <div class="cyblock" id="cy-pods"><h3 id="cy-pods-h">Pods</h3><div id="cy-notes"></div><div class="kpis five" id="cy-kpis2"></div><div id="cy-podlist" hidden></div></div>
+    <div class="cyblock" id="cy-pods"><h3 id="cy-pods-h">Pods</h3><div id="cy-notes"></div><div class="kpis three" id="cy-kpis2"></div><div id="cy-podlist" hidden></div></div>
     <div id="cy-cap"></div>
     <div id="cy-body"></div>
   </section>
@@ -3047,7 +3050,7 @@ function renderNfr() {
 // not configured: Delivery Cycle 1 runs from the release start to the end of W6 (start + 48 days, the boundary of the Epic Delivery marker), Delivery Cycle 2 from the next day to the release end.
 // An epic belongs to the cycle that holds its planned date (the later of its due date and the end of its Target Sprint, otherwise the one it has). Groups are the Epic Teams of the selected epics, in
 // alphabetical order; an optional pod grouping (pods pull, git-ignored configuration) can replace them. Facts only: no verdict, no colour for a group, no ranking, no share under 5 items.
-const CY = {stale: 30, next: 7, podWip: 3, asOf: ""};          // podWip: a reference level chosen by the owner (more than this many epics in flight in one pod), not a program rule
+const CY = {stale: 30, next: 7, podWip: 3, levelSpread: 0.40, asOf: ""};          // podWip: a reference level chosen by the owner (more than this many epics in flight in one pod), not a program rule. levelSpread: a team is uneven when its busiest and lightest pods differ by this share of the team's in-flight epics (owner's level; the minimum sample is MIN_N)
 const CY_DAY = s => Math.round(utc(s) / DAY);
 const cyAdd = (s, n) => iso(utc(s) + n * DAY);
 let CYM = null;                                                // the model of the last render: cycles, epics, groups
@@ -3165,12 +3168,16 @@ function cyQ(kind, g, c, arg) {
     case "podEpics": w = cyPodClause(arg); break;                                                // a pod's epics in the release (arg: the pod of cyPodsOf)
     case "podFlight": w = `${cyPodClause(arg)} AND ${CY_FLIGHT}`; break;                         // ... of them in flight
     case "podWip": w = arg && arg.length ? `(${arg.map(p => `(${cyPodClause(p)})`).join(" OR ")}) AND ${CY_FLIGHT}` : null; break;       // the epics in flight of all the pods over the level (arg: those pods)
-    case "podWith": case "podNone": {                                                            // the epics under the page filters with / without a pod label, each project by its own pod labels
-      const none = kind === "podNone";
+    case "podWith": case "podNone": case "podNoneFlight": {                                      // the epics under the page filters with / without a pod label (podNoneFlight: of them in flight), each project by its own pod labels
+      const none = kind !== "podWith";
       const parts = [...state.projects].map(p => { const sp = cyPodSp(p).map(q).join(",");
         return none ? `(project = ${pkey(p)}${sp ? ` AND (labels is EMPTY OR labels not in (${sp}))` : ""})` : sp ? `(project = ${pkey(p)} AND labels in (${sp}))` : ""; }).filter(Boolean);
-      w = parts.length ? `(${parts.join(" OR ")})` : null; break;
+      w = parts.length ? `(${parts.join(" OR ")})` + (kind === "podNoneFlight" ? ` AND ${CY_FLIGHT}` : "") : null; break;
     }
+    case "nsSoon": w = span(A, cyAdd(A, CY.next), NS); break;                                       // not started and planned from today to today plus 7: a 'now' list, not bound to the selected cycle
+    case "nsSoonRfd": w = span(A, cyAdd(A, CY.next), ` AND status = "Ready for Dev"`); break;       // ... of them Ready for Dev
+    case "flightIn": w = CY_FLIGHT; break;                                                       // in flight, under the row g (a team, or a pod of a team; null: every epic under the page filters)
+    case "noPodFlight": w = [CY_FLIGHT, cyNoPodQ(g.project)].filter(Boolean).join(" AND "); break;   // a team's in-flight epics with no pod label (g: the team)
     default: w = null;
   }
   if (w == null) return null;
@@ -3249,6 +3256,58 @@ const CY_POD_LIMIT = "Pods are known only through the labels on epics: an epic w
 const cyPodBtn = (kind, n, what) => { const on = CY_PODLIST === kind;
   return `<button type="button" class="linkbtn" data-cyact="pods" data-cyval="${kind}" data-what="${esc(what)}" aria-expanded="${on}" aria-controls="cy-podlist" aria-label="${esc(`${what}, ${on ? "hide" : "show"} the list`)}">${n.toLocaleString("en-US")}</button>`; };
 
+// ---- the four 'act now' tiles of the Pods block: forward-looking lists the teams can act on today. Each is built from the hierarchy of cyBuild (Project > Team > Pod) over the epics of the selected release under the page filters.
+//   nsSoon: not started (CLASS.notStarted) with a planned date from the as-of day to CY.next days later (plannedLater, the later of due date and Target Sprint end), whatever the cycle.
+//   level: teams with two or more pods whose in-flight epics (CLASS.flight) are spread unevenly (CY.levelSpread of the team's in-flight epics, at least MIN_N of them).
+//   wait: open dependencies (depModel) whose provider is an epic of the scope and whose waiting item is planned (the Dependencies rule: due date first) from the as-of day to CY.next days later.
+//   noPod: in flight with no pod label (podLabelsOf, as stored in pl).
+const cyInFlight = e => CLASS.flight.includes(e.s);
+const cyNsSoon = e => cls(e.s) === "notStarted" && !!e.due && e.due >= CY.asOf && e.due <= cyAdd(CY.asOf, CY.next);
+const cyTeamNodes = M => M.groups.filter(n => n.level === "team");
+function cyByTeam(M, pred) {                                     // the teams holding epics that pass pred, each with its pod leaves (a No Pod Label leaf included) that hold some
+  return cyTeamNodes(M).map(t => ({t, es: t.epics.filter(pred), kids: t.kids.map(k => ({k, es: k.epics.filter(pred)})).filter(x => x.es.length)})).filter(r => r.es.length);
+}
+function cyLevelFig(M) {
+  const teams = [];
+  cyTeamNodes(M).forEach(t => {
+    const pods = t.kids.filter(k => !k.virtual && k.epics.some(e => !cyDone(e)));        // a pod takes part when it has an epic in the release that is not Done; with none in flight it counts as 0
+    if (pods.length < 2) return;
+    const rows = pods.map(k => ({k, n: k.epics.filter(cyInFlight).length})), total = rows.reduce((a, r) => a + r.n, 0);
+    const hi = Math.max(...rows.map(r => r.n)), lo = Math.min(...rows.map(r => r.n)), spread = total ? (hi - lo) / total : 0;
+    const flagged = total >= MIN_N && spread >= CY.levelSpread - 1e-9;
+    rows.forEach(r => { r.role = flagged ? (r.n === hi ? "busiest" : r.n === lo ? "lightest" : "between") : ""; });
+    teams.push({t, rows, total, hi, lo, spread, flagged});
+  });
+  const flagged = teams.filter(x => x.flagged), ends = new Map();
+  flagged.forEach(x => x.rows.filter(r => r.role === "busiest" || r.role === "lightest").forEach(r => ends.set(r.k.project + "\n" + r.k.name.toLowerCase(), r)));     // one pod counts once, even if it is at an end in two teams
+  return {teams, multi: teams.length, flagged, n: ends.size};
+}
+function cyWaitFig(M) {
+  const byKey = new Map(M.epics.map(e => [e.k, e])), A = CY.asOf, B = cyAdd(A, CY.next), order = new Map(M.groups.map((n, i) => [n.id, i])), groups = new Map(), items = new Map();
+  depModel().openAll.forEach(x => {
+    const prov = x.pIn ? byKey.get(x.p.k) : null; if (!prov) return;
+    const date = x.d.dd || (x.planD.how === "Target Sprint" && x.planD.sprint ? x.planD.sprint.end : null);      // the Dependencies rule for the waiting item: the due date wins over the Target Sprint
+    if (!date || date < A || date > B) return;
+    items.set(x.d.k, {d: x.d, date, withPod: !!(items.get(x.d.k) || {}).withPod || prov.pl.length > 0});
+    prov.gs.map(id => M.byId.get(id)).filter(n => n.level === "team").forEach(t => {
+      const ps = t.kids.filter(k => prov.gs.includes(k.id));
+      (ps.length ? ps : [t]).forEach(leaf => { if (!groups.has(leaf.id)) groups.set(leaf.id, {t, leaf, pairs: []}); groups.get(leaf.id).pairs.push({prov, d: x.d, date}); });
+    });
+  });
+  const list = [...groups.values()].sort((a, b) => order.get(a.leaf.id) - order.get(b.leaf.id));
+  list.forEach(g => { g.pairs.sort((a, b) => a.date.localeCompare(b.date) || a.prov.k.localeCompare(b.prov.k, "en", {numeric: true}) || a.d.k.localeCompare(b.d.k, "en", {numeric: true}));
+    g.keys = [...new Set(g.pairs.map(p => p.d.k))]; g.first = g.pairs[0].date; });
+  return {items, list, withPod: [...items.values()].filter(i => i.withPod).length};
+}
+function cyActFig(M) {
+  const flight = M.epics.filter(cyInFlight), noPod = flight.filter(e => !e.pl.length), ns = M.epics.filter(cyNsSoon);
+  return {ns, nsRfd: ns.filter(e => e.s === "Ready for Dev"), nsRows: cyByTeam(M, cyNsSoon), level: cyLevelFig(M), wait: cyWaitFig(M), flight, noPod, noPodRows: cyByTeam(M, e => cyInFlight(e) && !e.pl.length)};
+}
+let CY_ACT = null;                                               // the figures of the four tiles, from the last Overview render
+const cyLn = (list, what, ...qa) => list.length ? tlink(list.length, cyQ(...qa), `${cyEp(list.length)} ${what}\nOpens ${list.length} in Jira`) : "0";
+const cyKeyIn = keys => { const h = keys.length ? href(`key in (${[...new Set(keys)].join(", ")})`) : null; return h && h.length <= CY_URL_MAX ? h : null; };      // the waiting items are issues of any type linked to an epic: Jira cannot search for that, so this link is an exact list of keys (tlink adds the standard note)
+const cyLabelsReady = () => cyLabelOk() && podRegistry().reg.size > 0;
+
 // ---- the tiles, by id: CY_KPI builds one tile from the stats (x.s), the cycle (x.c), the row (x.g) and the pod figures (x.fig); CY_STRIP lists the tiles of each strip, in order. A tile carries data-kpi="<id>".
 const CY_KPI = {
   planned: ({s, c, g}) => ({c: "cy", v: cyNum(s.planned, `planned in ${c.name}`, `Planned date ${c.start} to ${c.end}; Removed excluded.`, "planned", g, c), l: "Planned", s: `epics planned in ${c.name}`}),
@@ -3267,8 +3326,24 @@ const CY_KPI = {
     return {c: "cy2", l: tipFocus(`Pods With More Than ${L} Epics in Flight`, `Pods in ${rel} with more than ${L} epics In Progress or Validation, over the whole release under the page filters (a status is a point in time, so the cycle does not apply).\n${L} is a reference level chosen by the owner, not a program rule. An epic with several pod labels counts once under each pod.\n${CY_POD_LIMIT}`),
       ...(cyPodState(fig) || {v: n ? cyPodBtn("wip", n, `${n} ${plural(n, "pod", "pods")} with more than ${L} epics in flight in ${rel}`) : "0",
         s: n ? `${cyNum(fig.wipEpics, `in flight in the ${n} ${plural(n, "pod", "pods")} with more than ${L} epics in flight`, `Status ${CLASS.flight.join(" or ")}; ${rel}, under the page filters.`, "podWip", null, c, fig.wip)} ${epicWord(fig.wipEpics.length)} in flight in these pods` : `no pod has more than ${L} epics in flight`})}; },
+  nsSoon: ({c, act}) => { const n = act.ns.length, rel = state.release, to = cyAdd(CY.asOf, CY.next);
+    return {c: "cy2", l: tipFocus(`Not-Started Epics Due Within ${CY.next} Days`, `Epics in Candidate, New, In Definition or Ready for Dev with a planned date from today to ${CY.next} days ahead.\nOpens a list below`),
+      v: n ? cyPodBtn("nsSoon", n, `${n} not-started ${epicWord(n)} due within ${CY.next} days in ${rel}`) : "0",
+      s: n ? `${cyLn(act.nsRfd, "not started, Ready for Dev, planned in the window", "nsSoonRfd", null, c)} of them Ready for Dev` : `none planned ${CY.asOf} to ${to}`}; },
+  wait: ({act}) => { const n = act.wait.items.size, to = cyAdd(CY.asOf, CY.next);
+    return {c: "cy2", l: tipFocus("Waiting Dependents Due Soon", `Open dependencies where an epic of this release blocks an item due within ${CY.next} days. Each waiting item counts once.\nOpens a list below`),
+      v: n ? cyPodBtn("wait", n, `${n} waiting ${plural(n, "item", "items")} due within ${CY.next} days`) : "0",
+      s: n ? `${act.wait.withPod} wait on an epic with a pod label` : `no item waiting on an epic is due ${CY.asOf} to ${to}`}; },
+  level: ({act}) => { const L = act.level, n = L.n;
+    return {c: "cy2", l: tipFocus("Pods To Level", `Pods at the busy and light ends of a team whose in-flight epics are spread unevenly across its pods.\nOpens a list below`),
+      ...(!cyLabelsReady() ? {v: "–", s: "pod labels are not in this build"} : {v: n ? cyPodBtn("level", n, `${n} ${plural(n, "pod", "pods")} to level`) : "0",
+        s: n ? `in ${L.flagged.length} of ${L.multi} ${plural(L.multi, "team", "teams")} with two or more pods` : L.multi ? `none of ${L.multi} ${plural(L.multi, "team", "teams")} with two or more pods is uneven` : "no team has two or more pods"})}; },
+  noPod: ({c, act}) => { const n = act.noPod.length, m = act.flight.length;
+    return {c: "cy2", l: tipFocus("In-Flight Epics Without a Pod Label", `In-flight epics that carry no pod label, so no pod can be shown for them.\nOpens a list below`),
+      ...(!cyLabelsReady() ? {v: "–", s: "pod labels are not in this build"} : {v: n ? cyPodBtn("noPod", n, `${n} in-flight ${epicWord(n)} without a pod label`) : "0",
+        s: m ? `of ${cyLn(act.flight, "in flight", "flightIn", null, c)} ${epicWord(m)} in flight${cyShare(n, m)}` : "no epic is in flight"})}; },
 };
-const CY_STRIP = {overview: ["planned", "done", "overdue", "next", "flagged"], detail: ["planned", "done", "overdue", "next", "flagged"], pods: ["idle", "wip"]};
+const CY_STRIP = {overview: ["planned", "done", "overdue", "next", "flagged"], detail: ["planned", "done", "overdue", "next", "flagged"], pods: ["nsSoon", "wait", "level", "noPod", "idle", "wip"]};
 const cyTiles = (view, x) => CY_STRIP[view].map(id => ({...CY_KPI[id](x), id}));
 
 function cyDefaults() { return {cycle: null, tab: "overview", open: null, st: "all", q: ""}; }
@@ -3490,13 +3565,14 @@ function cyPodRows() {                                           // distinct pod
   if (!cyLabelOk()) return "none";
   const R = podRegistry(), rels = DATA.releases.map(q).join(", ");
   const rows = Object.keys(DATA.podRx).filter(p => state.projects.has(p)).map(p => { const sp = [...(R.per[p] || [])];
-    return `${esc(p)} ${sp.length ? tlink(sp.length, href(`project = ${pkey(p)} AND issuetype = Epic AND status != Removed AND fixVersion in (${rels}) AND ${podSpellingsClause(sp)}`), `${sp.length} distinct pod labels (as spelled) on ${p} epics of ${DATA.releases[0]} to ${DATA.releases[DATA.releases.length - 1]}\nThe link opens the epics that carry them.`) : "0"} (pattern <code>${esc(DATA.podRx[p])}</code>)`; }).join("; ");
+    const h = sp.length ? href(`project = ${pkey(p)} AND issuetype = Epic AND status != Removed AND fixVersion in (${rels}) AND ${podSpellingsClause(sp)}`) : null;      // over the URL budget the count is plain text, like every other Cycles link
+    return `${esc(p)} ${sp.length ? tlink(sp.length, h && h.length <= CY_URL_MAX ? h : null, `${sp.length} distinct pod labels (as spelled) on ${p} epics of ${DATA.releases[0]} to ${DATA.releases[DATA.releases.length - 1]}\nThe link opens the epics that carry them.`) : "0"} (pattern <code>${esc(DATA.podRx[p])}</code>)`; }).join("; ");
   return rows || "none";
 }
 function cyDefs() {
   const c = CYM.c, win = CYM.cycles;
   document.getElementById("cy-cap").innerHTML = defs(howBody({id: "cy",
-    bl: `Use this to spot work that will miss its cycle. A number opens the matching epics in Jira; the two pod tiles open a list of pods.`,
+    bl: `Use this to spot work that will miss its cycle. A number opens the matching epics in Jira; the six Pods tiles open lists in the page.`,
     defs: [
       ["Delivery Cycle 1 and 2", `Cycle 1 runs from the release start to the end of W6. Cycle 2 runs from W7 to the release end.`],
       ["Planned date", `the later of the due date and the Target Sprint end. If only one exists, that one. If neither, the epic is not planned.`],
@@ -3506,7 +3582,11 @@ function cyDefs() {
       [`Due next ${CY.next} days`, `planned in the cycle, not Done, from the as-of date up to ${CY.next} days later.`],
       ["Flagged", `planned in the cycle, not Done, and flagged as blocked in Jira (the Flagged field is set).`],
       ["Idle Pods", `pods that have at least one epic in ${esc(state.release)} and no epic planned in the selected cycle, under the Release, Projects, Teams and Commitment Type filters.`],
-      [`Pods with more than ${CY.podWip} epics in flight`, `pods with more than ${CY.podWip} epics In Progress or Validation in ${esc(state.release)}, counted over the whole release, not the selected cycle. The level ${CY.podWip} is a reference chosen by the owner, not a program rule.`]
+      [`Pods with more than ${CY.podWip} epics in flight`, `pods with more than ${CY.podWip} epics In Progress or Validation in ${esc(state.release)}, counted over the whole release, not the selected cycle. The level ${CY.podWip} is a reference chosen by the owner, not a program rule.`],
+      [`Not-started epics due within ${CY.next} days`, `epics in Candidate, New, In Definition or Ready for Dev whose planned date is from the as-of date up to ${CY.next} days later; the later date counts (the later of the due date and the Target Sprint end). Any cycle, under the same filters.`],
+      ["Waiting dependents due soon", `open dependencies, neither end Done, where an epic of ${esc(state.release)} blocks an item of any issue type that is planned from the as-of date up to ${CY.next} days later (the due date first, else the Target Sprint end). Each waiting item counts once.`],
+      ["Pods to level", `for each team with at least two pods, the in-flight epics of each pod. A team is flagged when its busiest and lightest pods differ by ${Math.round(CY.levelSpread * 100)}% or more of the team's in-flight epics (teams with at least ${MIN_N} in flight). The tile counts those two pods. A pod takes part when it has an epic in ${esc(state.release)} that is not Done.`],
+      ["In-flight epics without a pod label", `epics In Progress or Validation in ${esc(state.release)} with no pod label, out of all in-flight epics. The share shows from ${MIN_N} in-flight epics.`]
     ],
     left: `Removed epics. Epics with no planned date, or planned after the release end, are in no cycle. Stale, Carry-over, No planned date and Open bugs: see More detail.`,
     know: `Tiles follow the Release, Projects, Teams and Commitment Type filters. The as-of date is the date of the data, shown at the top of the page. No team or person is ranked or scored. The pod tiles are facts about the plan, not a verdict on people, and are not ranked.`,
@@ -3523,7 +3603,7 @@ function cyDefs() {
       ["Other planned-date rules", `The dependency board uses a different rule: there the due date wins over the Target Sprint. The burnup's Delivery Cycle 1 line counts Committed epics only, with any planned date up to the cycle end; this section counts planned dates inside the cycle and shows earlier ones as carry-over, so the two numbers can differ. A Target Sprint that the sprint calendar does not know counts as no Target Sprint.`],
       ["Hierarchy", `Project, then Team (the Epic Team field; an epic with several teams counts under each, one with none under (No Team)), then Pod. Names are in alphabetical order, never ordered by progress. Each row counts its own epics once; an epic with several teams or pods appears under each, and the last row counts each epic once. A pod used by epics of two teams is listed under both, with that team's epics only. A team with no pod label on any epic has no pod rows.`],
       ["Pods", `a label names a pod when it matches the pod pattern of the epic's project, without regard to case. The default pattern is the text "pod" anywhere in the label. An epic with several pod labels counts under each pod once; an epic with none is under No Pod Label. Pods come from epic labels only, and many epics have none, so a pod's epic count can be too low: a pod can look idle, or stay at ${CY.podWip} or fewer, only because its epics carry no label. Limits: a pod label without the pattern text is not detected; a typo that contains it counts; a label that contains the text but is not a pod cannot be told apart. Distinct pod labels per project: ${cyPodRows()}.`],
-      ["Links", `every number opens a Jira search, not a saved list of epics, except the two pod tiles: they open a list of pods in the page, and each epic count in that list opens a Jira search. Jira finds the epics again when you open a link, so its list can differ from the page. A link too long for Jira shows as a plain number.`],
+      ["Links", `every number opens a Jira search, not a saved list of epics, except the Pods tiles: they open lists in the page, and each epic count in a list opens a Jira search; the waiting items open the exact items counted, because Jira cannot search for them. Jira finds the epics again when you open a link, so its list can differ from the page. A link too long for Jira shows as a plain number.`],
       ["Freshness", `Epics, due dates, Target Sprints, the Flagged-as-blocked mark and pod labels are updated by Refresh. Bugs under epics, the sprint calendar and the pod pattern are read only when the page is built. Data as of ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}.`]
     ]}));
 }
@@ -3572,10 +3652,50 @@ function cyPodTable(kind, pods) {                                // the pods beh
     `<div class="tablewrap" tabindex="0" role="region" aria-label="${esc(what)}, scrolls sideways when it does not fit"><table class="cytable cypodlist" id="cy-podtable"><caption class="sr">${esc(what)}: the project, the teams and the epics of each pod${idle ? `, and its epics planned in ${esc(c.name)}` : ""}</caption>` +
     `<thead><tr><th scope="col">Pod</th><th scope="col">Project</th><th scope="col">Teams</th><th scope="col" class="n">${idle ? "Epics in Release" : "Epics in Flight"}</th>${idle ? `<th scope="col" class="n">Planned in ${esc(c.name)}</th>` : ""}</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
-function cyPodList() {                                           // DOM only: shows the open list and keeps the two buttons in step; the clicked button keeps the focus
-  const host = document.getElementById("cy-podlist"), f = CY_PODFIG, pods = !f ? [] : CY_PODLIST === "idle" ? f.idle : CY_PODLIST === "wip" ? f.wip : [];
-  if (!pods.length) CY_PODLIST = null;
-  host.hidden = !CY_PODLIST; host.innerHTML = CY_PODLIST ? cyPodTable(CY_PODLIST, pods) : "";
+// ---- the lists behind the four 'act now' tiles (same table pattern as the pod lists: alphabetical, never ranked; every epic count is a Jira query, the waiting items an exact list of keys)
+function cyActTable(what, note, head, body) {
+  return `<div class="cymeta">${note}</div><div class="tablewrap" tabindex="0" role="region" aria-label="${esc(what)}, scrolls sideways when it does not fit"><table class="cytable cypodlist" id="cy-podtable"><caption class="sr">${esc(what)}</caption>` +
+    `<thead><tr>${head.map(([t, n]) => `<th scope="col"${n ? ' class="n"' : ""}>${t}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+function cyListNs(c) {
+  const A = CY_ACT, to = cyAdd(CY.asOf, CY.next), what = `Not-started epics due within ${CY.next} days in ${state.release}`, w = "not started, planned in the window";
+  const body = A.nsRows.map(({t, es, kids}) => `<tr><th scope="row">${esc(t.name)}</th><td>${t.kids.length ? "All pods" : "No Pod Label"}</td><td>${esc(t.project)}</td><td class="n">${cyLn(es, w, "nsSoon", t, c)}</td></tr>` +
+    kids.map(({k, es: ks}) => `<tr><th scope="row"><span class="cysub">${esc(t.name)}</span></th><td>${esc(k.name)}</td><td>${esc(t.project)}</td><td class="n">${cyLn(ks, w, "nsSoon", k, c)}</td></tr>`).join("")).join("");
+  return cyActTable(what, `${esc(what)}: ${cyLn(A.ns, w, "nsSoon", null, c)} not started with a planned date ${CY.asOf} to ${to}, whatever the cycle. A team row counts the team's epics once; its pod rows split them by pod label, and an epic with no pod label is under No Pod Label. An epic with several teams or pods appears under each.`,
+    [["Team"], ["Pod"], ["Project"], ["Epics", 1]], body);
+}
+function cyListLevel(c) {
+  const L = CY_ACT.level, what = `Pods to level in ${state.release}`, pc = Math.round(CY.levelSpread * 100);
+  const body = L.flagged.map(x => x.rows.map(r => { const es = r.k.epics.filter(cyInFlight);
+    return `<tr><th scope="row">${esc(x.t.name)}</th><td>${esc(x.t.project)}</td><td>${esc(r.k.name)}</td><td class="n">${cyLn(es, `in flight, ${r.k.name} in ${x.t.name}`, "flightIn", r.k, c)}</td><td class="n">${Math.round(100 * r.n / x.total)}%</td>` +
+      `<td>${r.role === "busiest" ? "Busiest" : r.role === "lightest" ? "Lightest" : "In between"}</td></tr>`; }).join("")).join("");
+  return cyActTable(what, `${esc(what)}: ${L.flagged.length} of ${L.multi} ${plural(L.multi, "team", "teams")} with two or more pods. A team is flagged when its busiest and lightest pods differ by ${pc}% or more of the team's in-flight epics (teams with at least ${MIN_N} in flight). ` +
+    `Counted over the whole release, not the cycle; pods are known only through epic labels, so a count is a lower bound.`, [["Team"], ["Project"], ["Pod"], ["Epics in Flight", 1], ["Share of Team's In-Flight Epics", 1], ["Position"]], body);
+}
+function cyListNoPod(c) {
+  const A = CY_ACT, what = `In-flight epics without a pod label in ${state.release}`;
+  const body = A.noPodRows.map(({t, es}) => { const fl = t.epics.filter(cyInFlight);
+    return `<tr><th scope="row">${esc(t.name)}</th><td>${esc(t.project)}</td><td class="n">${cyLn(es, `in flight, no pod label, ${t.name}`, "noPodFlight", t, c)}</td><td class="n">${cyLn(fl, `in flight, ${t.name}`, "flightIn", t, c)}</td><td class="n">${fl.length >= MIN_N ? pct(es.length, fl.length) + "%" : "–"}</td></tr>`; }).join("");
+  return cyActTable(what, `${esc(what)}: ${cyLn(A.noPod, "in flight, no pod label", "podNoneFlight", null, c)} of ${cyLn(A.flight, "in flight", "flightIn", null, c)} in-flight epics, by team. An epic with several teams appears under each. A share needs at least ${MIN_N} in-flight epics.`,
+    [["Team"], ["Project"], ["Without Pod Label", 1], ["In Flight", 1], ["Share Without", 1]], body);
+}
+function cyListWait() {
+  const W = CY_ACT.wait, to = cyAdd(CY.asOf, CY.next), what = `Waiting dependents due within ${CY.next} days in ${state.release}`, n = W.items.size;
+  const body = W.list.map(g => { const pod = g.leaf.level === "pod" && !g.leaf.virtual ? g.leaf.name : "No Pod Label", m = g.keys.length;
+    return `<tr class="cyinit"><th scope="rowgroup" colspan="4">${esc(g.t.name)}, ${esc(pod)} (${esc(g.t.project)}): ${tlink(m, cyKeyIn(g.keys), `${m} waiting ${plural(m, "item", "items")}, ${g.t.name}, ${pod}\nOpens ${m} in Jira`)} waiting, earliest ${g.first}</th></tr>` +
+      g.pairs.map(p => `<tr><th scope="row">${cyKey(p.prov)}</th><td>${cyKey({k: p.d.k, t: p.d.t, s: p.d.s || "status unknown", due: p.date})} ${esc(shortText(p.d.t, 60))}</td><td>${p.date}</td><td>${esc(p.d.s || "–")}</td></tr>`).join(""); }).join("");
+  return cyActTable(what, `${esc(what)}: ${tlink(n, cyKeyIn([...W.items.keys()]), `${n} waiting ${plural(n, "item", "items")}\nOpens ${n} in Jira`)} waiting ${plural(n, "item", "items")}, each counted once. Open dependencies (neither end Done) where an epic of ${esc(state.release)} blocks an item of any issue type; the item's planned date is ${CY.asOf} to ${to} (its due date, else the end of its Target Sprint). An item that waits on epics of two teams or pods appears under each.`,
+    [["Epic Waited On"], ["Waiting Item"], ["Planned Date"], ["Status"]], body);
+}
+function cyActList(kind) {
+  const c = CYM.c;
+  return kind === "nsSoon" ? (CY_ACT.ns.length ? cyListNs(c) : "") : kind === "level" ? (CY_ACT.level.n ? cyListLevel(c) : "") : kind === "noPod" ? (CY_ACT.noPod.length ? cyListNoPod(c) : "") : kind === "wait" ? (CY_ACT.wait.items.size ? cyListWait() : "") : "";
+}
+function cyPodList() {                                           // DOM only: shows the open list and keeps the six buttons in step; the clicked button keeps the focus
+  const host = document.getElementById("cy-podlist"), f = CY_PODFIG, k = CY_PODLIST, pods = !f ? [] : k === "idle" ? f.idle : k === "wip" ? f.wip : [];
+  const html = !f || !k ? "" : k === "idle" || k === "wip" ? (pods.length ? cyPodTable(k, pods) : "") : cyActList(k);
+  if (!html) CY_PODLIST = null;
+  host.hidden = !CY_PODLIST; host.innerHTML = CY_PODLIST ? html : "";
   document.querySelectorAll('#cy-kpis2 [data-cyact="pods"]').forEach(b => { const on = b.dataset.cyval === CY_PODLIST; b.setAttribute("aria-expanded", String(on)); b.setAttribute("aria-label", `${b.dataset.what}, ${on ? "hide" : "show"} the list`); });
   cyPost();
 }
@@ -3593,7 +3713,7 @@ function renderCycles() {
   cySanitise();
   cyNotes(); cyDefs(); cyControls();
   document.getElementById("cy-after").textContent = "";
-  const planned = M.planned(), x = {s: cyStats(planned, M.carry()), c: M.c, g: null, fig: (CY_PODFIG = cyPodFig(M.epics, planned))};
+  const planned = M.planned(), x = {s: cyStats(planned, M.carry()), c: M.c, g: null, fig: (CY_PODFIG = cyPodFig(M.epics, planned)), act: (CY_ACT = cyActFig(M))};
   document.getElementById("cy-pods-h").textContent = `Pods in ${state.release}`;
   kpiCards(document.getElementById("cy-kpis1"), cyTiles("overview", x)); kpiCards(document.getElementById("cy-kpis2"), cyTiles("pods", x)); cyPodList();
   const after = M.epics.filter(e => e.due && e.due > M.cycles[M.cycles.length - 1].end);

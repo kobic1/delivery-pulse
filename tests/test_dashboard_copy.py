@@ -187,7 +187,7 @@ def test_the_pod_tiles_are_defined_as_the_code_counts_them():
     assert "no epic planned in the selected cycle" in cy                                     # Idle Pods follows the cycle
     assert "counted over the whole release, not the selected cycle" in cy                   # the other tile does not
     assert "${CY.podWip}" in cy and "reference chosen by the owner, not a program rule" in cy
-    assert "except the two pod tiles" in cy                                                   # their numbers open a list in the page, not Jira
+    assert "except the Pods tiles" in cy                                                   # their numbers open a list in the page, not Jira
 
 
 def test_dependencies_have_one_disclosure_and_the_gap_rule_has_its_reason():
@@ -299,3 +299,73 @@ def test_blocking_external_scope_is_the_only_outside_scope_chip_and_says_what_it
     assert 'x.extBlock ? "Waits on external scope"' in TEMPLATE
     # the headline link is a query with the project clause, inside the URL budget
     assert "project not in (${pkeys([...projectsAll.filter(p => state.projects.has(p)), DEP_CX])})" in TEMPLATE and "h.length <= CY_URL_MAX" in TEMPLATE
+
+
+# ---- the four proactive tiles of the Cycles Pods block (Not-Started Epics Due Within 7 Days, Waiting Dependents Due Soon, Pods To Level, In-Flight Epics Without a Pod Label)
+PROACTIVE_TILES = ["nsSoon", "wait", "level", "noPod"]
+PROACTIVE_TITLES = ["Not-Started Epics Due Within ${CY.next} Days", "Waiting Dependents Due Soon", "Pods To Level", "In-Flight Epics Without a Pod Label"]
+TIP_MAX_WORDS = 25                # the first line of a tile tooltip is the point, in about 25 words
+DEF_MAX_WORDS = 70                # one short definition line per tile in How this is calculated
+
+
+def _tiles_source() -> str:
+    start = TEMPLATE.index("  nsSoon: ({c, act}) =>")
+    return TEMPLATE[start:TEMPLATE.index("const CY_STRIP", start)]
+
+
+def test_the_pods_block_has_six_tiles_in_one_order_on_a_three_column_grid():
+    assert 'class="kpis three" id="cy-kpis2"' in TEMPLATE
+    assert 'pods: ["nsSoon", "wait", "level", "noPod", "idle", "wip"]' in TEMPLATE         # the four 'act now' tiles first, then the two existing ones
+    assert ".kpis.three { grid-template-columns:repeat(3," in TEMPLATE and "@media (max-width:1100px) { .kpis.three { grid-template-columns:repeat(2," in TEMPLATE
+    assert ".kpis.six" not in TEMPLATE                                                         # the six-tile strip of the past stays removed (a different class is used)
+
+
+def test_each_proactive_tile_tooltip_is_the_point_in_about_25_words_then_where_it_opens():
+    src = _tiles_source()
+    tips = re.findall(r"tipFocus\(((?:`[^`]*`|\"[^\"]*\")), `([^`]*)`\)", src)
+    assert len(tips) == 4, tips
+    for (title, tip), want in zip(tips, PROACTIVE_TITLES):
+        assert title.strip('`"') == want, title
+        first, _, second = tip.partition("\\n")
+        words = len(strip_expressions(first).split())
+        assert words <= TIP_MAX_WORDS, (title, words)
+        assert second == "Opens a list below", (title, second)
+        assert "cf[" not in tip and "customfield" not in tip and "podRx" not in tip, title
+
+
+def test_the_proactive_tiles_are_defined_in_the_cycles_disclosure_with_their_thresholds():
+    cy = BLOCKS["cy"]
+    for name in ("Not-started epics due within ${CY.next} days", "Waiting dependents due soon", "Pods to level", "In-flight epics without a pod label"):
+        assert name in cy, name
+    # the numbers come from the named constants, not from literals typed twice
+    assert "${Math.round(CY.levelSpread * 100)}%" in cy and "at least ${MIN_N} in flight" in cy and "${CY.next} days later" in cy
+    assert "the later date counts (the later of the due date and the Target Sprint end)" in cy              # the owner confirmed: the later date counts
+    assert "the due date first, else the Target Sprint end" in cy                                          # the dependency rule for the waiting item
+    assert "A team is flagged when its busiest and lightest pods differ by" in cy and "of the team's in-flight epics" in cy
+    assert "A pod takes part when it has an epic in ${esc(state.release)} that is not Done" in cy
+    for m in re.finditer(r"\n\s+\[(?:`|\")(Not-started epics due within|Waiting dependents due soon|Pods to level|In-flight epics without a pod label)[^\n]*", cy):
+        words = len(strip_expressions(m.group(0)).split())
+        assert words <= DEF_MAX_WORDS, (m.group(1), words)
+
+
+def test_the_level_thresholds_are_named_constants_and_the_old_gap_rule_is_gone():
+    m = re.search(r"const CY = \{([^}]*)\};", TEMPLATE)
+    assert m and "levelSpread: 0.40" in m.group(1), m and m.group(1)
+    assert "levelGap" not in TEMPLATE and "levelRatio" not in TEMPLATE
+    assert "const flagged = total >= MIN_N && spread >= CY.levelSpread - 1e-9;" in TEMPLATE         # the minimum sample is the page's MIN_N
+    assert "const MIN_N = 5;" in TEMPLATE
+
+
+def test_the_proactive_tiles_reuse_the_page_rules_and_add_no_second_copy():
+    src = TEMPLATE[TEMPLATE.index("const cyInFlight = e =>"):TEMPLATE.index("const CY_KPI = {")]
+    assert "const cyInFlight = e => CLASS.flight.includes(e.s);" in src                              # the class of the existing tile
+    assert 'cls(e.s) === "notStarted"' in src                                                         # the repo's status class (CLASS.notStarted), no second list of statuses
+    assert "e.due >= CY.asOf" in src and "cyAdd(CY.asOf, CY.next)" in src                              # the page's as-of day and the one window length; e.due is plannedLater
+    assert "depModel().openAll" in src and "x.pIn" in src                                              # the dependency model's own open pairs, the provider in scope; its code is not copied
+    assert "podRxOf" not in src and "podLabelsOf" not in src                                           # the pod label rule is the one stored on each epic (pl)
+    for status in ('"Candidate"', '"In Definition"'):
+        assert status not in src, status
+
+
+def test_the_pod_coverage_note_is_still_in_the_pods_block():
+    assert 'id="cy-podnote"' in TEMPLATE and "epics carry a pod label;" in TEMPLATE and "have none (No Pod Label)" in TEMPLATE
