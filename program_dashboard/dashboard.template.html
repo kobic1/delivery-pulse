@@ -457,6 +457,7 @@ td a { text-decoration:none; border-bottom:1px dotted #7C8794; }
 .capfs { border:0; margin:0; padding:0; min-width:0; }
 .capfs legend { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }     /* the group name is read aloud; the chips say what they are */
 .capfs .chips { display:inline-flex; flex-wrap:nowrap; }
+.capfs .chip.dis { opacity:.55; cursor:not-allowed; }
 .cydetail { scroll-margin-top:max(0px, calc(var(--stick, 0px) - 8px)); }
 .cycrumb { display:flex; flex-wrap:wrap; gap:2px 16px; align-items:center; margin:0 0 8px; padding:6px 0; position:sticky; top:max(0px, calc(var(--stick, 0px) - 8px)); z-index:15; background:var(--bg); border-bottom:1px solid var(--line); }
 .cycrumb .cyback { white-space:nowrap; }
@@ -759,11 +760,12 @@ footer.f b { color:var(--ink); }
     <div class="charts" id="chartgrid"><div id="charts" class="dc"></div><div id="capdone-chart" class="dc"></div>
       <div id="capz-host" class="dc"><div class="chart cc" id="capz-card"><h3>Capitalization %</h3>
         <div class="cc-ctl capctl">
-          <fieldset class="capfs"><legend>Group By</legend><span class="chips seg" id="f-capby"><label class="chip"><input type="radio" name="f-capby" value="quarter"> Quarter</label><label class="chip"><input type="radio" name="f-capby" value="release"> Release</label></span></fieldset>
+          <fieldset class="capfs"><legend>Group By</legend><span class="chips seg" id="f-capby"><label class="chip"><input type="radio" name="f-capby" value="quarter"> Quarter</label><label class="chip"><input type="radio" name="f-capby" value="release" aria-describedby="capz-relwhy"> Release</label></span><span class="sr" id="capz-relwhy"></span></fieldset>
           <fieldset class="capfs"><legend>Measure</legend><span class="chips seg" id="f-capmeasure"><label class="chip"><input type="radio" name="f-capmeasure" value="sp"> Story Points</label><label class="chip"><input type="radio" name="f-capmeasure" value="count"> Count</label></span></fieldset>
+          <fieldset class="capfs"><legend>Scope</legend><span class="chips seg" id="f-capscope"><label class="chip"><input type="radio" name="f-capscope" value="closed"> Closed date</label><label class="chip"><input type="radio" name="f-capscope" value="pbi"> Power BI scope</label></span></fieldset>
         </div>
         <div class="chartscroll" id="capz-svg"></div>
-        <div class="cc-foot"><div class="cap one" id="capz-cap"></div><details class="vd cdet" data-dk="capz"><summary>How this is calculated</summary><div class="cap" id="capz-how"><div id="capz-how-main"></div><div id="capz-dq" class="dqline"></div></div></details></div></div></div></div>
+        <div class="cc-foot"><div class="cap one" id="capz-cap"></div><div class="cap one" id="capz-foot" hidden></div><details class="vd cdet" data-dk="capz"><summary>How this is calculated</summary><div class="cap" id="capz-how"><div id="capz-how-main"></div><div id="capz-dq" class="dqline"></div></div></details></div></div></div></div>
     <div id="trend-data"></div>
     <div id="nfrshare-data"></div>
     <div id="capz-data"></div>
@@ -806,12 +808,14 @@ const DATA = /*__DATA__*/null;
 const BASE = DATA.jiraBase;
 // The definitions the collector and the page share come from the payload (DATA.defs, written by build_dashboard.py). The literals below are only the fallback for a payload built before that
 // existed; tests/test_definitions_contract.py keeps them equal to the collector's, so a change is made in build_dashboard.py and the fallback follows.
-const PAGE_SCHEMA = 2;
+const PAGE_SCHEMA = 3;
 const BUILD_STALE_DAYS = 7;        // a build older than this says so after a Refresh: the story-level links are only read when the data is built                                        // the payload layout this page reads: build_dashboard.py SCHEMA is the same number
 const DEFS = DATA.defs || {};
 const COMMIT = DEFS.commitTypes || ["Committed", "Not Set", "Stretch"];
 const DEFAULT_COMMIT = COMMIT;                                // every commitment type is shown by default
 const TARGET_COMMIT = DEFS.targetCommit || ["Committed", "Not Set"];               // the scope target never changes with the filter: Committed + Not Set, Stretch excluded
+const CAP_PBI_PROJECTS = DEFS.capPbiProjects || ["PMN", "CXSUP", "CXINT", "CXWFM", "CXCO", "INT", "EEM", "EMOB", "ESP", "DCMLT", "PVDEV"];      // the Capitalization % "Power BI scope": the projects of the Power BI report (the Jira project WFM is not one)
+const CAP_PBI_EXCLUDE = DEFS.capPbiExclude || ["MS-21777"];                         // an issue that report leaves out
 const CLASS = {                                               // workflow-status-map.yaml, by status NAME
   done: ["Done"],
   flight: ["In Progress", "Validation"],
@@ -875,7 +879,7 @@ DATA.epics.forEach(e => (e.tm || []).forEach(t => KNOWN_TEAMS.add(t)));
 DATA.bugs.forEach(b => { if (b.tm) KNOWN_TEAMS.add(b.tm); });
 
 // ---------------------------------------------------------------- state (kept in the URL when opened as a file, in browser storage in the viewer)
-const defaults = () => ({release: DATA.current, projects: new Set(projectsAll), teams: new Set(), commit: new Set(DEFAULT_COMMIT), ax: false, bugPri: new Set(PRI_ALL), cfb: "all", gran: "month", cfbGroup: "version", depFilter: "epics", nfrTab: "project", cx: "all", cap: {by: "quarter", measure: "sp"}, cy: cyDefaults()});
+const defaults = () => ({release: DATA.current, projects: new Set(projectsAll), teams: new Set(), commit: new Set(DEFAULT_COMMIT), ax: false, bugPri: new Set(PRI_ALL), cfb: "all", gran: "month", cfbGroup: "version", depFilter: "epics", nfrTab: "project", cx: "all", cap: {by: "quarter", measure: "sp", scope: "closed"}, cy: cyDefaults()});
 const state = {...defaults()};
 let projMulti = false;                                         // the Multi-Select toggle; the mode is derived: 2 to 5 projects are always in multi-select mode, nothing is stored
 const resetFilters = () => { projMulti = false; cyBugsOpen.clear(); ocfbOpen.clear(); CY_FIND = ""; CY_RET = null; return Object.assign(state, defaults()); };
@@ -896,6 +900,7 @@ function readParams(h) {
   if (["committed", "notset", "stretch"].includes(h.get("cx"))) state.cx = h.get("cx");
   if (h.get("cpg") === "release") state.cap.by = "release";
   if (h.get("cpm") === "count") state.cap.measure = "count";
+  if (h.get("cps") === "pbi") state.cap.scope = "pbi";
   cyRead(h, list);
 }
 function serialize() {
@@ -914,6 +919,7 @@ function serialize() {
   if (state.cx !== "all") h.set("cx", state.cx);
   if (state.cap.by !== "quarter") h.set("cpg", state.cap.by);
   if (state.cap.measure !== "sp") h.set("cpm", state.cap.measure);
+  if (state.cap.scope !== "closed") h.set("cps", state.cap.scope);
   cyWrite(h);
   return h.toString();
 }
@@ -1403,11 +1409,12 @@ const defs = html => `<details class="vd"><summary>How this is calculated</summa
 function renderLimitedNotes() {
   const eff = document.getElementById("eff-note"), ra = document.getElementById("ra-note"); if (!eff || !ra) return;
   if (!RUNTIME) { eff.textContent = ra.textContent = ""; return; }
-  const wait = DATA.epics.filter(e => state.projects.has(e.p) && edctPending(e)).length, c = DATA.capRefreshedAt, e0 = DATA.edctAt;
+  const wait = DATA.epics.filter(e => state.projects.has(e.p) && edctPending(e)).length, c = DATA.capRefreshedAt, e0 = DATA.edctAt, pb = DATA.capPbi ? DATA.capPbi.refreshedAt : null;
   eff.textContent = DATA.edctFailed ? `Cycle time: not refreshed: ${DATA.edctFailed}${e0 ? `; as of ${ilStamp(e0)}` : ""}.`
     : `Cycle time: ${e0 ? `refreshed ${ilLabel(e0)}` : "not refreshed yet"}; Refresh updates it up to twice a day.${wait ? ` ${wait} ${wait === 1 ? "epic that closed" : "epics that closed"} since then ${wait === 1 ? "is" : "are"} not counted yet.` : ""}`;
   ra.textContent = (e0 && c ? `Cycle time and Capitalization: refreshed ${ilLabel([e0, c].sort()[0])}` : !e0 && !c ? "Cycle time and Capitalization: not refreshed yet"
-    : `Cycle time: ${e0 ? `refreshed ${ilLabel(e0)}` : "not refreshed yet"}; Capitalization: ${c ? `refreshed ${ilLabel(c)}` : "not refreshed yet"}`) + "; Refresh updates them up to twice a day.";
+    : `Cycle time: ${e0 ? `refreshed ${ilLabel(e0)}` : "not refreshed yet"}; Capitalization: ${c ? `refreshed ${ilLabel(c)}` : "not refreshed yet"}`)
+    + (DATA.capPbi ? `; Capitalization in Power BI scope: ${DATA.capPbiRefreshFailed ? `not refreshed (${DATA.capPbiRefreshFailed})` : pb ? `refreshed ${ilLabel(pb)}` : "not refreshed yet"}` : "") + "; Refresh updates them up to twice a day.";
 }
 function renderEfficiency() {
   const rows = periods().map(mo => { const m = monthStats(mo); return {mo, n: m.edctN, avg: m.edctN >= MIN_N ? m.edctAvg : null}; });
@@ -1750,8 +1757,14 @@ function capLink(recs, ranges, opts = {}) {
 function renderCapitalization() {
   const svgHost = document.getElementById("capz-svg"), cap = document.getElementById("capz-cap"), how = document.getElementById("capz-how-main"), dq = document.getElementById("capz-dq"), data = document.getElementById("capz-data");
   if (!svgHost) return;
-  document.querySelectorAll("#f-capby input").forEach(i => { i.checked = i.value === state.cap.by; i.parentElement.classList.toggle("on", i.checked); });
+  const pbi = state.cap.scope === "pbi", foot = document.getElementById("capz-foot");
+  document.querySelectorAll("#f-capby input").forEach(i => { i.checked = i.value === (pbi ? "quarter" : state.cap.by); i.parentElement.classList.toggle("on", i.checked);
+    i.disabled = pbi && i.value === "release"; i.parentElement.classList.toggle("dis", i.disabled); i.parentElement.title = i.disabled ? RELEASE_OFF : ""; });
+  document.getElementById("capz-relwhy").textContent = pbi ? RELEASE_OFF : "";
   document.querySelectorAll("#f-capmeasure input").forEach(i => { i.checked = i.value === state.cap.measure; i.parentElement.classList.toggle("on", i.checked); });
+  document.querySelectorAll("#f-capscope input").forEach(i => { i.checked = i.value === state.cap.scope; i.parentElement.classList.toggle("on", i.checked); });
+  foot.hidden = true; foot.textContent = "";
+  if (pbi) return renderCapPbi(svgHost, cap, how, dq, data, foot);
   if (!capOk()) { svgHost.innerHTML = `<div class="notice">The Capitalization data is not in this build. Run build_dashboard.py with --add-capitalization.</div>`; cap.innerHTML = how.innerHTML = dq.innerHTML = data.innerHTML = ""; return; }
   if (!state.projects.size) { svgHost.innerHTML = `<div class="empty">${whyEmpty("epics")}</div>`; cap.innerHTML = how.innerHTML = dq.innerHTML = data.innerHTML = ""; return; }
   const C = DATA.cap, recs = capFiltered(), G = capGroups(recs), by = state.cap.by, sp = state.cap.measure === "sp", cur = G.cur;
@@ -1811,9 +1824,102 @@ function renderCapitalization() {
     how.insertAdjacentHTML("beforeend", xt); const sr = data.querySelector(".sr"); if (sr) sr.insertAdjacentHTML("beforeend", xt); }
   const sm = data.querySelector("summary"); if (sm) sm.textContent = "Show data, capitalization";
 }
+// ---------------------------------------------------------------- Capitalization %, Power BI scope (reproduces the Power BI "Capitalization" report; the Closed-date view above stays the default)
+// Population: Done Bugs, Stories and Tasks (no sub-tasks) of CAP_PBI_PROJECTS. Quarter = the calendar quarter (UTC) of the end date of the issue's LAST sprint: the sprint with the latest end date among its sprints.
+// An issue with no sprint, or none with an end date, is in no quarter (counted in a footnote). Capitalized = the Capitalize field starts with "Capitalize", Non capitalized = it starts with "Non Capitalize", anything
+// else (empty too) is Unmapped and stays in the total. Share = capitalized story points / all story points (blank = 0), or capitalized issues / all issues. The Projects and Teams filters do not apply.
+// DATA.capPbi = {scope, values, opts, start, from, sprints: [[id, UTC end day]], rows: "number,project,class,points,sprint;...", noSprint: {n, sp, rows}, pulledAt, refreshedAt}.
+let CAPPBI = null;                                                // parsed rows, rebuilt after a Refresh
+const RELEASE_OFF = "Release is not available in Power BI scope: the quarter comes from the end date of the last sprint";
+const CAP_PBI_URL_MAX = 6000;                                     // a link over this many characters is shown as a plain number (Jira's front door rejects very long URLs)
+const capPbiOk = () => { const P = DATA.capPbi; return !!(P && typeof P.rows === "string" && Array.isArray(P.scope) && JSON.stringify(P.scope) === JSON.stringify(CAP_PBI_PROJECTS) && Array.isArray(P.sprints) && Array.isArray(P.opts) && P.opts.length === 2 && P.noSprint && typeof P.start === "string" && typeof P.from === "string"); };
+const capPbiQuarter = day => capQuarterOf(new Date(utc(day)));
+function capPbiRecords() {
+  if (CAPPBI) return CAPPBI; const P = DATA.capPbi;
+  return (CAPPBI = P.rows ? P.rows.split(";").map(x => { const a = x.split(","), r = {n: +a[0], p: +a[1], v: +a[2], sp: +a[3], s: +a[4]}; r.q = capPbiQuarter(P.sprints[r.s][1]); return r; }) : []);
+}
+const capPbiSprintIds = (qt, later) => DATA.capPbi.sprints.filter(s => later ? capPbiQuarter(s[1]) > qt : capPbiQuarter(s[1]) === qt).map(s => s[0]);
+const capPbiHref = jql => { const h = jql ? href(jql) : null; if (h && h.length > CAP_PBI_URL_MAX) { try { console.warn(`Delivery Pulse: link dropped, the URL is ${h.length} characters (the limit is ${CAP_PBI_URL_MAX})`); } catch (e) { /* no console */ } return null; } return h; };
+// A link is a query, never a key list: the issues whose last sprint ended in the quarter = a sprint that ended in it, and none that ended later (Jira recalculates it). cls: 0 Capitalized, 1 Non capitalized, 2 Unmapped;
+// JQL cannot say "starts with", so the classes name the Capitalize values read from Jira (a value that appeared since is added by Refresh); Unmapped = empty or none of those values.
+function capPbiJql(qt, o = {}) {                                   // qt: a quarter, or null for every quarter in the data; o.proj: one project; o.cls: one class; o.noSp: no story points
+  const P = DATA.capPbi, ids = qt ? capPbiSprintIds(qt, false) : P.sprints.map(x => x[0]), later = qt ? capPbiSprintIds(qt, true) : [], [cv, nv] = P.opts, list = a => a.map(q).join(", ");
+  if (!ids.length) return null;
+  let jql = `project in (${list(CAP_PBI_PROJECTS)}) AND status = Done AND issuetype in (Bug, Story, Task) AND sprint in (${ids.join(", ")})` + (later.length ? ` AND sprint not in (${later.join(", ")})` : "");
+  if (o.proj) jql += ` AND project = ${q(o.proj)}`;
+  if (o.cls === 0) { if (!cv.length) return null; jql += ` AND cf[10079] in (${list(cv)})`; }
+  else if (o.cls === 1) { if (!nv.length) return null; jql += ` AND cf[10079] in (${list(nv)})`; }
+  else if (o.cls === 2) jql += ` AND (cf[10079] is EMPTY${cv.length || nv.length ? ` OR cf[10079] not in (${list([...cv, ...nv])})` : ""})`;
+  if (o.noSp) jql += ` AND (cf[10038] is EMPTY OR cf[10038] = 0)`;
+  return jql;
+}
+function capPbiCell() { return {capSP: 0, allSP: 0, capN: 0, allN: 0, noSp: 0, cls: [{n: 0, sp: 0}, {n: 0, sp: 0}, {n: 0, sp: 0}]}; }
+function capPbiGroups() {
+  const recs = capPbiRecords(), keys = [...new Set(recs.map(r => r.q))].sort(), P = DATA.capPbi;
+  const g = new Map(keys.map(k => [k, {k, tot: capPbiCell(), proj: P.scope.map(capPbiCell)}]));
+  recs.forEach(r => [g.get(r.q).tot, g.get(r.q).proj[r.p]].forEach(c => { c.allSP += r.sp; c.allN++; if (r.sp === 0) c.noSp++; c.cls[r.v].n++; c.cls[r.v].sp += r.sp; if (r.v === 0) { c.capSP += r.sp; c.capN++; } }));
+  return {groups: [...g.values()], cur: capQuarterOf(new Date(asOfDay()))};
+}
+function renderCapPbi(svgHost, cap, how, dq, data, foot) {
+  if (!capPbiOk()) { svgHost.innerHTML = `<div class="notice">${DATA.capPbi ? `The Power BI scope data was read for another list of projects. Run build_dashboard.py with --add-capitalization-pbi.` : `The Power BI scope data is not in this build. Run build_dashboard.py with --add-capitalization-pbi.`}</div>`; cap.innerHTML = how.innerHTML = dq.innerHTML = data.innerHTML = ""; return; }
+  const P = DATA.capPbi, G = capPbiGroups(), sp = state.cap.measure === "sp", cur = G.cur, nProj = P.scope.length, fmtN = v => +v.toFixed(2);
+  const prov = k => k >= cur;
+  const val = c => sp ? (c.allSP > 0 ? 100 * c.capSP / c.allSP : null) : (c.allN ? 100 * c.capN / c.allN : null);
+  const withSp = c => c.allN - c.noSp, plotted = c => c.allN >= MIN_N && (!sp || withSp(c) >= MIN_N) && val(c) != null;          // the same rule as the Closed-date view: no share under 5 issues (5 with story points)
+  const share = c => plotted(c) ? val(c).toFixed(1) + "%" : c.allN ? `n &lt; ${MIN_N}${sp && c.allN >= MIN_N ? " with SP" : ""}` : "–";
+  const keys = G.groups.map(g => g.k), {step, x} = axisX(keys), bw = Math.min(30, step * .6);
+  let svg = yAxis({max: 100, ticks: [0, 25, 50, 75, 100]}, v => v + "%");
+  G.groups.forEach((g, i) => {
+    const c = g.tot, cx = x(i), pv = plotted(c) ? val(c) : null, nm = g.k + (prov(g.k) ? " (current quarter)" : ""), h = capPbiHref(capPbiJql(g.k));
+    const tip = `${nm}\n${sp ? "Story Points" : "Count"}: ${pv == null ? (sp && c.allN >= MIN_N && withSp(c) < MIN_N ? `fewer than ${MIN_N} issues carry story points, so no share is shown` : `n < ${MIN_N}, so no share is shown`) : `${pv.toFixed(2)}% (${sp ? `${fmtN(c.capSP)} of ${fmtN(c.allSP)} points` : `${c.capN} of ${c.allN} issues`})`}\nStory points: ${fmtN(c.capSP)} of ${fmtN(c.allSP)} capitalized · Count: ${c.capN} of ${c.allN} issues\nUnmapped: ${c.cls[2].n} issues stay in the total\nClick to open in Jira: the ${c.allN} issues of this bar`;
+    let m = `<rect class="hit" x="${cx - step / 2}" y="${PAD.t}" width="${step}" height="${H - PAD.b - PAD.t}" fill="transparent"/>`;
+    if (pv == null) m += `<text x="${cx}" y="${H - PAD.b - 8}" text-anchor="middle" font-size="11" fill="#5A5F6B">${c.allN < MIN_N ? "n&lt;5" : "n&lt;5 with SP"}</text>`;
+    else { const y = yOf(pv, 100);
+      m += `<rect x="${cx - bw / 2}" y="${y}" width="${bw}" height="${Math.max(0, H - PAD.b - y)}" fill="${prov(g.k) ? "var(--chart-capz-tint)" : "var(--chart-capz)"}" stroke="var(--chart-capz)" stroke-width="1.5"${prov(g.k) ? ' stroke-dasharray="3 2"' : ""}/><text x="${cx}" y="${y - 5}" text-anchor="middle" font-size="11" font-weight="600" fill="var(--chart-capz-ink)">${pv.toFixed(1)}%</text>`; }
+    svg += ga(m, h, tip) + `<text x="${cx}" y="${H - PAD.b + 16}" text-anchor="middle" font-size="11" fill="#4A4F57">${esc(g.k)}${prov(g.k) ? "*" : ""}</text><text x="${cx}" y="${H - PAD.b + 30}" text-anchor="middle" font-size="11" fill="#5A5F6B">n=${c.allN}</text>`;
+  });
+  svgHost.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:${W}px" role="img" aria-label="Capitalization % per quarter in the Power BI scope, ${keys.length} quarters, ${sp ? "story points" : "issue count"}. The same values are in the data table attached to this chart." aria-describedby="capz-data">${svg}</svg>`;
+  { let cue = document.getElementById("capz-cue"); if (!cue) { cue = document.createElement("div"); cue.id = "capz-cue"; cue.className = "scrollcue"; svgHost.insertAdjacentElement("afterend", cue); }
+    const wide = svgHost.scrollWidth > svgHost.clientWidth + 1; cue.hidden = !wide; cue.textContent = wide ? "Scroll sideways to see all periods; the chart opens on the latest." : ""; if (wide) svgHost.scrollLeft = svgHost.scrollWidth; }
+  const refShort = DATA.capPbiRefreshFailed ? ` · not refreshed: ${esc(DATA.capPbiRefreshFailed)}; as of ${esc(ilStamp(P.refreshedAt || P.pulledAt))}` : RUNTIME ? (P.refreshedAt ? ` · refreshed ${esc(ilLabel(P.refreshedAt))}` : " · not refreshed yet") : "";
+  cap.innerHTML = `Power BI scope: ${nProj} projects, quarter of the last sprint's end date; Projects and Teams filters do not apply${refShort}.`;
+  const nNone = P.noSprint.n;
+  foot.hidden = false; foot.textContent = `${nNone.toLocaleString("en-US")} Done ${nNone === 1 ? "issue has" : "issues have"} no sprint and ${nNone === 1 ? "is" : "are"} not in a quarter`;
+  foot.title = `Done Bugs, Stories and Tasks resolved on or after ${P.from} with no sprint, or only sprints without an end date. Not a link: Jira cannot search for a sprint without an end date.`;
+  how.innerHTML = `Capitalized ${sp ? "story points" : "issues"} over all ${sp ? "story points" : "issues"} of Done Bugs, Stories and Tasks in the ${nProj} projects of the Power BI Capitalization report (${esc(P.scope.join(", "))}), by quarter. This view reproduces that report. Dashed bar: the current quarter. No share under ${MIN_N} issues.` +
+    `<p><b>The rule</b>: status Done; issue types Bug, Story and Task (no sub-tasks). <b>Quarter</b>: the calendar quarter, in UTC, of the end date of the issue's last sprint, the sprint with the latest end date. An issue with no sprint, or none with an end date, is in no quarter and is counted in the footnote. ` +
+    `<b>Capitalized</b>: the Capitalize field (customfield_10079) starts with "Capitalize". <b>Non capitalized</b>: it starts with "Non Capitalize". Anything else, an empty value too, is <b>Unmapped</b> and stays in the total. ` +
+    `<b>Share</b>: capitalized story points (customfield_10038, blank counted as 0) over all story points, or in Count mode capitalized issues over all issues; n is the issue count. ` +
+    `<b>Filters</b>: the Projects and Teams filters do not apply here; the Release control is not available. <b>Links</b>: every number opens a query on the sprints that ended in that quarter and none that ended later, so Jira shows today's issues; a number whose query would be too long is plain text. ` +
+    `<b>Data</b>: read from Jira ${esc(ilLabel(P.pulledAt))}${P.refreshedAt ? `; refreshed ${esc(ilLabel(P.refreshedAt))}` : ""}. Refresh reads the issues changed since then and updates them here.</p>`;
+  // data quality: both numbers cover every quarter shown, and open a query
+  const all = G.groups.reduce((a, g) => { const c = g.tot; a.n += c.allN; a.noSp += c.noSp; a.unm += c.cls[2].n; return a; }, {n: 0, noSp: 0, unm: 0});
+  const ln = (n, jql, what) => n ? tlink(n.toLocaleString("en-US"), capPbiHref(jql), `${n} ${what}\nClick opens the issues in Jira`) : "0";
+  dq.innerHTML = `<b>Data quality</b>: ${ln(all.noSp, capPbiJql(null, {noSp: true}), "issues with no story points (blank or 0), counted as 0")} of ${all.n.toLocaleString("en-US")} issues in the quarters have no story points and count as 0; ` +
+    `${ln(all.unm, capPbiJql(null, {cls: 2}), "Unmapped issues")} are Unmapped (the Capitalize field is empty or not recognised) and stay in the total.`;
+  // View Data: project x quarter (each number is a link), then the Capitalize classes per quarter
+  const cellOf = (c, qt, proj) => {
+    if (!c.allN) return "–";
+    const where = `${proj ? proj + ", " : ""}${qt}`;
+    return `${c.capN ? tlink(c.capN, capPbiHref(capPbiJql(qt, {proj, cls: 0})), `${c.capN} capitalized issues, ${where}\nClick opens the issues in Jira`) : "0"} of ${tlink(c.allN, capPbiHref(capPbiJql(qt, {proj})), `${c.allN} issues, ${where}\nClick opens the issues in Jira`)} issues · ${fmtN(c.capSP)} of ${fmtN(c.allSP)} SP · ${share(c)}`;
+  };
+  dataTable("capz-data", `Capitalization % in the Power BI scope: per project and quarter, capitalized and all issues, capitalized and all story points, and the share of the selected measure`,
+    ["Project", ...G.groups.map(g => esc(g.k) + (prov(g.k) ? "*" : ""))],
+    [...P.scope.map((pj, i) => [esc(pj), ...G.groups.map(g => cellOf(g.proj[i], g.k, pj))]), ["All projects", ...G.groups.map(g => cellOf(g.tot, g.k, null))]]);
+  const clsHead = ["Quarter", ...P.values.map(esc), "All issues", "Share"].map((h, i) => `<th scope="col"${i ? ' class="n"' : ""}>${h}</th>`).join("");
+  const clsRows = G.groups.map(g => { const c = g.tot, part = k => c.cls[k].n ? `${tlink(c.cls[k].n, capPbiHref(capPbiJql(g.k, {cls: k})), `${c.cls[k].n} ${P.values[k].toLowerCase()} issues, ${g.k}\nClick opens the issues in Jira`)} issues · ${fmtN(c.cls[k].sp)} SP` : "–";
+    return `<tr><th scope="row">${esc(g.k)}${prov(g.k) ? "*" : ""}</th>${[0, 1, 2].map(k => `<td class="n">${part(k)}</td>`).join("")}<td class="n">${tlink(c.allN, capPbiHref(capPbiJql(g.k)), `${c.allN} issues, ${g.k}\nClick opens the issues in Jira`)} issues · ${fmtN(c.allSP)} SP</td><td class="n">${share(c)}</td></tr>`; }).join("");
+  const wrap = data.querySelector(".tablewrap") || data.querySelector(".sr");
+  if (wrap) wrap.insertAdjacentHTML("beforeend", `<table><caption class="sr">Capitalization % in the Power BI scope: issues and story points per quarter by Capitalize class</caption><thead><tr>${clsHead}</tr></thead><tbody>${clsRows}</tbody></table>`);
+  const sm = data.querySelector("summary"); if (sm) sm.textContent = "Show data, capitalization";
+}
 function capInit() {
   document.getElementById("f-capby").onchange = e => { state.cap.by = e.target.value; saveState(); renderCapitalization(); };
   document.getElementById("f-capmeasure").onchange = e => { state.cap.measure = e.target.value; saveState(); renderCapitalization(); };
+  document.getElementById("f-capscope").onchange = e => {
+    state.cap.scope = e.target.value; syncControls(); saveState(); renderCapitalization();
+    announce(state.cap.scope === "pbi" ? `Capitalization: Power BI scope, ${CAP_PBI_PROJECTS.length} projects by quarter. The Projects and Teams filters do not apply` : "Capitalization: Closed date, following the Projects and Teams filters");
+  };
 }
 function nfrShareData(rows) {
   const host = document.getElementById("nfrshare-data"); if (!host) return;
@@ -3576,14 +3682,14 @@ function renderTeamList() {
 function filterChanges() {
   const same = (a, b) => a.size === b.length && b.every(x => a.has(x));
   return {release: state.release !== DATA.current, projects: !same(state.projects, projectsAll), teams: state.teams.size > 0, commit: !same(state.commit, DEFAULT_COMMIT),
-    bugpri: state.bugPri.size !== PRI_ALL.length, cfb: state.cfb !== "all", ax: state.ax, period: state.gran !== "month", cfbgrp: state.cfbGroup !== "version", depfilter: state.depFilter !== "epics", nfrtab: state.nfrTab !== "project", cx: state.cx !== "all", cap: state.cap.by !== "quarter" || state.cap.measure !== "sp", cycles: cyChanged()};
+    bugpri: state.bugPri.size !== PRI_ALL.length, cfb: state.cfb !== "all", ax: state.ax, period: state.gran !== "month", cfbgrp: state.cfbGroup !== "version", depfilter: state.depFilter !== "epics", nfrtab: state.nfrTab !== "project", cx: state.cx !== "all", cap: state.cap.by !== "quarter" || state.cap.measure !== "sp" || state.cap.scope !== "closed", cycles: cyChanged()};
 }
 function syncControls() {
   const ch = filterChanges(), nCh = Object.values(ch).filter(Boolean).length;
   [["g-release", ch.release], ["g-projects", ch.projects], ["teamsel", ch.teams], ["g-commit", ch.commit], ["g-bpri", ch.bugpri], ["g-cfb", ch.cfb], ["g-ax", ch.ax], ["g-gran", ch.period], ["g-cfbgrp", ch.cfbgrp], ["g-dep", ch.depfilter], ["g-cx", ch.cx]].forEach(([id, on]) => document.getElementById(id).classList.toggle("changed", on));
   const commit = state.commit.size === COMMIT.length ? "all commitment types" : [...state.commit].join(" + ") || "no commitment type";
   const top = ch.release || ch.projects || ch.teams || ch.commit, bugParts = [ch.bugpri ? `Priority ${PRI_ALL.filter(k => state.bugPri.has(k)).join(", ") || "none"}` : "", ch.cfb ? `CFB ${state.cfb === "yes" ? "only" : "excluded"}` : "", ch.ax ? "accessibility bugs included" : ""].filter(Boolean),
-    extra = (bugParts.length ? ` · Bugs: ${bugParts.join(", ")}` : "") + (ch.period ? ` · Efficiency and AI by ${state.gran}` : "") + (ch.cfbgrp ? ` · CFB by ${state.cfbGroup}` : "") + (ch.cx ? ` · CXCROSS: ${CX_TYPES[state.cx][0]} only` : "") + (ch.cap ? ` · Capitalization by ${state.cap.by}, ${state.cap.measure === "sp" ? "story points" : "count"}` : "") + (ch.nfrtab ? ` · NFRs ${NFR_TABS.find(x => x[0] === state.nfrTab)[1].toLowerCase()}` : "") + (ch.cycles ? ` · Delivery Cycles: ${state.cy.cycle || "default cycle"}, ${cyTabName(state.cy.tab)}` : "") + (ch.depfilter ? ` · Dependencies: ${state.depFilter === "unplanned" ? "Not Planned only" : state.depFilter === "overdue" ? "Overdue only" : state.depFilter === "all" ? "All Issue Types" : "External only"}` : "");
+    extra = (bugParts.length ? ` · Bugs: ${bugParts.join(", ")}` : "") + (ch.period ? ` · Efficiency and AI by ${state.gran}` : "") + (ch.cfbgrp ? ` · CFB by ${state.cfbGroup}` : "") + (ch.cx ? ` · CXCROSS: ${CX_TYPES[state.cx][0]} only` : "") + (ch.cap ? ` · Capitalization ${state.cap.scope === "pbi" ? "in Power BI scope by quarter" : `by ${state.cap.by}`}, ${state.cap.measure === "sp" ? "story points" : "count"}` : "") + (ch.nfrtab ? ` · NFRs ${NFR_TABS.find(x => x[0] === state.nfrTab)[1].toLowerCase()}` : "") + (ch.cycles ? ` · Delivery Cycles: ${state.cy.cycle || "default cycle"}, ${cyTabName(state.cy.tab)}` : "") + (ch.depfilter ? ` · Dependencies: ${state.depFilter === "unplanned" ? "Not Planned only" : state.depFilter === "overdue" ? "Overdue only" : state.depFilter === "all" ? "All Issue Types" : "External only"}` : "");
   document.getElementById("fsum").textContent = (top
     ? `Showing ${ch.release ? "release " + state.release + " · " : ""}${projText()} · ${state.teams.size ? [...state.teams].join(", ") : "all teams"} · ${commit}`
     : "") + (top ? extra : extra.replace(/^ · /, ""));
@@ -3692,11 +3798,12 @@ function updateCore() {
   renderBreakdowns(); renderDQ(); renderMeta(); tipPass(); nowrapDates(); fitSticky();
 }
 // ONE stamp in the header: the oldest time among the LIVE sources (every open and every click refreshes them; after a Refresh they all carry the refresh time, a failed step keeps its old time).
-// The two LIMITED sources (cycle time, Capitalization: first open of the day and the first two clicks) are named in the tooltip, and only when they differ from it. A copy with no connector has no limited tier: its stamp is the oldest of all.
+// The LIMITED sources (cycle time, Capitalization, Capitalization in Power BI scope: first open of the day and the first two clicks) are named in the tooltip, and only when they differ from it. A copy with no connector has no limited tier: its stamp is the oldest of all.
 function sourceTimes() {
   const base = DATA.generated, rf = DATA.refreshedAt;
   const live = [["Epics", rf || base], ["Bugs", rf || DATA.bugsPulledAt || base], ["Open CFBs", DATA.cfbRefreshedAt || (DATA.cfbx && DATA.cfbx.pulledAt) || base], ["Dependency links", DATA.linksPulledAt || base], ["Capabilities", DATA.capPulledAt || base]];
-  const slow = [["Cycle time", DATA.edctAt || base, !!DATA.edctAt], ["Capitalization", DATA.capRefreshedAt || (DATA.cap && DATA.cap.pulledAt) || base, !!DATA.capRefreshedAt]];      // [name, time, refreshed at least once]
+  const slow = [["Cycle time", DATA.edctAt || base, !!DATA.edctAt], ["Capitalization", DATA.capRefreshedAt || (DATA.cap && DATA.cap.pulledAt) || base, !!DATA.capRefreshedAt],
+    ...(DATA.capPbi ? [["Capitalization (Power BI scope)", DATA.capPbi.refreshedAt || DATA.capPbi.pulledAt || base, !!DATA.capPbi.refreshedAt]] : [])];      // [name, time, refreshed at least once]
   const oldestOf = list => list.map(x => x[1]).sort()[0], liveOldest = oldestOf(live), oldestAll = oldestOf([...live, ...slow]);
   return {live, slow, oldest: RUNTIME ? liveOldest : oldestAll, oldestAll, slowDiffer: slow.filter(x => Math.abs(new Date(x[1]) - new Date(liveOldest)) > 60000)};
 }
@@ -3721,7 +3828,7 @@ function renderMeta() {
 
 // ---------------------------------------------------------------- live refresh (published artifact only)
 const LIVE = {server: "Atlassian", tool: "searchJiraIssuesUsingJql", issueTool: "getJiraIssue", pageLimit: 40};
-// Two tiers of Refresh steps. LIVE (every open and every click): epics, bugs and accessibility first, then Open CFBs, Dependency links, Capabilities. LIMITED (after those): cycle time, then Capitalization.
+// Two tiers of Refresh steps. LIVE (every open and every click): epics, bugs and accessibility first, then Open CFBs, Dependency links, Capabilities. LIMITED (after those): cycle time, then Capitalization, then Capitalization (Power BI scope).
 // Per viewer and Israel-local day the FIRST automatic refresh on open runs the limited tier without using a click (SLOW_AUTO = 0: an open runs the live tier only), and SLOW_CLICKS clicks run it too; after that a click runs the live tier only.
 // The count is a courtesy kept in this browser (localStorage "dp.slowRuns" = {day, n, auto}), not an access control: clearing storage or moving the clock resets it. With storage blocked the count lives in memory for this page load.
 const SLOW_AUTO = 1, SLOW_CLICKS = 2, SLOW_KEY = "dp.slowRuns";
@@ -3744,7 +3851,7 @@ function slowReserve(auto) {                                 // synchronous read
 // What the limited tier last read is kept in this browser (localStorage "dp.slowData"), so a reload shows it instead of the older data the page was built with. It is bound to the data version it was read on
 // (build time and schema): a newer build discards it. A stored value never overwrites a value the data already has and never makes data look newer than it is. Any storage problem is skipped silently.
 const SLOW_DATA = "dp.slowData", SLOW_DATA_MAX = 1.5e6;
-let slowStored = {}, slowEdct = {};                         // what is kept so far: {edctAt, edct: {key: [ip, vl, cal]}, cap, capAt}
+let slowStored = {}, slowEdct = {};                         // what is kept so far: {edctAt, edct: {key: [ip, vl, cal]}, cap, capAt, pbi, pbiAt}
 function slowSave(part) {                                    // called right after a limited step succeeds
   Object.assign(slowStored, part);
   try { const txt = JSON.stringify({v: 1, build: DATA.generated, schema: PAGE_SCHEMA, ...slowStored}); if (txt.length <= SLOW_DATA_MAX) localStorage.setItem(SLOW_DATA, txt); } catch (e) { /* not persisted */ }
@@ -3765,6 +3872,10 @@ function slowLoad() {                                        // at boot, before 
   const C = d.cap;
   if (stamp(d.capAt) && C && typeof C === "object" && typeof C.rows === "string" && Array.isArray(C.values) && Array.isArray(C.teams) && Array.isArray(C.projects) && DATA.cap && DATA.cap.pulledAt && Date.parse(d.capAt) > Date.parse(DATA.cap.pulledAt)) {
     DATA.cap = C; DATA.capRefreshedAt = d.capAt; slowStored.cap = C; slowStored.capAt = d.capAt;
+  }
+  const B = d.pbi;
+  if (stamp(d.pbiAt) && capPbiValid(B) && B.refreshedAt === d.pbiAt && DATA.capPbi && DATA.capPbi.pulledAt && Date.parse(d.pbiAt) > Date.parse(DATA.capPbi.pulledAt) && JSON.stringify(B.scope) === JSON.stringify(DATA.capPbi.scope)) {
+    DATA.capPbi = B; slowStored.pbi = B; slowStored.pbiAt = d.pbiAt;
   }
 }
 // An epic that closed since the last cycle-time run is not a hygiene defect: its cycle time is read by the next limited run (a published page only).
@@ -4004,6 +4115,65 @@ async function capRefresh(mcp, say) {
   slowSave({cap: DATA.cap, capAt: DATA.capRefreshedAt});
   return {since, read, n: changed, cur: capQuarterOf(new Date(utc(ilDate(new Date()))))};
 }
+// ---- Capitalization (Power BI scope) delta refresh. Every Bug, Story and Task of the scope projects updated since the last read is returned in ANY status and judged by the same rule as the collector:
+// Done -> the issue's row is inserted or replaced (its last sprint decides the quarter; no sprint or none with an end date -> it moves to the "no sprint" list); anything else that comes back (reopened, Removed,
+// an excluded key, a last sprint before the start) -> the row is deleted. An issue that is not returned is never touched, and an empty response deletes nothing. Everything is staged first and applied at the end.
+const CAP_PBI_STEP = "Capitalization (Power BI scope)";
+const CAP_PBI_FETCH = ["status", "issuetype", "customfield_10038", "customfield_10079", "customfield_10020", "resolutiondate"];
+const capPbiClassOf = v => { const t = String(v || ""); return t.startsWith("Capitalize") ? 0 : t.startsWith("Non Capitalize") ? 1 : 2; };      // the collector's cap_pbi_class
+function capPbiValid(B) {                                           // a stored section is used only when every row points into its sprint list (a corrupt value must not break the chart)
+  if (!B || typeof B !== "object" || typeof B.rows !== "string" || !Array.isArray(B.scope) || !Array.isArray(B.sprints) || !Array.isArray(B.opts) || B.opts.length !== 2 || !B.opts.every(a => Array.isArray(a) && a.every(x => typeof x === "string"))) return false;
+  if (!B.noSprint || typeof B.noSprint !== "object" || typeof B.noSprint.rows !== "string" || typeof B.noSprint.n !== "number" || typeof B.start !== "string" || typeof B.from !== "string" || !Array.isArray(B.values)) return false;
+  if (!B.sprints.every(x => Array.isArray(x) && Number.isInteger(x[0]) && /^\d{4}-\d{2}-\d{2}$/.test(x[1]))) return false;
+  const row = /^\d+,\d+,[0-2],\d+(?:\.\d+)?,\d+$/;
+  return (!B.rows || B.rows.split(";").every(x => row.test(x) && +x.split(",")[1] < B.scope.length && +x.split(",")[4] < B.sprints.length)) && (!B.noSprint.rows || B.noSprint.rows.split(";").every(x => /^\d+,\d+,\d+(?:\.\d+)?$/.test(x)));
+}
+function capPbiLastSprint(list) {                                   // [id, UTC end day, end instant] of the sprint with the latest end date (a tie goes to the higher id); null when none has a readable end date
+  let best = null;
+  for (const s of Array.isArray(list) ? list : []) {
+    if (!s || typeof s !== "object" || !s.endDate) continue;
+    const txt = String(s.endDate).replace(/([+-]\d\d)(\d\d)$/, "$1:$2"), ms = Date.parse(/(?:Z|[+-]\d\d:\d\d)$/.test(txt) ? txt : txt + "Z"), id = Number(s.id);
+    if (isNaN(ms) || !Number.isInteger(id)) continue;
+    if (!best || ms > best[2] || (ms === best[2] && id > best[0])) best = [id, new Date(ms).toISOString().slice(0, 10), ms];
+  }
+  return best;
+}
+async function capPbiRefresh(mcp, say) {
+  const P = DATA.capPbi; if (!P || !capPbiOk()) return null;
+  const startedAt = P.refreshedAt || null, last = [P.pulledAt, P.refreshedAt].filter(Boolean).sort().pop(), since = iso(utc(ilDate(last)) - DAY);
+  const res = await fetchSliced(mcp, `project in (${CAP_PBI_PROJECTS.map(q).join(", ")}) AND issuetype in (Bug, Story, Task)`, since, (pg, n) => say(`Capitalization (Power BI scope): page ${pg}, ${n} issues read so far.`), CAP_PBI_FETCH);
+  const rows = new Map(capPbiRecords().map(r => [`${r.p}-${r.n}`, {n: r.n, p: r.p, v: r.v, sp: r.sp, s: r.s}])), sprints = P.sprints.map(x => [x[0], x[1]]), sIx = new Map(sprints.map((x, i) => [x[0], i]));
+  const none = new Map((P.noSprint.rows ? P.noSprint.rows.split(";") : []).map(x => { const a = x.split(","); return [`${a[1]}-${a[0]}`, {n: +a[0], p: +a[1], sp: +a[2]}]; }));
+  const opts = [new Set(P.opts[0]), new Set(P.opts[1])], enc = (r, z) => r ? (z ? `z${r.n},${r.p},${r.sp}` : `${r.n},${r.p},${r.v},${r.sp},${sprints[r.s] ? sprints[r.s].join(":") : ""}`) : null;
+  let changed = 0;
+  for (const node of res.nodes) {
+    const f = node.fields || {}, key = node.key, cut = key.lastIndexOf("-"), pi = P.scope.indexOf(key.slice(0, cut)), n = Number(key.slice(cut + 1)), id = `${pi}-${n}`, old = rows.get(id), oldNone = none.get(id);
+    const status = f.status && (f.status.name || f.status), type = f.issuetype && (f.issuetype.name || f.issuetype);
+    if (pi < 0 || !Number.isInteger(n) || !status) continue;                          // not in the scope, or the response says nothing about it: nothing to judge
+    const before = [enc(old), enc(oldNone, true)].join("|"), inPop = status === "Done" && (!type || ["Bug", "Story", "Task"].includes(type)) && !CAP_PBI_EXCLUDE.includes(key);
+    if (!inPop) { rows.delete(id); none.delete(id); }
+    else {
+      const oldSp = old ? old.sp : oldNone ? oldNone.sp : 0, spv = "customfield_10038" in f ? (typeof f.customfield_10038 === "number" ? f.customfield_10038 : 0) : oldSp;
+      let cls = old ? old.v : 2; if ("customfield_10079" in f) { const raw = optVal(f.customfield_10079) || ""; cls = capPbiClassOf(raw); if (cls < 2) opts[cls].add(String(raw)); }
+      const ls = "customfield_10020" in f ? capPbiLastSprint(f.customfield_10020) : (old && sprints[old.s] ? [sprints[old.s][0], sprints[old.s][1]] : null);
+      if (ls && ls[1] >= P.start) {                                                    // a quarter from 2025-Q4 on: the row
+        let si = sIx.get(ls[0]); if (si === undefined) { si = sprints.length; sprints.push([ls[0], ls[1]]); sIx.set(ls[0], si); } else sprints[si][1] = ls[1];      // a sprint whose end date moved takes its rows with it
+        rows.set(id, {n, p: pi, v: cls, sp: spv, s: si}); none.delete(id);
+      } else if (ls) { rows.delete(id); none.delete(id); }                              // its last sprint ended before the start: not in the chart
+      else {                                                                            // no sprint with an end date: counted apart (resolved since the pull window starts)
+        rows.delete(id); const rd = f.resolutiondate ? String(f.resolutiondate).slice(0, 10) : null;
+        if ((rd && rd >= P.from) || (!("resolutiondate" in f) && oldNone)) none.set(id, {n, p: pi, sp: spv}); else none.delete(id);
+      }
+    }
+    if ([enc(rows.get(id)), enc(none.get(id), true)].join("|") !== before) changed++;
+  }
+  if (DATA.capPbi !== P || (P.refreshedAt || null) !== startedAt) throw {code: "tool_error", message: "the Power BI scope data changed while it was being read; nothing was applied"};          // a read that was overtaken by another is dropped, not applied over the newer data
+  P.rows = [...rows.values()].map(r => [r.n, r.p, r.v, r.sp, r.s].join(",")).join(";"); P.sprints = sprints; P.opts = [[...opts[0]].sort(), [...opts[1]].sort()];
+  P.noSprint = {n: none.size, sp: +[...none.values()].reduce((a, r) => a + r.sp, 0).toFixed(2), rows: [...none.values()].map(r => [r.n, r.p, r.sp].join(",")).join(";")};
+  CAPPBI = null; P.refreshedAt = new Date().toISOString(); DATA.capPbiRefreshFailed = null;
+  slowSave({pbi: P, pbiAt: P.refreshedAt});
+  return {since, read: res.nodes.length, n: changed};
+}
 // ---- Refresh steps beyond epics and bugs. Each step is independent: a failure is reported on its own and leaves its data as it was; the others still run.
 // The Root Cause Analysis template hash is the build's (cyrb53 over the UTF-16 units of the normalised text); the text of a template is never stored.
 const h53 = (str, seed = 0) => { let h1 = 0xdeadbeef ^ seed, h2 = 0x41c6ce57 ^ seed;
@@ -4134,13 +4304,14 @@ async function refresh(opts = {}) {
     DATA.refreshedStats = {epics: (DATA.refreshedStats ? DATA.refreshedStats.epics : 0) + counts.epics, bugs: (DATA.refreshedStats ? DATA.refreshedStats.bugs : 0) + counts.bugs};
     update(); syncTip();                                              // epics and bugs are read and merged: show them now, the other steps redraw as each finishes
     const slow = slowReserve(auto);                                   // decided once, here: step 1 succeeded, so this run counts against the starting day's allowance; a failed run is not refunded
-    const steps = [], run = async (label, fn) => { try { const r = await fn(); if (r) steps.push({label, ok: true, r}); } catch (err) { const msg = String((err && (err.message || err.code)) || "unknown error").slice(0, 120); if (label === "Capitalization") DATA.capRefreshFailed = msg; if (label === "Cycle time") DATA.edctFailed = msg; steps.push({label, ok: false, msg}); } update(); syncTip(); };
+    const steps = [], run = async (label, fn) => { try { const r = await fn(); if (r) steps.push({label, ok: true, r}); } catch (err) { const msg = String((err && (err.message || err.code)) || "unknown error").slice(0, 120); if (label === "Capitalization") DATA.capRefreshFailed = msg; if (label === CAP_PBI_STEP) DATA.capPbiRefreshFailed = msg; if (label === "Cycle time") DATA.edctFailed = msg; steps.push({label, ok: false, msg}); } update(); syncTip(); };
     await run("Open CFBs", () => cfbRefresh(mcp, msg => say(msg)));
     await run("Dependency links", () => linksRefresh(mcp, msg => say(msg), sinceDay));
     await run("Capabilities", () => capsRefresh(mcp, msg => say(msg), sinceDay));
     if (slow.run) {
       await run("Cycle time", () => edctRefresh(mcp, msg => say(msg)));
       await run("Capitalization", () => capRefresh(mcp, msg => say(msg)));
+      await run(CAP_PBI_STEP, () => capPbiRefresh(mcp, msg => say(msg)));
     }
     update();
     const okOf = l => (steps.find(x => x.label === l && x.ok) || {}).r, bad = steps.filter(x => !x.ok);

@@ -28,12 +28,12 @@
   window.__ok = ok;
   const self = {
     callTool: async (server, tool, input, opts) => {
-      if (input && input.searchResultMode === "count") {          // Jira's own count of a query: the sum over the pages the same query returns (not logged as an ordinary call), plus CFG.countDelta to imitate a lost page
+      if (input && input.searchResultMode === "count") {          // Jira's own count of a query: the sum over the pages the same query returns (not logged as an ordinary call), plus CFG.countDelta (CFG.pbiCountDelta: only for the Power BI scope query) to imitate a lost page
         window.__countCalls.push({jql: input.jql});
         if (CFG.mode === "nocount") return {payload: {issues: {nodes: []}}};
         let n = 0, tok;
         for (let i = 0; i < 50; i++) { const r = await self.callTool(server, tool, {...input, searchResultMode: undefined, nextPageToken: tok}, {...opts, __silent: true}); n += r.payload.issues.nodes.length; tok = r.payload.issues.pageInfo && r.payload.issues.pageInfo.endCursor; if (!tok) break; }
-        return {payload: {issues: {totalCount: n + (CFG.countDelta || 0), nodes: []}}};
+        return {payload: {issues: {totalCount: n + (CFG.countDelta || 0) + (CFG.pbiCountDelta && /project in \("/.test(input.jql) ? CFG.pbiCountDelta : 0), nodes: []}}};
       }
       const idx = window.__calls.length;
       if (tool === "getJiraIssue") {          // an issue with its change history: In Progress 6 days before the resolution day, Validation 3 days before, Done on it (so EDCT = 6)
@@ -56,6 +56,10 @@
       if (jql.includes("issuetype = Epic AND status != Removed AND fixVersion in (")) { if (MODE === "linksfail") throw {code: "tool_error", message: "links boom"}; return ok(CFG.linknodes); }
       if (/^key in \(/.test(jql) && farHasProject) return ok(CFG.farnodes);
       if (/^key in \(/.test(jql)) return ok(CFG.leftcfb);
+      if (jql.includes('project in ("')) {          // the Power BI scope of Capitalization: every key quoted (the other reads use bare keys); CFG.pbinodes are the issues Jira answers with, in any status
+        if (MODE === "pbifail") throw {code: "tool_error", message: "power bi boom"};
+        return ok(MODE === "emptypbi" ? [] : (CFG.pbinodes || []));
+      }
       if (jql.includes("issuetype in (Bug, Story, Task)")) {
         if (MODE === "capfail") throw {code: "tool_error", message: "capitalization boom"};
         const proj = jql.match(/project = (\w+)/)[1];

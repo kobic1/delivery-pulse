@@ -474,6 +474,117 @@ def collect_capitalization(j) -> dict:
             "pulledAt": dt.datetime.now().astimezone().isoformat(timespec="minutes")}
 
 
+# ---------------------------------------------------------------- Capitalization % in the Power BI scope (reproduces the Power BI "Capitalization" report)
+# Population: Done Bugs, Stories and Tasks (no sub-tasks) of CAP_PBI_PROJECTS. Quarter = the calendar quarter (UTC) of the end date of the issue's LAST sprint, the sprint with the latest endDate among its sprints
+# that have one (not the highest id, not the first sprint, not the Closed date). An issue with no sprint, or none with an end date, is in no quarter: it is counted, not plotted. Story points are customfield_10038 (blank = 0).
+# Capitalize (customfield_10079): a value that starts with "Capitalize" is Capitalized, one that starts with "Non Capitalize" is Non capitalized, anything else (an empty value too) is Unmapped and STAYS in the denominator.
+CAP_PBI_PROJECTS = ["PMN", "CXSUP", "CXINT", "CXWFM", "CXCO", "INT", "EEM", "EMOB", "ESP", "DCMLT", "PVDEV"]      # the one list: definitions() hands it to the page. Quote every key in JQL (INT reads like a keyword)
+CAP_PBI_EXCLUDE = ["MS-21777"]                    # an issue Power BI leaves out (it is not in these projects; kept as a definition)
+CAP_PBI_SPRINT_FIELD = "customfield_10020"
+CAP_PBI_FIELDS = ["issuetype", "status", "resolutiondate", CAP_SP_FIELD, CAP_FIELD, CAP_PBI_SPRINT_FIELD]
+CAP_PBI_CLASSES = ["Capitalized", "Non capitalized", "Unmapped"]
+CAP_PBI_NON_PREFIX = "Non Capitalize"
+CAP_PBI_FROM = "2025-04-01"                       # the pull: Done issues resolved on or after this day (loses none of the rows from 2025-Q4 on)
+CAP_PBI_START = "2025-10-01"                      # a row is kept when its last sprint ends on or after this day (2025-Q4 onward)
+CAP_PBI_SLACK = 3                                 # issues that changed between the read and Jira's count are not a lost page (the page's refresh uses the same slack)
+
+
+def cap_pbi_class(value) -> int:
+    """0 Capitalized (starts with Capitalize), 1 Non capitalized (starts with Non Capitalize), 2 Unmapped (anything else, an empty value too, 'Non capitalize' in lower case included)."""
+    v = str(value or "")
+    return 0 if v.startswith(CAP_PREFIX) else 1 if v.startswith(CAP_PBI_NON_PREFIX) else 2
+
+
+def cap_pbi_last_sprint(sprints):
+    """(sprint id, end day as ISO text in UTC) of the sprint with the latest endDate (a tie goes to the higher id); None when no sprint has a readable end date."""
+    best = None
+    for s in sprints or []:
+        if not isinstance(s, dict) or not s.get("endDate"):
+            continue
+        try:
+            end = E.ts(str(s["endDate"]))
+        except ValueError:
+            continue
+        end = end.replace(tzinfo=dt.timezone.utc) if end.tzinfo is None else end.astimezone(dt.timezone.utc)
+        key = (end, int(s["id"]))
+        if best is None or key > best[0]:
+            best = (key, (int(s["id"]), end.date().isoformat()))
+    return best[1] if best else None
+
+
+def cap_pbi_record(issue: dict) -> dict:
+    """One Done issue: project, number, class, story points (blank = 0), the raw Capitalize value and its last sprint."""
+    f = issue["fields"]
+    val = f.get(CAP_FIELD)
+    val = (val.get("value") if isinstance(val, dict) else val) or ""
+    sp = f.get(CAP_SP_FIELD)
+    proj, num = issue["key"].rsplit("-", 1)
+    return {"key": issue["key"], "proj": proj, "num": int(num), "cls": cap_pbi_class(val), "value": val, "sp": float(sp) if isinstance(sp, (int, float)) else 0.0,
+            "sprint": cap_pbi_last_sprint(f.get(CAP_PBI_SPRINT_FIELD))}
+
+
+def cap_pbi_pull(j, jql: str) -> list:
+    """Every issue of the query, paged, checked against Jira's own count: a page lost without an error must not end up in the file. A read that differs from the count is read once more, then judged with the slack."""
+    issues = j.search(jql, CAP_PBI_FIELDS)
+    expected = j.count(jql)
+    if len(issues) != expected:
+        issues = j.search(jql, CAP_PBI_FIELDS)
+        expected = j.count(jql)
+    keys = {i["key"] for i in issues}
+    if len(keys) != len(issues):
+        raise SystemExit(f"Power BI scope: a paged read returned {len(issues) - len(keys)} issues twice for {jql!r}; nothing was saved")
+    if abs(expected - len(issues)) > CAP_PBI_SLACK:
+        raise SystemExit(f"Power BI scope: Jira counts {expected} issues but {len(issues)} were read for {jql!r}; nothing was saved")
+    return issues
+
+
+def cap_pbi_build(issues: list, scope: list) -> dict:
+    """The payload section from the pulled issues (no Jira calls). rows: 'number,project index,class index,story points,sprint index' joined by ';';
+    sprints: [[id, UTC end day]] for every sprint that is the last sprint of at least one row; noSprint: the Done issues in no quarter ('number,project index,story points');
+    opts: the Capitalize values seen that are Capitalized and Non capitalized (a link names the values: JQL cannot say 'starts with')."""
+    sprints, sprint_ix, rows, none_rows, cap_vals, non_vals = [], {}, [], [], set(), set()
+    for issue in issues:
+        r = cap_pbi_record(issue)
+        if r["key"] in CAP_PBI_EXCLUDE or r["proj"] not in scope:
+            continue
+        if r["cls"] == 0:
+            cap_vals.add(r["value"])
+        elif r["cls"] == 1:
+            non_vals.add(r["value"])
+        pi = scope.index(r["proj"])
+        if r["sprint"] is None:
+            none_rows.append((pi, r["num"], r["sp"]))
+            continue
+        sid, day = r["sprint"]
+        if day < CAP_PBI_START:
+            continue
+        if sid not in sprint_ix:
+            sprint_ix[sid] = len(sprints)
+            sprints.append([sid, day])
+        rows.append((pi, r["num"], r["cls"], r["sp"], sprint_ix[sid]))
+    rows.sort()
+    none_rows.sort()
+    return {"scope": list(scope), "values": list(CAP_PBI_CLASSES), "opts": [sorted(cap_vals), sorted(non_vals)], "start": CAP_PBI_START, "from": CAP_PBI_FROM,
+            "sprints": sprints, "rows": ";".join(f"{n},{pi},{c},{'%g' % sp},{si}" for pi, n, c, sp, si in rows),
+            "noSprint": {"n": len(none_rows), "sp": float("%g" % sum(x[2] for x in none_rows)), "rows": ";".join(f"{n},{pi},{'%g' % sp}" for pi, n, sp in none_rows)},
+            "pulledAt": None, "refreshedAt": None}
+
+
+def collect_capitalization_pbi(j) -> dict:
+    """Read-only. Per project of the scope: Done Bugs, Stories and Tasks resolved on or after CAP_PBI_FROM, each project's read checked against Jira's count; then the compact section."""
+    t0 = time.time()
+    issues, per = [], {}
+    for proj in CAP_PBI_PROJECTS:
+        got = cap_pbi_pull(j, f'project = "{proj}" AND status = Done AND issuetype in (Bug, Story, Task) AND resolutiondate >= "{CAP_PBI_FROM}"')
+        per[proj] = len(got)
+        issues += got
+    out = cap_pbi_build(issues, CAP_PBI_PROJECTS)
+    out["pulledAt"] = dt.datetime.now().astimezone().isoformat(timespec="minutes")
+    print(f"capitalization (Power BI scope): {len(issues)} issues pulled ({', '.join(f'{k} {v}' for k, v in per.items())}) in {time.time() - t0:.0f}s; "
+          f"{out['rows'].count(';') + 1 if out['rows'] else 0} rows in a quarter, {out['noSprint']['n']} with no sprint, {len(out['sprints'])} sprints; {len(out['rows']) / 1024:.0f} KB of rows", flush=True)
+    return out
+
+
 def collect_nfr(j, epics) -> int:
     """Flag (nf = 1) the epics that carry the NFR label. The other half of the NFR definition, an Issue Category in
     NFR_CATEGORIES, is already on every epic as cat."""
@@ -872,18 +983,19 @@ def fetch() -> dict:
             "cfbAccount": CFB_ACCOUNT, "bugSince": BUG_SINCE, "bugsPulledAt": bugs_at}
 
 
-SCHEMA = 2           # the payload layout the page expects (PAGE_SCHEMA in dashboard.template.html must be the same number; tests/test_definitions_contract.py checks it)
+SCHEMA = 3           # the payload layout the page expects (PAGE_SCHEMA in dashboard.template.html must be the same number; tests/test_definitions_contract.py checks it)
 REQUIRED = {"generated": str, "jiraBase": str, "projects": list, "releases": list, "current": str, "windows": dict, "epics": list, "bugs": list,
             "cfbAccount": str}          # without these the page cannot draw: stop the build instead of publishing an empty page
 NONEMPTY = {"projects", "releases", "windows", "epics", "generated", "jiraBase"}      # an empty bug list is a real (if unlikely) state; an empty epic list is a failed pull
-EXPECTED = {"hier": dict, "capabilities": dict, "capList": dict, "capEpics": list, "cfbx": dict, "deps": list, "cap": dict, "podRx": dict, "sprints": list}      # optional sections: a build without them still renders, the page shows a notice
+EXPECTED = {"hier": dict, "capabilities": dict, "capList": dict, "capEpics": list, "cfbx": dict, "deps": list, "cap": dict, "capPbi": dict, "podRx": dict, "sprints": list}      # optional sections: a build without them still renders, the page shows a notice
 
 
 def definitions() -> dict:
     """The definitions that the collector and the page must agree on, written once into the payload (DATA.defs). The page reads them from here;
     its own literals are only a fallback for an older payload, and tests/test_definitions_contract.py keeps the two equal."""
     return {"bugClosed": list(BUG_CLOSED), "nfrLabel": NFR_LABEL, "nfrCategories": list(NFR_CATEGORIES),
-            "commitTypes": ["Committed", "Not Set", "Stretch"], "targetCommit": ["Committed", "Not Set"]}
+            "commitTypes": ["Committed", "Not Set", "Stretch"], "targetCommit": ["Committed", "Not Set"],
+            "capPbiProjects": list(CAP_PBI_PROJECTS), "capPbiExclude": list(CAP_PBI_EXCLUDE)}
 
 
 def build_stamp() -> dict:
@@ -991,10 +1103,11 @@ def main() -> int:
     ap.add_argument("--add-pods", action="store_true", help="read the pod labels of the epics (each project's pod_label_regex from release_planning/config_*.json) into build/program_data.json, then render")
     ap.add_argument("--add-cfb-open", action="store_true", help="pull the root cause analysis state of the customer-found bugs (Open CFBs table) into build/program_data.json, then render")
     ap.add_argument("--add-capitalization", action="store_true", help="pull the Done Bugs, Stories and Tasks by Closed date (Capitalization %% chart: capitalize field, story points, fix versions, team; Closed day on or after 2025-10-01, Israel time, resolution date when Closed is empty) into build/program_data.json, then render")
+    ap.add_argument("--add-capitalization-pbi", action="store_true", help="pull the Done Bugs, Stories and Tasks of the Power BI Capitalization scope (11 projects, quarter of the last sprint's end date; read-only, each project's read checked against Jira's count) into build/program_data.json, then render")
     ap.add_argument("--add-capabilities", action="store_true", help="pull the Capability list and all their child epics (Capabilities section, Done Capabilities per Release) into build/program_data.json, then render")
     ap.add_argument("--add-cycles", action="store_true", help="no longer used (kept so old command lines still run): the Confluence pods pull was removed; Group By is Team or Pod from labels")
     args = ap.parse_args()
-    modes = [a for a in ("reuse", "add_nfr", "add_hier", "add_planning", "add_deps", "add_bugs", "add_pods", "add_cfb_open", "add_capitalization", "add_capabilities", "add_cycles") if getattr(args, a)]
+    modes = [a for a in ("reuse", "add_nfr", "add_hier", "add_planning", "add_deps", "add_bugs", "add_pods", "add_cfb_open", "add_capitalization", "add_capitalization_pbi", "add_capabilities", "add_cycles") if getattr(args, a)]
     if len(modes) > 1:      # the branches below are an if/elif chain: a second flag used to be skipped without a word
         ap.error("use one mode flag at a time (got " + ", ".join("--" + m.replace("_", "-") for m in modes) + "); run them one after another")
     DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -1020,6 +1133,10 @@ def main() -> int:
     elif args.add_capitalization:
         data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
         data["cap"] = collect_capitalization(E.Jira())
+        save_data(data)
+    elif args.add_capitalization_pbi:
+        data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
+        data["capPbi"] = collect_capitalization_pbi(E.Jira())
         save_data(data)
     elif args.add_capabilities:
         data = json.loads(DATA_PATH.read_text(encoding="utf-8"))

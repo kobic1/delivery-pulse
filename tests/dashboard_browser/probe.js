@@ -19,6 +19,7 @@
     hierFv: DATA.hier[S.cap].fv, listFv: DATA.capList[S.cap] ? DATA.capList[S.cap].fv : null, listS: DATA.capList[S.cap] ? DATA.capList[S.cap].s : null, capNoFv: DATA.capNoFv, capPulledAt: DATA.capPulledAt,
     stampTxt: document.getElementById("asof").textContent, stampTip: document.getElementById("asof").dataset.tip || "", capFail: DATA.capRefreshFailed || null,
     capVals: DATA.cap.values.slice(), capTeams: DATA.cap.teams.slice(), capRows: DATA.cap.rows, capAt: DATA.capRefreshedAt || null, capN: DATA.capRefreshedN == null ? null : DATA.capRefreshedN, capNote: (document.getElementById("capz-cap") || {}).textContent || "",
+    pbi: DATA.capPbi ? {rows: DATA.capPbi.rows, sprints: DATA.capPbi.sprints, opts: DATA.capPbi.opts, none: DATA.capPbi.noSprint, at: DATA.capPbi.refreshedAt || null, pulled: DATA.capPbi.pulledAt} : null, pbiFail: DATA.capPbiRefreshFailed || null,
     refreshedAt: DATA.refreshedAt || null, refreshedStats: DATA.refreshedStats || null,
     slowRaw: (() => { try { return localStorage.getItem("dp.slowRuns"); } catch (e) { return "blocked"; } })(), edctAt: DATA.edctAt || null, edctFailed: DATA.edctFailed || null,
     effNote: (document.getElementById("eff-note") || {}).textContent || "", raNote: (document.getElementById("ra-note") || {}).textContent || "",

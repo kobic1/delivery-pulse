@@ -163,6 +163,12 @@ class Jira:
             if data.get("isLast", True) or not token:
                 return out
 
+    def count(self, jql: str) -> int:
+        """Jira's own count of a query (a read): the check that a paged read lost nothing."""
+        r = self.s.post(f"{self.base}/rest/api/3/search/approximate-count", json={"jql": jql}, timeout=90)
+        r.raise_for_status()
+        return int(r.json()["count"])
+
     def changelog(self, key: str) -> list[dict]:
         """One request per epic makes this the highest-volume caller, so a mid-response
         connection failure here is the likeliest way a whole run dies. Retry it."""

@@ -42,6 +42,24 @@ def test_page_and_collector_agree_on_the_payload_schema():
     assert int(re.search(r"const PAGE_SCHEMA = (\d+);", TEMPLATE).group(1)) == BD.SCHEMA
 
 
+def test_the_power_bi_scope_is_one_list_and_the_page_falls_back_to_the_same_literal():
+    d = BD.definitions()
+    expected = ["PMN", "CXSUP", "CXINT", "CXWFM", "CXCO", "INT", "EEM", "EMOB", "ESP", "DCMLT", "PVDEV"]
+    assert d["capPbiProjects"] == expected and "WFM" not in expected                      # the Jira project WFM is not in the Power BI report
+    assert js_array("CAP_PBI_PROJECTS") == d["capPbiProjects"]
+    assert js_array("CAP_PBI_EXCLUDE") == d["capPbiExclude"] == ["MS-21777"]
+    assert "capPbiProjects" in set(re.findall(r"DEFS\.(\w+)", TEMPLATE)) and "capPbiExclude" in set(re.findall(r"DEFS\.(\w+)", TEMPLATE))
+
+
+def test_the_power_bi_section_has_the_layout_the_page_and_the_fictitious_fixture_use():
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "dashboard_browser"))
+    import make_synthetic as MS
+    section = BD.cap_pbi_build([], BD.CAP_PBI_PROJECTS)
+    assert set(section) == set(MS.make()["capPbi"]) == {"scope", "values", "opts", "start", "from", "sprints", "rows", "noSprint", "pulledAt", "refreshedAt"}
+    assert set(section["noSprint"]) == {"n", "sp", "rows"} and section["start"] == MS.PBI_START and section["from"] == MS.PBI_FROM and section["values"] == MS.PBI_CLASSES
+    assert BD.SCHEMA == 3 and "capPbi" in BD.EXPECTED                                       # the layout number moved with the new optional section
+
+
 def test_every_jira_field_id_the_page_queries_is_known_to_the_collector():
     page = set(re.findall(r"customfield_(\d+)", TEMPLATE)) | set(re.findall(r"cf\[(\d+)\]", TEMPLATE))
     collector = set(re.findall(r"customfield_(\d+)", (HERE / "build_dashboard.py").read_text(encoding="utf-8"))) | set(re.findall(r"cf\[(\d+)\]", (HERE / "build_dashboard.py").read_text(encoding="utf-8")))
@@ -90,6 +108,38 @@ def test_render_writes_schema_defs_and_build_stamp_and_drops_the_dead_keys(tmp_p
     assert set(payload["build"]) == {"sha", "dirty", "at"}
     assert "cycles" not in payload and "quality" not in payload
     assert "</" not in m.group(1)                                              # the payload cannot close the script element
+
+
+def test_the_power_bi_flag_pulls_saves_atomically_and_a_reuse_render_includes_it(tmp_path, monkeypatch):
+    class FakeJira:
+        issues = [{"key": f"{p}-9000{i}", "fields": {"customfield_10079": {"value": "Capitalize - X"}, "customfield_10038": 2, "customfield_10020": [{"id": 5, "endDate": "2030-02-10T21:00:00.000Z"}]}}
+                  for i, p in enumerate(BD.CAP_PBI_PROJECTS)]
+
+        def _of(self, jql):
+            return [i for i in self.issues if i["key"].startswith(jql.split('project = "')[1].split('"')[0] + "-")]
+
+        def search(self, jql, fields):
+            return self._of(jql)
+
+        def count(self, jql):
+            return len(self._of(jql))
+    target = tmp_path / "program_data.json"
+    monkeypatch.setattr(BD, "DATA_PATH", target)
+    monkeypatch.setattr(BD, "OUT", tmp_path / "page.html")
+    monkeypatch.setattr(BD, "OUT_ARTIFACT", tmp_path / "artifact.html")
+    monkeypatch.setattr(BD, "PROJECTS", ["PMN"])
+    monkeypatch.setattr(BD, "sprint_calendar", lambda labels: [])
+    monkeypatch.setattr(BD.E, "Jira", FakeJira)
+    target.write_text(json.dumps(synthetic_payload()))
+    monkeypatch.setattr(sys, "argv", ["build_dashboard.py", "--add-capitalization-pbi"])
+    assert BD.main() == 0
+    saved = json.loads(target.read_text())
+    assert saved["capPbi"]["rows"].count(";") + 1 == 11 and saved["capPbi"]["pulledAt"] and target.with_suffix(".json.prev").exists() and not target.with_suffix(".json.tmp").exists()
+    read = lambda: json.loads(re.search(r"const DATA = (\{.*?\});\n", (tmp_path / "artifact.html").read_text(encoding="utf-8"), re.S).group(1))
+    assert read()["capPbi"] == saved["capPbi"] and read()["schema"] == BD.SCHEMA
+    (tmp_path / "artifact.html").unlink()
+    monkeypatch.setattr(sys, "argv", ["build_dashboard.py", "--reuse"])
+    assert BD.main() == 0 and read()["capPbi"] == saved["capPbi"]               # a render from the saved file carries it
 
 
 def test_save_data_is_atomic_keeps_the_previous_snapshot_and_refuses_what_it_cannot_read_back(tmp_path, monkeypatch):

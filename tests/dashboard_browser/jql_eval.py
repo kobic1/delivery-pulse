@@ -231,3 +231,9 @@ def cap_issues(cap: dict) -> list[dict]:
                     "cf[10099]": None if fb == "1" else day, "resolutiondate": day, "cf[10079]": cap["values"][int(v)] if int(v) >= 0 else None, "cf[10038]": float(sp),
                     "cf[10098]": cap["teams"][int(t)] if int(t) >= 0 else None, "created": day, "summary": "synthetic", "labels": []})
     return out
+
+
+def pbi_issues(universe_issues: list[dict]) -> list[dict]:
+    """The fictitious Power BI scope issues (make_synthetic.pbi_universe) as Jira fields, with ALL their sprints (a link names sprints, so the evaluator needs the whole list, not only the last one)."""
+    return [{"key": i["key"], "project": i["project"], "issuetype": i["type"], "status": i["status"], "sprint": [str(s["id"]) for s in i["sprints"]],
+             "cf[10079]": i["value"] or None, "cf[10038]": i["sp"], "resolutiondate": i["resolutiondate"], "summary": "synthetic", "labels": []} for i in universe_issues]

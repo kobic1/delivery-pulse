@@ -37,6 +37,7 @@ STATES = [
     ("NFR by category", "nt=category"), ("NFR by commitment", "nt=commitment"), ("NFR by capability", "nt=capability"), ("NFR by team", "nt=team"),
     ("CXCROSS committed", "cx=committed"), ("CXCROSS not set", "cx=notset"), ("CXCROSS stretch", "cx=stretch"),
     ("capitalization by release, count", "cpg=release&cpm=count"), ("cycle 2", "cy=DC2"), ("old release, all projects, hostile team", "r=26.2&TEAM"),
+    ("capitalization in Power BI scope", "cps=pbi"), ("capitalization in Power BI scope, count", "cps=pbi&cpm=count"),
 ]
 
 CHECK_JS = """(() => ({

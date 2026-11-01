@@ -1129,8 +1129,8 @@ def _(t: T):
     r = scenario("ok", sr="used", **kw)
     a = r["after"]
     t.check(not r["timed_out"] and a["stampTxt"] == "Data as of " + il_label(live_oldest(a)), f"after a live-only refresh the header is the oldest of the five live sources -> {a['stampTxt']}")
-    t.check("Cycle time not refreshed yet; Capitalization not refreshed yet." in a["stampTip"] and "0 of 2 Refresh clicks left today." in a["stampTip"], f"the tooltip names the limited sources and the clicks left -> {a['stampTip']!r}")
-    t.check(a["effNote"].startswith("Cycle time: not refreshed yet; Refresh updates it up to twice a day.") and a["raNote"] == "Cycle time and Capitalization: not refreshed yet; Refresh updates them up to twice a day.", f"Efficiency and Release Analysis say it -> {a['effNote']!r} {a['raNote']!r}")
+    t.check("Cycle time not refreshed yet; Capitalization not refreshed yet; Capitalization (Power BI scope) not refreshed yet." in a["stampTip"] and "0 of 2 Refresh clicks left today." in a["stampTip"], f"the tooltip names the limited sources and the clicks left -> {a['stampTip']!r}")
+    t.check(a["effNote"].startswith("Cycle time: not refreshed yet; Refresh updates it up to twice a day.") and a["raNote"] == "Cycle time and Capitalization: not refreshed yet; Capitalization in Power BI scope: not refreshed yet; Refresh updates them up to twice a day.", f"Efficiency and Release Analysis say it -> {a['effNote']!r} {a['raNote']!r}")
     t.check("not refreshed yet" in a["capNote"], f"and so does the Capitalization caption -> {a['capNote'][-60:]}")
     t.check(not any("build" in x.lower() for x in (a["effNote"], a["raNote"], a["capNote"], a["stampTip"], r["status"])), "no note, caption, tooltip or status talks about a build")
     r2 = scenario("ok", sr="none", **kw)
@@ -1202,7 +1202,7 @@ def _(t: T):
     a1, b1 = r1["after"], r1["before"]
     t.check(a1["capRows"] != b1["capRows"] and a1["e_status"]["edct"] == 6, "the first page: the refresh changed the Capitalization rows and read the cycle time of the newly Done epic")
     d = _stored()
-    t.check(d["v"] == 1 and d["build"] == fx.data["generated"] and d["schema"] == 2 and d["edctAt"] == a1["edctAt"] and d["capAt"] == a1["capAt"] and sum(d["edct"][fx.S["eStatus"]][:2]) == 6, f"it was stored with the data version and the refresh times: {sorted(d)}")
+    t.check(d["v"] == 1 and d["build"] == fx.data["generated"] and d["schema"] == 3 and d["edctAt"] == a1["edctAt"] and d["capAt"] == a1["capAt"] and d["pbiAt"] == a1["pbi"]["at"] and sum(d["edct"][fx.S["eStatus"]][:2]) == 6, f"it was stored with the data version and the refresh times: {sorted(d)}")
     r2 = _reload()
     b2 = r2["before"]
     t.check(b2["capRows"] == a1["capRows"] and b2["e_status"] and b2["e_status"].get("edct") == 6, "a reload shows the refreshed Capitalization rows and the cycle time as soon as it loads (before any refresh)")
@@ -1229,7 +1229,7 @@ def _(t: T):
 @SUITE.test("stored_limited_tier_a_corrupt_value_is_ignored_without_errors")
 def _(t: T):
     orig = scenario("ok", ls="recent", click=False, wait="none", settle=0.2, cache=False)["before"]
-    for bad in ("{not json", "null", "[]", "123", json.dumps({"v": 1}), json.dumps({"v": 1, "build": build_fixture().data["generated"], "schema": 2, "edctAt": "no date", "edct": {"x": 1}, "capAt": 5, "cap": "x"})):
+    for bad in ("{not json", "null", "[]", "123", json.dumps({"v": 1}), json.dumps({"v": 1, "build": build_fixture().data["generated"], "schema": 3, "edctAt": "no date", "edct": {"x": 1}, "capAt": 5, "cap": "x"})):
         _set_stored(bad)
         r = _reload()
         t.check(not r["errors"] and r["before"]["capRows"] == orig["capRows"] and r["before"]["edctAt"] is None and r["before"]["capAt"] is None, f"{bad[:30]!r}: ignored, no page errors {r['errors'][:1]}")

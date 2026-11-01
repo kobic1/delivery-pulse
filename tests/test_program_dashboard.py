@@ -154,3 +154,133 @@ def test_capitalization_values_and_record():
     r2 = BD.cap_record(issue(customfield_10099=None))
     assert r2["day"] == "2030-02-01" and r2["fallback"] is True
     assert BD.cap_start() == "2025-10-01"                                                                                          # the start of 2025-Q4
+
+
+# ---------------------------------------------------------------- Capitalization % in the Power BI scope (synthetic issues only)
+def pbi_issue(key, value="Capitalize - Feature", sp=3, sprints=(), **extra):
+    """A Done issue as Jira returns it; sprints are (id, endDate) pairs, endDate None for a sprint without one."""
+    return {"key": key, "fields": {"customfield_10079": {"value": value} if value else None, "customfield_10038": sp, "issuetype": {"name": "Story"}, "status": {"name": "Done"},
+                                   "resolutiondate": "2026-01-10T10:00:00.000+0200",
+                                   "customfield_10020": [{"id": i, "name": f"Sprint {i}", "state": "closed", "startDate": "2026-01-01T09:00:00.000Z", "endDate": e} for i, e in sprints], **extra}}
+
+
+class PbiJira:
+    """search(jql, fields) and count(jql) over a list of issues; `lose` hides that many issues from the paged read only (a lost page)."""
+    def __init__(self, issues, lose=0):
+        self.issues, self.lose, self.searches = issues, lose, []
+
+    def _of(self, jql):
+        proj = jql.split('project = "')[1].split('"')[0]
+        return [i for i in self.issues if i["key"].rsplit("-", 1)[0] == proj]
+
+    def search(self, jql, fields):
+        self.searches.append((jql, fields))
+        got = self._of(jql)
+        return got[: len(got) - self.lose] if self.lose else got
+
+    def count(self, jql):
+        return len(self._of(jql))
+
+
+def test_pbi_last_sprint_is_the_one_with_the_latest_end_date_not_the_highest_id_or_the_first():
+    last = BD.cap_pbi_last_sprint
+    assert last([(1, "x")]) is None and last([]) is None and last(None) is None
+    sprints = lambda *p: [{"id": i, "endDate": e} for i, e in p]
+    assert last(sprints((50, "2026-02-01T21:00:00.000Z"), (7, "2026-05-01T21:00:00.000Z"), (90, "2026-03-01T21:00:00.000Z"))) == (7, "2026-05-01")      # the highest id (90) and the first (50) lose
+    assert last(sprints((8, "2026-02-01T21:00:00.000Z"), (9, "2026-02-01T21:00:00.000Z"))) == (9, "2026-02-01")                                          # a tie goes to the higher id
+    assert last(sprints((8, None), (9, "2026-02-01T21:00:00.000Z"), (10, None))) == (9, "2026-02-01")                                                    # a sprint without an end date is ignored
+    assert last(sprints((8, None), (9, ""))) is None                                                                                                      # none with an end date: no last sprint
+    assert last(sprints((8, "not a date"), (9, "2026-02-01T21:00:00.000Z"))) == (9, "2026-02-01")                                                         # an unreadable one is ignored, not a crash
+    assert last(["a legacy string", {"id": 3, "endDate": "2026-02-01T21:00:00.000Z"}]) == (3, "2026-02-01")
+
+
+def test_pbi_quarter_is_the_utc_day_of_the_end_date():
+    last = BD.cap_pbi_last_sprint
+    day = lambda e: last([{"id": 1, "endDate": e}])[1]
+    assert day("2030-03-31T23:30:00.000+0000") == "2030-03-31"                  # still March in UTC (it is April 1 in Israel: the rule is UTC)
+    assert day("2030-03-31T22:30:00.000-0500") == "2030-04-01"                  # 03:30 UTC the next day
+    assert day("2030-04-01T01:00:00.000+0300") == "2030-03-31"                  # 22:00 UTC the day before
+    assert day("2030-06-30T21:00:00.000Z") == "2030-06-30"
+    # the later instant wins, whatever offset it is written in
+    assert last([{"id": 1, "endDate": "2030-03-31T23:00:00.000+0000"}, {"id": 2, "endDate": "2030-04-01T00:30:00.000+0300"}]) == (1, "2030-03-31")
+
+
+def test_pbi_unmapped_is_everything_that_is_not_capitalize_or_non_capitalize_by_prefix():
+    cls = BD.cap_pbi_class
+    assert cls("Capitalize - New Product Dev") == 0 and cls("Capitalize") == 0
+    assert cls("Non Capitalize - Tech research/POC") == 1
+    assert cls("") == 2 and cls(None) == 2 and cls("Something else") == 2
+    assert cls("Non capitalize - Not cloud") == 2 and cls("non Capitalize - x") == 2 and cls("capitalize - x") == 2        # lower-case variants are not mapped: they stay in the total as Unmapped
+    assert BD.cap_pbi_record(pbi_issue("PMN-90001", value=None))["cls"] == 2 and BD.cap_pbi_record(pbi_issue("PMN-90001", sp=None))["sp"] == 0.0        # blank points count as 0
+
+
+def pbi_decode(section):
+    """The rows back into (key, class, points, sprint id, end day): the round trip of the compact text."""
+    out = []
+    for text in section["rows"].split(";") if section["rows"] else []:
+        n, pi, c, sp, si = text.split(",")
+        out.append((f"{section['scope'][int(pi)]}-{n}", int(c), float(sp), section["sprints"][int(si)][0], section["sprints"][int(si)][1]))
+    return out
+
+
+def test_pbi_section_keeps_the_rule_and_the_rows_round_trip():
+    jan, apr, old = "2026-01-20T21:00:00.000Z", "2026-04-10T21:00:00.000Z", "2025-08-01T21:00:00.000Z"
+    issues = [
+        pbi_issue("PMN-90001", sprints=[(11, jan)], sp=5),
+        pbi_issue("PMN-90002", "Non Capitalize - Research", sprints=[(11, jan), (12, apr)], sp=2.5),         # last sprint is the later one
+        pbi_issue("CXCO-90003", None, sprints=[(12, apr)], sp=None),                                         # empty value: Unmapped, no points
+        pbi_issue("INT-90004", "Non capitalize - Not cloud", sprints=[(12, apr)], sp=1),                     # lower-case variant: Unmapped
+        pbi_issue("PMN-90005", sprints=[(10, old)], sp=8),                                                    # last sprint before 2025-Q4: not in the payload
+        pbi_issue("PVDEV-90006", sprints=[], sp=4),                                                           # no sprint: counted apart
+        pbi_issue("PVDEV-90007", sprints=[(13, None)], sp=2),                                                 # a sprint without an end date: the same
+        pbi_issue("MS-21777", sprints=[(11, jan)], sp=99),                                                   # the excluded key
+        pbi_issue("ZZZ-90008", sprints=[(11, jan)], sp=99),                                                  # not in the scope
+    ]
+    s = BD.cap_pbi_build(issues, BD.CAP_PBI_PROJECTS)
+    got = {r[0]: r for r in pbi_decode(s)}
+    assert set(got) == {"PMN-90001", "PMN-90002", "CXCO-90003", "INT-90004"}
+    assert got["PMN-90002"][3:] == (12, "2026-04-10") and got["PMN-90002"][1:3] == (1, 2.5)
+    assert got["CXCO-90003"][1:3] == (2, 0.0) and got["INT-90004"][1] == 2 and got["PMN-90001"][1:3] == (0, 5.0)
+    assert s["noSprint"]["n"] == 2 and s["noSprint"]["sp"] == 6.0 and s["noSprint"]["rows"] == "90006,10,4;90007,10,2"
+    assert sorted(x[0] for x in s["sprints"]) == [11, 12] and s["values"] == ["Capitalized", "Non capitalized", "Unmapped"]
+    assert s["opts"] == [["Capitalize - Feature"], ["Non Capitalize - Research"]]                             # the values a link will name
+    assert s["scope"] == BD.CAP_PBI_PROJECTS and s["pulledAt"] is None and s["start"] == "2025-10-01"
+    assert all(len(t.split(",")) == 5 for t in s["rows"].split(";"))
+    again = BD.cap_pbi_build(list(reversed(issues)), BD.CAP_PBI_PROJECTS)                                   # the section does not depend on the order the pages came in
+    assert sorted(pbi_decode(again)) == sorted(pbi_decode(s)) and again["noSprint"] == s["noSprint"]
+    assert BD.cap_pbi_build([], BD.CAP_PBI_PROJECTS)["rows"] == ""
+
+
+def test_pbi_collector_reads_every_project_of_the_scope_and_checks_each_read_against_jiras_count(capsys):
+    issues = [pbi_issue(f"{p}-9000{i}", sprints=[(20 + i, "2026-02-10T21:00:00.000Z")]) for i, p in enumerate(BD.CAP_PBI_PROJECTS)]
+    j = PbiJira(issues)
+    out = BD.collect_capitalization_pbi(j)
+    assert len(j.searches) == len(BD.CAP_PBI_PROJECTS) and out["rows"].count(";") + 1 == len(issues) and out["pulledAt"]
+    for (jql, fields), proj in zip(j.searches, BD.CAP_PBI_PROJECTS):
+        assert jql == f'project = "{proj}" AND status = Done AND issuetype in (Bug, Story, Task) AND resolutiondate >= "2025-04-01"'          # every key quoted, INT included
+        assert sorted(fields) == sorted(["issuetype", "status", "resolutiondate", "customfield_10038", "customfield_10079", "customfield_10020"])
+    assert "Power BI scope" in capsys.readouterr().out
+
+
+def test_pbi_collector_refuses_a_read_that_lost_a_page_and_a_repeated_issue():
+    issues = [pbi_issue(f"PMN-{90000 + i}", sprints=[(11, "2026-02-10T21:00:00.000Z")]) for i in range(10)]
+    with pytest.raises(SystemExit) as e:
+        BD.collect_capitalization_pbi(PbiJira(issues, lose=4))                     # Jira counts 10, the paged read returned 6: nothing is saved
+    assert "counts 10" in str(e.value) and "6 were read" in str(e.value)
+    BD.collect_capitalization_pbi(PbiJira(issues, lose=2))                         # within the slack (issues change while a long read runs)
+
+    class Twice(PbiJira):
+        def search(self, jql, fields):
+            return super().search(jql, fields) + [issues[0]]
+    with pytest.raises(SystemExit) as e2:
+        BD.collect_capitalization_pbi(Twice(issues))
+    assert "twice" in str(e2.value)
+
+
+def test_pbi_scope_is_one_list_shared_with_the_page_and_the_flag_is_a_mode_flag(monkeypatch, capsys):
+    d = BD.definitions()
+    assert d["capPbiProjects"] == BD.CAP_PBI_PROJECTS and len(d["capPbiProjects"]) == 11 and "WFM" not in d["capPbiProjects"] and d["capPbiExclude"] == ["MS-21777"]
+    monkeypatch.setattr(sys, "argv", ["build_dashboard.py", "--add-capitalization", "--add-capitalization-pbi"])
+    with pytest.raises(SystemExit) as e:
+        BD.main()
+    assert e.value.code == 2 and "one mode flag at a time" in capsys.readouterr().err

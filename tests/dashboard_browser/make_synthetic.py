@@ -100,6 +100,7 @@ def q_start(d: dt.date) -> dt.date:
 class Gen:
     def __init__(self, today: dt.date, seed: int):
         self.today = today
+        self.seed = seed
         self.r = random.Random(seed)
         self.n = 90000                                  # every issue number is 90001 or more, from one counter
         self.windows = {}
@@ -242,6 +243,7 @@ class Gen:
             "cfbx": cfbx, "sdeps": sdeps, "sinfo": sinfo, "capList": cap_list, "capEpics": cap_epics,
             "capNoFv": {"total": len(cap_nofv), "done": sum(1 for c in cap_nofv if c["s"] == "Done")}, "capPulledAt": il_stamp(gen_day, 8, 44),
             "eb": eb, "podRx": {p: ("pod|^CXCO-[A-Za-z]+-\\d+$" if p == "CXCO" else "pod") for p in PROJECTS}, "cap": cap,
+            "capPbi": pbi_payload(pbi_cached(today, self.seed), gen_day),
         }
         return data
 
@@ -479,6 +481,207 @@ class Gen:
                 "rows": ";".join(",".join(str(x) for x in row) for row in rows), "pulledAt": il_stamp(self.generated_day, 0, 30)}
 
 
+# ---------------------------------------------------------------- the Power BI scope of the Capitalization chart: fictitious Jira issues, the payload section, and an independent oracle
+PBI_SCOPE = ["PMN", "CXSUP", "CXINT", "CXWFM", "CXCO", "INT", "EEM", "EMOB", "ESP", "DCMLT", "PVDEV"]      # the project keys of the report (keys are not secret); the Jira project WFM is not one
+PBI_START, PBI_FROM = "2025-10-01", "2025-04-01"
+PBI_VALUES = ["Capitalize - Feature work", "Capitalize - Fix before release", "Non Capitalize - Research", "Non Capitalize - Fix in production", "Non capitalize - Not cloud", "Misc value", ""]
+PBI_CLASSES = ["Capitalized", "Non capitalized", "Unmapped"]
+PBI_FIRST = 130000                                  # issue numbers of this section start above the ones the other sections and the tests use
+UTC = dt.timezone.utc
+
+
+def pbi_class(value: str) -> int:
+    return 0 if value.startswith("Capitalize") else 1 if value.startswith("Non Capitalize") else 2
+
+
+def pbi_iso(when: dt.datetime) -> str:
+    return when.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+
+def pbi_parse(text: str) -> dt.datetime:
+    t = text.replace("Z", "+0000")
+    return dt.datetime.strptime(t, "%Y-%m-%dT%H:%M:%S.%f%z")
+
+
+def pbi_universe(today: dt.date, seed: int = 20261030) -> dict:
+    """Fictitious Jira issues around the Capitalization Power BI scope: {sprints: [...], issues: [...]}. Every issue is a dict
+    {key, project, num, type, status, value, sp, sprints: [Jira sprint objects], resolutiondate}. Besides the Done Bugs, Stories and Tasks of the 11 projects the
+    universe holds what the rule must leave out (sub-tasks and epics, issues that are not Done, the project WFM, a last sprint before the start) and what it must treat
+    with care (sprint ids that do not follow the end dates, two sprints ending the same day, ends around midnight UTC at the quarter edges, a sprint without an end date,
+    issues with no sprint, empty and unmapped Capitalize values, decimal story points)."""
+    r = random.Random(seed + 7)
+    q0 = q_start(today)
+    quarters = []
+    d = q0
+    for _ in range(5):
+        quarters.append(d)
+        d = q_start(d - dt.timedelta(days=1))
+    quarters.sort()
+    ends = []                                                                       # (end datetime in UTC, text of the end as Jira writes it)
+    for qs in quarters:
+        e = dt.datetime(qs.year, qs.month, qs.day, 21, 0, tzinfo=UTC) + dt.timedelta(days=r.randint(6, 12))
+        stop = dt.datetime(*q_next(qs).timetuple()[:3], tzinfo=UTC)
+        while e < stop - dt.timedelta(days=3):
+            ends.append((e, pbi_iso(e)))
+            if r.random() < .3:
+                ends.append((e, pbi_iso(e)))                                         # a second sprint that ends at the same instant (a tie)
+            e += dt.timedelta(days=14)
+    for qs in quarters[1:]:                                                          # around midnight UTC at the quarter edge: the quarter is the UTC one, not the Israel or the writer's
+        prev = qs - dt.timedelta(days=1)
+        ends += [(dt.datetime(prev.year, prev.month, prev.day, 23, 30, tzinfo=UTC), f"{prev.isoformat()}T23:30:00.000+0000"),
+                 (dt.datetime(qs.year, qs.month, qs.day, 0, 30, tzinfo=UTC), f"{qs.isoformat()}T00:30:00.000+0000"),
+                 (dt.datetime(prev.year, prev.month, prev.day, 22, 0, tzinfo=UTC), f"{qs.isoformat()}T01:00:00.000+0300"),         # 22:00 UTC on the last day: the old quarter
+                 (dt.datetime(qs.year, qs.month, qs.day, 3, 30, tzinfo=UTC), f"{prev.isoformat()}T22:30:00.000-0500")]            # 03:30 UTC on the first day: the new quarter
+    ends = [x for x in ends if x[0].date() <= today + dt.timedelta(days=30)]
+    ids = list(range(20001, 20001 + len(ends)))
+    r.shuffle(ids)                                                                   # ids that do not follow the end dates: the highest id is not the last sprint
+    sprints = [{"id": i, "name": f"Sprint {i}", "state": "closed" if e[0].date() < today else "active", "startDate": pbi_iso(e[0] - dt.timedelta(days=14)), "endDate": e[1], "completeDate": None}
+               for i, e in zip(ids, ends)]
+    old = {"id": 20000, "name": "Sprint 20000", "state": "closed", "startDate": "2025-08-01T06:00:00.000Z", "endDate": "2025-08-15T21:00:00.000Z", "completeDate": "2025-08-15T21:00:00.000Z"}
+    endless = [{"id": 29001, "name": "Sprint 29001", "state": "future", "startDate": None, "endDate": None, "completeDate": None},
+               {"id": 29002, "name": "Sprint 29002", "state": "future", "startDate": None, "endDate": None, "completeDate": None}]
+    sprints += [old] + endless
+    dated = [s for s in sprints if s["endDate"] and s["id"] != 20000]
+    by_q = {}
+    for s in dated:
+        by_q.setdefault(pbi_quarter(s["endDate"]), []).append(s)
+    qkeys = sorted(by_q)
+    weights = dict(zip(PBI_SCOPE, [30, 22, 12, 28, 10, 8, 18, 1, 9, 5, 26]))       # EMOB is tiny (a share needs 5 issues), CXCO is absent from the first quarter
+    issues, n = [], PBI_FIRST
+
+    def make(proj, status, typ, last, **kw):
+        nonlocal n
+        n += r.randint(1, 3)
+        extra = [s for s in r.sample(dated, r.choice([0, 0, 1, 2])) if pbi_parse(s["endDate"]) < pbi_parse(last["endDate"])] if last else []
+        pool = ([last] if last else []) + extra + ([r.choice(endless)] if last and r.random() < .08 else [])
+        r.shuffle(pool)
+        end = pbi_parse(last["endDate"]) if last else dt.datetime(today.year, today.month, today.day, 12, tzinfo=UTC) - dt.timedelta(days=r.randint(1, 250))
+        res = (end - dt.timedelta(days=r.randint(0, 6), hours=r.randint(0, 5))).astimezone(IL)
+        issues.append({"key": f"{proj}-{n}", "project": proj, "num": n, "type": typ, "status": status, "value": kw.get("value", r.choice(PBI_VALUES[:4] * 3 + PBI_VALUES[4:])),
+                       "sp": kw.get("sp", r.choice([None, 0, 1, 2, 3, 5, 8, 13, 0.5, 2.5])), "sprints": pool, "resolutiondate": res.strftime("%Y-%m-%dT%H:%M:%S.000%z")})
+        return issues[-1]
+
+    for qk in qkeys:
+        for proj in PBI_SCOPE:
+            if proj == "CXCO" and qk == qkeys[0]:
+                continue
+            for _ in range(max(0, int(weights[proj] * r.uniform(.7, 1.3) * (.4 if qk == qkeys[-1] else 1)))):
+                make(proj, "Done", r.choice(["Story", "Story", "Bug", "Task"]), r.choice(by_q[qk]))
+    for proj in ("PMN", "CXWFM", "PVDEV", "ESP"):                                  # left out by the rule
+        for _ in range(6):
+            make(proj, "Done", "Sub-task", r.choice(dated))
+            make(proj, "Done", "Epic", r.choice(dated))
+            make(proj, r.choice(["In Progress", "Removed", "Validation"]), "Story", r.choice(dated))
+            make("WFM", "Done", r.choice(["Story", "Bug"]), r.choice(dated))
+    for proj in ("PMN", "PVDEV", "ESP", "INT"):                                    # Done, but the last sprint is before the start of 2025-Q4: not in the payload
+        for _ in range(3):
+            make(proj, "Done", "Bug", old)
+    for proj in PBI_SCOPE * 3:                                                      # Done with no sprint at all, or only a sprint without an end date: counted apart
+        i = make(proj, "Done", r.choice(["Story", "Bug", "Task"]), None)
+        if r.random() < .25:
+            i["sprints"] = [r.choice(endless)]
+    for proj in ("PMN", "ESP"):                                                     # resolved before the pull window starts: not even counted
+        for _ in range(2):
+            i = make(proj, "Done", "Story", None)
+            i["resolutiondate"] = "2025-03-20T10:00:00.000+0200"
+    return {"sprints": sprints, "issues": issues}
+
+
+def q_next(d: dt.date) -> dt.date:
+    return dt.date(d.year + (d.month + 2) // 12, (d.month + 2) % 12 + 1, 1)
+
+
+def pbi_quarter(end_text: str) -> str:
+    e = pbi_parse(end_text).astimezone(UTC)
+    return f"{e.year}-Q{(e.month - 1) // 3 + 1}"
+
+
+def pbi_last(issue: dict):
+    """The issue's last sprint by the rule (latest end date, a tie goes to the higher id), or None."""
+    with_end = [s for s in issue["sprints"] if s["endDate"]]
+    return max(with_end, key=lambda s: (pbi_parse(s["endDate"]), s["id"])) if with_end else None
+
+
+def pbi_in_scope(issue: dict) -> bool:
+    return issue["project"] in PBI_SCOPE and issue["status"] == "Done" and issue["type"] in ("Bug", "Story", "Task")
+
+
+def pbi_oracle(issues: list) -> dict:
+    """The expected numbers, computed straight from the issues (no payload, no page): {(quarter, project): {capSP, allSP, capN, allN, noSp, cls: [[n, sp] x 3]}} for the quarters from 2025-Q4 on,
+    and 'none': {n, sp} for the Done issues with no sprint end date resolved on or after the pull day."""
+    out, none = {}, {"n": 0, "sp": 0.0}
+    for i in issues:
+        if not pbi_in_scope(i) or i["key"] == "MS-21777":
+            continue
+        sp = float(i["sp"]) if isinstance(i["sp"], (int, float)) else 0.0
+        last = pbi_last(i)
+        if last is None:
+            if i["resolutiondate"][:10] >= PBI_FROM:
+                none["n"] += 1
+                none["sp"] += sp
+            continue
+        if pbi_parse(last["endDate"]).astimezone(UTC).date().isoformat() < PBI_START:
+            continue
+        c = out.setdefault((pbi_quarter(last["endDate"]), i["project"]), {"capSP": 0.0, "allSP": 0.0, "capN": 0, "allN": 0, "noSp": 0, "cls": [[0, 0.0], [0, 0.0], [0, 0.0]]})
+        k = pbi_class(i["value"])
+        c["allSP"] += sp
+        c["allN"] += 1
+        c["noSp"] += 1 if sp == 0 else 0
+        c["cls"][k][0] += 1
+        c["cls"][k][1] += sp
+        if k == 0:
+            c["capSP"] += sp
+            c["capN"] += 1
+    return {"cells": out, "none": none}
+
+
+def pbi_payload(universe: dict, gen_day: dt.date) -> dict:
+    """DATA.capPbi for the fictitious issues, encoded here on its own (not with the collector): rows 'number,project,class,points,sprint index'."""
+    sprint_ix, table, rows, none, cap_vals, non_vals = {}, [], [], [], set(), set()
+    for i in universe["issues"]:
+        if not pbi_in_scope(i):
+            continue
+        k = pbi_class(i["value"])
+        (cap_vals if k == 0 else non_vals if k == 1 else set()).add(i["value"])
+        sp = float(i["sp"]) if isinstance(i["sp"], (int, float)) else 0.0
+        last = pbi_last(i)
+        pi = PBI_SCOPE.index(i["project"])
+        if last is None:
+            if i["resolutiondate"][:10] >= PBI_FROM:
+                none.append((pi, i["num"], sp))
+            continue
+        day = pbi_parse(last["endDate"]).astimezone(UTC).date().isoformat()
+        if day < PBI_START:
+            continue
+        if last["id"] not in sprint_ix:
+            sprint_ix[last["id"]] = len(table)
+            table.append([last["id"], day])
+        rows.append((pi, i["num"], k, sp, sprint_ix[last["id"]]))
+    rows.sort()
+    none.sort()
+    g = lambda v: ("%g" % v)
+    return {"scope": list(PBI_SCOPE), "values": list(PBI_CLASSES), "opts": [sorted(cap_vals), sorted(non_vals)], "start": PBI_START, "from": PBI_FROM, "sprints": table,
+            "rows": ";".join(f"{n},{pi},{k},{g(sp)},{si}" for pi, n, k, sp, si in rows),
+            "noSprint": {"n": len(none), "sp": float(g(sum(x[2] for x in none))), "rows": ";".join(f"{n},{pi},{g(sp)}" for pi, n, sp in none)},
+            "pulledAt": il_stamp(gen_day, 0, 40), "refreshedAt": None}
+
+
+def pbi_node(issue: dict) -> dict:
+    """An issue as the connector's search answer carries it (the fields the page asks for)."""
+    return {"id": "1", "key": issue["key"], "webUrl": "x", "fields": {
+        "status": {"name": issue["status"]}, "issuetype": {"name": issue["type"]}, "customfield_10038": issue["sp"],
+        "customfield_10079": {"value": issue["value"]} if issue["value"] else None, "customfield_10020": issue["sprints"] or None, "resolutiondate": issue["resolutiondate"]}}
+
+
+_PBI: dict = {}
+
+
+def pbi_cached(today: dt.date, seed: int = 20261030) -> dict:
+    if (today, seed) not in _PBI:
+        _PBI[(today, seed)] = pbi_universe(today, seed)
+    return _PBI[(today, seed)]
+
+
 # ---------------------------------------------------------------- the escaping canary
 def canarify(data: dict) -> dict:
     """Put the two hostile strings into every free-text field the page renders. The mapping is consistent (the same text always becomes
@@ -522,6 +725,8 @@ def canarify(data: dict) -> dict:
             rec["rt"] = can(rec["rt"])
     data["cap"]["teams"] = [can(t) for t in data["cap"]["teams"]]
     data["cap"]["values"] = [can(v) for v in data["cap"]["values"]]                    # the Capitalize / Non Capitalize prefix still leads, so the page's rule is unchanged
+    data["capPbi"]["values"] = [can(v) for v in data["capPbi"]["values"]]              # the class names and the Capitalize values the links name are rendered or sent to Jira as text
+    data["capPbi"]["opts"] = [[can(v) for v in part] for part in data["capPbi"]["opts"]]
     for e in data["capEpics"]:
         e[4] = can(e[4])
     for tab in ("hier", "capList"):                                                    # a fix version the release train does not know is rendered too
@@ -568,7 +773,7 @@ def main() -> int:
     a = ap.parse_args()
     data = make(dt.date.fromisoformat(a.today) if a.today else None, canary=a.canary)
     Path(a.out).write_text(render_page(data, Path(a.template)) if a.out.endswith(".html") else json.dumps(data, ensure_ascii=False), encoding="utf-8")
-    print(f"wrote {a.out}: {len(data['epics'])} epics, {len(data['bugs'])} bugs, {data['cap']['rows'].count(';') + 1} capitalization rows")
+    print(f"wrote {a.out}: {len(data['epics'])} epics, {len(data['bugs'])} bugs, {data['cap']['rows'].count(';') + 1} capitalization rows, {data['capPbi']['rows'].count(';') + 1} Power BI scope rows")
     return 0
 
 
