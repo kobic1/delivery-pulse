@@ -234,6 +234,19 @@ def scenario(mode="ok", ls="recent", click=True, shift_ms=0, hook=None, slow=0, 
     return res
 
 
+def il_label(iso: str) -> str:
+    """The page's ilLabel() of an ISO stamp: Israel-local 'YYYY-MM-DD HH:MM Israel time'."""
+    x = re.sub(r"([+-]\d\d)(\d\d)$", r"\1:\2", iso.replace("Z", "+00:00"))
+    return dt.datetime.fromisoformat(x).astimezone(MS.IL).strftime("%Y-%m-%d %H:%M") + " Israel time"
+
+
+def live_oldest(snap) -> str:
+    """The oldest of the five live sources, from a page snapshot after a refresh (independent of the page's own sourceTimes())."""
+    ts = [snap["refreshedAt"], snap["cfbAt"] or snap["cfbPulled"], snap["linksAt"], snap["capPulledAt"]]
+    f = lambda x: dt.datetime.fromisoformat(re.sub(r"([+-]\d\d)(\d\d)$", r"\1:\2", x.replace("Z", "+00:00")))
+    return min(ts, key=f)
+
+
 def calls_of(r, frag):
     return [c for c in r["calls"] if frag in c["jql"]]
 
@@ -419,8 +432,9 @@ def _(t: T):
     t.check(("0", "98902") in A and day(A[("0", "98902")]) == TODAY and A[("0", "98902")]["fb"] == "0", "a new Done issue closed today is inserted")
     t.check([",".join(x.values()) for x in rowsB if x["p"] != "0"] == [",".join(x.values()) for x in rowsA if x["p"] != "0"], "the records of every other project are byte-identical after the Refresh")
     t.check(len(rowsA) == len(rowsB) - 2 + 2, f"records: {len(rowsB)} -> {len(rowsA)} (two deleted, two new)")
-    t.check(a["capAt"] is not None and "refreshed" not in a["capNote"] and "as of" not in a["capNote"], f"the chart caption carries no per-section stamp after a Refresh: {a['capNote'][-70:]}")
-    t.check("refreshed" not in b["capNote"] and "as of" not in b["capNote"], f"and none before it either: {b['capNote'][-50:]}")
+    # Capitalization refreshes less often than the header's live sources, so its chart caption now names when it was last read (the old rule "no per-section stamp" is reversed on purpose)
+    t.check(a["capAt"] is not None and f"refreshed {il_label(a['capAt'])}" in a["capNote"] and "as of" not in a["capNote"], f"after a Refresh the chart caption carries the refresh time of Capitalization: {a['capNote'][-70:]}")
+    t.check("not refreshed yet" in b["capNote"] and "as of" not in b["capNote"], f"before it, the caption says it was not refreshed yet (there is no build value to show): {b['capNote'][-70:]}")
 
 
 @SUITE.test("refresh_open_cfbs")
@@ -494,7 +508,9 @@ def step_fail(t: T, mode, label, reason, same, moved):
 def _(t: T):
     f = step_fail(t, "capfail", "Capitalization", "capitalization boom", ["capRows"], ["hierFv", "cfbNew"])
     t.check("not refreshed: capitalization boom" in f["after"]["capNote"] and "as of" in f["after"]["capNote"], f"capfail: the chart caption says what was not refreshed and keeps the as-of time -> {f['after']['capNote'][-90:]}")
-    t.check(f["after"]["stampTxt"].startswith("Data as of ") and f["after"]["stampTxt"][11:27] in f["after"]["capNote"], f"capfail: the header stamp is the OLDEST source time -> {f['after']['stampTxt']}")
+    stamp_ = f["after"]["stampTxt"]
+    t.check(stamp_.startswith("Data as of ") and stamp_ == "Data as of " + il_label(live_oldest(f["after"])), f"capfail: the header stamp is the oldest LIVE source time -> {stamp_}")
+    t.check("Capitalization not refreshed yet" in f["after"]["stampTip"], f"capfail: the failed limited step is named in the tooltip, not in the header -> {f['after']['stampTip'][:120]}")
 
 
 @SUITE.test("refresh_step_fails_alone_open_cfbs")
@@ -559,10 +575,11 @@ def _(t: T):
     t.check(not au["disabled"] and au["btn"] == "Refresh from Jira", "auto-refresh: the button is usable again at the end")
 
 
-@SUITE.test("auto_refresh_skipped_when_last_refresh_was_recent")
+@SUITE.test("auto_refresh_runs_even_when_the_last_refresh_was_recent")
 def _(t: T):
-    sk = scenario("ok", ls="recent", click=False, wait="none", settle=1.6)
-    t.check(not [c for c in sk["calls"] if MAIN_Q in c["jql"]], "auto-refresh is skipped when the last refresh was less than 15 minutes ago (no Jira call)")
+    """The 15-minute guard is off (LIVE_GUARD_MS = 0): every open of the published page reads the live data, so a reload never shows older data. (ls="recent" in the other cases drops the automatic refresh in the mock, so they stay about clicks.)"""
+    r = scenario("ok", ls="recentauto", click=False, cache=False)
+    t.check(bool([c for c in r["calls"] if MAIN_Q in c["jql"]]), "auto-refresh runs although the last refresh was less than 15 minutes ago")
 
 
 @SUITE.test("auto_refresh_runs_when_last_refresh_was_an_hour_ago")
@@ -850,7 +867,7 @@ def _(t: T):
     t.check("not refreshed: cap last fetch boom" in a["capNote"] and b["capNote"] != a["capNote"], f"the caption says what was not refreshed -> {a['capNote'][-90:]}")
     t.check(f"Not refreshed, data unchanged: Capitalization (cap last fetch boom)" in r["status"] and "Capitalization " not in r["status"].split("Not refreshed")[0], f"the checklist names the failed step and does not claim a Capitalization count -> {r['status'][:150]}")
     pulled = fx.data["cap"]["pulledAt"][:16].replace("T", " ")
-    t.check(a["stampTxt"].startswith("Data as of ") and pulled in a["stampTxt"] or pulled in a["capNote"], f"the header stamp is the oldest source time, the capitalization pull time ({pulled}) -> {a['stampTxt']}")
+    t.check(a["stampTxt"].startswith("Data as of ") and pulled in a["capNote"] and "Capitalization not refreshed yet" in a["stampTip"], f"the failure stays in the caption and the tooltip; the header is the oldest live source -> {a['stampTxt']}")
     # a later refresh without the failure applies the data and clears the note
     ch = ctx.chrome
     ch.js("window.__hook = null; refresh.last = 0; document.getElementById('refresh').click()")
@@ -934,6 +951,317 @@ def _(t: T):
     tip = ch.js("document.getElementById('asof').dataset.tip || ''")
     t.check(tip.startswith("Refreshing from Jira"), f"the stamp tooltip says it is mid-refresh -> {tip[:90]}")
     t.check("Epics: " not in tip and "Built from commit" not in tip, "the tooltip carries no per-source list or build detail")
+    t.check(not [c for c in r["calls"] if c["tool"] == "getJiraIssue" or "issuetype in (Bug, Story, Task)" in c["jql"]], "while Open CFBs (a live step) is running no limited step has started: the live tier comes first")
+    # the order of one whole refresh: epics, bugs and accessibility; then Open CFBs, Dependency links, Capabilities; then cycle time and Capitalization
+    calls = scenario("ok", ls="recent", click=True, cache=False)["calls"]
+    first = [c["i"] for c in calls if MAIN_Q in c["jql"] or "[Accessibility]" in c["jql"]]
+    live = [c["i"] for c in calls if "cf[10329] is not EMPTY" in c["jql"] or c["jql"].startswith("key in (") or "issuetype = Epic AND status != Removed AND fixVersion in (" in c["jql"] or "issuetype = Capability" in c["jql"]]
+    limited = [c["i"] for c in calls if c["tool"] == "getJiraIssue" or "issuetype in (Bug, Story, Task)" in c["jql"]]
+    t.check(first and live and limited and max(first) < min(live) and max(live) < min(limited), f"step 1 ({len(first)} calls), then the live steps ({len(live)}), then the limited steps ({len(limited)})")
+    ed = [c["i"] for c in calls if c["tool"] == "getJiraIssue"]
+    cap = [c["i"] for c in calls if "issuetype in (Bug, Story, Task)" in c["jql"]]
+    t.check(ed and cap and max(ed) < min(cap), "within the limited tier: cycle time, then Capitalization")
+
+
+# ================================================================ the two tiers of Refresh steps: the daily allowance of the limited tier, its stored result, the stamps and notes
+SLOW_Q = "issuetype in (Bug, Story, Task)"
+SENTENCE = "Cycle time and Capitalization were not refreshed: they update on the first two Refresh clicks each day, and those are used. They update again after midnight, Israel time."
+RAW_SLOW = "(() => { try { return localStorage.getItem('dp.slowRuns'); } catch (e) { return 'blocked'; } })()"
+
+
+def limited_calls(calls):
+    """The calls of the limited tier: one getJiraIssue per epic waiting for a cycle time (EDCT), and the Capitalization reads of the Bugs, Stories and Tasks."""
+    return [c for c in calls if c["tool"] == "getJiraIssue"], [c for c in calls if SLOW_Q in c["jql"] and c["tool"] != "getJiraIssue"]
+
+
+def pend_js():
+    """Put the newly Done epic of the mock back to 'no cycle time yet', so every click that runs the cycle-time step has something to read."""
+    return f"(() => {{ const e = DATA.epics.find(x => x.k === {build_fixture().S['eStatus']!r}); if (e) delete e.edct; }})()"
+
+
+def open_quiet(**kw):
+    """The page with the connector, no automatic refresh (ls=recent drops it) and an empty allowance, ready for clicks."""
+    kw.setdefault("ls", "recent")
+    return scenario(kw.pop("mode", "ok"), click=False, wait="none", settle=0.3, cache=False, **kw)
+
+
+def slow_state(raw):
+    return None if raw in (None, "blocked") else json.loads(raw)
+
+
+def click_run(prep="", timeout=40):
+    """One Refresh click on the open page (the 10 s rate limit reset, as the multi-click tests do) and what it did."""
+    ch = ctx.chrome
+    n0 = ch.js("window.__calls.length")
+    ch.js("window.__done = false; window.__sawBusy = false; refresh.last = 0; " + (prep or "0") + "; document.getElementById('refresh').click()")
+    done = ch.wait_for("window.__done === true", timeout)
+    calls = ch.js(f"window.__calls.slice({n0})")
+    ed, cp = limited_calls(calls)
+    return dict(done=done, calls=calls, edct=len(ed), cap=len(cp), live=len([c for c in calls if MAIN_Q in c["jql"]]), status=ch.js("document.getElementById('status').textContent"),
+                kind=ch.js("(document.querySelector('#status .msg')||{}).className||''"), disabled=ch.js("document.getElementById('refresh').disabled"), slow=slow_state(ch.js(RAW_SLOW)),
+                snap=json.loads(ch.js("JSON.stringify(window.__snap())")))
+
+
+def ran_limited(c):
+    return c["edct"] >= 1 and c["cap"] >= 6                                          # one Capitalization read per project (six)
+
+
+def skipped_limited(c):
+    return c["edct"] == 0 and c["cap"] == 0 and c["live"] >= 1 and any("cf[10329] is not EMPTY" in x["jql"] for x in c["calls"])
+
+
+def today_il():
+    return ctx.chrome.js("ilDate(new Date())")
+
+
+@SUITE.test("slow_tier_three_clicks_on_one_page_two_run_the_limited_tier")
+def _(t: T):
+    fx = build_fixture()
+    open_quiet()
+    c1, c2 = click_run(pend_js()), click_run(pend_js())
+    rows2 = ctx.chrome.js("DATA.cap.rows")
+    V = fx.data["cap"]["values"]
+    extra = fx.capnode("PMN-98905", V[fx.cap["capval"]], 3, stamp(TODAY, "13:00"))
+    c3 = click_run(pend_js() + f"; __CFG.capnodes.push({js_json(extra)})")
+    t.check(ran_limited(c1) and ran_limited(c2), f"clicks 1 and 2 issue the cycle-time and the Capitalization reads (EDCT/cap calls: {c1['edct']}/{c1['cap']}, {c2['edct']}/{c2['cap']})")
+    t.check(skipped_limited(c3), f"click 3 issues no limited call but still the live reads (EDCT/cap calls {c3['edct']}/{c3['cap']}, main query calls {c3['live']})")
+    t.check(SENTENCE not in c1["status"] and SENTENCE not in c2["status"], "clicks 1 and 2 do not carry the sentence about the allowance")
+    t.check(SENTENCE in c3["status"] and "info" in c3["kind"] and c3["status"].count("Refreshed") == 1 and "Not refreshed" not in c3["status"], f"click 3 says so, as a plain info message and not as a failed step -> {c3['status'][-200:]}")
+    t.check(not c3["disabled"] and c3["done"], "the button is usable after click 3")
+    t.check(ctx.chrome.js("DATA.cap.rows") == rows2 and "98905" not in rows2, "the Capitalization rows did not change on click 3 (a record the mock now offers was not read)")
+    t.check(c3["slow"]["n"] == 2 and c3["slow"]["day"] == today_il(), f"storage: {c3['slow']}")
+    t.check(not ctx.chrome.console_errors(), f"no uncaught page errors: {ctx.chrome.console_errors()[:2]}")
+
+
+@SUITE.test("slow_tier_the_first_open_of_the_day_runs_it_without_using_a_click")
+def _(t: T):
+    r = scenario("ok", ls="old", click=False, cache=False)
+    ed, cp = limited_calls(r["calls"])
+    s = slow_state(r["after"]["slowRaw"])
+    t.check(len(ed) >= 1 and len(cp) >= 6, f"the automatic refresh of the first open ran the limited tier (EDCT/cap calls {len(ed)}/{len(cp)})")
+    t.check(s and s["auto"] == 1 and s["n"] == 0 and s["day"] == today_il(), f"it used the automatic allowance, not a click: {s}")
+    t.check(r["after"]["edctAt"] and r["after"]["capAt"], "cycle time and Capitalization carry a refresh time")
+
+
+@SUITE.test("slow_tier_the_second_open_of_the_day_is_live_only_and_clicks_are_still_available")
+def _(t: T):
+    r = scenario("ok", ls="old", click=False, sr={"n": 0, "auto": 1}, cache=False)
+    ed, cp = limited_calls(r["calls"])
+    t.check(not ed and not cp and any(MAIN_Q in c["jql"] for c in r["calls"]), f"the second automatic refresh of the day runs the live tier only (EDCT/cap calls {len(ed)}/{len(cp)})")
+    t.check(slow_state(r["after"]["slowRaw"]) == {"day": today_il(), "n": 0, "auto": 1}, f"and spends nothing: {r['after']['slowRaw']}")
+    t.check(SENTENCE not in r["status"] and "0 of 2" not in r["after"]["stampTip"] and "2 of 2 Refresh clicks left today." in r["after"]["stampTip"], f"no 'used' sentence while clicks remain; the tooltip says 2 of 2 are left -> {r['status'][-90:]}")
+    c1, c2 = click_run(pend_js()), click_run(pend_js())
+    t.check(ran_limited(c1) and ran_limited(c2), "both clicks still run the limited tier")
+    t.check(skipped_limited(click_run(pend_js())), "a third click is live only")
+
+
+@SUITE.test("slow_tier_a_new_day_resets_the_allowance")
+def _(t: T):
+    r = scenario("ok", ls="recent", click=True, sr="yesterday", cache=False)
+    t.check(ran_limited({"edct": len(limited_calls(r["calls"])[0]), "cap": len(limited_calls(r["calls"])[1])}), "yesterday's used allowance does not block today's first click")
+    t.check(slow_state(r["after"]["slowRaw"]) == {"day": today_il(), "n": 1, "auto": 0}, f"storage was reset to today with one click used: {r['after']['slowRaw']}")
+
+
+@SUITE.test("slow_tier_midnight_crossing_run_counts_for_its_starting_day")
+def _(t: T):
+    now = dt.datetime.now(MS.IL)
+    mid = (now + dt.timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    shift = int((mid - dt.timedelta(seconds=14) - now).total_seconds() * 1000)                         # the page clock reads 23:59:46 when the run starts
+    d0 = now.date().isoformat()
+    hook = ("async (input, c) => { if (input.jql.includes('issuetype in (Bug, Story, Task)') && !window.__crossed) { const day = () => new Intl.DateTimeFormat('en-CA', {timeZone: 'Asia/Jerusalem'}).format(new Date());"
+            f" while (day() === '{d0}') await new Promise(r => setTimeout(r, 100)); window.__crossed = true; }} }}")                  # the run is held inside the limited tier until the Israel day has changed
+    r = scenario("ok", ls="recent", click=True, shift_ms=shift, slow=150, hook=hook, timeout=90, cache=False)
+    s = slow_state(r["after"]["slowRaw"])
+    t.check(not r["timed_out"] and s and s["day"] == d0 and s["n"] == 1, f"the run that crossed midnight counts for the day it started on ({d0}): {s}")
+    t.check(len(limited_calls(r["calls"])[0]) >= 1 and len(limited_calls(r["calls"])[1]) >= 6, "and it ran the limited tier to the end (the day was not rechecked)")
+    day_now = ctx.chrome.js("ilDate(new Date())")
+    t.check(day_now > d0, f"the page clock is now on the next day ({day_now})")
+    c2 = click_run(pend_js(), timeout=90)
+    t.check(ran_limited(c2) and c2["slow"] == {"day": day_now, "n": 1, "auto": 0}, f"a click after midnight runs the limited tier and starts the new day at one click: {c2['slow']}")
+
+
+@SUITE.test("slow_tier_blocked_storage_counts_in_memory_without_errors")
+def _(t: T):
+    r = scenario("ok", ls="blocked", click=False, cache=False)
+    t.check(len(limited_calls(r["calls"])[0]) >= 1, "the automatic refresh on open ran the limited tier (the first of the day)")
+    c1, c2, c3 = click_run(pend_js()), click_run(pend_js()), click_run(pend_js())
+    t.check(ran_limited(c1) and ran_limited(c2), "clicks 1 and 2 run the limited tier")
+    t.check(skipped_limited(c3) and SENTENCE in c3["status"], "click 3 is live only: the count is kept in memory for this page load")
+    t.check(c3["slow"] is None or c3["slow"] == "blocked", f"nothing could be stored: {c3['slow']}")
+    t.check(not ctx.chrome.console_errors(), f"no console errors with storage blocked: {ctx.chrome.console_errors()[:2]}")
+
+
+@SUITE.test("slow_tier_unreadable_or_invalid_stored_values_reset_cleanly")
+def _(t: T):
+    seeds = ["corrupt", "future", "null", "[]", "123", {"n": 7, "auto": 0}, {"n": "1", "auto": 0}, {"n": 1.5, "auto": 0}, {"n": -1, "auto": 0}, {"day": "2026-13-45", "n": 0, "auto": 0}, {"n": 0, "auto": 5}]
+    for sr in seeds:
+        r = scenario("ok", ls="recent", click=True, sr=sr, cache=False)
+        ed, cp = limited_calls(r["calls"])
+        s = slow_state(r["after"]["slowRaw"])
+        t.check(len(ed) >= 1 and len(cp) >= 6 and s == {"day": today_il(), "n": 1, "auto": 0} and not r["errors"] and r["status"].startswith("Refreshed "), f"seed {sr!r}: reset to today, one click used, the limited tier ran, no page errors -> {s} {r['errors'][:1]}")
+
+
+@SUITE.test("slow_tier_the_allowance_is_read_at_click_time")
+def _(t: T):
+    open_quiet()
+    ctx.chrome.js("localStorage.setItem('dp.slowRuns', JSON.stringify({day: ilDate(new Date()), n: 2, auto: 1}))")           # another tab used the allowance after this page loaded
+    c = click_run(pend_js())
+    t.check(skipped_limited(c) and SENTENCE in c["status"], f"the click is live only (EDCT/cap calls {c['edct']}/{c['cap']})")
+
+
+@SUITE.test("slow_tier_a_failed_run_is_not_refunded")
+def _(t: T):
+    open_quiet(mode="capfail")
+    c1 = click_run(pend_js())
+    t.check("Not refreshed, data unchanged: Capitalization (capitalization boom)" in c1["status"] and "warn" in c1["kind"], f"click 1 names the failure -> {c1['status'][-120:]}")
+    t.check(c1["slow"]["n"] == 1, f"and used a click: {c1['slow']}")
+    d = slow_state(ctx.chrome.js("localStorage.getItem('dp.slowData')"))
+    t.check(d and d.get("edctAt") and "cap" not in d and "capAt" not in d, f"only the step that succeeded was stored (cycle time yes, Capitalization no): {sorted(d or {})}")
+    ctx.chrome.js("__CFG.mode = 'ok'")
+    c2, c3 = click_run(pend_js()), click_run(pend_js())
+    t.check(ran_limited(c2) and c2["slow"]["n"] == 2, "click 2 runs the limited tier and is the second one")
+    t.check(skipped_limited(c3) and SENTENCE in c3["status"], "click 3 is live only (a refund of click 1 would have given it the limited tier)")
+
+
+@SUITE.test("slow_tier_header_stamp_is_the_oldest_live_source_and_the_notes_say_the_rest")
+def _(t: T):
+    kw = dict(ls="recent", click=True, fast=True, wait="js", wait_js="window.__done === true && document.getElementById('asof').textContent.startsWith('Data as of')", cache=False)
+    r = scenario("ok", sr="used", **kw)
+    a = r["after"]
+    t.check(not r["timed_out"] and a["stampTxt"] == "Data as of " + il_label(live_oldest(a)), f"after a live-only refresh the header is the oldest of the five live sources -> {a['stampTxt']}")
+    t.check("Cycle time not refreshed yet; Capitalization not refreshed yet." in a["stampTip"] and "0 of 2 Refresh clicks left today." in a["stampTip"], f"the tooltip names the limited sources and the clicks left -> {a['stampTip']!r}")
+    t.check(a["effNote"].startswith("Cycle time: not refreshed yet; Refresh updates it up to twice a day.") and a["raNote"] == "Cycle time and Capitalization: not refreshed yet; Refresh updates them up to twice a day.", f"Efficiency and Release Analysis say it -> {a['effNote']!r} {a['raNote']!r}")
+    t.check("not refreshed yet" in a["capNote"], f"and so does the Capitalization caption -> {a['capNote'][-60:]}")
+    t.check(not any("build" in x.lower() for x in (a["effNote"], a["raNote"], a["capNote"], a["stampTip"], r["status"])), "no note, caption, tooltip or status talks about a build")
+    r2 = scenario("ok", sr="none", **kw)
+    b = r2["after"]
+    t.check(b["stampTxt"] == "Data as of " + il_label(live_oldest(b)), f"after a full refresh the header is still the oldest live source -> {b['stampTxt']}")
+    t.check("not refreshed yet" not in b["stampTip"] and " as of " not in b["stampTip"] and "1 of 2 Refresh clicks left today." in b["stampTip"], f"the limited line is absent when the sources agree -> {b['stampTip']!r}")
+    t.check(b["effNote"].startswith(f"Cycle time: refreshed {il_label(b['edctAt'])};") and b["raNote"].startswith("Cycle time and Capitalization: refreshed ") and f"refreshed {il_label(b['capAt'])}" in b["capNote"], f"the notes carry the refresh times -> {b['effNote']!r}")
+    # a copy with no connector has no limited tier and none of these notes
+    ch = ctx.chrome
+    ch.goto(ctx.write(build_fixture().fragment, "plain"))
+    kit.wait_ready(ch, 15)
+    st = ch.js("({asof: document.getElementById('asof').textContent, tip: document.getElementById('asof').dataset.tip, eff: document.getElementById('eff-note').textContent, ra: document.getElementById('ra-note').textContent, cap: document.getElementById('capz-cap').textContent})")
+    t.check(st["asof"].startswith("Snapshot from ") and "Refresh clicks" not in st["tip"] and st["eff"] == "" and st["ra"] == "" and "refreshed" not in st["cap"], f"the snapshot copy: {st['asof']!r}, no limited-tier notes")
+
+
+@SUITE.test("slow_tier_an_epic_closed_since_the_last_cycle_time_run_is_pending_not_a_defect")
+def _(t: T):
+    r = scenario("ok", ls="recent", click=True, sr="used", cache=False)
+    a, b = r["after"], r["before"]
+    naive = ctx.chrome.js("DATA.epics.filter(e => cls(e.s) === 'done' && e.edct == null).length")
+    t.check(a["noEdctRow"]["n"] == b["noEdctRow"]["n"] and naive == a["noEdctRow"]["n"] + 1, f"the newly Done epic is not counted as a missing cycle time (row {b['noEdctRow']['n']} -> {a['noEdctRow']['n']}, {naive} Done without one)")
+    t.check("1 more wait for the next cycle-time refresh" in a["noEdctRow"]["note"], f"the row says it waits -> {a['noEdctRow']['note']}")
+    t.check("rebuild" not in r["status"] and "newly Done" not in r["status"], f"the status does not say it needs a rebuild -> {r['status'][-120:]}")
+    t.check("1 epic that closed since then is not counted yet." in a["effNote"], f"the Efficiency note counts it -> {a['effNote']!r}")
+    t.check("wait for the next cycle-time refresh" in ctx.chrome.js("document.body.textContent"), "and the Needs Attention row shows the note")
+    r2 = scenario("ok", ls="recent", click=True, sr="none", cache=False)
+    t.check(r2["after"]["noEdctRow"]["n"] == b["noEdctRow"]["n"] and "wait for" not in r2["after"]["noEdctRow"]["note"] and "not counted yet" not in r2["after"]["effNote"], f"with the cycle-time step run the count is the same and nothing waits ({r2['after']['noEdctRow']})")
+
+
+@SUITE.test("slow_tier_a_failed_cycle_time_step_is_called_out_in_efficiency")
+def _(t: T):
+    f = scenario("edctfail", ls="recent", click=True, cache=False)
+    t.check(f["after"]["effNote"] == "Cycle time: not refreshed: history boom.", f"{f['after']['effNote']!r}")
+
+
+@SUITE.test("live_tier_the_automatic_refresh_runs_on_every_open_even_when_the_last_refresh_was_recent")
+def _(t: T):
+    r = scenario("ok", ls="recentauto", click=False, cache=False)
+    t.check(any(MAIN_Q in c["jql"] for c in r["calls"]), "a reload within 15 minutes of the last refresh still reads the live data")
+    t.check(slow_state(r["after"]["slowRaw"])["auto"] == 1, "and it is the first open of the day, so it ran the limited tier")
+
+
+@SUITE.test("slow_tier_an_automatic_refresh_that_fails_on_step_one_spends_nothing")
+def _(t: T):
+    r = scenario("denied", ls="none", click=False, sr={"n": 1, "auto": 0}, cache=False)
+    t.check(slow_state(r["after"]["slowRaw"]) == slow_state(r["before"]["slowRaw"]) and r["before"]["slowRaw"] is not None, f"dp.slowRuns is untouched: {r['before']['slowRaw']} -> {r['after']['slowRaw']}")
+    r2 = scenario("denied", ls="none", click=False, cache=False)
+    t.check(r2["after"]["slowRaw"] is None, "and none is written")
+
+
+# ---- what the limited tier last read is kept in the viewer's browser: a reload shows it
+def _stored():
+    return json.loads(ctx.chrome.js("localStorage.getItem('dp.slowData')"))
+
+
+def _set_stored(obj):
+    ctx.chrome.js(f"localStorage.setItem('dp.slowData', {json.dumps(obj if isinstance(obj, str) else json.dumps(obj))})")
+
+
+def _reload(**kw):
+    """The same page again with the connector denied: what it shows comes from the page and its storage only."""
+    return scenario("denied", ls="none", click=False, keep=True, cache=False, **kw)
+
+
+@SUITE.test("stored_limited_tier_a_reload_shows_the_last_refresh_without_the_connector")
+def _(t: T):
+    fx = build_fixture()
+    r1 = scenario("ok", ls="recent", click=True, cache=False)
+    a1, b1 = r1["after"], r1["before"]
+    t.check(a1["capRows"] != b1["capRows"] and a1["e_status"]["edct"] == 6, "the first page: the refresh changed the Capitalization rows and read the cycle time of the newly Done epic")
+    d = _stored()
+    t.check(d["v"] == 1 and d["build"] == fx.data["generated"] and d["schema"] == 2 and d["edctAt"] == a1["edctAt"] and d["capAt"] == a1["capAt"] and sum(d["edct"][fx.S["eStatus"]][:2]) == 6, f"it was stored with the data version and the refresh times: {sorted(d)}")
+    r2 = _reload()
+    b2 = r2["before"]
+    t.check(b2["capRows"] == a1["capRows"] and b2["e_status"] and b2["e_status"].get("edct") == 6, "a reload shows the refreshed Capitalization rows and the cycle time as soon as it loads (before any refresh)")
+    t.check(b2["edctAt"] == a1["edctAt"] and b2["capAt"] == a1["capAt"], "with the stored refresh times, not newer ones")
+    t.check(f"refreshed {il_label(a1['edctAt'])}" in b2["effNote"] and f"refreshed {il_label(a1['capAt'])}" in b2["capNote"] and il_label(min(a1["edctAt"], a1["capAt"])) in b2["raNote"], f"the notes show the stored refresh times -> {b2['effNote']!r} {b2['raNote']!r}")
+    t.check(r2["calls"] and all(c["jql"] for c in r2["calls"]) and len(r2["calls"]) == 1 and r2["after"]["capRows"] == a1["capRows"], f"the connector answered nothing (denied; {len(r2['calls'])} attempt): the data on the page is the stored one")
+    t.check(not r2["errors"], f"no uncaught page errors: {r2['errors'][:2]}")
+    t.check(b2["keep"]["edct"] == b1["keep"]["edct"], "an epic that already had a cycle time keeps it")
+
+
+@SUITE.test("stored_limited_tier_another_data_version_is_discarded")
+def _(t: T):
+    r1 = scenario("ok", ls="recent", click=True, cache=False)
+    orig = r1["before"]
+    good = _stored()
+    for label, patch in (("another build", {"build": "2000-01-01T00:00:00Z"}), ("another schema", {"schema": 99}), ("another layout of the key", {"v": 2})):
+        _set_stored({**good, **patch})
+        r2 = _reload()
+        t.check(r2["before"]["capRows"] == orig["capRows"] and r2["before"]["e_status"].get("edct") is None and r2["before"]["edctAt"] is None and r2["before"]["capAt"] is None, f"{label}: the stored values are not applied")
+        t.check(ctx.chrome.js("localStorage.getItem('dp.slowData')") is None, f"{label}: the key was removed")
+        t.check("not refreshed yet" in r2["before"]["effNote"] and "not refreshed yet" in r2["before"]["capNote"], f"{label}: the notes say not refreshed yet -> {r2['before']['effNote']!r}")
+
+
+@SUITE.test("stored_limited_tier_a_corrupt_value_is_ignored_without_errors")
+def _(t: T):
+    orig = scenario("ok", ls="recent", click=False, wait="none", settle=0.2, cache=False)["before"]
+    for bad in ("{not json", "null", "[]", "123", json.dumps({"v": 1}), json.dumps({"v": 1, "build": build_fixture().data["generated"], "schema": 2, "edctAt": "no date", "edct": {"x": 1}, "capAt": 5, "cap": "x"})):
+        _set_stored(bad)
+        r = _reload()
+        t.check(not r["errors"] and r["before"]["capRows"] == orig["capRows"] and r["before"]["edctAt"] is None and r["before"]["capAt"] is None, f"{bad[:30]!r}: ignored, no page errors {r['errors'][:1]}")
+        t.check(r["before"]["epics"] == orig["epics"], f"{bad[:30]!r}: the page is intact")
+
+
+@SUITE.test("stored_limited_tier_never_overwrites_a_value_and_never_looks_newer_than_it_is")
+def _(t: T):
+    fx = build_fixture()
+    r1 = scenario("ok", ls="recent", click=True, cache=False)
+    orig, good = r1["before"], _stored()
+    keep = orig["keep"]["edct"]
+    t.check(keep is not None, "the fixture has a Done epic with a cycle time")
+    _set_stored({**good, "edct": {fx.S["eKeep"]: [99, 99, 1], fx.S["eStatus"]: [4, 1, None], "NOPE-1": [1, 1, 1], fx.S["eDep"]: ["x", 1, 1]}})
+    r2 = _reload()
+    b = r2["before"]
+    t.check(b["keep"]["edct"] == keep, f"a stored value does not replace an existing one ({b['keep']['edct']} stays {keep})")
+    t.check(b["e_status"]["edct"] == 5 and b["e_status"]["ip"] == 4 and b["e_status"]["vl"] == 1, "a stored value fills an epic that has none")
+    t.check(b["dep"].get("edct") is None, "a malformed stored value is skipped")
+    # a refresh time in the future is not trusted; a Capitalization read not newer than the data's own pull is not applied
+    _set_stored({**good, "edctAt": "2999-01-01T00:00:00Z", "capAt": "2999-01-01T00:00:00Z"})
+    b3 = _reload()["before"]
+    t.check(b3["edctAt"] is None and b3["capAt"] is None and b3["capRows"] == orig["capRows"], "a stored refresh time in the future is ignored")
+    _set_stored({**good, "capAt": fx.data["cap"]["pulledAt"]})
+    b4 = _reload()["before"]
+    t.check(b4["capAt"] is None and b4["capRows"] == orig["capRows"], "a stored Capitalization read that is not newer than the data's own is not applied")
+
+
+@SUITE.test("stored_limited_tier_blocked_storage_still_works")
+def _(t: T):
+    r = scenario("ok", ls="blocked", click=True, cache=False)
+    t.check(not r["errors"] and r["status"].startswith("Refreshed ") and r["after"]["capAt"] and r["after"]["e_status"]["edct"] == 6, f"refresh with blocked storage: data applied, no page errors {r['errors'][:1]}")
 
 
 if __name__ == "__main__":

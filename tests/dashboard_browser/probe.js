@@ -20,6 +20,9 @@
     stampTxt: document.getElementById("asof").textContent, stampTip: document.getElementById("asof").dataset.tip || "", capFail: DATA.capRefreshFailed || null,
     capVals: DATA.cap.values.slice(), capTeams: DATA.cap.teams.slice(), capRows: DATA.cap.rows, capAt: DATA.capRefreshedAt || null, capN: DATA.capRefreshedN == null ? null : DATA.capRefreshedN, capNote: (document.getElementById("capz-cap") || {}).textContent || "",
     refreshedAt: DATA.refreshedAt || null, refreshedStats: DATA.refreshedStats || null,
+    slowRaw: (() => { try { return localStorage.getItem("dp.slowRuns"); } catch (e) { return "blocked"; } })(), edctAt: DATA.edctAt || null, edctFailed: DATA.edctFailed || null,
+    effNote: (document.getElementById("eff-note") || {}).textContent || "", raNote: (document.getElementById("ra-note") || {}).textContent || "",
+    noEdctRow: (() => { const h = attentionModel().hyg.find(x => x.label === "Done Epics with No EDCT"); return h ? {n: h.n, note: h.note} : null; })(),
   });
   DATA.cfbx.tpl.push(S.tplHash);
   window.__before = window.__snap();
