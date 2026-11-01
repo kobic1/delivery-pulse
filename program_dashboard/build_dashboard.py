@@ -622,15 +622,15 @@ CAP_RELEASES = [r for r in RELEASES if r != "25.4"]                 # Capabiliti
 
 def collect_capabilities(j, known: dict) -> dict:
     """capList: the Capabilities of the six projects and CXCROSS that carry a release fix version (26.1 to 27.2), plus the Capabilities our epics point to
-    (any project). capEpics: ALL non-Removed child epics, in any project and with any fix version, of the six-project Capabilities, as compact rows
+    (any project), each as {t, s, p, fv, cl}: cl is the Commitment Level option ("" when empty). capEpics: ALL non-Removed child epics, in any project and with any fix version, of the six-project Capabilities, as compact rows
     [key, project, status, release fix versions, Issue Category, Capability]. capNoFv: Capabilities with no fix version at all (a count, no records)."""
     quoted = ", ".join(f'"{r}"' for r in CAP_RELEASES)
-    fields = ["summary", "status", "fixVersions", "project"]
+    fields = ["summary", "status", "fixVersions", "project", "customfield_10136"]      # customfield_10136: Commitment Level (a single select on Capabilities)
 
     def rec(i):
         f = i["fields"]
         return {"t": f["summary"], "s": (f.get("status") or {}).get("name"), "p": (f.get("project") or {}).get("key") or i["key"].split("-")[0],
-                "fv": [v["name"] for v in f.get("fixVersions") or []]}
+                "fv": [v["name"] for v in f.get("fixVersions") or []], "cl": val(f.get("customfield_10136")) or ""}
     caps = {i["key"]: rec(i) for i in j.search(f'project in ({pkeys(CAP_PROJECTS)}) AND issuetype = Capability AND status != Removed AND fixVersion in ({quoted})', fields)}
     print(f"capabilities: {len(caps)} with a fix version in {CAP_RELEASES[0]} to {CAP_RELEASES[-1]}", flush=True)
     want = sorted(set(known) - set(caps))                            # the Capabilities that our epics (the release data) point to and that are not in the list yet
