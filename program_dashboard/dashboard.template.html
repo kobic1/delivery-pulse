@@ -143,6 +143,7 @@ button.btn.multi[aria-pressed="true"]::before { content:"\2713\00a0"; color:var(
 .seg .chip:first-child { border-radius:var(--radius-s) 0 0 var(--radius-s); margin-left:0; }
 .seg .chip:last-child { border-radius:0 var(--radius-s) var(--radius-s) 0; }
 @media (max-width:1240px) { #f-dp { flex-wrap:wrap; gap:6px; } #f-dp .chip, #f-dp .chip:first-child, #f-dp .chip:last-child { margin-left:0; border-radius:var(--radius-s); } }      /* eight chips: they wrap before the row can overflow */
+#f-cl .chip { max-width:100%; overflow-wrap:anywhere; text-align:left; }
 @media (max-width:560px) { #f-dp, #f-cx { flex-wrap:wrap; gap:6px; } #f-dp .chip, #f-dp .chip:first-child, #f-dp .chip:last-child, #f-cx .chip, #f-cx .chip:first-child, #f-cx .chip:last-child { margin-left:0; border-radius:var(--radius-s); } }
 .seg .chip.on { background:var(--blue); border-color:var(--blue-ink); font-weight:600; z-index:1; }
 .seg .chip.on::before { color:var(--ink); }
@@ -682,6 +683,10 @@ footer.f b { color:var(--ink); }
   <section class="sec nf" aria-labelledby="h-capview">
     <div class="seclabel">Capabilities <span class="state" id="cap-state" hidden>In Progress</span></div>
     <h2 id="h-capview" tabindex="-1">Capabilities by Status</h2>
+    <div class="periodbar" id="g-cl"><span class="lbl" id="lbl-cl">Commitment Level</span>
+      <div class="chips" id="f-cl" role="group" aria-labelledby="lbl-cl"></div>
+      <span class="hintline">Filters the Capabilities in this section only.</span>
+    </div>
     <div class="sub" id="cap-sub"></div>
     <div id="capview"></div>
     <div class="cap" id="cap-dq"></div>
@@ -860,7 +865,7 @@ DATA.epics.forEach(e => (e.tm || []).forEach(t => KNOWN_TEAMS.add(t)));
 DATA.bugs.forEach(b => { if (b.tm) KNOWN_TEAMS.add(b.tm); });
 
 // ---------------------------------------------------------------- state (kept in the URL when opened as a file, in browser storage in the viewer)
-const defaults = () => ({release: DATA.current, projects: new Set(projectsAll), teams: new Set(), commit: new Set(DEFAULT_COMMIT), ax: false, bugPri: new Set(PRI_ALL), cfb: "all", gran: "month", cfbGroup: "version", depFilter: "epics", nfrTab: "project", cx: "all", cap: {by: "quarter", measure: "sp"}, cy: cyDefaults()});
+const defaults = () => ({release: DATA.current, projects: new Set(projectsAll), teams: new Set(), commit: new Set(DEFAULT_COMMIT), ax: false, bugPri: new Set(PRI_ALL), cfb: "all", capLvlOff: new Set(), gran: "month", cfbGroup: "version", depFilter: "epics", nfrTab: "project", cx: "all", cap: {by: "quarter", measure: "sp"}, cy: cyDefaults()});
 const state = {...defaults()};
 let projMulti = false;                                         // the Multi-Select toggle; the mode is derived: 2 to 5 projects are always in multi-select mode, nothing is stored
 const resetFilters = () => { projMulti = false; cyBugsOpen.clear(); CY_FIND = ""; CY_PODLIST = null; CY_RET = null; return Object.assign(state, defaults()); };
@@ -874,6 +879,7 @@ function readParams(h) {
   if (h.get("ax") === "1") state.ax = true;
   if (h.get("bp") === "none") state.bugPri = new Set(); else { const bp = (list("bp") || []).filter(x => PRI_ALL.includes(x)); if (bp.length) state.bugPri = new Set(bp); }
   if (["yes", "no"].includes(h.get("cfb"))) state.cfb = h.get("cfb");
+  { const off = (list("clx") || []).map(x => x === CL_NONE_TOKEN ? "" : x).filter(x => CAP_LEVEL_VALUES().has(x)); if (off.length) state.capLvlOff = new Set(off); }      // Capabilities: the Commitment Levels switched off ("~notset" = Not Set); only a level the data holds is accepted
   if (["week", "quarter"].includes(h.get("g"))) state.gran = h.get("g");
   if (["month", "quarter"].includes(h.get("cg"))) state.cfbGroup = h.get("cg");
   if (["all", "epics", "overdue", "external", "unplanned", "gap", "blocking"].includes(h.get("dp"))) state.depFilter = h.get("dp");
@@ -892,6 +898,7 @@ function serialize() {
   if (state.ax) h.set("ax", "1");
   if (state.bugPri.size !== PRI_ALL.length) h.set("bp", state.bugPri.size ? [...state.bugPri].join("|") : "none");
   if (state.cfb !== "all") h.set("cfb", state.cfb);
+  if (state.capLvlOff.size) h.set("clx", [...state.capLvlOff].sort((a, b) => a === "" ? 1 : b === "" ? -1 : a.localeCompare(b)).map(clTok).join("|"));
   if (state.gran !== "month") h.set("g", state.gran);
   if (state.cfbGroup !== "version") h.set("cg", state.cfbGroup);
   if (state.depFilter !== "epics") h.set("dp", state.depFilter);
@@ -1119,7 +1126,7 @@ document.addEventListener("keydown", e => { if (e.key !== "Escape") return;
   const bt = document.getElementById("bu-tip"), bc = document.getElementById("bu-cross"); if (bt) bt.style.display = "none"; if (bc) bc.style.display = "none"; });
 // Jump rule for the eleven sections (Section Strip, skip links, Needs Attention links): a jump lands with the section's primary control row in view, just below the sticky stack.
 // A control that sits above the section (Group By above Efficiency and AI Adoption) is the landing point; a control inside the section is the landing point only when the section's own start would leave it below the fold (a phone).
-const LANDING = {"h-eff": "#g-gran", "h-ai": "#g-gran", "h-bugs": ".bugbar", "h-deps": "#g-dep", "h-cx": "#g-cx", "h-nfr": "#nfr-tabs", "h-cycles": "#g-cy"};
+const LANDING = {"h-eff": "#g-gran", "h-ai": "#g-gran", "h-bugs": ".bugbar", "h-deps": "#g-dep", "h-capview": "#g-cl", "h-cx": "#g-cx", "h-nfr": "#nfr-tabs", "h-cycles": "#g-cy"};
 function landingEls(id) {
   const h = document.getElementById(id); if (!h) return null;
   const sec = h.classList.contains("divider") ? h : (h.closest("section") || h), sel = LANDING[id], ctl = sel ? document.querySelector(sel) : null;
@@ -2526,19 +2533,45 @@ function depDataHtml(shown, m) {
 // ---- Capabilities section: two tables. A counts the Capabilities of the seven projects whose fix version is the selected release, by status.
 // B counts ALL child epics of those Capabilities (any project, any fix version) by status.
 const CAP_STATUSES = ["New", "In Definition", "Ready for Dev", "In Progress", "Done"];
+// Commitment Level (customfield_10136, a single select on a Capability): a filter of this section only. The state holds the levels switched OFF ("" = Not Set), so a level that appears later starts ticked.
+// The choices are the levels present in the Capabilities in view (Release and Projects), alphabetical, Not Set last and only when one of them has none.
+const CL_NONE_TOKEN = "~notset", clLabel = v => v === "" ? "Not Set" : v, clTok = v => v === "" ? CL_NONE_TOKEN : v;
+const CAP_LEVEL_VALUES = () => new Set(Object.values(DATA.capList || {}).map(c => c.cl || ""));
+const capsInView = () => { const sel = projectsAll.filter(p => state.projects.has(p));
+  return Object.entries(DATA.capList || {}).filter(([, c]) => c.fv.includes(state.release) && sel.includes(c.p)).map(([k, c]) => ({k, ...c})); };
+function capLevelChoices(list) {
+  const vals = [...new Set(list.map(c => c.cl || ""))].sort((a, b) => a === "" ? 1 : b === "" ? -1 : a.localeCompare(b)), on = new Set(vals.filter(v => !state.capLvlOff.has(v)));
+  const named = vals.filter(v => v !== "" && on.has(v)), parts = [];
+  if (named.length) parts.push(`cf[10136] in (${named.map(q).join(", ")})`);
+  if (on.has("")) parts.push("cf[10136] is EMPTY");
+  const all = on.size === vals.length;      // every level ticked: the query needs no clause (it selects nothing out)
+  return {vals, on, all, clause: all ? "" : parts.length > 1 ? `(${parts.join(" OR ")})` : parts[0] || ""};
+}
+const capLevelChanged = () => capLevelChoices(capsInView()).vals.some(v => state.capLvlOff.has(v));
+let capLvlSig = "";
+function capLevelBar(lv, capsAll) {                                  // the chips are rebuilt only when the levels or their counts change, so a click keeps keyboard focus
+  const host = document.getElementById("f-cl"); if (!host) return;
+  const rel = state.release, n = v => capsAll.filter(c => (c.cl || "") === v).length, sig = rel + "\u0001" + lv.vals.map(v => v + "\u0002" + n(v)).join("\u0001");
+  if (sig !== capLvlSig) { capLvlSig = sig;
+    host.innerHTML = lv.vals.length ? lv.vals.map(v => { const c = n(v);
+      return `<label class="chip" ${tipAttr(`${c} ${plural(c, "Capability", "Capabilities")} ${v === "" ? "with no Commitment Level" : "with Commitment Level " + v}\nFix version ${rel}, selected projects; Removed excluded.`, "")}><input type="checkbox" value="${esc(clTok(v))}"> ${esc(clLabel(v))}</label>`; }).join("")
+      : `<span class="hintline">No Capability has fix version ${esc(rel)} in the selected projects.</span>`; }
+  host.querySelectorAll("input").forEach(i => { const v = i.value === CL_NONE_TOKEN ? "" : i.value; i.checked = !state.capLvlOff.has(v); i.parentElement.classList.toggle("on", i.checked); });
+}
 function renderCapabilities() {
   const host = document.getElementById("capview"), dq = document.getElementById("cap-dq"), sub = document.getElementById("cap-sub"), defsEl = document.getElementById("cap-cap"), rel = state.release;
   document.getElementById("cap-state").hidden = !isRunning(rel);
+  const capsAll = capsInView(), lv = capLevelChoices(capsAll); capLevelBar(lv, capsAll);
   if (!state.projects.size) { host.innerHTML = `<div class="empty">${whyEmpty("epics")}</div>`; dq.innerHTML = ""; sub.textContent = ""; defsEl.innerHTML = ""; return; }
   if (!DATA.capList) { host.innerHTML = `<div class="notice">The Capability list is not in this build. Run build_dashboard.py with --add-capabilities.</div>`; dq.innerHTML = ""; sub.textContent = ""; defsEl.innerHTML = ""; return; }
   const L = DATA.capList, selProj = projectsAll.filter(p => state.projects.has(p));
-  const caps = Object.entries(L).filter(([, c]) => c.fv.includes(rel) && selProj.includes(c.p)).map(([k, c]) => ({k, ...c})), capKeys = caps.map(c => c.k);
+  const caps = capsAll.filter(c => lv.on.has(c.cl || "")), capKeys = caps.map(c => c.k), lvNote = lv.all ? "" : ` Commitment Level: ${lv.vals.filter(v => lv.on.has(v)).map(clLabel).join(", ")}.`;
   const known = new Set(CAP_STATUSES), otherSt = caps.some(c => !known.has(c.s)), cols = CAP_STATUSES.concat(otherSt ? ["Other Status"] : []);
-  const capQ = `issuetype = Capability AND status != Removed AND fixVersion = ${q(rel)}`;
+  const capQ = `issuetype = Capability AND status != Removed AND fixVersion = ${q(rel)}${lv.clause ? " AND " + lv.clause : ""}`;
   const stClause = st => st === "Other Status" ? `status not in (${CAP_STATUSES.map(q).join(", ")})` : `status = ${q(st)}`;
   const nc = (n, extra, tip, projs) => n ? tlink(n, href(`project in (${pkeys(projs)}) AND ${capQ}${extra ? " AND " + extra : ""}`), tip) : `<span class="muted">0</span>`;
   const rowA = (label, list, projs, tot) => `<tr${tot ? ' class="total"' : ""}><th scope="row">${esc(label)}</th>` + cols.map(st => { const n = list.filter(c => st === "Other Status" ? !known.has(c.s) : c.s === st).length;
-      return `<td class="n">${nc(n, stClause(st), `${n} ${st} Capabilities${tot ? "" : " of " + label}\nFix version ${rel}; Removed excluded.`, projs)}</td>`; }).join("") + `<td class="n">${nc(list.length, "", `${list.length} Capabilities${tot ? "" : " of " + label}\nFix version ${rel}; Removed excluded.`, projs)}</td></tr>`;
+      return `<td class="n">${nc(n, stClause(st), `${n} ${st} Capabilities${tot ? "" : " of " + label}\nFix version ${rel}; Removed excluded.${lvNote}`, projs)}</td>`; }).join("") + `<td class="n">${nc(list.length, "", `${list.length} Capabilities${tot ? "" : " of " + label}\nFix version ${rel}; Removed excluded.${lvNote}`, projs)}</td></tr>`;
   const bodyA = selProj.map(p => rowA(p, caps.filter(c => c.p === p), [p], false)).join("") + rowA("All Selected Projects (Each Capability Once)", caps, selProj, true);
   // Table B: every child epic of those Capabilities
   const inSet = new Set(capKeys), kids = (DATA.capEpics || []).filter(e => inSet.has(e[5]));
@@ -2554,10 +2587,10 @@ function renderCapabilities() {
     `<td class="n">${nb(list.length, projLine, "", `${list.length} child epics${tot ? "" : " in " + label}\nAll child epics of the ${caps.length} Capabilities in Table A.`)}</td><td class="n">${list.length >= MIN_N ? pct(list.filter(e => bst(e) === "done").length, list.length) + "%" : "–"}</td></tr>`;
   const bodyB = rowsP.map(p => rowB(p, byP.get(p), `project = ${pkey(p)}`, false)).join("") + rowB("All Projects", kids, "", true);
   const outside = kids.filter(e => !projectsAll.includes(e[1]));
-  sub.innerHTML = `${caps.length ? tlink(caps.length, href(`project in (${pkeys(selProj)}) AND ${capQ}`), `${caps.length} Capabilities with fix version ${rel}`) : "0"} ${caps.length === 1 ? "Capability carries" : "Capabilities carry"} fix version ${esc(rel)}, with ${kids.length ? tlink(kids.length.toLocaleString("en-US"), href(kidQ), `${kids.length} child epics`) : "0"} child ${kids.length === 1 ? "epic" : "epics"} under ${caps.length === 1 ? "it" : "them"}.${followsRow(["Release", "Projects"], ["Teams", "Commitment Type"])}`;
+  sub.innerHTML = `${caps.length ? tlink(caps.length, href(`project in (${pkeys(selProj)}) AND ${capQ}`), `${caps.length} Capabilities with fix version ${rel}${lvNote ? "\n" + lvNote.trim() : ""}`) : "0"} ${caps.length === 1 ? "Capability carries" : "Capabilities carry"} fix version ${esc(rel)}, with ${kids.length ? tlink(kids.length.toLocaleString("en-US"), href(kidQ), `${kids.length} child epics`) : "0"} child ${kids.length === 1 ? "epic" : "epics"} under ${caps.length === 1 ? "it" : "them"}.${followsRow(["Release", "Projects", "Commitment Level"], ["Teams", "Commitment Type"])}`;
   const noCapScope = scopeOf(rel).filter(needsCap), capEx = scopeOf(rel).filter(e => !e.cp && capExempt(e)), nScope = scopeOf(rel).length;
   host.innerHTML = `<a class="skip" href="#h-cx" data-skip="h-cx">Skip to CXCROSS</a>` +
-    (!caps.length ? `<div class="empty">No Capability of the selected projects has fix version ${esc(rel)}.</div>` :
+    (!caps.length ? `<div class="empty">${capsAll.length ? "No Commitment Level is selected. Choose at least one in the Capabilities filter above the tables." : `No Capability of the selected projects has fix version ${esc(rel)}.`}</div>` :
     `<div class="cyblock"><h3>Capability Status Summary</h3><div class="cymeta">One row per project of the Capability; one with several fix versions counts under each.</div><div class="scrollcue">Scrolls sideways</div>` +
       `<div class="tablewrap" tabindex="0" role="region" aria-label="Capability status summary, scrolls sideways when it does not fit"><table class="captable matrix"><caption class="sr">Capabilities with fix version ${esc(rel)} by status, one row per project of the Capability</caption><thead><tr><th scope="col">Project</th>${cols.map(c => `<th class="n" scope="col">${c}</th>`).join("")}<th class="n" scope="col">Total</th></tr></thead><tbody>${bodyA}</tbody></table></div></div>` +
     `<div class="cyblock"><h3>Child Epics of These Capabilities</h3><div class="cymeta">Child epics of the ${caps.length} Capabilities, any project or fix version.${outside.length ? ` ${tlink(outside.length, href(`${kidQ} AND project not in (${pkeys(projectsAll)})`), `${outside.length} child epics in other projects`)} sit outside the projects on this page.` : ""}</div><div class="scrollcue">Scrolls sideways</div>` +
@@ -2569,12 +2602,13 @@ function renderCapabilities() {
     defs: [
       ["Capability Status Summary", `Capabilities of the selected projects (the project of the Capability) whose Fix Version is ${esc(rel)}, by status.`],
       ["Required release", `the Capability's Fix Version, taken as its required release. This is an owner assumption, not verified.`],
+      ["Commitment Level", `the Jira field of that name on a Capability (not the Commitment Type of an epic). Not Set means the field is empty.`],
       ["Child Epics", `every non-Removed epic whose parent is one of those Capabilities, whatever its own project or fix version.`],
       ["Not Started", `New, In Definition, Ready for Dev or Candidate. A status that fits none shows as Other Status.`],
       ["% Done", `Done child epics over all child epics, for 5 or more epics.`]
     ],
     left: `Removed Capabilities and epics. CXCROSS Capabilities have their own section. An epic whose Issue Category is ${esc(CAP_EXEMPT.join(", "))} needs no Capability and is not flagged for a missing parent.`,
-    know: `The tables follow Release and Projects. Teams and Commitment Type do not apply: a Capability has neither, and child epics count whatever their commitment. The missing-parent line follows every filter. Data as of ${esc(ilLabel(DATA.capPulledAt || DATA.generated))}; Refresh updates Capabilities.`}));
+    know: `The tables follow Release, Projects and the Commitment Level filter above them, which applies to this section only; Child Epics follow it through the Capabilities they count. Teams and the Commitment Type in the filter bar do not apply to Capabilities, and child epics count whatever their commitment. The missing-parent line follows the filter bar and ignores Commitment Level, because it counts epics. Data as of ${esc(ilLabel(DATA.capPulledAt || DATA.generated))}; Refresh updates Capabilities.`}));
 }
 
 // ---- Done Capabilities per Release (Release Analysis): the same chart form as the epic charts above. One bar per release: the light bar is every Capability with that fix version,
@@ -3875,6 +3909,7 @@ function buildFilters() {
   bp.innerHTML = PRI_ALL.map(k => `<label class="chip"><input type="checkbox" value="${k}"> ${k}</label>`).join("");
   bp.onchange = e => { e.target.checked ? state.bugPri.add(e.target.value) : state.bugPri.delete(e.target.value); update({hold: holdSel(e.target)}); };
   document.getElementById("f-cfb").onchange = e => { state.cfb = e.target.value; update({hold: holdSel(e.target)}); };
+  document.getElementById("f-cl").onchange = e => { const v = e.target.value === CL_NONE_TOKEN ? "" : e.target.value; e.target.checked ? state.capLvlOff.delete(v) : state.capLvlOff.add(v); update({hold: holdSel(e.target)}); };
   document.getElementById("f-gran").onchange = e => { state.gran = e.target.value; update({hold: holdSel(e.target)}); };
   document.getElementById("f-cfbgrp").onchange = e => { state.cfbGroup = e.target.value; update({hold: holdSel(e.target)}); };
   document.getElementById("f-dp").onchange = e => { state.depFilter = e.target.value; update({hold: holdSel(e.target)}); };
@@ -3928,11 +3963,11 @@ function renderTeamList() {
 function filterChanges() {
   const same = (a, b) => a.size === b.length && b.every(x => a.has(x));
   return {release: state.release !== DATA.current, projects: !same(state.projects, projectsAll), teams: state.teams.size > 0, commit: !same(state.commit, DEFAULT_COMMIT),
-    bugpri: state.bugPri.size !== PRI_ALL.length, cfb: state.cfb !== "all", ax: state.ax, period: state.gran !== "month", cfbgrp: state.cfbGroup !== "version", depfilter: state.depFilter !== "epics", nfrtab: state.nfrTab !== "project", cx: state.cx !== "all", cap: state.cap.by !== "quarter" || state.cap.measure !== "sp", cycles: cyChanged()};
+    bugpri: state.bugPri.size !== PRI_ALL.length, cfb: state.cfb !== "all", caplevel: capLevelChanged(), ax: state.ax, period: state.gran !== "month", cfbgrp: state.cfbGroup !== "version", depfilter: state.depFilter !== "epics", nfrtab: state.nfrTab !== "project", cx: state.cx !== "all", cap: state.cap.by !== "quarter" || state.cap.measure !== "sp", cycles: cyChanged()};
 }
 function syncControls() {
   const ch = filterChanges(), nCh = Object.values(ch).filter(Boolean).length;
-  [["g-release", ch.release], ["g-projects", ch.projects], ["teamsel", ch.teams], ["g-commit", ch.commit], ["g-bpri", ch.bugpri], ["g-cfb", ch.cfb], ["g-ax", ch.ax], ["g-gran", ch.period], ["g-cfbgrp", ch.cfbgrp], ["g-dep", ch.depfilter], ["g-cx", ch.cx]].forEach(([id, on]) => document.getElementById(id).classList.toggle("changed", on));
+  [["g-release", ch.release], ["g-projects", ch.projects], ["teamsel", ch.teams], ["g-commit", ch.commit], ["g-bpri", ch.bugpri], ["g-cfb", ch.cfb], ["g-cl", ch.caplevel], ["g-ax", ch.ax], ["g-gran", ch.period], ["g-cfbgrp", ch.cfbgrp], ["g-dep", ch.depfilter], ["g-cx", ch.cx]].forEach(([id, on]) => document.getElementById(id).classList.toggle("changed", on));
   const rb = document.getElementById("f-reset"); rb.disabled = !nCh; rb.textContent = nCh ? `Reset Filters (${nCh})` : "Reset Filters";
   document.getElementById("f-toggle").textContent = nCh ? `Filters (${nCh} Applied)` : "Filters";
   document.getElementById("f-release").value = state.release;
@@ -4365,7 +4400,7 @@ const BUG_CLOSED_JQL_LIST = BUG_CLOSED.map(x => /\s/.test(x) ? `"${x}"` : x).joi
 async function capsRefresh(mcp, say, sinceDay) {                  // Capabilities of the dashboard projects and CXCROSS changed since the snapshot: status, fix versions, summary; and the child-epic rows we already hold
   if (!DATA.capList) return null;
   const rels = DATA.releases.map(r => `"${r}"`).join(", ");
-  const res = await fetchAll(mcp, `project in (${pkeys([...DATA.projects, "CXCROSS"])}) AND issuetype = Capability AND (updated >= "${sinceDay}" OR fixVersion in (${rels}))`, (pg, n) => say(`Capabilities: page ${pg}, ${n} issues read so far.`), ["summary", "status", "issuetype", "fixVersions", "project", "parent"]);
+  const res = await fetchAll(mcp, `project in (${pkeys([...DATA.projects, "CXCROSS"])}) AND issuetype = Capability AND (updated >= "${sinceDay}" OR fixVersion in (${rels}))`, (pg, n) => say(`Capabilities: page ${pg}, ${n} issues read so far.`), ["summary", "status", "issuetype", "fixVersions", "project", "parent", "customfield_10136"]);
   if (res.truncated) throw {code: "tool_error", message: "more Capabilities than the page limit; ask for a full rebuild"};
   const nofv = await fetchAll(mcp, `project in (${pkeys([...DATA.projects, "CXCROSS"])}) AND issuetype = Capability AND status != Removed AND fixVersion is EMPTY`, (pg, n) => say(`Capabilities without a fix version: page ${pg}, ${n} issues read so far.`), ["status"]);      // both reads finish before anything is applied
   const L = DATA.capList, H = DATA.hier || {}; let changed = 0;
@@ -4373,9 +4408,10 @@ async function capsRefresh(mcp, say, sinceDay) {                  // Capabilitie
     const f = n.fields || {}, k = n.key, st = f.status && f.status.name, fv = (f.fixVersions || []).map(v => v.name), proj = (f.project && f.project.key) || k.split("-")[0];
     if (st === "Removed") { if (L[k] || H[k]) changed++; delete L[k]; delete H[k]; continue; }
     const old = L[k] || H[k] || null, relFv = fv.filter(v => DATA.releases.includes(v));
-    const same = old && old.s === st && old.t === f.summary && JSON.stringify(old.fv || []) === JSON.stringify(fv);
+    const cl = optVal(f.customfield_10136) || "";            // Commitment Level; "" when empty
+    const same = old && old.s === st && old.t === f.summary && JSON.stringify(old.fv || []) === JSON.stringify(fv) && (old.cl || "") === cl;
     if (!same) changed++;
-    if (L[k] || relFv.length) L[k] = {...(L[k] || {}), t: f.summary, s: st, p: proj, fv};
+    if (L[k] || relFv.length) L[k] = {...(L[k] || {}), t: f.summary, s: st, p: proj, fv, cl};
     if (H[k]) H[k] = {...H[k], t: f.summary, s: st, fv};
   }
   const byKey = new Map(DATA.epics.map(e => [e.k, e]));         // child-epic rows of a Capability: status, release fix versions and Issue Category of the epics Refresh has just read
