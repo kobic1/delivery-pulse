@@ -44,7 +44,6 @@ ALLOW: list[tuple[str, str, str, str]] = []      # (regex on the elided JQL, reg
 PROPOSED_ALLOW = [      # the accepted gaps: every entry is a population Jira cannot express as a query, or a documented pending decision; the list may only shrink      # sites whose population Jira's native JQL cannot express (reasons checked on the synthetic payload, see the QA report)
     (r"\bparent in \(<keys>\)", "", "child epics / bugs selected by an attribute of their PARENT (the Capability's fix version, the epic's planned date): not searchable in native JQL", "none; the Capabilities query is the closest"),
     (r"^key in \(<keys>\)$", "", "pairs whose far end is not Done, story-level links, dependency cards, Needs Attention groups, DQ 'no cycle time' (changelog-derived): a linked issue's status / the changelog is not searchable", "issueLinkType in (...) is a superset"),
-    (r"^issuetype = Bug AND key in \(<keys>\)$", "", "open CFBs by Root Cause Analysis state: the field is pre-filled with a template Jira cannot search", "all open CFBs (superset)"),
     (r"\bkey in \(<keys>\)", r"epics with open bugs", "epics selected by the state of their CHILD bugs: not searchable in native JQL", "none"),
 ]
 ALLOW_CALENDAR: list[tuple[str, str]] = [(r"fixVersion in \(", "the release list is the dashboard's own release set, fixed when the data is built (a new release needs a rebuild)")]
