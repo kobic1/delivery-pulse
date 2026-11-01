@@ -331,20 +331,6 @@ button.chip:focus-visible, .linkbtn:focus-visible { outline:2px solid var(--blue
 .cybug { padding:2px 0; }
 .cybar { display:inline-flex; width:90px; height:8px; background:var(--line); border-radius:2px; overflow:hidden; vertical-align:middle; }
 .cybar i { display:block; height:100%; } .cybar .sd { background:var(--blue-ink); } .cybar .sp { background:var(--blue); }
-.ocfbtable th, .ocfbtable td { padding:6px 8px; vertical-align:top; }
-.ocfbtable thead th { vertical-align:bottom; }
-.ocfbtable tbody th { vertical-align:top; }
-.ocfbtable .n { text-align:right; font-variant-numeric:tabular-nums; }
-.ocfbtable thead th:nth-child(5), .ocfbtable td:nth-child(5) { min-width:84px; }
-.ocfbtable thead th:nth-child(6), .ocfbtable td:nth-child(6) { min-width:128px; }
-.ocfbtable thead th:nth-child(7), .ocfbtable td:nth-child(7) { min-width:70px; }
-.ocfbtable thead th:nth-child(8), .ocfbtable td:nth-child(8) { min-width:74px; }
-.ocfbtable thead th:nth-child(12), .ocfbtable td:nth-child(12) { min-width:84px; }
-.ocfbtable th { white-space:normal; vertical-align:bottom; }
-.ocfbtable td:nth-child(4), .ocfbtable td:nth-child(9) { white-space:normal; }
-.ocfbtable td:nth-child(9) { min-width:80px; }
-.ocfbtable td.title { min-width:200px; max-width:280px; }
-.ocfbtable td.wrapc { white-space:normal; min-width:150px; max-width:190px; }
 @media (max-width:760px) {
   .cytable.stack thead { display:none; }
   .cytable.stack tr { display:block; padding:8px 0; border-bottom:1px solid var(--line); }
@@ -649,12 +635,6 @@ footer.f b { color:var(--ink); }
     <div class="seclabel">Quality</div>
     <h2 id="h-cfb">Customer-Found Bugs (CFB)</h2>
     <div id="cfb-about"></div>
-    <h3 class="sub3" id="h-ocfb" tabindex="-1">Open CFBs</h3>
-    <div class="sub">Not in a final status, with age against SLA and Root Cause Analysis (RCA) state.</div>
-    <div class="kpis four" id="ocfb-kpis"></div>
-    <div class="cap" id="ocfb-note"></div>
-    <div id="ocfb-table"></div>
-    <div id="ocfb-cap"></div>
     <h3 class="sub3" id="h-cfbfixed" tabindex="-1">CFB Fixed and Regressions per Release</h3>
     <div class="sub" id="cfb-sub"></div>
     <div class="periodbar" id="g-cfbgrp"><span class="lbl" id="lbl-cfbgrp">Group CFB By</span>
@@ -882,7 +862,7 @@ DATA.bugs.forEach(b => { if (b.tm) KNOWN_TEAMS.add(b.tm); });
 const defaults = () => ({release: DATA.current, projects: new Set(projectsAll), teams: new Set(), commit: new Set(DEFAULT_COMMIT), ax: false, bugPri: new Set(PRI_ALL), cfb: "all", gran: "month", cfbGroup: "version", depFilter: "epics", nfrTab: "project", cx: "all", cap: {by: "quarter", measure: "sp", scope: "closed"}, cy: cyDefaults()});
 const state = {...defaults()};
 let projMulti = false;                                         // the Multi-Select toggle; the mode is derived: 2 to 5 projects are always in multi-select mode, nothing is stored
-const resetFilters = () => { projMulti = false; cyBugsOpen.clear(); ocfbOpen.clear(); CY_FIND = ""; CY_RET = null; return Object.assign(state, defaults()); };
+const resetFilters = () => { projMulti = false; cyBugsOpen.clear(); CY_FIND = ""; CY_RET = null; return Object.assign(state, defaults()); };
 function readParams(h) {
   const dec = x => { try { return decodeURIComponent(x); } catch (e) { return x; } };      // values are encoded once; an older double-encoded link still reads
   const list = k => h.has(k) ? h.get(k).split("|").map(dec).filter(Boolean) : null;
@@ -2152,7 +2132,7 @@ function cfbPeriods(mode) {
   }
   return out;
 }
-let CFB_CAP_HELP = "", OCFB_HELP = "";                       // the rules that were visible captions: kept in the one collapsed How this is calculated under the CFB heading
+let CFB_CAP_HELP = "";                       // the rules that were visible captions: kept in the one collapsed How this is calculated under the CFB heading
 function renderCfb() {
   const chartEl = document.getElementById("cfb-chart"), tableEl = document.getElementById("cfb-table"), capEl = document.getElementById("cfb-cap");
   const mode = state.cfbGroup, U = CFB_UNIT[mode];
@@ -2215,30 +2195,6 @@ function renderCfb() {
     if (n) rfdEl.innerHTML = `${tlink(n.toLocaleString("en-US"), href(`project in (${[...state.projects].join(", ")}) AND issuetype = Bug AND ${CFB_Q()} AND status = "Ready for Deploy"${bugTeamClause(state.teams)}`), `${n} ${plural(n, "CFB is", "CFBs are")} in Ready for Deploy\nNot open, and not counted as fixed in this chart until the status is Done.`)} ${plural(n, "CFB is", "CFBs are")} in Ready for Deploy; counted as fixed once Done.`; }
 }
 
-// ---------------------------------------------------------------- open customer-found bugs
-// Every CFB (reported by the CFB account or linked to a Salesforce case) that is not in a final status, with its age against the SLA and its Root Cause Analysis state.
-// Follows the Projects and Teams filters, like the CFB chart; the Priority, CFB and accessibility controls of the bug section do not apply.
-const ocfbBase = () => `project in (${[...state.projects].join(", ")}) AND issuetype = Bug AND ${CFB_Q()}`;
-const ocfbKeys = list => list.length ? href(`issuetype = Bug AND key in (${list.map(r => r.b.k).join(", ")})`) : null;          // only for the RCA groups: Jira cannot search the analysis state (the field holds a template)
-// Over SLA is a query: the SLA days by priority and regression turn into a created-before date, so Jira recounts it when the link is opened (the dates are the snapshot's as-of day, like every dated link here).
-const overSlaJql = () => { const d = n => iso(asOfDay() - n * DAY), s = CFG.sla, noReg = "(regression is EMPTY OR regression != Yes)";
-  return `(priority = P1 AND created < "${d(s.p1)}") OR (priority in (P2, P3, P4) AND regression = Yes AND created < "${d(s.regression)}") OR (priority = P2 AND ${noReg} AND created < "${d(s.p2)}") OR (priority in (P3, P4) AND ${noReg} AND created < "${d(s.other)}")`; };
-function ocfbModel() {
-  const X = (DATA.cfbx && DATA.cfbx.bugs) || null, order = k => projectsAll.indexOf(k);
-  const rows = bugsBase().filter(b => b.cfb && isOpenBug(b)).sort((a, b) => order(a.p) - order(b.p) || keyCmp(a.k, b.k)).map(b => {
-    const age = daysSince(b.cr), sla = slaOf(b), x = X ? X[b.k] || null : null;
-    const rca = !x ? null : x.rv === "N" ? "na" : (x.rca || x.rv === "A") ? "done" : "not";
-    return {b, age, sla, due: sla ? iso(utc(b.cr) + sla.days * DAY) : null, over: sla ? Math.max(0, age - sla.days) : 0, late: !!sla && age > sla.days, x, rca};
-  });
-  return {rows, X, hasX: !!X};
-}
-const RCA_TEXT = {done: "RCA Done", not: "RCA Not Done", na: "Not Required"};
-const ocfbOpen = new Set();                                      // keys whose RCA text row is expanded
-document.addEventListener("click", ev => {                      // the RCA text row of an open CFB opens in place (no re-render, so nothing moves); the label stays the same, aria-expanded says the state
-  const b = ev.target.closest && ev.target.closest("[data-ocact=rca]"); if (!b) return;
-  const k = b.dataset.ocval, row = document.getElementById("ocfb-" + k), open = !ocfbOpen.has(k);
-  open ? ocfbOpen.add(k) : ocfbOpen.delete(k); if (row) row.hidden = !open; b.setAttribute("aria-expanded", String(open));
-});
 // How the section counts: the definition, the Closed date rule, and the two data-quality facts that depend on them (Salesforce case with another reporter; Done CFBs without a Closed date).
 function renderCfbAbout() {
   const host = document.getElementById("cfb-about"); if (!host) return;
@@ -2249,42 +2205,9 @@ function renderCfbAbout() {
   const lk = (n, jql, tip) => n ? tlink(n.toLocaleString("en-US"), href(`project in (${pj}) AND issuetype = Bug AND ${jql} AND ${win}${tm}`), `${tip}\nWithin the bugs the page reads (created, resolved or closed since ${DATA.bugSince}, or still open).`) : "0";
   host.innerHTML = defs(
     `<b>What counts as a CFB</b>: a Bug reported by the CFB account OR linked to a Salesforce case (the field SF Connection Case Reference is not empty). The alerting rules and the Teams alerts use the reporter only, so this view is broader than they are. In the selected projects ${lk(all.length, CFB_Q(), `${all.length} CFBs in the data`)} ${plural(all.length, "bug counts", "bugs count")} as a CFB (created, resolved or closed since ${esc(DATA.bugSince)}, or still open): ${lk(all.filter(b => b.rb).length, `reporter = ${q(DATA.cfbAccount)}`, "Reported by the CFB account")} reported by the CFB account and ${lk(all.filter(b => b.sf).length, "cf[10329] is not EMPTY", "Linked to a Salesforce case")} linked to a Salesforce case. ${lk(viaCase.length, `cf[10329] is not EMPTY AND reporter != ${q(DATA.cfbAccount)}`, "Linked to a Salesforce case but reported by someone else")} ${plural(viaCase.length, "bug carries", "bugs carry")} a Salesforce case although another person reported ${plural(viaCase.length, "it", "them")}.<br>` +
-    `<b>Fixed and the period</b>: a CFB is fixed when its status is Done and its resolution is Fixed or Fixed - Config. A CFB in Ready for Deploy is not counted here until it moves to Done (it is not open either: the Open Bugs trend and the Open CFBs table treat Ready for Deploy as final). It counts in the period of its <b>Closed</b> date (the Jira field Closed, as the Israel-local day), not its resolution date; the two can differ by days and usually fall in the same quarter. ${noClosed.length ? `${lk(noClosed.length, `${CFB_FIXED_JQL} AND ${CFB_Q()} AND cf[10099] is EMPTY`, "Done CFBs with no Closed date")} Done ${plural(noClosed.length, "CFB has", "CFBs have")} no Closed date and ${plural(noClosed.length, "falls", "fall")} back to the resolution date.`: "Every fixed CFB has a Closed date."} The Open Bugs trend and the Open CFBs table do not use these dates. Data is the Jira snapshot at ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}.`);
-  { const c = host.querySelector(".cap"); if (c) c.insertAdjacentHTML("beforeend", `<br>${OCFB_HELP}<br><b>Chart and table</b>: ${CFB_CAP_HELP}`); }
+    `<b>Fixed and the period</b>: a CFB is fixed when its status is Done and its resolution is Fixed or Fixed - Config. A CFB in Ready for Deploy is not counted here until it moves to Done (it is not open either: the Open Bugs trend treats Ready for Deploy as final). It counts in the period of its <b>Closed</b> date (the Jira field Closed, as the Israel-local day), not its resolution date; the two can differ by days and usually fall in the same quarter. ${noClosed.length ? `${lk(noClosed.length, `${CFB_FIXED_JQL} AND ${CFB_Q()} AND cf[10099] is EMPTY`, "Done CFBs with no Closed date")} Done ${plural(noClosed.length, "CFB has", "CFBs have")} no Closed date and ${plural(noClosed.length, "falls", "fall")} back to the resolution date.`: "Every fixed CFB has a Closed date."} The Open Bugs trend and the Open CFBs table do not use these dates. Data is the Jira snapshot at ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}.`);
+  { const c = host.querySelector(".cap"); if (c) c.insertAdjacentHTML("beforeend", `<br><b>Chart and table</b>: ${CFB_CAP_HELP}`); }
 }
-function renderOpenCfb() {
-  const host = document.getElementById("ocfb-table"), kp = document.getElementById("ocfb-kpis"); if (!host) return;
-  if (!state.projects.size) { kpiCards(kp, ["Open CFBs", "RCA Not Done", "Over SLA", "Regression"].map(l => ({c: "q", v: "–", l, s: "No project is selected"}))); host.innerHTML = `<div class="empty">${whyEmpty("bugs")}</div>`; document.getElementById("ocfb-note").innerHTML = ""; document.getElementById("ocfb-cap").innerHTML = ""; return; }
-  const M = ocfbModel(), R = M.rows, n = R.length, asOf = iso(asOfDay());
-  const sub = (list, what, extra) => list.length ? tlink(list.length, ocfbKeys(list), `${list.length} open ${plural(list.length, "CFB", "CFBs")}: ${what}${extra ? "\n" + extra : ""}`) : "0";
-  const notDone = R.filter(r => r.rca === "not"), done = R.filter(r => r.rca === "done"), na = R.filter(r => r.rca === "na"), over = R.filter(r => r.late), reg = R.filter(r => r.b.rg);
-  const openHref = href(`${ocfbBase()} AND ${OPEN_BUG_JQL}${bugTeamClause(state.teams)}`);
-  kpiCards(kp, [
-    {c: "q", v: n ? tlink(n, openHref, `${n} open ${plural(n, "CFB", "CFBs")}\nReported by the CFB account or linked to a Salesforce case; status not Done, Ready for Deploy, Closed, Resolved or Removed.`) : "0", l: "Open CFBs", s: n ? "reported by the CFB account or linked to a Salesforce case" : "none open"},
-    {c: "q", v: M.hasX ? sub(notDone, "Root Cause Analysis not done", "Jira cannot search this: the analysis field is pre-filled with a template.") : "–", l: "RCA Not Done", s: M.hasX ? `${sub(done, "RCA Done")} Done · ${sub(na, "Root Cause Analysis not required")} Not Required` : "RCA state is not in this build"},
-    {c: "q", v: over.length ? tlink(over.length, href(`${ocfbBase()} AND ${OPEN_BUG_JQL}${bugTeamClause(state.teams)} AND (${overSlaJql()})`), `${over.length} open ${plural(over.length, "CFB", "CFBs")}: past their SLA\nAge is more than the SLA days for the priority, as of ${asOf}.`) : "0", l: "Over SLA", s: `of ${n} open ${n === 1 ? "CFB" : "CFBs"}`},
-    {c: "q", v: reg.length ? tlink(reg.length, href(`${ocfbBase()} AND ${OPEN_BUG_JQL} AND regression = Yes${bugTeamClause(state.teams)}`), `${reg.length} open ${plural(reg.length, "CFB", "CFBs")} with regression Yes`) : "0", l: "Regression", s: "Regression field is Yes"},
-  ]);
-  document.getElementById("ocfb-note").innerHTML = followsRow(["Projects", "Teams"]);
-  let inner = "";
-  if (!n) { inner = `<div class="empty">No open CFBs in the selected ${state.teams.size ? "projects and teams" : "projects"}.</div>`; }
-  else {
-    const keyA = (b, x) => `<a href="${BASE}/browse/${esc(b.k)}" target="_blank" rel="noopener" ${tipAttr(`${b.k}\n${x && x.t ? shortText(x.t, 90) : b.s}\n${b.s}, ${b.pr || "no priority"}`, "x")} aria-label="${esc(b.k)}. Opens in Jira.">${esc(b.k)}</a>`;
-    const body = R.map(r => { const b = r.b, x = r.x, k = esc(b.k), expandable = r.rca && x && (x.rt || x.rca === 0);
-      const rcaCell = r.rca ? `<strong>${RCA_TEXT[r.rca]}</strong>${expandable ? `<div><button type="button" class="linkbtn" data-ocact="rca" data-ocval="${k}" aria-label="Root Cause Analysis text for ${k}" aria-expanded="${ocfbOpen.has(b.k)}" aria-controls="ocfb-${k}">RCA Text</button></div>` : ""}${x && x.rv ? `<div class="cysub">Review: ${x.rv === "A" ? "Approved" : "Not Required"}</div>` : ""}` : tipSpan("–", x ? "No RCA data in Jira" : "No RCA data in Jira. Detail loads on the next Refresh or rebuild.");
-      const inc = b.inc != null ? Math.round(b.inc) : "–", lk = x && x.lk ? `<div class="cysub">Linked: ${x.lk.map(esc).join(", ")}</div>` : "";
-      const rva = r.sla ? (r.late ? `${r.sla.days} days required / ${r.age} actual, ${r.over} over` : `within SLA, ${r.sla.days - r.age} days left`) : `${r.age} days old; no SLA for this priority`;
-      return `<tr><th scope="row">${keyA(b, x)}</th><td class="title">${x && x.t ? esc(x.t) : tipSpan("–", "Detail loads on the next Refresh or rebuild")}</td><td>${esc(b.p)}</td><td>${esc(b.s)}</td><td>${esc(b.pr || "No priority")}</td><td>${rcaCell}</td><td class="n">${r.age}</td>` +
-        `<td class="n">${r.sla ? tipSpan(String(r.sla.days), `SLA ${r.sla.days} days: ${r.sla.why}`) : "–"}</td><td>${r.due || "–"}</td><td class="wrapc">${rva}</td><td>${b.rg ? "Yes" : "No"}</td><td class="n">${inc}${lk}</td></tr>` +
-        (expandable ? `<tr class="cybugrow" id="ocfb-${k}"${ocfbOpen.has(b.k) ? "" : " hidden"}><td colspan="12"><div class="stickyin"><div class="cysub">Root Cause Analysis text for ${k}</div>${x.rt ? esc(x.rt) + (x.rt.length >= 320 ? "…" : "") : "The field is empty or still holds the unedited template."}</div></td></tr>` : ""); }).join("");
-    inner = `<div class="tablewrap"><table class="cytable ocfbtable"><caption class="sr">Open customer-found bugs with age, SLA and Root Cause Analysis state, in project and key order</caption><thead><tr><th scope="col">Key</th><th scope="col">Summary</th><th scope="col">Project</th><th scope="col">Status</th><th scope="col">Priority</th><th scope="col">RCA</th><th scope="col" class="n">Age (Days)</th><th scope="col" class="n">SLA Days</th><th scope="col">SLA Due Date</th><th scope="col">Required vs. Actual</th><th scope="col">Regression</th><th scope="col" class="n">Incidents</th></tr></thead><tbody>${body}</tbody></table></div>`;
-  }
-  host.innerHTML = `<details class="vd" id="ocfb-details"><summary>Show Open CFBs (${n})</summary>${inner}</details>`;      // collapsed until asked for; an open panel stays open while the page re-renders, for this visit only
-  document.getElementById("ocfb-cap").innerHTML = ""; OCFB_HELP = "<b>Open CFBs</b>: follows the Projects and Teams filters, like the chart above; the Priority, CFB and accessibility controls do not apply. Open means a status other than Done, Ready for Deploy, Closed, Resolved or Removed, the same rule as Needs Attention; the table covers the selected projects. " + (
-    `<b>Population</b>: bugs reported by the CFB account or linked to a Salesforce case in the selected projects (and teams) whose status is not Done, Ready for Deploy, Closed, Resolved or Removed. Rows are in project and key order, not ranked. <b>Age</b>: whole calendar days from creation to ${esc(asOf)}. <b>SLA Days</b>: P1 ${CFG.sla.p1}; with a regression ${CFG.sla.regression}; P2 without one ${CFG.sla.p2}; P3 and P4 without one ${CFG.sla.other}; no SLA for a bug with no P1 to P4 priority. <b>SLA Due Date</b>: created plus the SLA days. Over SLA means age greater than the SLA days. <b>Incidents</b>: the Number of Incidents field, with linked incident issues when there are any.<br>` +
-    `<b>RCA</b> (Root Cause Analysis): <i>RCA Done</i> when the Root Cause Analysis text was edited (it differs from the unedited template) or the RCA Review Status is Approved; <i>Not Required</i> when the review status is Not Required; <i>RCA Not Done</i> when the field is empty, or still holds the unedited template, and the review status is empty. The field is pre-filled in Jira, so a non-empty field proves nothing and Jira cannot search for the template: the template is recognised at build time as the text that five or more CFBs share, and only a flag is stored. An edited text can still be a partial analysis. The excerpt is shown on request.`);
-}
-
 // ---------------------------------------------------------------- breakdown tables
 function breakdownRow(label, list, jiraOpts, anyList) {
   const c = counts(list);
@@ -3719,7 +3642,7 @@ function syncControls() {
 // ---- scroll anchoring: a filter change re-renders sections whose heights change above the reader, so the block being looked at is kept at the same screen position.
 // The finest stable block (a chart, table, board) that holds the middle of the visible area is the anchor; its top offset is recorded before the render and restored right after it
 // (before paint), again on the next frames and when fonts settle. A wheel, touch, key or pointer press by the reader cancels the correction; it is never smooth.
-const ANCHORS = "#kpis, #attn, #burnup, #eff-chart, #ai-chart, #bug-kpis, #bug-chart, #bug-table, #cfb-chart, #cfb-table, #ocfb-kpis, #ocfb-table, #dep-kpis, #dep-body, #capview, #cx-kpis, #cx-body, #cx-none, #nfr-kpis, #nfr-body, #cy-kpis1, #cy-kpis2, #cy-gkpis, #cy-concerns, #cy-weekly, .cyblock, #charts, #tbl-projects, #tbl-teams, #dq, main > section";
+const ANCHORS = "#kpis, #attn, #burnup, #eff-chart, #ai-chart, #bug-kpis, #bug-chart, #bug-table, #cfb-chart, #cfb-table, #dep-kpis, #dep-body, #capview, #cx-kpis, #cx-body, #cx-none, #nfr-kpis, #nfr-body, #cy-kpis1, #cy-kpis2, #cy-gkpis, #cy-concerns, #cy-weekly, .cyblock, #charts, #tbl-projects, #tbl-teams, #dq, main > section";
 let anchorUserAt = 0, anchorBusyAt = 0, lastUpdateAt = 0, anchorMem = null;
 ["wheel", "touchstart", "pointerdown", "keydown"].forEach(ev => window.addEventListener(ev, () => { anchorUserAt = performance.now(); }, {passive: true, capture: true}));
 const anchorShown = e => e && e.isConnected && e.offsetParent !== null && e.getBoundingClientRect().height > 0;
@@ -3794,14 +3717,14 @@ function update(opts) {
   updateCore(); uiRestore(ui); anchorRestore(st);
 }
 function updateCore() {
-  syncControls(); saveState(); renderKpis(); renderStatus(); renderBurnup(); renderEfficiency(); renderCharts(); renderBugs(); renderCfb(); renderOpenCfb(); renderCfbAbout(); renderDeps(); renderAttention(); renderCapabilities(); renderCx(); renderNfr(); renderAdoption(); renderCapDone(); renderCycles();
+  syncControls(); saveState(); renderKpis(); renderStatus(); renderBurnup(); renderEfficiency(); renderCharts(); renderBugs(); renderCfb(); renderCfbAbout(); renderDeps(); renderAttention(); renderCapabilities(); renderCx(); renderNfr(); renderAdoption(); renderCapDone(); renderCycles();
   renderBreakdowns(); renderDQ(); renderMeta(); tipPass(); nowrapDates(); fitSticky();
 }
 // ONE stamp in the header: the oldest time among the LIVE sources (every open and every click refreshes them; after a Refresh they all carry the refresh time, a failed step keeps its old time).
 // The LIMITED sources (cycle time, Capitalization, Capitalization in Power BI scope: first open of the day and the first two clicks) are named in the tooltip, and only when they differ from it. A copy with no connector has no limited tier: its stamp is the oldest of all.
 function sourceTimes() {
   const base = DATA.generated, rf = DATA.refreshedAt;
-  const live = [["Epics", rf || base], ["Bugs", rf || DATA.bugsPulledAt || base], ["Open CFBs", DATA.cfbRefreshedAt || (DATA.cfbx && DATA.cfbx.pulledAt) || base], ["Dependency links", DATA.linksPulledAt || base], ["Capabilities", DATA.capPulledAt || base]];
+  const live = [["Epics", rf || base], ["Bugs", rf || DATA.bugsPulledAt || base], ["Dependency links", DATA.linksPulledAt || base], ["Capabilities", DATA.capPulledAt || base]];
   const slow = [["Cycle time", DATA.edctAt || base, !!DATA.edctAt], ["Capitalization", DATA.capRefreshedAt || (DATA.cap && DATA.cap.pulledAt) || base, !!DATA.capRefreshedAt],
     ...(DATA.capPbi ? [["Capitalization (Power BI scope)", DATA.capPbi.refreshedAt || DATA.capPbi.pulledAt || base, !!DATA.capPbi.refreshedAt]] : [])];      // [name, time, refreshed at least once]
   const oldestOf = list => list.map(x => x[1]).sort()[0], liveOldest = oldestOf(live), oldestAll = oldestOf([...live, ...slow]);
@@ -3828,7 +3751,7 @@ function renderMeta() {
 
 // ---------------------------------------------------------------- live refresh (published artifact only)
 const LIVE = {server: "Atlassian", tool: "searchJiraIssuesUsingJql", issueTool: "getJiraIssue", pageLimit: 40};
-// Two tiers of Refresh steps. LIVE (every open and every click): epics, bugs and accessibility first, then Open CFBs, Dependency links, Capabilities. LIMITED (after those): cycle time, then Capitalization, then Capitalization (Power BI scope).
+// Two tiers of Refresh steps. LIVE (every open and every click): epics, bugs and accessibility first, then Dependency links, Capabilities. LIMITED (after those): cycle time, then Capitalization, then Capitalization (Power BI scope).
 // Per viewer and Israel-local day the FIRST automatic refresh on open runs the limited tier without using a click (SLOW_AUTO = 0: an open runs the live tier only), and SLOW_CLICKS clicks run it too; after that a click runs the live tier only.
 // The count is a courtesy kept in this browser (localStorage "dp.slowRuns" = {day, n, auto}), not an access control: clearing storage or moving the clock resets it. With storage blocked the count lives in memory for this page load.
 const SLOW_AUTO = 1, SLOW_CLICKS = 2, SLOW_KEY = "dp.slowRuns";
@@ -4187,31 +4110,6 @@ const adfText = v => { if (v == null) return ""; if (typeof v === "string") retu
 const normText = t => String(t || "").replace(/\s+/g, " ").trim().toLowerCase();
 const CFB_FIELDS = ["summary", "status", "issuetype", "priority", "created", "updated", "resolutiondate", "resolution", "reporter", "customfield_10098", "customfield_10329", "customfield_10055", "customfield_10068", "customfield_10117", "customfield_12643", "customfield_10099", "customfield_10051"];
 const BUG_CLOSED_JQL_LIST = BUG_CLOSED.map(x => /\s/.test(x) ? `"${x}"` : x).join(", ");
-async function cfbRefresh(mcp, say) {                            // Open CFBs: the open set is read again, the ones that left it are read by key, the Root Cause Analysis state is classified as the collector does
-  const X = DATA.cfbx; if (!X || !X.bugs) return null;
-  const tpl = Array.isArray(X.tpl) ? new Set(X.tpl) : null;
-  const open = await fetchAll(mcp, `project in (${DATA.projects.join(", ")}) AND issuetype = Bug AND (reporter = "${DATA.cfbAccount}" OR cf[10329] is not EMPTY) AND status not in (${BUG_CLOSED_JQL_LIST})`, (pg, n) => say(`Open CFBs: page ${pg}, ${n} issues read so far.`), CFB_FIELDS);
-  if (open.truncated) throw {code: "tool_error", message: "more open CFBs than the page limit; ask for a full rebuild"};
-  const now = new Set(open.nodes.map(n => n.key)), left = DATA.bugs.filter(b => b.cfb && isOpenBug(b) && !now.has(b.k)).map(b => b.k), leftNodes = [];
-  for (let i = 0; i < left.length; i += 100) {
-    const r = await fetchAll(mcp, `key in (${left.slice(i, i + 100).join(", ")})`, (pg, n) => say(`Open CFBs that closed: page ${pg}, ${n} issues read so far.`), CFB_FIELDS);
-    if (r.truncated) throw {code: "tool_error", message: "more closed CFBs than the page limit; ask for a full rebuild"};
-    leftNodes.push(...r.nodes);
-  }
-  // nothing is applied half-way: any failure above left everything untouched
-  const ax = new Set(DATA.bugs.filter(b => b.ax).map(b => b.k));
-  mergeDelta([...open.nodes, ...leftNodes], ax);
-  open.nodes.forEach(n => {
-    const f = n.fields || {}, text = normText(adfText(f.customfield_10117)), old = X.bugs[n.key] || {}, rec = {...old, t: f.summary || old.t || ""};
-    if (tpl) rec.rca = text && !tpl.has(h53(text)) ? 1 : 0; else rec.rca = old.rca || 0;       // an older build without the template hashes keeps the flag it had
-    const rv = optVal(f.customfield_12643); if (rv === "Approved") rec.rv = "A"; else if (rv === "Not Required") rec.rv = "N"; else delete rec.rv;
-    if (rec.rca) rec.rt = text.slice(0, 320); else delete rec.rt;
-    X.bugs[n.key] = rec;
-  });
-  leftNodes.forEach(n => { if (X.bugs[n.key]) delete X.bugs[n.key].rt; });
-  X.pulledAt = new Date().toISOString(); DATA.cfbRefreshedAt = X.pulledAt;
-  return {open: open.nodes.length, left: leftNodes.length, tpl: !!tpl};
-}
 async function capsRefresh(mcp, say, sinceDay) {                  // Capabilities of the dashboard projects and CXCROSS changed since the snapshot: status, fix versions, summary; and the child-epic rows we already hold
   if (!DATA.capList) return null;
   const rels = DATA.releases.map(r => `"${r}"`).join(", ");
@@ -4305,7 +4203,6 @@ async function refresh(opts = {}) {
     update(); syncTip();                                              // epics and bugs are read and merged: show them now, the other steps redraw as each finishes
     const slow = slowReserve(auto);                                   // decided once, here: step 1 succeeded, so this run counts against the starting day's allowance; a failed run is not refunded
     const steps = [], run = async (label, fn) => { try { const r = await fn(); if (r) steps.push({label, ok: true, r}); } catch (err) { const msg = String((err && (err.message || err.code)) || "unknown error").slice(0, 120); if (label === "Capitalization") DATA.capRefreshFailed = msg; if (label === CAP_PBI_STEP) DATA.capPbiRefreshFailed = msg; if (label === "Cycle time") DATA.edctFailed = msg; steps.push({label, ok: false, msg}); } update(); syncTip(); };
-    await run("Open CFBs", () => cfbRefresh(mcp, msg => say(msg)));
     await run("Dependency links", () => linksRefresh(mcp, msg => say(msg), sinceDay));
     await run("Capabilities", () => capsRefresh(mcp, msg => say(msg), sinceDay));
     if (slow.run) {
@@ -4315,7 +4212,7 @@ async function refresh(opts = {}) {
     }
     update();
     const okOf = l => (steps.find(x => x.label === l && x.ok) || {}).r, bad = steps.filter(x => !x.ok);
-    const cfb = okOf("Open CFBs"), caps = okOf("Capabilities"), cz = okOf("Capitalization"), lk = okOf("Dependency links");
+    const caps = okOf("Capabilities"), cz = okOf("Capitalization"), lk = okOf("Dependency links");
     const pending = slow.run ? DATA.epics.filter(e => cls(e.s) === "done" && e.edct == null).length : 0;      // only a run that read the histories can say it could not calculate one
     const cal = new Set(sprintList().map(s => s.n)), noCal = cal.size ? DATA.epics.filter(e => e.ts && !cal.has(e.ts)).length : 0;
     const buildDays = Math.floor((asOfDay() - utc(ilDate(DATA.generated))) / 864e5);
@@ -4477,8 +4374,8 @@ named Done, not Jira's Done category.
 <br><b>Cycle Time.</b> EDCT (Epic Development Cycle Time) matches the weekly email: calendar days an epic ended in In Progress or Validation, flagged days excluded. The trend shows P50 and P90 (linear interpolation).
 No percentile, share or trend is shown for fewer than ${MIN_N} items.
 <br><b>Burnup.</b> Done is cumulative by resolution date and counts target epics (Committed + Not Set). Scope is the number of target epics (Committed + Not Set, judged on each epic's current Commitment Type) that were in the release on the first day of W1, from each epic's Fix Version history; the Forecast Epics tile shows the same number, and the epics added since are shown beside it. The IP week is the first seven days of the release. No projection is drawn.
-<br><b>Bugs.</b> The backlog shows created, resolved and open per week, accessibility bugs excluded unless switched on. A bug is open while its status is not Done, Ready for Deploy, Closed, Resolved or Removed; bugs that are Done without a resolution date cannot be placed on the weekly line and are named in its notes. The Open CFBs table lists the customer-found bugs that are not in a final status, with age against the SLA and the Root Cause Analysis state. CFB follows the release closure report: bugs reported by the CFB account, fixed in the release window.
-<br><b>Snapshot and Refresh.</b> Numbers were read from Jira at the time shown above. In the published page the data refreshes when the page opens, and Refresh does it again: epics, bugs, open customer-found bugs, dependency links, Capabilities and Capitalization. Capitalization and cycle time refresh on the first open each day and on the first two Refresh clicks. Story-level links, the sprint calendar and the Cycles pods are read only when the data is built.
+<br><b>Bugs.</b> The backlog shows created, resolved and open per week, accessibility bugs excluded unless switched on. A bug is open while its status is not Done, Ready for Deploy, Closed, Resolved or Removed; bugs that are Done without a resolution date cannot be placed on the weekly line and are named in its notes. CFB follows the release closure report: bugs reported by the CFB account, fixed in the release window.
+<br><b>Snapshot and Refresh.</b> Numbers were read from Jira at the time shown above. In the published page the data refreshes when the page opens, and Refresh does it again: epics, bugs, dependency links, Capabilities and Capitalization. Capitalization and cycle time refresh on the first open each day and on the first two Refresh clicks. Story-level links, the sprint calendar and the Cycles pods are read only when the data is built.
 <br><b>Hover Text.</b> Hover text follows the pointer and is not itself hoverable; Esc closes it. The same text is in each chart's data table.
 <br><b>Delivery Cycle Governance.</b> The last section has its own data (INT, CXINT and WFM epics by pod label or Epic Team, read at build time, not by Refresh) and follows its own delivery cycle and pod groups, not the filters above. It states facts only: no verdict, no rating of a group.
 <br><b>Scope of Use.</b> Counts describe programs, releases and teams. Facts only: nothing here ranks or scores a team or a person.

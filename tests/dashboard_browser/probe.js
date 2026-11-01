@@ -12,9 +12,9 @@
     cdone: find(DATA.bugs, S.cfbDone), copen: find(DATA.bugs, S.cfbOpen),
     depCol: (() => { const c = [...document.querySelectorAll(".bcard")].find(a => a.textContent.includes(S.eDep)); const col = c && c.closest(".bcol"); return col ? col.getAttribute("aria-label") : null; })(),
     pmn_open: DATA.bugs.filter(b => b.p === "PMN" && !b.rd && !b.ax).length,
-    cfbA: DATA.cfbx.bugs[S.oA] || null, cfbB: DATA.cfbx.bugs[S.oB] || null, cfbE: DATA.cfbx.bugs[S.oE] || null, cfbNew: DATA.cfbx.bugs[S.newCfb] || null, cfbNewBug: find(DATA.bugs, S.newCfb),
-    bugC: find(DATA.bugs, S.oC), bugD: find(DATA.bugs, S.oD), bugE: find(DATA.bugs, S.oE), openKeys: ocfbModel().rows.map(r => r.b.k),
-    fixedKeys: DATA.bugs.filter(isCfbFixed).map(b => b.k), cfbAt: DATA.cfbRefreshedAt || null, cfbPulled: DATA.cfbx.pulledAt,
+    cfbNewBug: find(DATA.bugs, S.newCfb),
+    bugC: find(DATA.bugs, S.oC), bugD: find(DATA.bugs, S.oD), bugE: find(DATA.bugs, S.oE),
+    fixedKeys: DATA.bugs.filter(isCfbFixed).map(b => b.k),
     deps: DATA.deps, ext1: (DATA.ext || {})[S.farKey] || null, linksAt: DATA.linksPulledAt || null,
     hierFv: DATA.hier[S.cap].fv, listFv: DATA.capList[S.cap] ? DATA.capList[S.cap].fv : null, listS: DATA.capList[S.cap] ? DATA.capList[S.cap].s : null, capNoFv: DATA.capNoFv, capPulledAt: DATA.capPulledAt,
     stampTxt: document.getElementById("asof").textContent, stampTip: document.getElementById("asof").dataset.tip || "", capFail: DATA.capRefreshFailed || null,
@@ -25,7 +25,6 @@
     effNote: (document.getElementById("eff-note") || {}).textContent || "", raNote: (document.getElementById("ra-note") || {}).textContent || "",
     noEdctRow: (() => { const h = attentionModel().hyg.find(x => x.label === "Done Epics with No EDCT"); return h ? {n: h.n, note: h.note} : null; })(),
   });
-  DATA.cfbx.tpl.push(S.tplHash);
   window.__before = window.__snap();
   // "done": the refresh button went busy and is usable again (latched, so a status that clears itself later does not matter)
   const btn = document.getElementById("refresh");

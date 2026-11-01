@@ -44,7 +44,7 @@ Results: `PASS`, `FAIL`, `XFAIL` (expected to fail until a fix lands, see below)
 one (when `build/program_data.json` exists); every section renders with content and no uncaught error.
 
 **Refresh, ported from the earlier scratch harness** (every assertion kept): incremental `updated` windows and cursor paging; merge-not-rebuild of epics, bugs,
-planning fields and pod labels; the dependency card stays in its sprint; open CFBs (RCA classification by hash, left-the-set, regression flag); Capabilities;
+planning fields and pod labels; the dependency card stays in its sprint; Capabilities;
 dependency links; Capitalization delta for every quarter (updates, deletes, absence never deletes, fallback day); one header stamp; a failing step leaves its
 own data byte-identical and never blocks the others (four steps); an empty response deletes nothing; denied consent; the automatic refresh on open
 (once, button and progress, filters usable, `localStorage` blocked, skipped when recent, Retry rate-limited); a mocked clock a quarter later (F4).
