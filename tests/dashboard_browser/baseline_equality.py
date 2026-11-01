@@ -66,6 +66,7 @@ REWORDED: list[tuple[str, str]] = [
     ("Forecast Epics and the burnup use it, whatever the Commitment Type filter shows.", "Forecast Epics and the burnup use it."),
     ("follows the Release, Projects, Teams and Commitment Type filters and has its own Delivery Cycle choice.", "follows the Release, Projects, Teams and Delivery Cycle filters, and its own cycle choice picks one of the cycles the filter leaves in."),
     ("\nThe Commitment Type checkboxes do not change the target scope.", ""),
+    ("Follows: Release · Projects · Teams, Commitment Type: not applied", "Follows: Release · Projects · Commitment Level · Teams: not applied"),      # the Capabilities line: Commitment Level had been dropped by an earlier merge
     (", selected Commitment Types\"", "\""),
     (", selected Commitment Types. Opens", ". Opens"),
     (". The Commitment Type checkboxes do not change the target scope.", "."),
