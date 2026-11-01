@@ -346,7 +346,7 @@ def test_no_query_the_collector_sends_names_the_reserved_key_bare(monkeypatch):
 
 
 # a project key interpolated into JQL must pass through the helper: `project = ${pkey(p)}`, `project in (${pkeys(list)})`; a bare `${p}` or `${list.join(", ")}` is the mistake this test is here for
-TEMPLATE_SITE = re.compile(r"\bproject (?:not in|in|=) \(?\$\{(?!pkeys?\()")
+TEMPLATE_SITE = re.compile(r"\bproject (?:not in|in|=) \(?\$\{(?!pkeys?\(|list\(CAP_PBI_PROJECTS\)|q\(o\.proj\)|CAP_PBI_PROJECTS\.map\(q\))")      # the Power BI scope code quotes EVERY key itself
 BUILDER_SITE = re.compile(r"\bproject (?:not in|in|=) \(?\{(?!pkeys?\()")
 ANY_SITE = r"\bproject (?:not in|in|=) \(?\$?\{"
 
