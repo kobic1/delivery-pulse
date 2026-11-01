@@ -514,12 +514,12 @@ def _(t: T):
     got = {k: v for k, v in lvl.items() if k.startswith("Team Seed Lvl")}
     t.check(got == want, f"Pods To Level flags exactly the teams 2/10/0, 1/4 and 3/1/1 (40% exactly), not 3/2, 2/2, 0/4 (total 4), a single pod, 4/2 (33%) or a pod with Done epics only: {got}")
     waiting = {r["cells"][0].split()[0] for r in allc["wait"] if not r["grp"]}
-    mine = {"EXA-98101", "EXA-98103", "EXB-98104", "EXA-98109"}
-    never = {"EXA-98102", "EXB-98105", "EXB-98106", "EXA-98107", "EXB-98108"}
+    mine = {"EXA-96101", "EXA-96103", "EXB-96104", "EXA-96109"}
+    never = {"EXA-96102", "EXB-96105", "EXB-96106", "EXA-96107", "EXB-96108"}
     t.check(mine <= waiting and not (never & waiting), f"waiting items: due on day 7, the Target Sprint alone, due today and the due date over a later sprint count; day 8, a Done item, a Done provider, another release and yesterday do not: {sorted(waiting & (mine | never))}")
     heads = [r["th"] for r in allc["wait"] if r["grp"] and "Team Seed Wt" in r["th"]]
     t.check(len(heads) == 2 and any("Pod-Wt-A" in h for h in heads) and any("No Pod Label" in h for h in heads), f"the provider with a pod and the provider without one have their own groups: {heads}")
-    both = [r for r in allc["wait"] if not r["grp"] and r["cells"][0].startswith("EXB-98104")]
+    both = [r for r in allc["wait"] if not r["grp"] and r["cells"][0].startswith("EXB-96104")]
     t.check(len(both) == 2, "a waiting item that waits on two providers appears under each")
     np_ = {(r["th"]): tuple(r["cells"]) for r in allc["noPod"] if r["th"].startswith("Team Seed Np")}
     t.check(np_.get("Team Seed Np") == ("PMN", "5", "8", "63%") and np_.get("Team Seed Np Small") == ("PMN", "2", "2", "–"), f"in flight without a pod label: {np_} (POD-31 and POD-32 are pods, NFR is not; a share needs 5 in flight)")

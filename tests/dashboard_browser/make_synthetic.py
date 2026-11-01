@@ -531,14 +531,14 @@ class Gen:
                 "allOpenByProject": {**{p: sum(1 for b in open_cfb if b["p"] == p) for p in projects or BASE_PROJECTS}, "EXA": 3, "EXB": 2}, "pulledAt": il_stamp(self.generated_day, 0, 36)}
 
     # ---- the four proactive Pods KPIs (Not-Started Epics Due Within 7 Days, Waiting Dependents Due Soon, Pods To Level, In-Flight Epics Without a Pod Label): FIXED cases, no random draw, fictitious
-    # team and pod names, every date relative to the AS-OF day (the generated day, which is what the page calls today). Keys start at 98001, clear of the random counter and of the 97xxx far ends.
+    # team and pod names, every date relative to the AS-OF day (the generated day, which is what the page calls today). Keys start at 96001, clear of the random counter and of the 97xxx far ends.
     # The first 27.1 sprint ends on as-of + 6 (the release started 23 days before `today`, as-of is today - 2) and the second on as-of + 27: the 'later date counts' cases rely on both ends.
     def proactive_epics(self, epics, by_rel, used_ts):
         asof, sp = self.generated_day, by_rel[CURRENT]
         s1, s2 = sp[0], sp[1]
         assert dt.date.fromisoformat(s1["end"]) == asof + dt.timedelta(days=6) and dt.date.fromisoformat(s2["end"]) == asof + dt.timedelta(days=27), "the fixed cases need the sprint ends at as-of + 6 and + 27"
         used_ts.update([s1["n"], s2["n"]])
-        n = [98000]
+        n = [96000]
         keys: dict = {}
 
         def add(name, team, labels, status, dd=None, ts=None, c="Committed", nf=False, fv=None) -> str:
@@ -617,22 +617,22 @@ class Gen:
         s1, s2 = sp[0], sp[1]
         K = self.fixed
         far = {                                                                                # key: (type, status, due offset or None, Target Sprint)
-            "EXA-98101": ("Story", "New", 7, None),          # in: due on the last day, provider with a pod label
-            "EXA-98102": ("Task", "In Progress", 8, None),   # out: one day after
-            "EXA-98103": ("Story", "New", None, s1),         # in: the Target Sprint alone (ends at +6), provider with no pod label
-            "EXB-98104": ("Task", "New", 0, None),           # in once: due today, waits on both providers (appears under both)
-            "EXB-98105": ("Story", "Done", 2, None),         # out: the waiting item is Done
-            "EXB-98106": ("Task", "New", 3, None),           # out: the provider is Done
-            "EXA-98107": ("Task", "New", 3, None),           # out: the provider is in another release
-            "EXB-98108": ("Bug", "New", -1, None),           # out: due yesterday
-            "EXA-98109": ("Story", "New", 7, s2),            # in: the due date wins over the Target Sprint (ends at +27)
+            "EXA-96101": ("Story", "New", 7, None),          # in: due on the last day, provider with a pod label
+            "EXA-96102": ("Task", "In Progress", 8, None),   # out: one day after
+            "EXA-96103": ("Story", "New", None, s1),         # in: the Target Sprint alone (ends at +6), provider with no pod label
+            "EXB-96104": ("Task", "New", 0, None),           # in once: due today, waits on both providers (appears under both)
+            "EXB-96105": ("Story", "Done", 2, None),         # out: the waiting item is Done
+            "EXB-96106": ("Task", "New", 3, None),           # out: the provider is Done
+            "EXA-96107": ("Task", "New", 3, None),           # out: the provider is in another release
+            "EXB-96108": ("Bug", "New", -1, None),           # out: due yesterday
+            "EXA-96109": ("Story", "New", 7, s2),            # in: the due date wins over the Target Sprint (ends at +27)
         }
         for k, (ty, st, off, ts) in far.items():
             assert k not in ext and not any(e["k"] == k for e in epics), k
             ext[k] = {"p": k.split("-")[0], "t": f"Fixed waiting {ty} {k[-3:]}", "s": st, "fv": [], "tm": [], "ud": self.d(asof), "ty": ty,
                       **({"dd": self.d(asof + dt.timedelta(days=off))} if off is not None else {}), **({"ts": ts["n"]} if ts else {})}
-        add = [["EXA-98101", K["wt_pod"], "D"], ["EXA-98102", K["wt_pod"], "D"], ["EXA-98103", K["wt_nopod"], "B"], ["EXB-98104", K["wt_pod"], "D"], ["EXB-98104", K["wt_nopod"], "D"],
-               ["EXB-98105", K["wt_pod"], "D"], ["EXB-98106", K["wt_done"], "D"], ["EXA-98107", K["wt_other"], "D"], ["EXB-98108", K["wt_pod"], "D"], ["EXA-98109", K["wt_nopod"], "D"],
+        add = [["EXA-96101", K["wt_pod"], "D"], ["EXA-96102", K["wt_pod"], "D"], ["EXA-96103", K["wt_nopod"], "B"], ["EXB-96104", K["wt_pod"], "D"], ["EXB-96104", K["wt_nopod"], "D"],
+               ["EXB-96105", K["wt_pod"], "D"], ["EXB-96106", K["wt_done"], "D"], ["EXA-96107", K["wt_other"], "D"], ["EXB-96108", K["wt_pod"], "D"], ["EXA-96109", K["wt_nopod"], "D"],
                [K["ns_7"], K["wt_pod"], "D"]]                                                  # an epic (due on the last day) waits too: in
         have = {(d[0], d[1]) for d in deps}
         deps += [x for x in add if (x[0], x[1]) not in have]
