@@ -90,8 +90,7 @@ Shift, Cmd or Ctrl-click adds or removes a project and switches to multi-select 
 the last project cannot be removed (the status line says "At least one project must stay selected"), the arrow keys only move, Space and
 Enter toggle. The mode is derived and never stored: two to five projects always open in multi-select mode, the button reads
 "Multi-Select (2 of 7)" then and cannot be left until one project or all are selected. There is no empty selection by any route.
-Every change is announced politely ("Showing PMN only, 19 epics delivered", the Epics Delivered tile). The summary line says "Showing
-PMN only" or "Showing PMN + CXWFM (2 of 7 projects)".
+Every change is announced politely ("Showing PMN only, 19 epics delivered", the Epics Delivered tile). There is no summary line under the filter bar any more: the filter chips and the "Reset Filters (n)" count show what is changed.
 **Teams** keeps the searchable multi-select; "All Teams" is the first row and every row has an **Only** action (shown on hover,
 focus and on touch screens). **Commitment Type** keeps the checkboxes but the last type cannot be switched off. On a phone the
 chips are 44px tall and Multi-Select takes its own row.

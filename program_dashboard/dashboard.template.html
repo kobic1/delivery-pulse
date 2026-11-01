@@ -104,10 +104,6 @@ header.top h1 { margin:0; font-size:var(--t-sub); font-weight:600; }
 .filters.nosticky { position:static; }
 @media (max-width:760px) { .filters { position:static; } }
 .bar { background:var(--panel); border-radius:var(--radius); padding:10px 16px 12px; display:flex; flex-wrap:wrap; gap:10px 18px; align-items:flex-end; }
-.fsumrow { display:flex; flex-wrap:wrap; gap:0 12px; align-items:center; margin:6px 0 0; }
-.fsumrow[hidden] { display:none; }
-.freset { margin-left:auto; align-self:flex-end; white-space:nowrap; }       /* in the filter bar, at the right of its last row; quiet while nothing is changed */
-.fsum { font-size:var(--t-cap); color:var(--muted); margin:0; flex:1 1 320px; min-width:0; }
 .fg.changed > .lbl::before, .fg.changed > label::before, .periodbar.changed > .lbl::before, .toggle.changed::before { content:"● "; color:var(--blue-ink); white-space:pre; }
 #filterbar .fg:not(.changed) .chip.on { background:#fff; border-color:var(--ctl); font-weight:400; }
 .ftoggle { display:none; }
@@ -545,7 +541,6 @@ footer.f b { color:var(--ink); }
       <button class="btn link freset" id="f-reset" type="button" disabled>Reset Filters</button>
     </div>
   </div>
-  <div class="fsumrow" id="fsumrow" hidden><span class="fsum" id="fsum"></span></div>
 
   <div id="banner"></div>
   <h2 class="sr">Delivery, Efficiency, Quality &amp; AI Adoption</h2>
@@ -1132,7 +1127,7 @@ document.addEventListener("click", ev => {
 // Every Jira link in a table, tile or key gets the same hover text: the number and what it counts, then "Click to open in Jira".
 const tipSpan = (text, tip) => `<span class="tt" ${tipAttr(tip, "")}>${text}</span>`;     // plain facts that count issues get hover text
 function nowrapDates() {
-  document.querySelectorAll(".board .bm, .board .bd, .board .bq, .kpi .s, .kpi .x, .kpi .k, .key, .dq .d, .cap, .sub, #bu-sub, #fsum, .attn-sum, .arow .a2, .a3 .flag, .asof, .legend, .notice, .status, #cy-notes, #cy-elapsed, .cymeta, .cysub, #cy-gfacts").forEach(root => {
+  document.querySelectorAll(".board .bm, .board .bd, .board .bq, .kpi .s, .kpi .x, .kpi .k, .key, .dq .d, .cap, .sub, #bu-sub, .attn-sum, .arow .a2, .a3 .flag, .asof, .legend, .notice, .status, #cy-notes, #cy-elapsed, .cymeta, .cysub, #cy-gfacts").forEach(root => {
     const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT), nodes = []; while (w.nextNode()) nodes.push(w.currentNode);
     nodes.forEach(n => {
       if (!/\d{4}-\d{2}-\d{2}/.test(n.nodeValue) || (n.parentElement && n.parentElement.classList.contains("nw"))) return;
@@ -3507,13 +3502,6 @@ function filterChanges() {
 function syncControls() {
   const ch = filterChanges(), nCh = Object.values(ch).filter(Boolean).length;
   [["g-release", ch.release], ["g-projects", ch.projects], ["teamsel", ch.teams], ["g-commit", ch.commit], ["g-bpri", ch.bugpri], ["g-cfb", ch.cfb], ["g-ax", ch.ax], ["g-gran", ch.period], ["g-cfbgrp", ch.cfbgrp], ["g-dep", ch.depfilter], ["g-cx", ch.cx]].forEach(([id, on]) => document.getElementById(id).classList.toggle("changed", on));
-  const commit = state.commit.size === COMMIT.length ? "all commitment types" : [...state.commit].join(" + ") || "no commitment type";
-  const top = ch.release || ch.projects || ch.teams || ch.commit, bugParts = [ch.bugpri ? `Priority ${PRI_ALL.filter(k => state.bugPri.has(k)).join(", ") || "none"}` : "", ch.cfb ? `CFB ${state.cfb === "yes" ? "only" : "excluded"}` : "", ch.ax ? "accessibility bugs included" : ""].filter(Boolean),
-    extra = (bugParts.length ? ` · Bugs: ${bugParts.join(", ")}` : "") + (ch.period ? ` · Efficiency and AI by ${state.gran}` : "") + (ch.cfbgrp ? ` · CFB by ${state.cfbGroup}` : "") + (ch.cx ? ` · CXCROSS: ${CX_TYPES[state.cx][0]} only` : "") + (ch.cap ? ` · Capitalization by ${state.cap.by}, ${state.cap.measure === "sp" ? "story points" : "count"}` : "") + (ch.nfrtab ? ` · NFRs ${NFR_TABS.find(x => x[0] === state.nfrTab)[1].toLowerCase()}` : "") + (ch.cycles ? ` · Delivery Cycles: ${state.cy.cycle || "default cycle"}, ${cyTabName(state.cy.tab)}` : "") + (ch.depfilter ? ` · Dependencies: ${state.depFilter === "unplanned" ? "Not Planned only" : state.depFilter === "overdue" ? "Overdue only" : state.depFilter === "all" ? "All Issue Types" : "External only"}` : "");
-  document.getElementById("fsum").textContent = (top
-    ? `Showing ${ch.release ? "release " + state.release + " · " : ""}${projText()} · ${state.teams.size ? [...state.teams].join(", ") : "all teams"} · ${commit}`
-    : "") + (top ? extra : extra.replace(/^ · /, ""));
-  document.getElementById("fsumrow").hidden = !document.getElementById("fsum").textContent;
   const rb = document.getElementById("f-reset"); rb.disabled = !nCh; rb.textContent = nCh ? `Reset Filters (${nCh})` : "Reset Filters";
   document.getElementById("f-toggle").textContent = nCh ? `Filters (${nCh} Applied)` : "Filters";
   document.getElementById("f-release").value = state.release;
