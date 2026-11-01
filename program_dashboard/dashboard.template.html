@@ -336,6 +336,14 @@ button.chip:focus-visible, .linkbtn:focus-visible { outline:2px solid var(--blue
 details.vd { margin-top:4px; font-size:var(--t-cap); }
 details.vd summary { cursor:pointer; color:var(--blue-ink); padding:3px 0; width:max-content; max-width:100%; }
 details.vd .tablewrap { max-height:340px; overflow:auto; margin-top:6px; }
+details.vd .bl { margin:4px 0 6px; color:var(--ink); }
+details.vd ul.dl { margin:4px 0 6px; padding:0; list-style:none; }
+details.vd ul.dl > li { margin:3px 0; }
+details.vd ul.dl > li > b { font-weight:600; color:var(--ink); }
+details.vd .lf { margin:4px 0; }
+details.vd details.more { margin-top:8px; }
+details.vd details.more > summary { padding:3px 0; }
+details.vd details.more[open] > ul.dl { margin-top:4px; }
 .toggle { display:inline-flex; align-items:center; gap:6px; font-size:var(--t-body); cursor:pointer; min-height:32px; }
 .bugbar { display:flex; flex-wrap:wrap; gap:12px 24px; align-items:flex-end; margin:0 0 14px; }
 .toggle input { accent-color:var(--blue-ink); }
@@ -664,7 +672,6 @@ footer.f b { color:var(--ink); }
     </div>
     <div id="dep-cap"></div>
     <div id="dep-body"></div>
-    <div id="dep-dq"></div>
   </section>
 
   <section class="sec nf" aria-labelledby="h-capview">
@@ -705,7 +712,7 @@ footer.f b { color:var(--ink); }
   <section class="sec cy" id="cy-sec" aria-labelledby="h-cycles">
     <div class="seclabel">Cycles</div>
     <h2 id="h-cycles" tabindex="-1">Delivery Cycle Governance</h2>
-    <div class="sub" id="cy-sub">Cycle 1: release start to end of W6. Cycle 2: W7 to release end.</div>
+    <div class="sub" id="cy-sub">Delivery Cycle 1: release start to the end of W6. Delivery Cycle 2: W7 to the release end.</div>
     <div class="periodbar" id="g-cy"><span class="lbl" id="lbl-cy">Delivery Cycle</span>
       <div class="chips seg" id="f-cy" role="radiogroup" aria-labelledby="lbl-cy"></div>
     </div>
@@ -1375,6 +1382,15 @@ function monthChart(hostId, capId, dataId, rows, o) {       // o: value(r), labe
   dataTable(dataId, o.title, [GRAN[state.gran].head, "Epics", o.col, ...(o.extra ? o.extra.heads : [])], rows.map(r => [r.mo.label, o.nHref ? tlink(r.n, o.nHref(r), `${r.n} epics, ${pname(r.mo)}`) : r.n, o.value(r) == null ? "–" : o.fmtv(o.value(r)), ...(o.extra ? o.extra.cells(r) : [])]));
 }
 const defs = html => `<details class="vd"><summary>How this is calculated</summary><div class="cap">${html}</div></details>`;
+// One layout for every "How this is calculated": a bottom line (why you would open it), one-line definitions, what is left out, what to know, and a collapsed "More detail" with its own id (the open state is kept by id).
+const dli = ([t, m]) => `<li><b>${t}</b>: ${m}</li>`;
+const howBody = ({id, bl, defs: items = [], left, know, this: tl, more = []}) =>
+  (bl ? `<p class="bl">${bl}</p>` : "") +
+  (items.length ? `<ul class="dl">${items.map(dli).join("")}</ul>` : "") +
+  (left ? `<p class="lf"><b>What is left out</b>: ${left}</p>` : "") +
+  (know ? `<p class="lf"><b>Good to know</b>: ${know}</p>` : "") +
+  (tl ? `<p class="lf"><b>${tl[0]}</b>: ${tl[1]}</p>` : "") +
+  (more.length ? `<details class="more" id="${id}-more"><summary>More detail</summary><ul class="dl">${more.map(dli).join("")}</ul></details>` : "");
 // Cycle time and Capitalization refresh on the first open of the day and the first two clicks (see SLOW_*): the modules built on them say when they were last read. A published page only.
 function renderLimitedNotes() {
   const eff = document.getElementById("eff-note"), ra = document.getElementById("ra-note"); if (!eff || !ra) return;
@@ -1396,7 +1412,15 @@ function renderEfficiency() {
   const a = cur.avg == null ? null : Math.round(cur.avg), over = a == null ? 0 : a - EDCT_TARGET;
   head.innerHTML = a == null ? `– <small>${pwords(cur.mo)} · fewer than ${MIN_N} epics so far</small>`
     : `${a} days <small>${pwords(cur.mo)} so far · ${over > 0 ? `${over} over` : "within"} the ≤${EDCT_TARGET} target</small>`;
-  cap.innerHTML = defs(`EDCT is the average of calendar days an epic ended in In Progress or Validation, flagged days excluded; Maintenance-category epics are left out. Follows the project and team filters. * and the dashed outline mark the running ${GRAN[state.gran].noun}.`);
+  cap.innerHTML = defs(howBody({id: "eff",
+    bl: `Use this to see whether AI-implemented epics finish inside the ${EDCT_TARGET}-day target. Each bar is the average EDCT of epics resolved in the ${GRAN[state.gran].noun}.`,
+    defs: [
+      ["EDCT (epic development cycle time)", `calendar days an epic ended in In Progress or Validation. Flagged days and the Done day are not counted.`],
+      ["Included", `Done epics resolved in the period with Implemented by AI Agent set to Yes and an EDCT value.`],
+      ["Average", `the mean EDCT of those epics. None is shown for fewer than 5 epics.`]
+    ],
+    left: `Epics in the Maintenance Issue Category, and epics not marked as AI.`,
+    know: `Follows Projects and Teams. Cycle Time per Release counts all Done epics, so the two are not comparable. * and the dashed outline mark the running ${GRAN[state.gran].noun}.`}));
 }
 function renderAdoption() {
   const rows = periods().map(mo => { const m = monthStats(mo); return {mo, n: m.done, ai: m.ai, excl: m.excl, share: m.done >= MIN_N ? pct(m.ai, m.done) : null}; });
@@ -1409,7 +1433,16 @@ function renderAdoption() {
       r.excl ? tlink(r.excl, jiraMonth(r.mo, "", "excluded"), `${r.excl} ${AI_EXCL_TEXT} ${epicWord(r.excl)} resolved in ${pwords(r.mo)}\nLeft out of every AI figure.`) : "0"]}});
   if (!state.projects.size) { head.innerHTML = ""; cap.innerHTML = ""; return; }
   head.innerHTML = cur.share == null ? `– <small>${pwords(cur.mo)} · fewer than ${MIN_N} epics so far</small>` : `${cur.share}% <small>${pwords(cur.mo)} so far · ${cur.ai} of ${cur.n} · ${cur.n - cur.ai ? tlink(cur.n - cur.ai, jiraMonth(cur.mo, AI_NOT), aiNotTip(cur.n - cur.ai, `resolved in ${pwords(cur.mo)}`)) : "0"} not marked as AI</small>`;
-  cap.innerHTML = defs(`The share of epics resolved each period that were implemented by an AI agent: epics whose Implemented by AI Agent field is Yes, not the AGENTIC_AI_CODE label. <b>${esc(AI_EXCL_TEXT)} epics are excluded from every AI figure</b> (Issue Category = ${AI_EXCLUDED_CATEGORIES.join(" or ")}; ${AI_EXCL_WHY} The data table counts them per period, with links). Population: epics resolved in the period that carry a release fix version from ${DATA.releases[0]} to ${DATA.releases[DATA.releases.length - 1]}; the Jira links use the same filter, so they open the epics counted. "Not marked as AI" means the field is empty, or No without Yes. A bar opens the epics of its period that are not marked as AI; the data table links both the marked and the not-marked epics. * and the dashed outline mark the running ${GRAN[state.gran].noun}.`);
+  cap.innerHTML = defs(howBody({id: "ai",
+    bl: `Use this to see how much finished work was built by AI agents. Each bar is the share of epics resolved in the ${GRAN[state.gran].noun} that were implemented by an AI agent.`,
+    defs: [
+      ["Marked as AI", `the field Implemented by AI Agent is Yes. The AGENTIC_AI_CODE label is not used.`],
+      ["Not marked as AI", `the field is empty, or No without Yes. A bar opens these epics.`],
+      ["Population", `Done epics resolved in the period with a release fix version from ${DATA.releases[0]} to ${DATA.releases[DATA.releases.length - 1]}.`],
+      ["Share", `marked epics over resolved epics. None is shown for fewer than 5.`]
+    ],
+    left: `<b>${esc(AI_EXCL_TEXT)} epics</b> are left out of every AI figure (Issue Category is ${AI_EXCLUDED_CATEGORIES.join(" or ")}). AI adoption is not measured on them. The data table counts them per period, with links.`,
+    know: `The Jira links use the same filter, so they open the epics counted. * and the dashed outline mark the running ${GRAN[state.gran].noun}.`}));
 }
 
 // ---------------------------------------------------------------- burnup
@@ -1548,11 +1581,25 @@ function renderBurnup() {
 
   legend.innerHTML = "";
   cap.innerHTML = (TB.pre ? `Target scope so far ${tlink(N, TB.href, TB.tip)}; W1 starts ${shortDate(w1)}.` : `Scope ${tlink(N, TB.href, TB.tip)} on ${shortDate(w1)}, ${added >= 0 ? "+" : ""}${added.toLocaleString("en-US")} since (${tlink(target.length, TB.hrefToday, `${target.length} epics are in the target today (Committed + Not Set)`)} today).`) + ` Target is always Committed + Not Set.` +
-    `<details class="vd"><summary>How this is calculated</summary><div class="cap"><b>Delivery Cycle 1</b>: Committed only. An epic is planned in the cycle when its Target Sprint (counted by its end date) or its due date is on or before the cycle end (W1 + 41 days); with both, the later one counts. The dependency board keeps the due date over the Target Sprint. Undated = no due date and no known Target Sprint. The dotted line marks the end of the cycle; the dot on it is at the number planned, on the chart's epic scale. The target is always Committed + Not Set, whatever the Commitment Type filter says; ${snapD < D ? (DATA.refreshedAt ? "refreshed" : "snapshot") : "final"}: ${link(finalDone, jira({kind: "done", commit: new Set(TARGET_COMMIT)}))} Done target epics.<br>Release ${esc(rel)}: ${weeks} delivery weeks, W1 (${shortDate(w1)}) to the release end (${shortDate(end)}), from the Jira version dates; the IP week before W1 is not drawn. ` +
-    `Scope is the target epics in the release on the first day of W1. The dashed line is an even pace from zero to that scope, a reference and not a forecast. ` +
-    `Done counts every epic closed in the release, whatever its Commitment Type (a Done Stretch epic is still delivered), including ones added after W1: the same Done as the Epics Delivered tile. Scope and the even-pace line are the target epics. ` +
-    (early ? `${early} ${epicWord(early)} closed before W1 ${early === 1 ? "is" : "are"} counted at the start. ` : "") +
-    (late ? `${late} ${epicWord(late)} closed after the release end ${late === 1 ? "is" : "are"} counted on its last day. ` : "") + `Follows the project and team filters; the Commitment Type filter does not change this chart.</div></details>`;
+    defs(howBody({id: "bu",
+    bl: `Use this to see whether delivery keeps pace with the target scope. The line adds up epics that are Done, by resolution date.`,
+    defs: [
+      ["Target scope", `Committed and Not Set epics in the release on the first day of W1. Stretch is not in it. The Commitment Type filter does not change it.`],
+      ["Done", `every epic with the status Done in the release, whatever its Commitment Type.`],
+      ["Even pace", `a straight line from zero to the target scope: a reference, not a forecast.`],
+      ["Delivery Cycle 1 (dotted line)", `Committed epics only, planned on or before the end of W6. The dot shows how many.`],
+      ["Planned date", `the later of the due date and the Target Sprint end. If only one exists, that one. If neither, the epic is undated.`]
+    ],
+    left: `Removed epics, and the IP week (the first seven days of the release), which is not drawn.`,
+    know: `Epics closed before W1 count at the start; epics closed after the release end count on its last day. The chart follows Projects and Teams, not Commitment Type.`,
+    this: ["This release", `${esc(rel)}: ${weeks} delivery weeks, W1 (${shortDate(w1)}) to the release end (${shortDate(end)}).`],
+    more: [
+      ["Scope", `uses each epic's current Commitment Type and its Fix Version history. Epics added after W1 are in Done but not in the scope.`],
+      ["Planned date on the dependency board", `The dependency board keeps the due date over the Target Sprint.`],
+      ["Done against the target", `${link(finalDone, jira({kind: "done", commit: new Set(TARGET_COMMIT)}))} Done target epics (Committed and Not Set), ${snapD < D ? (DATA.refreshedAt ? "as of the last Refresh" : "as of the snapshot") : "final"}.`],
+      ...((early || late) ? [["Counted at the edges", `${early ? `${early} ${epicWord(early)} closed before W1 ${early === 1 ? "is" : "are"} counted at the start. ` : ""}${late ? `${late} ${epicWord(late)} closed after the release end ${late === 1 ? "is" : "are"} counted on its last day.` : ""}`]] : []),
+      ["Delivery Cycle 1, other uses", `Delivery Cycle 1 leaves out Not Set and Stretch epics here. The Cycles section counts every Commitment Type selected in the filter.`]
+    ]}));
   const days = [];
   for (let d = 0; d <= D; d += 7) days.push(d);
   [snapD, D, ...(W6 ? [41] : [])].forEach(d => { if (!days.includes(d)) days.push(d); });
@@ -1600,7 +1647,14 @@ function chartDelivery(rels) {
     s += ga(`<rect x="${cx - bw / 2}" y="${yDone}" width="${bw}" height="${H - PAD.b - yDone}" fill="var(--chart-delivery)"/>`, c.doneHref, `${nm}\n${c.done} target epics Done (Committed + Not Set), against a scope of ${c.scope}`);
     s += relLabel(r, cx);
   });
-  return {svg: s, short: "Dark = Done, light = target scope; label = the higher.", how: "Dark = target epics Done, light = the higher of the target scope and Done. Label = that value. Target scope is Committed + Not Set on the first day of W1, as in the Forecast Epics tile; the Commitment Type filter does not change it. Dashed outline = a release still running."};
+  return {svg: s, short: `Done against target scope, per release. Dark part: Done. Light part: the higher of the two.`, how: howBody({id: "ch-delivery",
+    defs: [
+      ["Target scope", `Committed and Not Set epics in the release on the first day of W1 (the Forecast Epics number). The Commitment Type filter does not change it.`],
+      ["Done", `target epics with the status Done.`],
+      ["Label", `the higher of target scope and Done. Done can be higher because epics added after W1 count in Done.`]
+    ],
+    left: `Removed epics.`,
+    know: `A dashed outline marks a running release. Projects and Teams filters apply.`})};
 }
 function chartCycle(rels) {
   const rows = rels.map(r => cycleStats(doneScope(r)));
@@ -1621,7 +1675,14 @@ function chartCycle(rels) {
     s += ga(`<rect class="hit" x="${cx - step / 2}" y="${PAD.t}" width="${step}" height="${H - PAD.b - PAD.t}" fill="transparent"/>`, jira({release: r, kind: "done", commit: ALLC}),
       c.ok ? `${nm}\nP50 ${fmt(c.p50)} days · P90 ${fmt(c.p90)} days\n${c.n} Done epics` : `${nm}\nFewer than ${MIN_N} Done epics, so no percentile is shown`);
   });
-  return {svg: s, short: "Filled dot = P50, hollow dot = P90, in days.", how: "n = Done epics in the release with an EDCT, regardless of Commitment Type. Follows the Projects and Teams filters. A release with fewer than 5 Done epics is not plotted."};
+  return {svg: s, short: `Time to finish an epic, per release, in days. Filled dot: P50. Hollow dot: P90.`, how: howBody({id: "ch-cycle",
+    defs: [
+      ["EDCT (epic development cycle time)", `calendar days an epic ended in In Progress or Validation. Flagged days and the Done day are not counted.`],
+      ["P50 and P90", `the median and the 90th percentile of EDCT (linear interpolation) over the Done epics of the release.`],
+      ["n", `Done epics of the release that have an EDCT, whatever their Commitment Type.`]
+    ],
+    left: `Epics with no EDCT. A release with fewer than 5 such epics is not plotted.`,
+    know: `Projects and Teams filters apply. Unlike Efficiency, this counts epics of every category, not only AI-implemented epics.`})};
 }
 function chartAI(rels) {
   const rows = rels.map(r => counts(doneScope(r)));
@@ -1639,7 +1700,13 @@ function chartAI(rels) {
     s += ga(m, jira({release: r, kind: "done", commit: ALLC, extra: `cf[15229] = Yes AND ${AI_KEPT_JQL}`}), `${nm}\n${c.ai} of ${c.aiDone} Done epics implemented by AI agents${p != null && !faded ? ` (${p}%)` : faded ? "\nFewer than 5 Done epics, so no share is shown" : ""}\n${c.aiExcl} ${AI_EXCL_TEXT} Done ${epicWord(c.aiExcl)} excluded`);
     s += relLabel(r, cx) + `<text x="${cx}" y="${H - PAD.b + 30}" text-anchor="middle" font-size="11" fill="#5A5F6B">n=${c.aiDone}</text>`;
   });
-  return {svg: s, short: "Share of Done epics by AI agents; faded = fewer than 5.", how: `Implemented by AI Agent = Yes. ${AI_EXCL_TEXT} epics are excluded from every AI figure. n = all Done epics of the release, regardless of Commitment Type, left after that exclusion; the Projects and Teams filters apply. A faded bar has fewer than 5 Done epics and shows a count instead of a share.`};
+  return {svg: s, short: `Share of Done epics built by AI agents, per release. Faded bar: fewer than 5 epics.`, how: howBody({id: "ch-ai",
+    defs: [
+      ["Marked as AI", `Implemented by AI Agent is Yes.`],
+      ["n", `Done epics of the release after the exclusion, whatever their Commitment Type.`]
+    ],
+    left: `${esc(AI_EXCL_TEXT)} epics are left out of every AI figure. The counts per release are listed below.`,
+    know: `A faded bar has fewer than 5 Done epics and shows a count instead of a share. Projects and Teams filters apply.`})};
 }
 // NFR Share per Release. A CLOSED release: NFR epics that are Done over all Done target epics (the Epics per Release dark bar: Committed + Not Set, status Done), "NFR Done / Done".
 // A RUNNING (provisional) release: the NFR share of the NFR section, Committed NFR epics over the target scope (the Forecast Epics number), "NFR Committed / Target Scope". The two are never mixed in one bar's label.
@@ -1668,9 +1735,16 @@ function chartNfr(rels) {
     s += ga(m, c.xHref || c.dHref, `${nm}\n${c.label}: ${p == null ? `n < ${MIN_N}, so no share is shown` : `${p}% (${c.X} of ${c.D})`}\n${c.basisTip}\n${c.X} NFR ${epicWord(c.X)}; denominator ${c.D}${c.prov ? "\nProvisional: the release is still running" : ""}`);
     s += relLabel(r, cx) + `<text x="${cx}" y="${H - PAD.b + 30}" text-anchor="middle" font-size="11" fill="#5A5F6B">n=${c.D}</text>`;
   });
-  return {svg: s, rows, short: "NFR share of Done epics; dashed = running release.", how: `Closed releases: NFR epics that are Done over all Done epics (NFR Done / Done, the Done epics of Epics per Release). Running releases (dashed bar): Committed NFR epics over the target scope, the share of the NFR section (NFR Committed / Target Scope). An NFR epic has the label NFR or an NFR Issue Category. No share under ${MIN_N} epics. Follows the Projects and Teams filters; the Commitment Type filter does not change it.`};
+  return {svg: s, rows, short: `NFR share of Done epics, per release. Dashed outline: running release.`, how: howBody({id: "ch-nfr",
+    defs: [
+      ["NFR epic", `an epic with the label NFR or an NFR Issue Category.`],
+      ["Closed release (solid bar)", `NFR epics that are Done, over all Done target epics (NFR Done / Done).`],
+      ["Running release (dashed bar)", `Committed NFR epics over the target scope (NFR Committed / Target Scope), the share the NFR section shows.`]
+    ],
+    left: `No share is shown when the denominator is under 5 epics.`,
+    know: `The two definitions are never mixed in one bar's label. Projects and Teams filters apply; Commitment Type does not.`})};
 }
-// ---------------------------------------------------------------- Capitalization % (owner's Jira logic, Closed-date rule; data read at build time, the current quarter also by Refresh)
+// ---------------------------------------------------------------- Capitalization % (owner's Jira logic, Closed-date rule; data read when the data is built, then updated by Refresh in every quarter)
 // Population: Done Bugs, Stories and Tasks of the seven projects with a Closed date (customfield_10099; the resolution date stands in when it is empty). Quarter = the calendar quarter of the Closed day (Israel-local).
 // Release = the release whose Jira version window (DATA.windows, start to release date, inclusive) holds the Closed day. No sprint, board or fix version. Capitalized = the Capitalize field starts with "Capitalize".
 // Share = capitalized story points / all story points (blank = 0), or capitalized issues / all issues in Count mode.
@@ -1749,13 +1823,30 @@ function renderCapitalization() {
   svgHost.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:${W}px" role="img" aria-label="Capitalization % per ${by}, ${keys.length} periods, ${sp ? "story points" : "issue count"}. The same values are in the data table attached to this chart." aria-describedby="capz-data">${svg}</svg>`;
   { let cue = document.getElementById("capz-cue"); if (!cue) { cue = document.createElement("div"); cue.id = "capz-cue"; cue.className = "scrollcue"; svgHost.insertAdjacentElement("afterend", cue); }
     const wide = svgHost.scrollWidth > svgHost.clientWidth + 1; cue.hidden = !wide; cue.textContent = wide ? "Scroll sideways to see all periods; the chart opens on the latest." : ""; if (wide) svgHost.scrollLeft = svgHost.scrollWidth; }       // on a phone the chart scrolls inside its card
-  const built = ilLabel(C.pulledAt), refreshed = DATA.capRefreshedAt ? `; the current quarter was refreshed ${ilLabel(DATA.capRefreshedAt)}${DATA.capRefreshedN != null ? ` (${DATA.capRefreshedN} issues)` : ""}` : "";
+  const built = ilLabel(C.pulledAt), refreshed = DATA.capRefreshedAt ? `; refreshed ${ilLabel(DATA.capRefreshedAt)}${DATA.capRefreshedN != null ? ` (${DATA.capRefreshedN} issues)` : ""}` : "";
   const stampTxt = DATA.capRefreshFailed ? `not refreshed: ${esc(DATA.capRefreshFailed)}; as of ${esc(ilStamp(DATA.capRefreshedAt || C.pulledAt))}` : "";      // a published page names when Capitalization was last read (it refreshes less often than the header's live sources); a failed step is called out instead
   const refShort = stampTxt ? ` · ${stampTxt}` : RUNTIME ? (DATA.capRefreshedAt ? ` · refreshed ${esc(ilLabel(DATA.capRefreshedAt))}` : " · not refreshed yet") : "";
   cap.innerHTML = `Capitalized share of Done issues by Closed date${refShort}.`;
   const winTxt = DATA.releases.filter(r => DATA.windows[r] && !capSkipped().includes(r)).map(r => `${r} ${DATA.windows[r][0]} to ${DATA.windows[r][1]}`).join("; ");
-  how.innerHTML = `Capitalized ${sp ? "story points" : "issues"} over all ${sp ? "story points" : "issues"} of Done Bugs, Stories and Tasks, by the day each was closed. Group By ${by === "quarter" ? "Quarter: the calendar quarter of the Closed date (Israel-local day)" : "Release: the release whose Jira version window holds the Closed date"}. Dashed bar: ${by === "quarter" ? "the current quarter" : "a release still running"}. Follows the Projects and Teams filters (Team = Team Name of the issue); the Release and Commitment Type filters do not apply. No share under ${MIN_N} issues. Refresh updates the current quarter only; earlier quarters are as of the build (${esc(built)})${esc(refreshed)}${by === "release" ? "; in Release mode, issues of earlier quarters are not refreshed" : ""}.` +
-    `<p><b>The rule</b> (the owner's Jira logic, read at build time per project): Bugs, Stories and Tasks with the status Done and a Closed date (customfield_10099, the field the CFB section uses) on or after ${esc(C.start)}, the start of 2025-Q4, so that 2025-Q4 and release 26.1 are complete. A Done issue whose Closed field is empty uses its resolution date and is counted in the data-quality line. No sprint, board or fix version is read. <b>Quarter</b>: the calendar quarter of the Closed day. <b>Release</b>: the release whose Jira version window (start date to release date, inclusive, the windows the burnup uses, which include the IP week at the start) contains the Closed day (${esc(winTxt)}); release ${esc(capSkipped().join(", "))} is not plotted because its window starts before the pull does, and a Closed day in no window is counted in the note, not plotted. <b>Capitalized</b>: the Capitalize field (customfield_10079) starts with "${esc(C.prefix)}"; values starting with "Non Capitalize" and an empty value are not. <b>Share</b>: capitalized story points (customfield_10038, blank counted as 0) over all story points, or in Count mode capitalized issues over all issues; n is the issue count. <b>Filters</b>: Projects and Teams (Team Name of the issue, customfield_10098) apply; the Release and Commitment Type filters do not. <b>Quarters and releases</b> come from the same Closed date, so they overlap: a release spans up to two quarters (the crosstab in View Data shows how). Release windows are the shared release dates for all projects. Counted by Closed date, which can differ from the resolution date. <b>Story-point share</b>: shown only when at least 5 issues in the bar carry story points (the bar says "n&lt;5 with SP" otherwise); the hover and the With SP column give the number. <b>Links</b>: exact: a key list when the set has up to 250 issues, otherwise a range query on the Closed field (and the resolution date when Closed is empty), with the project and team filters. Field ids are build constants. Refresh updates the current quarter only.</p>`;
+  how.innerHTML = howBody({id: "capz",
+    bl: `Use this to see what share of finished work is capitalized. Each bar is capitalized ${sp ? "story points" : "issues"} over all ${sp ? "story points" : "issues"} of Done Bugs, Stories and Tasks, by the day each was closed.`,
+    defs: [
+      ["Capitalized", `the Capitalize field starts with "${esc(C.prefix)}". Values that start with "Non Capitalize", and empty values, are not.`],
+      ["Closed day", `the day in the Closed field (Israel-local). If Closed is empty, the resolution date.`],
+      ["Quarter and Release", `the calendar quarter of the Closed day, or the release whose Jira version window holds it.`],
+      ["Share", `capitalized story points over all story points (blank counts as 0). In Count mode: capitalized issues over all issues.`]
+    ],
+    left: `Issues that are not Done, issues with no Closed date and no resolution date, and issues closed before the start of the data.`,
+    know: `No share for fewer than 5 issues; Story Points mode also needs 5 issues with story points. Projects and Teams apply; Release and Commitment Type do not. Refresh updates all quarters (first open of each day, first two clicks). Data as of ${esc(built)}${esc(refreshed)}.`,
+    more: [
+      ["Quarters and releases overlap", `both come from the same Closed day, so a release spans up to two quarters. The Quarter by release table at the end of this list shows the split.`],
+      ["Release windows", `the Jira version dates, shared by all projects, include the IP week (the first seven days). ${esc(winTxt)}.`],
+      ["Not plotted", `A release whose window starts before the data does is left out because it would be partial${capSkipped().length ? " (" + esc(capSkipped().join(", ")) + ")" : ""}. A Closed day in no window is counted in a note, not plotted.`],
+      ["Closed date versus resolution date", `they can differ, and the page counts by Closed date.`],
+      ["Time zone", `Jira reads a date in the viewer's own time zone and this page uses the Israel-local day, so an issue closed within hours of a quarter or release boundary can fall on the other side of it for a viewer outside Israel.`],
+      ["Links", `every number opens a Jira search on the Closed field (or the resolution date when Closed is empty), with the project and team filters. Jira shows today's issues, which can differ from the bar.`],
+      ["Data starts", `${esc(C.start)}.`]
+    ]});
   // data quality facts, each with a query link (the Closed-field range query), not a key list
   const START_R = [C.start, null], shownR = G.groups.map(g => capRangeOf(g.k)), skippedR = by === "release" ? capSkipped().filter(r => DATA.windows[r]).map(r => [C.start, capAddDays(DATA.windows[r][1], 1)]) : [];
   const link = (list, what, ranges, opts) => list.length ? tlink(list.length.toLocaleString("en-US"), capLink(list, ranges, opts).href, `${list.length} ${what}\nClick opens the issues in Jira`) : "0";
@@ -1783,7 +1874,7 @@ function renderCapitalization() {
     const head = ["Quarter", ...rels, "No shown release"].map((h, i) => `<th scope="col"${i ? ' class="n"' : ""}>${esc(h)}</th>`).join("");
     const rowsX = qs.map(q => { const inQ = recs.filter(r => r.q === q); return `<tr><th scope="row">${esc(q)}${q >= cur ? "*" : ""}</th>${rels.map(r => `<td class="n">${cellOf(inQ.filter(x => DATA.releases[x.rel] === r))}</td>`).join("")}<td class="n">${cellOf(inQ.filter(x => x.rel < 0 || !rels.includes(DATA.releases[x.rel])))}</td></tr>`; }).join("");
     const xt = `<div class="cap" style="margin-top:10px"><b>Quarter by release</b>: the same Closed dates cut both ways (issues, capitalized issues, story points, capitalized story points). A release spans up to two quarters.</div><div class="tablewrap"><table><caption class="sr">Capitalization: issues and story points by quarter and release, from the same Closed dates</caption><thead><tr>${head}</tr></thead><tbody>${rowsX}</tbody></table></div>`;
-    how.insertAdjacentHTML("beforeend", xt); const sr = data.querySelector(".sr"); if (sr) sr.insertAdjacentHTML("beforeend", xt); }
+    (how.querySelector("details.more") || how).insertAdjacentHTML("beforeend", xt); const sr = data.querySelector(".sr"); if (sr) sr.insertAdjacentHTML("beforeend", xt); }
   const sm = data.querySelector("summary"); if (sm) sm.textContent = "Show data, capitalization";
 }
 function capInit() {
@@ -1805,7 +1896,16 @@ function renderCharts() {
   document.getElementById("charts").innerHTML = defs.map(([t, c], i) =>
     `<div class="chart cc" data-chart="${["delivery", "cycle", "ai", "nfr"][i]}"><h3>${t}</h3><div class="cc-ctl" aria-hidden="true"></div><div class="chartscroll"><svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:${W}px" role="img" aria-label="${t}, ${rels.length} releases. The same values are in the data table attached to this chart." aria-describedby="${i === 3 ? "nfrshare-data" : "trend-data"}">${c.svg}</svg></div>${chartFoot(["delivery", "cycle", "ai", "nfr"][i], c.short, c.how)}</div>`).join("");
   document.getElementById("trend-sub").innerHTML = `* = release in progress.${followsRow(["Projects", "Teams"], ["Commitment Type"])}`;
-  document.getElementById("trend-how-body").innerHTML = `Projects and Teams filters apply to every chart. Commitment Type applies only to the "selected types" columns of the table and to the By Project and By Team tables below. Provisional releases: ${esc(DATA.provisional.join(", "))}. Cycle Time per Release and Epics by AI use all Done epics of the release, whatever their Commitment Type (cycle time: every Done epic with an EDCT, as the EDCT rule says; AI: ${AI_EXCL_TEXT} excluded, the last column counts them). The Epics per Release bar is the higher of the target scope (Committed + Not Set on the first day of W1, the Forecast Epics number; it ignores Commitment Type) and the target epics Done. The NFR Share chart uses NFR Done / Done for closed releases and the NFR section's Committed NFR epics over the target scope for running ones (dashed). The Done Capabilities chart counts Capabilities by fix version for the selected projects (the project of the Capability; Other only for All Projects); Teams and Commitment Type do not apply to Capabilities. The Capitalization chart follows the Projects and Teams filters only.`;
+  document.getElementById("trend-how-body").innerHTML = howBody({id: "trend",
+    bl: `Use this to see which filters change which chart. The selected release does not filter these charts.`,
+    defs: [
+      ["Projects and Teams", `apply to every chart. Done Capabilities follows Projects only (a Capability has no team).`],
+      ["Commitment Type", `changes no chart. It changes only the "selected types" columns of the table and the By Project and By Team tables.`],
+      ["All Done epics", `Cycle Time per Release and Epics by AI count every Done epic of the release.`],
+      ["Target epics", `Epics per Release and NFR Share use the target scope: Committed and Not Set epics.`],
+      ["Running releases", `marked * and dashed: ${esc(DATA.provisional.join(", "))}. Their numbers can still change.`]
+    ],
+    know: `Each chart has its own How this is calculated under it.`});
   const rows = rels.map(r => {
     const list = scopeOf(r), c = counts(list), dl = doneScope(r), cd = counts(dl), cy = cycleStats(dl), rb = releaseBar(r);
     return [esc(r) + (isProv(r) ? "*" : ""), tlink(rb.scope, rb.TB.href, rb.TB.tip), tlink(rb.done, rb.doneHref, `${rb.done} target epics Done in ${r} (Committed + Not Set)`),
@@ -1875,8 +1975,18 @@ function renderBugs() {
     const pkE = pk ? pk.w + 7 * DAY : 0;
     const s4 = bugSeries().slice(-4), net4 = s4.reduce((x, y) => x + y.resolved - y.created, 0), thin4 = s4.reduce((x, y) => x + y.created + y.resolved, 0) < MIN_N || nOpen < MIN_N;
     sub.innerHTML = (pk ? `Open bugs ${tlink(nOpen.toLocaleString("en-US"), jiraBugs({extra: OPEN_BUG_JQL}), `${nOpen} open ${plural(nOpen, "bug", "bugs")} today\nStatus is not Done, Ready for Deploy, Closed, Resolved or Removed.`)}${thin4 || !net4 ? "" : `, ${Math.abs(net4).toLocaleString("en-US")} ${net4 > 0 ? "fewer" : "more"} than 4 weeks ago`}; peak ${tlink(pk.open.toLocaleString("en-US"), jiraBugs({extra: `created < "${iso(pkE)}" AND (${OPEN_BUG_JQL} OR resolutiondate >= "${iso(pkE)}")`}), `${pk.open} open at the end of the week of ${shortDate(pk.w)}`)} (week of ${shortDate(pk.w)}).` : state.projects.size ? "" : "No project is selected.") +
-      `<details class="vd"><summary>How this is calculated</summary><div class="cap">Open bugs by week for the selected projects and teams (the last ${WEEKS} weeks). Release and commitment filters do not apply. ` +
-      (state.ax ? "Accessibility bugs are included. " : "Accessibility bugs are excluded, as in the weekly email. ") + `The Priority and CFB filters below apply to this section only. A bug is open while its status is not Done, Ready for Deploy, Closed, Resolved or Removed. ${bugNoDateNote()}</div></details>`;
+      defs(howBody({id: "bug",
+    bl: `Use this to see whether the open bug backlog is growing or shrinking. The charts show bugs created, resolved and open, week by week.`,
+    defs: [
+      ["Open", `a bug is open while its status is not Done, Ready for Deploy, Closed, Resolved or Removed. Validation counts as open.`],
+      ["Open at a week end", `created before that week end, and either open today or resolved on or after it.`],
+      ["Weeks", `the last ${WEEKS}, starting Monday. A dashed bar is the running week.`]
+    ],
+    left: `Accessibility bugs are ${state.ax ? "included" : "excluded, as in the weekly email"}. ${bugNoDateNote()}`,
+    know: `Follows Projects and Teams. Release and Commitment Type filters do not apply. The Priority and CFB filters below apply here only. Links use Jira's own dates, so a bug at the edge of a day can differ by one.`,
+    more: [
+      ["The chart", `values are printed on top of each bar and on the line; every bar and point also has its value on hover. A narrow card scrolls the chart sideways.`]
+    ]}));
   }
   const clear = () => { legend.innerHTML = ""; cap.innerHTML = ""; document.getElementById("bug-data").innerHTML = ""; };
   if (!state.projects.size) {
@@ -1953,7 +2063,6 @@ function renderBugs() {
     `<span style="color:#868B97"><i class="box"></i><span style="color:var(--muted)">Created per Week</span></span>` +
     `<span style="color:#009E70"><i class="box"></i><span style="color:var(--muted)">Resolved per Week</span></span>`;
   cap.textContent = `Weeks start Monday; dashed bars are the running week.`;
-  { const hc = sub.querySelector("details .cap"); if (hc) hc.insertAdjacentHTML("beforeend", ` <b>The chart</b>: values are printed on top of each bar and on the line; every bar and point also has its value on hover. A narrow card scrolls the chart sideways. Open at a week end = created before it and, by status today, still open or resolved on or after it. Links filter on Jira's own dates, so a bug at the edge of a day can differ by one.`); }
   dataTable("bug-data", "Bugs created, resolved and open per week", ["Week Starting", "Created", "Resolved", "Open at Week End"],
     series.map(s => [shortDate(s.w), link(s.created, jiraBugs({extra: rangeJql("created", s.w, s.w + 7 * DAY)})),
       link(s.resolved, jiraBugs({extra: `${rangeJql("resolutiondate", s.w, s.w + 7 * DAY)} AND ${BUG_CLOSED_IN}`})), s.open]));
@@ -2092,10 +2201,23 @@ function renderCfbAbout() {
   const tm = bugTeamClause(state.teams);
   const win = `(created >= "${DATA.bugSince}" OR resolutiondate >= "${DATA.bugSince}" OR cf[10099] >= "${DATA.bugSince}" OR resolution is EMPTY)`;      // the bugs the page reads, so a number and its link agree
   const lk = (n, jql, tip) => n ? tlink(n.toLocaleString("en-US"), href(`project in (${pkeys(state.projects)}) AND issuetype = Bug AND ${jql} AND ${win}${tm}`), `${tip}\nWithin the bugs the page reads (created, resolved or closed since ${DATA.bugSince}, or still open).`) : "0";
-  host.innerHTML = defs(
-    `<b>What counts as a CFB</b>: a Bug reported by the CFB account OR linked to a Salesforce case (the field SF Connection Case Reference is not empty). The alerting rules and the Teams alerts use the reporter only, so this view is broader than they are. In the selected projects ${lk(all.length, CFB_Q(), `${all.length} CFBs in the data`)} ${plural(all.length, "bug counts", "bugs count")} as a CFB (created, resolved or closed since ${esc(DATA.bugSince)}, or still open): ${lk(all.filter(b => b.rb).length, `reporter = ${q(DATA.cfbAccount)}`, "Reported by the CFB account")} reported by the CFB account and ${lk(all.filter(b => b.sf).length, "cf[10329] is not EMPTY", "Linked to a Salesforce case")} linked to a Salesforce case. ${lk(viaCase.length, `cf[10329] is not EMPTY AND reporter != ${q(DATA.cfbAccount)}`, "Linked to a Salesforce case but reported by someone else")} ${plural(viaCase.length, "bug carries", "bugs carry")} a Salesforce case although another person reported ${plural(viaCase.length, "it", "them")}.<br>` +
-    `<b>Fixed and the period</b>: a CFB is fixed when its status is Done and its resolution is Fixed or Fixed - Config. A CFB in Ready for Deploy is not counted here until it moves to Done (it is not open either: the Open Bugs trend treats Ready for Deploy as final). It counts in the period of its <b>Closed</b> date (the Jira field Closed, as the Israel-local day), not its resolution date; the two can differ by days and usually fall in the same quarter. ${noClosed.length ? `${lk(noClosed.length, `${CFB_FIXED_JQL} AND ${CFB_Q()} AND cf[10099] is EMPTY`, "Done CFBs with no Closed date")} Done ${plural(noClosed.length, "CFB has", "CFBs have")} no Closed date and ${plural(noClosed.length, "falls", "fall")} back to the resolution date.`: "Every fixed CFB has a Closed date."} The Open Bugs trend and the Open CFBs table do not use these dates. Data is the Jira snapshot at ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}.`);
-  { const c = host.querySelector(".cap"); if (c) c.insertAdjacentHTML("beforeend", `<br><b>Chart and table</b>: ${CFB_CAP_HELP}`); }
+  host.innerHTML = defs(howBody({id: "cfb",
+    bl: `Use this to see how many customer-found bugs (CFBs) were fixed in each ${CFB_UNIT[state.cfbGroup].noun}, and how many were regressions. A bar counts fixed CFBs by their Closed date.`,
+    defs: [
+      ["CFB", `a Bug reported by the CFB account, or linked to a Salesforce case (the field SF Connection Case Reference is not empty).`],
+      ["Fixed", `status Done and resolution Fixed or Fixed - Config.`],
+      ["Period", `the Closed date, as an Israel-local day. A Done CFB with no Closed date uses its resolution date.`],
+      ["Regression", `the Regression field is Yes.`],
+      ["PQCR Cases", `the sum of Number of Incidents over the CFBs fixed in the period.`]
+    ],
+    left: `A CFB in Ready for Deploy is not counted as fixed until it moves to Done, and it is not open either. The count is under the chart.`,
+    know: `Broader than the alerting rules and Teams alerts, which use the reporter only. The cards above stay on ${esc(state.release)}. The Open Bugs trend does not use the Closed date.`,
+    more: [
+      ["Counts in the selected projects", `${lk(all.length, CFB_Q(), `${all.length} CFBs in the data`)} ${plural(all.length, "bug counts", "bugs count")} as a CFB (created, resolved or closed since ${esc(DATA.bugSince)}, or still open): ${lk(all.filter(b => b.rb).length, `reporter = ${q(DATA.cfbAccount)}`, "Reported by the CFB account")} reported by the CFB account and ${lk(all.filter(b => b.sf).length, "cf[10329] is not EMPTY", "Linked to a Salesforce case")} linked to a Salesforce case. ${lk(viaCase.length, `cf[10329] is not EMPTY AND reporter != ${q(DATA.cfbAccount)}`, "Linked to a Salesforce case but reported by someone else")} ${plural(viaCase.length, "bug carries", "bugs carry")} a Salesforce case although another person reported ${plural(viaCase.length, "it", "them")}.`],
+      ["Done CFBs with no Closed date", `${noClosed.length ? `${lk(noClosed.length, `${CFB_FIXED_JQL} AND ${CFB_Q()} AND cf[10099] is EMPTY`, "Done CFBs with no Closed date")} ${plural(noClosed.length, "falls", "fall")} back to the resolution date.` : "none; every fixed CFB has a Closed date."}`],
+      ["Chart and table", `${CFB_CAP_HELP}`],
+      ["Data starts", `${esc(DATA.bugSince)}. Data as of ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}.`]
+    ]}));
 }
 // ---------------------------------------------------------------- breakdown tables
 function breakdownRow(label, list, jiraOpts, anyList) {
@@ -2113,7 +2235,7 @@ const breakdownHead = first => `<thead><tr><th scope="col"><span class="sr">${fi
   <th class="n" scope="col">Not Started</th><th class="n" scope="col">% Done</th><th class="n" scope="col">Committed</th><th class="n" scope="col">Not Set</th><th class="n" scope="col">Stretch</th></tr></thead>`;
 function tableFoot(inScope) {                                    // the total row against the target scope
   const RC = scopeRecon(), sel = state.commit.size === COMMIT.length;
-  return `Total row: ${inScope.length.toLocaleString("en-US")} epics (${RC.TB.N.toLocaleString("en-US")} target + ${RC.N.toLocaleString("en-US")} outside).`;
+  return `Total row: ${inScope.length.toLocaleString("en-US")} epics (${RC.TB.N.toLocaleString("en-US")} in the target scope, ${RC.N.toLocaleString("en-US")} not in it).`;
 }
 function renderBreakdowns() {
   const r = state.release, any = scopeOf(r, {anyCommit: true}), inScope = scopeOf(r);
@@ -2189,7 +2311,7 @@ function depGap(d, p, planP, planD) {
   return {gap: true, nc: false, parts, text: `Schedule gap: ${p.k} (${parts.px}) blocks ${d.k} (${parts.dy}). ${reason}: ${parts.ask}.`};
 }
 const GAP_SHORT = "Provider planned in the same sprint as the dependent, or later";                    // the only rule text in a tooltip; the full rule is under How this is calculated
-const GAP_RULE = "A schedule gap: provider X blocks dependent Y and X is planned in the same sprint as Y or later (the planned sprint is the due date's sprint, else the Target Sprint). Inside one sprint it is no gap only when both due dates are known and X is due before Y. If X or Y has no planned sprint the pair cannot be compared and no gap is shown.";
+const GAP_RULE = "A schedule gap: provider X blocks dependent Y, and X is planned in the same sprint as Y or later. Then X is not planned to finish before Y's sprint. The planned sprint is the due date's sprint, else the Target Sprint. Inside one sprint it is no gap only when both due dates are known and X is due before Y; equal due dates are a gap. If X or Y has no planned sprint, the pair cannot be compared and no gap is shown.";
 
 // ---- the open dependency pairs in view (the dependent or the provider is in the scope of the selected release)
 function depModel() {
@@ -2263,15 +2385,30 @@ function renderDeps() {
     {c: "x", v: tlink(unplanned.length, nOf(unplanned), `${unplanned.length} dependencies with no planned sprint\nThe provider has no due date or Target Sprint, or its due date is outside the sprint calendar. Opens ${new Set(depKeys(unplanned)).size} epics in Jira.`), l: "Not Planned", s: "no due date or Target Sprint"},
     {c: "x", v: tlink(gapPool.length, nOf(gapPool), `${gapPool.length} schedule gaps (${epicsOf(gapPool)} issues)${state.depFilter === "all" ? ", all issue types" : ", between epics"}\n${GAP_SHORT}. Opens the issues at both ends in Jira.`), l: "Schedule Gaps", s: `provider planned in the dependent's sprint or later${ncPool.length ? `<br>${ncPool.length} not comparable` : ""}`},
   ]);
-  document.getElementById("dep-cap").innerHTML = defs(
-    `<b>Open Dependency</b>: an explicit Jira link of type Dependency or Blocks between two epics where neither the provider (the epic that is needed) nor the dependent (the epic that needs it) has the status Done. The figures and the default view (Epics Only) count these pairs. "All" also shows the links where one end is an epic and the other end is any other issue type (Capability, Initiative, Story, Task and so on), counted in the secondary line. A pair is in view when the epic at one end is in scope for ${esc(rel)} under the current filters. ${m.leftOut} recorded ${m.leftOut === 1 ? "pair is" : "pairs are"} left out because ${m.leftOut === 1 ? "it is" : "they are"} complete (a Done end).<br>` +
-    `<b>Planned Sprint</b> is taken from the provider's due date: the sprint whose dates contain it, or in a gap the next sprint that starts. Without a due date the Target Sprint is used; with neither the provider is Not Planned. When both exist and differ, the due date wins and the card says so. Sprint dates are read from the sprint labels.<br>` +
-    `<b>Overdue</b>: the planned sprint ended before ${shortDate(asOfDay())} and the provider is still not Done. It is a fact about dates, not a forecast. <b>External</b>: the provider is in a different Jira project from the dependent. <b>Not Planned</b>: no due date and no Target Sprint.<br>` +
-    `<b>Schedule Gap</b>: ${esc(GAP_RULE)} A provider card shows a Schedule Gap flag and lists each gap with both issues linked; the quick filter keeps only those cards. The Schedule Gaps figure counts pairs in the chosen view (between epics, or all issue types with All); pairs that cannot be compared are counted apart. It is a fact about planned dates, not a verdict: nothing here says who should change what.<br>` +
-    `<b>Story-level links</b>: Dependency or Blocks links on stories, tasks or bugs under the epics of the release, neither end Done, test items not counted; they are not on the board and not in the figures. <b>Not Planned</b> also covers a due date outside the sprint calendar. Figures count dependencies (pairs); a link opens the issues at both ends, and each card says what type of issue the provider is. The quick filter changes the board and the table, not the figures. Cards are sorted by key, not by importance.`);
-  document.getElementById("dep-dq").innerHTML = `<details class="vd"><summary>How this is calculated</summary><div class="cap">A link means a dependency is recorded, not that it is risky, and a missing link is not a missing dependency. ` +
-    `${m.open.filter(x => x.outside).length ? `${m.open.filter(x => x.outside).length} open ${m.open.filter(x => x.outside).length === 1 ? "pair involves" : "pairs involve"} an epic outside the seven projects or outside the release train; it is shown with the status, release, team and dates Jira had at build time. ` : ""}` +
-    `Links to Removed epics are left out (${(DATA.depsDropped && DATA.depsDropped.removed) || 0}). Links, due dates and Target Sprints are as of ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}; story-level links and the sprint calendar are read when the page is built.</div></details>`;
+  document.getElementById("dep-cap").innerHTML = defs(howBody({id: "dep",
+    bl: `Use this to find work that waits on another epic and may not be ready in time. Each card is an epic that other epics need (the provider), placed in the sprint it is planned for.`,
+    defs: [
+      ["Open dependency", `an explicit Jira link of type Dependency or Blocks between two epics, where neither epic is Done.`],
+      ["Provider and dependent", `the provider is the epic that is needed; the dependent is the epic that needs it.`],
+      ["Planned sprint", `the sprint that holds the provider's due date, else its Target Sprint. With neither, the provider is Not Planned. If both exist and differ, the due date wins.`],
+      ["Overdue", `the planned sprint has ended and the provider is not Done.`],
+      ["External", `the provider is in a different Jira project.`],
+      ["Schedule gap", `the provider is planned in the same sprint as the dependent, or later.`]
+    ],
+    left: `Pairs with a Done end (${m.leftOut} recorded), links to Removed epics (${(DATA.depsDropped && DATA.depsDropped.removed) || 0}) and other link types. Story, task and bug links under the release's epics are a separate fact line.`,
+    know: `A link means a dependency is recorded, not that it is risky, and a missing link is not a missing dependency. Overdue and schedule gaps are facts about planned dates, not a verdict on a team or person. Data as of ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}.`,
+    more: [
+      ["Epics Only and All", `The figures and the default view count pairs between epics. All also shows links where one end is an epic and the other end is another issue type (Capability, Initiative, Story, Task and so on), counted in the secondary line. A pair is in view when an epic at one end is in scope for ${esc(rel)} under the current filters.`],
+      ["Planned sprint, detail", `In a gap between sprints, the next sprint that starts is used. A due date outside the sprint calendar also makes the provider Not Planned. Sprint dates are read from the Target Sprint labels: the date in the label is the start, and a sprint runs three weeks.`],
+      ["Overdue, as-of date", `the planned sprint ended before ${shortDate(asOfDay())}. It is a fact about dates, not a forecast.`],
+      ["Schedule gap rule", `${esc(GAP_RULE)}`],
+      ["Schedule gap, board and counts", `A provider card shows a Schedule Gap flag and lists each gap with both issues linked. The Schedule Gaps figure counts pairs in the chosen view; pairs that cannot be compared are counted apart.`],
+      ["Story-level links", `Dependency or Blocks links on stories, tasks or bugs under the epics of the release, neither end Done, test items not counted. They are not on the board and not in the figures.`],
+      ["Issues outside the page", `${m.open.filter(x => x.outside).length ? `${m.open.filter(x => x.outside).length} open ${m.open.filter(x => x.outside).length === 1 ? "pair involves" : "pairs involve"} an issue that is not one of the epics this page holds (another project, an epic with no release version on this page, or another issue type). It shows the status, release, team and dates Jira had when the page first read it; Refresh reads such an issue once.` : "none in view."}`],
+      ["Links", `a figure opens the issues at both ends by their keys: a fixed list taken from the page's data, not a search that Jira runs again. Jira shows each issue's current state.`],
+      ["Board and table", `The quick filter changes the board and the table, not the figures. Cards are sorted by key, not by importance.`],
+      ["Freshness", `Links, due dates and Target Sprints are updated by Refresh. Story-level links and the sprint calendar are read only when the page is built.`]
+    ]}));
   // quick filter counts
   const counts4 = {all: all.length, epics: open.length, overdue: overdue.length, external: external.length, unplanned: unplanned.length, gap: gaps.length};
   document.querySelectorAll("#f-dp .cnt").forEach(s => { s.textContent = counts4[s.dataset.k]; });
@@ -2380,12 +2517,21 @@ function renderCapabilities() {
     (!caps.length ? `<div class="empty">No Capability of the selected projects has fix version ${esc(rel)}.</div>` :
     `<div class="cyblock"><h3>Capability Status Summary</h3><div class="cymeta">One row per project of the Capability; one with several fix versions counts under each.</div><div class="scrollcue">Scrolls sideways</div>` +
       `<div class="tablewrap" tabindex="0" role="region" aria-label="Capability status summary, scrolls sideways when it does not fit"><table class="captable matrix"><caption class="sr">Capabilities with fix version ${esc(rel)} by status, one row per project of the Capability</caption><thead><tr><th scope="col">Project</th>${cols.map(c => `<th class="n" scope="col">${c}</th>`).join("")}<th class="n" scope="col">Total</th></tr></thead><tbody>${bodyA}</tbody></table></div></div>` +
-    `<div class="cyblock"><h3>Child Epics of These Capabilities</h3><div class="cymeta">Child epics of the ${caps.length} Capabilities, any project or fix version.${outside.length ? ` ${tlink(outside.length, href(`${kidQ} AND project not in (${pkeys(projectsAll)})`), `${outside.length} child epics in other projects`)} sit outside the seven projects.` : ""}</div><div class="scrollcue">Scrolls sideways</div>` +
+    `<div class="cyblock"><h3>Child Epics of These Capabilities</h3><div class="cymeta">Child epics of the ${caps.length} Capabilities, any project or fix version.${outside.length ? ` ${tlink(outside.length, href(`${kidQ} AND project not in (${pkeys(projectsAll)})`), `${outside.length} child epics in other projects`)} sit outside the projects on this page.` : ""}</div><div class="scrollcue">Scrolls sideways</div>` +
       `<div class="tablewrap" tabindex="0" role="region" aria-label="Child epics of these Capabilities, scrolls sideways when it does not fit"><table class="captable matrix"><caption class="sr">All child epics of the Capabilities with fix version ${esc(rel)}, by project of the epic and status</caption><thead><tr><th scope="col">Project</th>${bcols.map(([, nm]) => `<th class="n" scope="col">${nm}</th>`).join("")}<th class="n" scope="col">Total</th><th class="n" scope="col">% Done</th></tr></thead><tbody>${bodyB}</tbody></table></div></div>`);
   const exTxt = capEx.length ? `; ${tlink(capEx.length, jira({extra: `parent is EMPTY AND ${CAP_EXEMPT_IN}`}), `${capExemptTip(capEx.length)}\nCategories: ${CAP_EXEMPT.join(", ")}`)} more ${capEx.length === 1 ? "is" : "are"} exempt by Issue Category` : "";
   dq.innerHTML = nScope ? `${noCapScope.length ? `${tlink(noCapScope.length, jira({extra: NO_CAP_JQL}), `${noCapScope.length} epics in scope with no Capability\nNot counting the Issue Categories that need none. Opens them in Jira.`)} of ${nScope.toLocaleString("en-US")} epics ${noCapScope.length === 1 ? "has" : "have"} no Capability parent` : "Every epic that needs a Capability has one"}${exTxt}.` : "";
-  defsEl.innerHTML = defs(`<b>Capability Status Summary</b>: the Capabilities of the selected projects (project of the Capability) whose Fix Version is ${esc(rel)}, Removed excluded, by status name. The Capability's Fix Version is taken to be its required release (an owner assumption). <b>Child Epics</b>: every non-Removed epic whose parent is one of those Capabilities, whatever its own project or fix version; Not Started is New, In Definition, Ready for Dev or Candidate, and a status that fits none shows as Other Status. A share (% Done) shows only for 5 or more epics. These tables follow the Release and Projects filters (the project of the Capability); Teams and Commitment Type do not apply, because a Capability has neither and the child epics are counted whatever their commitment. CXCROSS Capabilities have their own section. ` +
-    `<b>Missing parent</b>: the line under the tables follows every filter in the filter bar; epics whose Issue Category is ${esc(CAP_EXEMPT.join(", "))} need no Capability and are not flagged. Data is the Jira snapshot at ${esc(ilLabel(DATA.capPulledAt || DATA.generated))}; Refresh does not update it.`);
+  defsEl.innerHTML = defs(howBody({id: "cap",
+    bl: `Use this to see how far the Capabilities planned for ${esc(rel)} have progressed, and how much of their child epics is Done.`,
+    defs: [
+      ["Capability Status Summary", `Capabilities of the selected projects (the project of the Capability) whose Fix Version is ${esc(rel)}, by status.`],
+      ["Required release", `the Capability's Fix Version, taken as its required release. This is an owner assumption, not verified.`],
+      ["Child Epics", `every non-Removed epic whose parent is one of those Capabilities, whatever its own project or fix version.`],
+      ["Not Started", `New, In Definition, Ready for Dev or Candidate. A status that fits none shows as Other Status.`],
+      ["% Done", `Done child epics over all child epics, for 5 or more epics.`]
+    ],
+    left: `Removed Capabilities and epics. CXCROSS Capabilities have their own section. An epic whose Issue Category is ${esc(CAP_EXEMPT.join(", "))} needs no Capability and is not flagged for a missing parent.`,
+    know: `The tables follow Release and Projects. Teams and Commitment Type do not apply: a Capability has neither, and child epics count whatever their commitment. The missing-parent line follows every filter. Data as of ${esc(ilLabel(DATA.capPulledAt || DATA.generated))}; Refresh updates Capabilities.`}));
 }
 
 // ---- Done Capabilities per Release (Release Analysis): the same chart form as the epic charts above. One bar per release: the light bar is every Capability with that fix version,
@@ -2415,17 +2561,28 @@ function renderCapDone() {
     svg += relLabel(r, cx);
   });
   const nf = DATA.capNoFv, others = [...new Set(Object.values(DATA.capList).filter(c => !projectsAll.includes(c.p)).map(c => c.p))].sort();
-  host.innerHTML = `<div class="chart cc" data-chart="capab"><h3>Done Capabilities per Release</h3><div class="cc-ctl" aria-hidden="true"></div><div class="chartscroll"><svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:${W}px" role="img" aria-label="Done Capabilities per release, ${rels.length} releases. The same values are in the data table attached to this chart." aria-describedby="capdone-data">${svg}</svg></div>` +
-    chartFoot("capab", "Dark = Done, light = open; label = Done / all.", "Dark green = Done, light green = still open. Label = Done / all Capabilities with that fix version. A dashed outline marks a running release; the hover says when a bar has fewer than 5 Capabilities. Follows the Projects selection (the project of the Capability itself); Other, meaning CXCROSS, counts only when All Projects is selected. Capabilities of any other project are not counted. Teams and Commitment Type do not apply to Capabilities.") + `</div>`;
   const selP = projectsAll.filter(p => state.projects.has(p)), noFvHref = href(`project in (${pkeys(capAllSel() ? [...projectsAll, "CXCROSS"] : selP)}) AND issuetype = Capability AND status != Removed AND fixVersion is EMPTY`);
-  const note = `Removed Capabilities are excluded. A Capability with several fix versions counts in each release. An asterisk marks a running release. By project in the hover text and the data table. ${capAllSel() ? (nf ? `${tlink(nf.total, noFvHref, `${nf.total} Capabilities with no fix version`)} Capabilities have no fix version (${nf.done} Done) and are in no bar. ` : "") : `${tlink("Capabilities with no fix version", noFvHref, "Opens the Capabilities of the selected projects that have no fix version; they are in no bar")} are in no bar (the count is held for All Projects only). `}Data is the Jira snapshot at ${esc(ilLabel(DATA.capPulledAt || DATA.generated))}.`;
+  const noFvTxt = capAllSel() ? (nf ? `${tlink(nf.total, noFvHref, `${nf.total} Capabilities with no fix version`)} Capabilities have no fix version (${nf.done} Done) and are in no bar.` : "The number of Capabilities with no fix version is not in this build.")
+    : `${tlink("Capabilities with no fix version", noFvHref, "Opens the Capabilities of the selected projects that have no fix version; they are in no bar")} are in no bar (the count is held for All Projects only).`;
+  host.innerHTML = `<div class="chart cc" data-chart="capab"><h3>Done Capabilities per Release</h3><div class="cc-ctl" aria-hidden="true"></div><div class="chartscroll"><svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:${W}px" role="img" aria-label="Done Capabilities per release, ${rels.length} releases. The same values are in the data table attached to this chart." aria-describedby="capdone-data">${svg}</svg></div>` +
+    chartFoot("capab", `Done Capabilities per release. Dark part: Done. Light part: open. Label: Done / all.`, howBody({id: "ch-capab",
+    defs: [
+      ["Capability", `a Jira issue of type Capability, counted by its Fix Version. One with several fix versions counts in each release; one with none is in no bar.`],
+      ["Done", `the status named Done. The label is Done / all Capabilities with that fix version.`],
+      ["Other", `CXCROSS Capabilities. They count only when All Projects is selected.`]
+    ],
+    left: `Removed Capabilities, and Capabilities of projects that are not on this page.`,
+    know: `Follows Projects only (the project of the Capability); Teams and Commitment Type do not apply. A dashed outline marks a running release; the hover says when a bar has fewer than 5 Capabilities. Data as of ${esc(ilLabel(DATA.capPulledAt || DATA.generated))}; Refresh updates Capabilities.`,
+    more: [
+      ["Capabilities with no fix version", `${noFvTxt}`]
+    ]})) + `</div>`;
   const P = selP;
   const cell = (r, l, project) => { const done = l.done, all = l.all, base = project ? `project = ${pkey(project === "Other" ? "CXCROSS" : project)} AND ` : "";
     const one = (list, extra, tip) => list.length ? tlink(list.length, project ? href(`${base}issuetype = Capability AND status != Removed AND fixVersion = ${q(r)}${extra}`) : capKeyHref(r, list, extra), tip) : "0";
     return `${one(done, " AND status = Done", `${done.length} Done Capabilities with fix version ${r}${project ? " in " + project : ""}`)} / ${one(all, "", `${all.length} Capabilities with fix version ${r}${project ? " in " + project : ""}`)}`; };
   const cdTable = dataTable("capdone-data", "Done Capabilities over all Capabilities with that fix version, per release and project of the Capability", ["Release", ...P, ...(capAllSel() ? ["Other"] : []), "Total"],
     rows.map(row => [esc(row.r) + (isProv(row.r) ? "*" : ""), ...row.byP.filter(b => b.p !== "Other" ? P.includes(b.p) : capAllSel()).map(b => cell(row.r, b, b.p)), cell(row.r, {done: row.done, all: row.all}, null)]));
-  { const nt = `<div class="cap">${note} ${capAllSel() ? `Other is CXCROSS; it counts only when All Projects is selected. Capabilities of any other project are not counted. ` : "Other (CXCROSS) is left out unless All Projects is selected. "}Each cell is Done / all. Follows the Projects selection; Teams and Commitment Type do not apply to Capabilities.</div>`; const hc = host.querySelector(".cc-foot details > .cap"); if (hc) hc.insertAdjacentHTML("beforeend", `<br>${nt}<div class="tablewrap">${cdTable}</div>`); const sr = data.querySelector(".sr"); if (sr) sr.insertAdjacentHTML("beforeend", nt); }
+  { const nt = `<div class="cap">${noFvTxt} Each cell is Done / all.</div>`; const hc = host.querySelector(".cc-foot details.more"); if (hc) hc.insertAdjacentHTML("beforeend", `<div class="tablewrap">${cdTable}</div>`); const sr = data.querySelector(".sr"); if (sr) sr.insertAdjacentHTML("beforeend", nt); }
   const sm = data.querySelector("summary"); if (sm) sm.textContent = "Show data, done Capabilities";
 }
 
@@ -2573,9 +2730,29 @@ function renderAttention() {
   const hygOpen = attnUi.open.has("hygiene");
   const hygHtml = M.hygTotal ? `<div class="agrp"><h3 class="ah"><button type="button" class="abtn" data-act="grp-hygiene" aria-expanded="${hygOpen}" aria-controls="ag-hygiene"><svg class="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2l5 4-5 4z"/></svg><span class="an">Jira Hygiene</span> <span class="ac">${M.hygChecks}</span><span class="asev">${flagHtml("info", "Info")}</span></button></h3><div id="ag-hygiene" class="abody"${hygOpen ? "" : " hidden"}><ul class="arows hyg">${M.hyg.filter(h => h.n).map(h => `<li class="arow"><div class="a1">${h.href ? tlink(h.n.toLocaleString("en-US"), h.href, `${h.n} ${h.label}\n${h.note}`) : `<b>${h.n.toLocaleString("en-US")}</b>`} <span class="at">${esc(h.label)}</span></div><div class="a2">${h.noteHtml || esc(h.note)}</div><div class="a3"></div><div class="a4"><span class="conf">Confirmed</span></div></li>`).join("")}</ul></div></div>` : "";
   body.innerHTML = `<a class="skip" href="#h-burnup" data-skip="h-burnup">Skip to Delivery</a>` + ids.map(groupHtml).join("") + hygHtml +
-    `<details class="vd"><summary>Limits and Thresholds</summary><div class="cap"><b>What Was Checked.</b> ${checkedTxt}<br><b>What This Checks.</b> Rules applied to the Jira data held at ${esc(M.asOfTxt)}; the as-of date is the snapshot date, not today's date. Epic rules follow the selected release, the Commitment Type filter and the Projects and Teams filters; bug rules follow the Projects and Teams filters only. Removed is excluded; Done means the status name Done.<br>` +
-    `<b>Thresholds and Where They Come From.</b> SLA for production (customer-found) bugs, by calendar days from creation with no pause: P1 ${CFG.sla.p1} days; P2, P3 and P4 with a regression ${CFG.sla.regression} days; P2 without ${CFG.sla.p2} days; P3 and P4 without ${CFG.sla.other} days (${CFG.sla.source}). Customer-found bugs are those reported by the CFB account or linked to a Salesforce case (the alerting rules use the reporter only) whose status is not Done, Ready for Deploy, Closed, Resolved or Removed (Validation included); age is whole calendar days from creation, with no pause for any status; a missing regression counts as No; Breached means age greater than the SLA, so the last allowed day is not a breach. Due soon means ${Math.round(CFG.dueSoonShare * 100)}% of the SLA used (${CFG.dueSoonSource}), for example from day 3, 5, 10 and 21 for SLAs of 3, 7, 14 and 30 days. No update means ${CFG.noUpdateDays} days or more since the update date (${CFG.noUpdateSource}); any edit counts as an update. In Validation more than ${CFG.validationDays} business days (${CFG.validationSource}). <b>Business Days.</b> The working week is Sunday to Thursday: Friday and Saturday are not counted (confirmed by the owner). Israeli public holidays are not counted either, using the public-holiday list in the thresholds object (${CFG.HOLIDAYS.length} dates, 2025-06 to ${esc(CFG.holidaysThrough.slice(0, 7))}${M.holidayStale ? "; the as-of date is beyond the list, so later days are not adjusted for holidays" : ""}); intermediate festival days such as Chol HaMoed are not excluded. Dates are Israel local dates as Jira returns them. The hover shows both the business and the calendar days. Trend weeks start on Monday. Overdue dependencies and Dependency Schedule Gaps use the rules on the Dependencies board; the gap group counts provider epics, with the pair count in the hover text, and agrees with the Schedule Gaps figure there.<br>` +
-    `<b>What It Cannot See.</b> Why an epic is in Validation (no comments are held), whether an epic is ready to close (no child issues), blocked flags and scope churn. Nothing is stored between visits: every rule is computed from the data this page holds, which is the Jira snapshot read at the time shown above (or the last Refresh from Jira; a refresh does not update status-since dates, due dates, sprints or dependencies). Status-since is held only for epics in Validation or In Progress. A bug with no priority, or a priority outside P1 to P4, has no SLA and is listed under Jira Hygiene as "No SLA", never in the SLA groups. Provider epics outside the seven projects may be missing. Bugs have no title in this data, so only their key is shown.</div></details>`;
+    `<details class="vd"><summary>Limits and Thresholds</summary><div class="cap">${howBody({id: "attn",
+    bl: `Use this to see which rules build the attention list and what they cannot see. Every rule reads the Jira data held on this page, and no team or person is ranked.`,
+    defs: [
+      ["Production bug", `a customer-found bug whose status is not Done, Ready for Deploy, Closed, Resolved or Removed. Validation counts as open.`],
+      ["SLA", `calendar days from creation, no pause. P1 ${CFG.sla.p1} days. P2, P3 and P4 with a regression ${CFG.sla.regression} days. P2 without ${CFG.sla.p2} days. P3 and P4 without ${CFG.sla.other} days.`],
+      ["Breached and due soon", `breached means age greater than the SLA, so the last allowed day is not a breach. Due soon means ${Math.round(CFG.dueSoonShare * 100)}% of the SLA used.`],
+      ["No update", `${CFG.noUpdateDays} days or more since the update date. Any edit counts as an update.`],
+      ["In Validation too long", `more than ${CFG.validationDays} business days in Validation.`],
+      ["Business days", `Sunday to Thursday. Friday, Saturday and Israeli public holidays are not counted.`]
+    ],
+    left: `Comments and story data are not checked. The list cannot see why an epic is in Validation, whether it is ready to close, blocked flags or scope churn.`,
+    know: `Epic rules follow the selected release and the Commitment Type, Projects and Teams filters; bug rules follow Projects and Teams only. The as-of date is the date of the data, not today.`,
+    more: [
+      ["No SLA", `a bug with no priority, or a priority outside P1 to P4, has no SLA. It is listed under Jira Hygiene as "No SLA", never in the SLA groups.`],
+      ["Where the thresholds come from", `SLA days: ${CFG.sla.source}. Due soon: ${CFG.dueSoonSource}. No update: ${CFG.noUpdateSource}. In Validation: ${CFG.validationSource}.`],
+      ["Customer-found", `reported by the CFB account or linked to a Salesforce case. The alerting rules use the reporter only. A missing regression counts as No. Age is whole calendar days from creation.`],
+      ["Due soon, example", `due soon starts on day 3, 5, 10 and 21 for SLAs of 3, 7, 14 and 30 days.`],
+      ["Holidays", `the list holds ${CFG.HOLIDAYS.length} dates from 2025-06 to ${esc(CFG.holidaysThrough.slice(0, 7))}${M.holidayStale ? "; the as-of date is beyond the list, so later days are not adjusted for holidays" : ""}. Intermediate festival days such as Chol HaMoed are not excluded. Dates are Israel local dates as Jira returns them.`],
+      ["Hover and trend weeks", `the hover shows both the business days and the calendar days. Trend weeks start on Monday.`],
+      ["Dependencies", `Overdue dependencies and Dependency Schedule Gaps use the rules on the Dependencies board. The gap group counts provider epics, with the pair count in the hover text, and agrees with the Schedule Gaps figure there.`],
+      ["Data limits", `Status-since is held only for epics in Validation or In Progress, and Refresh does not update it. Refresh updates due dates, Target Sprints and dependency links. Provider epics that this page does not hold (other projects or releases) may be missing. Bugs have no title in this data, so only their key is shown. Nothing about these rules is stored between visits: each one is computed from the data this page holds.`],
+      ["What was checked", `${checkedTxt}`]
+    ]})}</div></details>`;
   const act = (id) => {
     if (id.startsWith("grp-")) { const g = id.slice(4); attnUi.open.has(g) ? attnUi.open.delete(g) : attnUi.open.add(g); }
     else if (id.startsWith("more-")) { const g = id.slice(5); attnUi.more.has(g) ? attnUi.more.delete(g) : attnUi.more.add(g); }
@@ -2669,12 +2846,23 @@ function renderCx() {
     {c: "cx", v: noRel.length ? tlink(noRel.length, keyIn(noRel.map(r => r.c)), `${noRel.length} ${plural(noRel.length, "Capability", "Capabilities")} with no release-named fix version\nTheir cells cannot be assessed.`) : "0", l: `${plural(noRel.length, "Capability", "Capabilities")} Without a Required Fix Version`, s: noRel.length ? `${noneAtAll} with none at all, ${noRel.length - noneAtAll} Unscheduled or sprint-named only` : "a hygiene gap, not a risk"},
   ]);
   document.getElementById("cx-facts").innerHTML = "";
-  document.getElementById("cx-cap").innerHTML = defs(
-    `<b>Population</b>: epics of the seven projects whose parent Capability key starts with CXCROSS, in the selected release under the Projects and Teams filters and the Commitment Type chosen in this section (All by default; the Commitment Type checkboxes in the filter bar do not apply here). A Capability is listed when at least one of its epics has the chosen type, and its cells count only those epics. Only CXCROSS Capabilities that have epics under the seven projects are counted; epics owned by CXCROSS itself are not included. An epic with several fix versions is counted once. Removed is excluded at all three levels.<br>` +
-    `<b>Cells</b>: each cell is one project's epics under one Capability, printed as done/total, and opens those epics in Jira. Rows are sorted by title and columns follow the standard project order, so neither expresses lateness.<br>` +
-    `<b>Behind Required Fix Version</b>: a cell is marked when at least one of its open (not Done) epics is either (a) planned later than the Capability, meaning the epic's earliest release version is later than the Capability's latest release version, or (b) not Done although the Capability's latest release version has already ended. The hover lists those epics and the rule. It is a fact about versions and dates, not a verdict on a project or a team. A Capability with no release-named fix version cannot be assessed and says so in the last column.<br>` +
-    `<b>Required Fix Version</b>: the required release is taken to be the Fix Version on the CXCROSS Capability in Jira (an owner assumption, not independently verified). Capability fix versions can be stale. "Future Release" is read as Unscheduled and sprint-named versions are ignored because they are not releases.<br>` +
-    `Coverage: ${ep.length} of ${M.scope.length} epics in this selection have a CXCROSS parent; across all releases ${cxEver.length.toLocaleString("en-US")} of ${DATA.epics.length.toLocaleString("en-US")} epics do, and ${cxTop} supplies most of them. No comments or emails were read. Data is the Jira snapshot at ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}.`);
+  document.getElementById("cx-cap").innerHTML = defs(howBody({id: "cx",
+    bl: `Use this to see, for each CXCROSS Capability, how far each project's epics have progressed and which projects are behind the required fix version.`,
+    defs: [
+      ["Population", `epics whose parent Capability is in CXCROSS, in ${esc(rel)}, under the Projects and Teams filters and this section's own Commitment Type choice (All by default).`],
+      ["Cell", `one project's epics under one Capability, shown as Done / total. It opens those epics in Jira.`],
+      ["Required Fix Version", `the Fix Version on the CXCROSS Capability, taken as the required release. This is an owner assumption, not verified.`],
+      ["Behind Required Fix Version", `a cell is marked when an open epic is planned later than the Capability, or is still open although the Capability's latest release version has ended.`]
+    ],
+    left: `Removed items, and epics owned by CXCROSS itself. A Capability with no release-named fix version cannot be assessed and says so in the last column.`,
+    know: `The marking is a fact about versions and dates, not a verdict on a project or a team. Rows are sorted by title and columns follow the standard project order, so neither expresses lateness.`,
+    more: [
+      ["Planned later", `the epic's earliest release version is later than the Capability's latest release version. The hover lists those epics and the rule.`],
+      ["Commitment Type", `the choice in this section replaces the filter bar checkboxes here. A Capability is listed when at least one of its epics has the chosen type, and its cells count only those epics.`],
+      ["Fix versions", `Capability fix versions can be stale. "Future Release" is read as Unscheduled, and sprint-named versions are ignored because they are not releases. An epic with several fix versions is counted once.`],
+      ["Coverage", `${ep.length} of ${M.scope.length} epics in this selection have a CXCROSS parent; across all releases ${cxEver.length.toLocaleString("en-US")} of ${DATA.epics.length.toLocaleString("en-US")} epics do, and ${cxTop} supplies most of them. No comments or emails were read.`],
+      ["Freshness", `Data as of ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}.`]
+    ]}));
   if (noProj) { host.innerHTML = `<div class="empty">${whyEmpty("epics")}</div>`; document.getElementById("cx-none").innerHTML = ""; document.getElementById("cx-dq").innerHTML = ""; return; }
   if (!ep.length) {
     const other = scopeOf(M.rel, {anyCommit: true}).filter(e => e.cp && e.cp.startsWith("CXCROSS")).length;
@@ -2698,7 +2886,7 @@ function renderCx() {
   // capabilities with no epics here, split
   const capRow = c => { const C = H[c] || {}, p = C.par && H[C.par] ? `${C.par}` : "No Initiative"; return `<tr><th scope="row"><a href="${BASE}/browse/${esc(c)}" target="_blank" rel="noopener" ${tipAttr(`${c}\n${C.t || ""}`, "x")}>${esc(c)}</a> ${esc(shortText(C.t, 70))}</th><td>${esc(C.s || "–")}</td><td>${esc(versionText(C.fv))}</td><td>${esc(p)}</td></tr>`; };
   const nn = M.noneEver.length + M.noneHere.length, wasOpen = !!(document.querySelector("#cx-none details") || {}).open;
-  document.getElementById("cx-none").innerHTML = nn ? `<details class="vd"${wasOpen ? " open" : ""}><summary>Capabilities with No Epics in This Release (${nn})</summary><div class="cap">${M.noneHere.length} ${M.noneHere.length === 1 ? "has" : "have"} epics from our projects in other releases or filtered out; ${M.noneEver.length} ${M.noneEver.length === 1 ? "has" : "have"} no epics from our seven projects at all.</div><div class="tablewrap tall"><table><caption class="sr">CXCROSS Capabilities with no epics in this release</caption><thead><tr><th scope="col">Capability</th><th scope="col">Status</th><th scope="col">Required Fix Version</th><th scope="col">Initiative</th></tr></thead><tbody>${[...M.noneHere.sort(keyCmp), ...M.noneEver.sort(keyCmp)].map(capRow).join("")}</tbody></table></div></details>` : "";
+  document.getElementById("cx-none").innerHTML = nn ? `<details class="vd"${wasOpen ? " open" : ""}><summary>Capabilities with No Epics in This Release (${nn})</summary><div class="cap">${M.noneHere.length} ${M.noneHere.length === 1 ? "has" : "have"} epics from the projects on this page in other releases, or the filters hide them. ${M.noneEver.length} ${M.noneEver.length === 1 ? "has" : "have"} no epics from these projects at all.</div><div class="tablewrap tall"><table><caption class="sr">CXCROSS Capabilities with no epics in this release</caption><thead><tr><th scope="col">Capability</th><th scope="col">Status</th><th scope="col">Required Fix Version</th><th scope="col">Initiative</th></tr></thead><tbody>${[...M.noneHere.sort(keyCmp), ...M.noneEver.sort(keyCmp)].map(capRow).join("")}</tbody></table></div></details>` : "";
   document.getElementById("cx-dq").innerHTML = `<div class="cap">${M.removedCaps} Removed ${M.removedCaps === 1 ? "Capability" : "Capabilities"} and ${M.removedIni} Removed ${M.removedIni === 1 ? "Initiative" : "Initiatives"} are left out${M.leftOut ? `, with ${M.leftOut} ${epicWord(M.leftOut)} under a Removed Capability` : ""}.</div>`;
 }
 
@@ -2755,12 +2943,23 @@ function renderNfr() {
   document.getElementById("nfr-facts").innerHTML = noProj ? "" :
     `Matched by label ${mk(lab.length, `labels = ${NFR_LABEL} AND (cf[10139] is EMPTY OR cf[10139] not in (${NFR_CATEGORIES.map(q).join(", ")}))`, `${lab.length} epics matched by label only`)}, category ${mk(cat.length, `${NFR_CAT_IN} AND (labels is EMPTY OR labels != NFR)`, `${cat.length} epics matched by category only`)}, both ${mk(both.length, `labels = ${NFR_LABEL} AND ${NFR_CAT_IN}`, `${both.length} epics matched by both`)}.`+
     `<br>Data gaps: ${gapLink("No Capability", noCap, NO_CAP_JQL)}${noCapExempt.length ? ` (${tlink(noCapExempt.length, jira({extra: `${NFR_Q} AND parent is EMPTY AND ${CAP_EXEMPT_IN}`}), capExemptTip(noCapExempt.length))} more exempt by Issue Category)` : ""} · ${gapLink("No Team", noTeam, "cf[10040] is EMPTY AND cf[10098] is EMPTY")} · ${gapLink("No Commitment Type", noCommit, "cf[10094] is EMPTY")} · ${gapLink("No Issue Category", noCatLabel, "cf[10139] is EMPTY")} · ${gapLink("No Due Date", noDue, "duedate is EMPTY")}.`;
-  document.getElementById("nfr-cap").innerHTML = defs(`<b>Denominator</b>: ${N.toLocaleString("en-US")} NFR epics, Removed excluded, ${esc(commitTxt)}, projects ${state.projects.size === projectsAll.length ? "all" : esc([...state.projects].join(", "))}${state.teams.size ? ", teams " + esc([...state.teams].join(", ")) : ""}, data as of ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}. <b>Matched by</b>: label only, category only, or both (the three counts above add up to the NFR epics). ` + 
-    `<b>Definition</b>: an NFR epic is an epic with the label NFR (this exact spelling, no variants) or an Issue Category of ${NFR_CATEGORIES.map(esc).join(", ")}. Both are self-reported in Jira. An epic that matches only by category is not called "labelled NFR". The three groups are counted separately above.<br>` +
-    `<b>Population</b>: epics of the seven projects in the selected release under the Projects, Teams and Commitment Type filters (shown in the denominator line), Removed excluded. An epic counts once by key; with several fix versions it counts in each release it is in, so totals across releases are not additive. CXCROSS-owned epics are not included.<br>` +
-    `<b>Share</b>: two populations are printed apart. The headline count is every NFR epic under the page filters, with its own denominator (all epics under those filters). The percentage under it is taken of the <b>target scope</b>, the same set and the same number as the Forecast Epics tile: Committed + Not Set epics that were in the release on the first day of W1 (the target so far before W1), under the Projects and Teams filters; the Commitment Type checkboxes do not change it. The NFR epics in that set are counted by the label or the Issue Categories, Removed excluded. A share is shown only when that denominator is 5 or more.<br>` +
-    `<b>Status</b>: Not Started is New, In Definition (an unmaintained status, so it is counted here), Ready for Dev or Candidate; In Progress, Validation and Done are the statuses of those names (Done is the status named Done, not Jira's Done category). A status that fits none shows as Other Status, so nothing disappears. The workflow of some projects is not documented, so the mapping can differ there. A share is shown only for 5 or more epics.<br>` +
-    `<b>Tabs</b>: each tab regroups the same NFR epics. By Team counts an epic under each team it lists, so the team rows add up to more than the total; the total row counts each epic once, and no team is compared with another. By Capability uses the epic's parent Capability. ${isProv(rel) ? `${esc(rel)} is still running, so these counts are provisional. ` : ""}Data is the Jira snapshot at ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}.`);
+  document.getElementById("nfr-cap").innerHTML = defs(howBody({id: "nfr",
+    bl: `Use this to see how much of the release is non-functional work and where those epics sit. The tabs regroup the same NFR epics.`,
+    defs: [
+      ["NFR epic", `an epic with the label NFR (this exact spelling) or an Issue Category of ${NFR_CATEGORIES.map(esc).join(", ")}. Both are self-reported in Jira.`],
+      ["Matched by", `label only, category only, or both. The three counts add up to the NFR epics.`],
+      ["Status shares", `each status as a share of the NFR epics under the filters, for 5 or more epics.`],
+      ["Target-scope share", `Committed NFR epics over the target scope, the Forecast Epics number. It uses a different population from the headline count.`]
+    ],
+    left: `Removed epics, and epics owned by CXCROSS.`,
+    know: `An epic with several fix versions counts in each release, so totals across releases do not add up. ${isProv(rel) ? `${esc(rel)} is still running, so these counts can still change. ` : ""}By Team counts an epic under each team it lists; the total row counts each epic once.`,
+    this: ["This selection", `${N.toLocaleString("en-US")} NFR epics, ${esc(commitTxt)}, projects ${state.projects.size === projectsAll.length ? "all" : esc([...state.projects].join(", "))}${state.teams.size ? ", teams " + esc([...state.teams].join(", ")) : ""}, data as of ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}.`],
+    more: [
+      ["Headline count", `every NFR epic under the page filters (Release, Projects, Teams, Commitment Type), out of all epics under those filters.`],
+      ["Target-scope share, detail", `the target scope is the Committed and Not Set epics that were in the release on the first day of W1 (the target so far before W1), under the Projects and Teams filters. The Commitment Type checkboxes do not change it. A share needs a target scope of 5 or more.`],
+      ["Status", `Not Started is New, In Definition, Ready for Dev or Candidate. In Progress, Validation and Done are the statuses of those names. Done is the status named Done, not Jira's Done category. A status that fits none shows as Other Status. In Definition counts as Not Started because that status is unmaintained. The workflow of some projects is not documented, so the mapping can differ there.`],
+      ["Tabs", `each tab regroups the same NFR epics. By Capability uses the epic's parent Capability. No team is compared with another.`]
+    ]}));
   if (noProj) { host.innerHTML = `<div class="empty">${whyEmpty("epics")}</div>`; return; }
   if (!N) { host.innerHTML = `<div class="empty">${scope.length ? "No NFR epic in this selection." : whyEmpty("epics")}</div>`; return; }
   const showOther = T.oth > 0, tab = NFR_TABS.some(x => x[0] === state.nfrTab) ? state.nfrTab : "project";
@@ -3199,7 +3398,7 @@ function cyListsHtml(d) {
   const y = state.cy, qq = y.q.trim().toLowerCase(), c = d.c, g = d.g, M = CYM;
   const flt = d.planned.filter(e => cyPass(e, qq)), carryF = d.carry.filter(e => cyPass(e, qq)), noDueF = d.noDue.filter(e => cyPass(e, qq));
   let h = "";
-  if (d.carry.length) h += `<div class="cyblock"><h3>Carried Over From Before This Cycle (${tlink(d.carry.length, cyQ("carry", g, c), `${d.carry.length} epics carried over into ${c.name}\n${CY_TIP}`)})</h3><div class="cymeta">Not Done, with a planned date before ${c.start}. Stale means more than ${CY.stale} days past the planned date.</div>${carryF.length ? cyEpicTable(carryF, c, `Epics carried over into ${c.name} for ${g.name}`) : `<div class="empty">${cyWhy("filter")}</div>`}</div>`;
+  if (d.carry.length) h += `<div class="cyblock"><h3>Carried Over From Before This Cycle (${tlink(d.carry.length, cyQ("carry", g, c), `${d.carry.length} epics carried over into ${c.name}\n${CY_TIP}`)})</h3><div class="cymeta">Not Done, with a planned date before ${c.start}. Stale means more than ${CY.stale} days overdue.</div>${carryF.length ? cyEpicTable(carryF, c, `Epics carried over into ${c.name} for ${g.name}`) : `<div class="empty">${cyWhy("filter")}</div>`}</div>`;
   if (!d.planned.length) h += `<div class="cyblock"><div class="empty">${cyWhy("group", g, c)}</div></div>`;
   {
     const all = d.planned, pl = flt;
@@ -3233,8 +3432,8 @@ function cyGroupHtml(g) {
   return `<div class="cydetail">${crumb}` + head + `<div class="kpis five" id="cy-gkpis"></div>` +
     `<div class="cap" id="cy-gfacts">${[fact(d.carry.length, "carried over", "carry", "carried over"), fact(d.noDue.length, "active with no planned date", "noDue", "active with no planned date"), ...podFacts].join(" · ")}</div>` +
     cyFilterBar(d) +
-    `<div class="cyblock" id="cy-concerns"><h3>Epics with Flags (${cyConcerns(d).length ? tlink(cyConcerns(d).length, cyQ("concerns", g, c), `${cyConcerns(d).length} epics with at least one flag\nOverdue, flagged, planned soon and not started, carried over, or no planned date; the rules are under How this is calculated.\n${CY_TIP}`) : 0})</h3><div class="cymeta">Epics with at least one flag, one row each, in planned-date order. The flags are facts about dates and Jira fields, not a rating or a ranking.</div>${cyConcernHtml(d)}</div>` +
-    (d.planned.length ? `<div class="cyblock" id="cy-weekly"><h3>Weekly Plan vs. Actual</h3><div class="cymeta">Epics by the week of their planned date, seven days from the cycle start date. The result column states what the dates show; it is not a rating.</div>${cyWeekly(d)}</div>` : "") +
+    `<div class="cyblock" id="cy-concerns"><h3>Epics with Flags (${cyConcerns(d).length ? tlink(cyConcerns(d).length, cyQ("concerns", g, c), `${cyConcerns(d).length} epics with at least one flag\nOverdue, flagged, planned soon and not started, carried over, or no planned date; the rules are under How this is calculated.\n${CY_TIP}`) : 0})</h3><div class="cymeta">One row per epic with at least one flag, in planned-date order. A flag is a fact about dates or a Jira field, not a rating or a ranking.</div>${cyConcernHtml(d)}</div>` +
+    (d.planned.length ? `<div class="cyblock" id="cy-weekly"><h3>Weekly Plan vs. Actual</h3><div class="cymeta">Epics by the week of their planned date. Weeks run seven days from the cycle start date. The Result column states what the dates show; it is not a rating.</div>${cyWeekly(d)}</div>` : "") +
     `<div id="cy-lists">${L.html}</div></div>`;
 }
 
@@ -3247,24 +3446,46 @@ function cyNotes() {
   }
   document.getElementById("cy-notes").innerHTML = bits.join("");
 }
-function cyPodDefs() {                                           // the pod rule, its known limits and the number of detected pod labels per project, linked
-  if (!cyLabelOk()) return "";
+function cyPodRows() {                                           // distinct pod labels detected per project, each linked, for the Pods line of the disclosure
+  if (!cyLabelOk()) return "none";
   const R = podRegistry(), rels = DATA.releases.map(q).join(", ");
   const rows = Object.keys(DATA.podRx).filter(p => state.projects.has(p)).map(p => { const sp = [...(R.per[p] || [])];
     return `${esc(p)} ${sp.length ? tlink(sp.length, href(`project = ${pkey(p)} AND issuetype = Epic AND status != Removed AND fixVersion in (${rels}) AND ${podSpellingsClause(sp)}`), `${sp.length} distinct pod labels (as spelled) on ${p} epics of ${DATA.releases[0]} to ${DATA.releases[DATA.releases.length - 1]}\nThe link opens the epics that carry them.`) : "0"} (pattern <code>${esc(DATA.podRx[p])}</code>)`; }).join("; ");
-  return `<b>Pods</b> are read from the Jira labels of the epics, by the rule of the release planning report: a label names a pod when it matches the pod pattern of the epic's project, tested without regard to case (the default pattern is <code>pod</code>, the text anywhere in the label; CXCO also accepts a label of the form CXCO-Name-1). An epic can carry several pod labels and counts under each pod once; an epic with none is under No Pod Label, the last group. Pods are grouped without regard to case and shown with the first spelling found; links use every spelling. The team of a pod is whatever the Epic Team field of its epics holds (a pod row lists all of them; one pod is not forced into one team). Pods follow the Release, Projects, Teams and Commitment Type filters and the selected cycle. <b>Known limits</b>: a pod whose label does not contain the pattern text is not detected; a typo that contains it counts; a label that contains the text but is not a pod cannot be told apart. Distinct pod labels detected per project: ${rows || "none"}.<br>`;
+  return rows || "none";
 }
 function cyDefs() {
   const c = CYM.c, win = CYM.cycles;
-  document.getElementById("cy-cap").innerHTML = defs(
-    `<b>Cycles</b>: derived from the Jira release window of ${esc(state.release)}, not configured. ${esc(win[0].name)} runs from the release start (${win[0].start}) to the end of W6 (${win[0].end}, release start plus 48 days, the same boundary as the Epic Delivery chart)${win[1] ? `; ${esc(win[1].name)} runs from the next day (${win[1].start}) to the release end (${win[1].end})` : ""}. <b>Planned date</b>: the later of the epic's due date and the end of its Target Sprint when it has both, otherwise the one it has; an epic with neither is not planned. An epic belongs to the cycle that holds its planned date.<br>` +
-    `<b>Planned</b>: epics (Removed excluded) in the selected release under the Projects, Teams and Commitment Type filters whose planned date is in the cycle, both ends included. <b>Done</b>: status named Done. <b>Overdue</b>: planned before ${esc(CY.asOf)} and not Done. <b>Stale (more than ${CY.stale} days)</b>: more than ${CY.stale} days overdue, counted over planned and carry-over epics together. <b>Due next ${CY.next} days</b>: not Done, planned ${esc(cyWindow())} (today through today plus ${CY.next} days, ${CY.next + 1} calendar days). A share (for example "13 of 17 planned") is shown only for 5 or more epics.<br>` +
-    `<b>Carry-over</b>: not Done, with a planned date before the cycle starts; shown only once the cycle has started. <b>No planned date, active</b>: In Progress or Validation with neither a due date nor a Target Sprint. <b>Flagged</b>: the Jira Flagged field is set and the epic is not Done. <b>Open Bugs</b>: issues of type Bug whose parent is the epic, Removed excluded; open means a status other than Done, Ready for Deploy, Closed, Resolved or Removed. A read of Jira found no other way a bug is tied to an epic, so there is no other count to show. <b>EDCT</b>: the dashboard's: days an epic ended in In Progress or Validation, flagged days excluded, the Done day not counted; it is read for Done epics, so open epics show a dash.<br>` +
-    `<b>Links</b>: every number opens a Jira search, not a saved list of epics; Jira finds the epics again when the link is opened, so the list can change after the page was built, and a link that would be too long for Jira is shown as a plain number.<br>` +
-    `<b>Epics with Flags</b> lists each epic that has at least one of these facts, one row, in planned-date order (no ranking): <i>overdue</i> (not Done and planned before ${esc(CY.asOf)}, with the number of days; stale when more than ${CY.stale} days); <i>planned soon and not started</i> (planned ${esc(cyWindow())} and still New, In Definition, Ready for Dev or Candidate); <i>flagged</i>; <i>carried over</i>; <i>no planned date</i> (active). It states what the data shows and does not rate any team or group.<br>` +
-    cyPodDefs() +
-    `<b>Idle Pods</b>: pods of ${esc(state.release)} (one pod label per project, case ignored; they carry at least one epic of the release under the Release, Projects, Teams and Commitment Type filters) with no epic planned in the selected cycle, that is, a Planned count of 0 in the table below summed over their teams. <b>Pods With More Than ${CY.podWip} Epics in Flight</b>: pods with more than ${CY.podWip} epics In Progress or Validation among the epics of the release under the same filters (a status is a point in time, so the cycle does not apply; ${CY.podWip} is a reference level chosen by the owner, not a program rule); an epic with several pod labels counts once under each pod; the linked number counts those epics once each. Both are facts about the plan, not a verdict on people, and neither is ranked. Pods are known only through the labels on epics (an epic with no label is in no pod), so the counts of epics in a pod are a lower bound. Their lists open in the page, not in Jira; each epic count in a list opens its epics in Jira.<br>` +
-    `<b>Overview hierarchy</b>: Project (the projects of the Projects filter, in the usual order), then Team under its project (the Epic Team field; an epic that lists several teams counts under each, epics with none under (No Team)), then Pod under its team; teams and pods in alphabetical order, never ordered by progress. Each row counts its own epics once: a project row the epics of the project, a team row the epics of that team in that project, a pod row the epics with that pod label in that team; an epic with two teams or several pods appears under each, once per row, and the last row counts each epic once. A team with no pod label on any of its epics has no pod rows; the team of a pod is whatever Jira holds in the Epic Team field of its epics. Weeks run seven days from the cycle start date. No person is named or counted: the Jira link shows an epic's owner. No verdict (on track, at risk), rating or ranking is shown. Data is the Jira snapshot at ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}; epic bug links, Flagged and assignees are read when the dashboard is built.`);
+  document.getElementById("cy-cap").innerHTML = defs(howBody({id: "cy",
+    bl: `Use this to spot work that will miss its cycle. A number opens the matching epics in Jira; the two pod tiles open a list of pods.`,
+    defs: [
+      ["Delivery Cycle 1 and 2", `Cycle 1 runs from the release start to the end of W6. Cycle 2 runs from W7 to the release end.`],
+      ["Planned date", `the later of the due date and the Target Sprint end. If only one exists, that one. If neither, the epic is not planned.`],
+      ["Planned", `epics whose planned date is in the cycle.`],
+      ["Done", `planned epics with the status Done.`],
+      ["Overdue", `planned in the cycle, before the as-of date, and not Done.`],
+      [`Due next ${CY.next} days`, `planned in the cycle, not Done, from the as-of date up to ${CY.next} days later.`],
+      ["Flagged", `planned in the cycle, not Done, with the Jira Flagged field set.`],
+      ["Idle Pods", `pods that have at least one epic in ${esc(state.release)} and no epic planned in the selected cycle, under the Release, Projects, Teams and Commitment Type filters.`],
+      [`Pods with more than ${CY.podWip} epics in flight`, `pods with more than ${CY.podWip} epics In Progress or Validation in ${esc(state.release)}, counted over the whole release, not the selected cycle. The level ${CY.podWip} is a reference chosen by the owner, not a program rule.`]
+    ],
+    left: `Removed epics. Epics with no planned date, or planned after the release end, are in no cycle. Stale, Carry-over, No planned date and Open bugs: see More detail.`,
+    know: `Tiles follow the Release, Projects, Teams and Commitment Type filters. The as-of date is the date of the data, shown at the top of the page. No team or person is ranked or scored. The pod tiles are facts about the plan, not a verdict on people, and are not ranked.`,
+    this: ["This release", `${esc(state.release)}: ${esc(win[0].name)} ${win[0].start} to ${win[0].end}${win[1] ? `; ${esc(win[1].name)} ${win[1].start} to ${win[1].end}` : ""}. As-of date ${esc(CY.asOf)}.`],
+    more: [
+      ["Stale", `more than ${CY.stale} days overdue, counted over planned and carry-over epics together. The "of them stale" figure under Overdue counts planned epics only.`],
+      ["Carry-over", `not Done, with a planned date before the cycle starts. Shown only once the cycle has started.`],
+      ["No planned date", `in flight (In Progress or Validation) with no due date and no Target Sprint.`],
+      ["Open bugs", `issues of type Bug whose parent is the epic, Removed excluded. Open means a status other than Done, Ready for Deploy, Closed, Resolved or Removed. A check of Jira found no other relation between a bug and an epic.`],
+      ["EDCT (epic development cycle time)", `calendar days an epic ended in In Progress or Validation. Flagged days and the Done day are not counted. Shown for Done epics; open epics show a dash.`],
+      ["Epics with Flags", `one row per epic with at least one of these facts, in planned-date order: overdue (with the number of days), planned in the next ${CY.next} days and still not started (New, In Definition, Ready for Dev or Candidate), flagged, carried over, in flight with no planned date. A flag is a fact about dates or a Jira field, not a rating.`],
+      ["Dates", `A cycle includes its first and last day. Due next ${CY.next} days covers ${CY.next + 1} calendar days: the as-of date and the ${CY.next} days after it. An epic planned on the as-of date is not yet overdue. Weeks in the weekly view run seven days from the cycle start date.`],
+      ["Shares", `a percentage next to a count appears only for 5 or more epics.`],
+      ["Other planned-date rules", `The dependency board uses a different rule: there the due date wins over the Target Sprint. The burnup's Delivery Cycle 1 line counts Committed epics only, with any planned date up to the cycle end; this section counts planned dates inside the cycle and shows earlier ones as carry-over, so the two numbers can differ. A Target Sprint that the sprint calendar does not know counts as no Target Sprint.`],
+      ["Hierarchy", `Project, then Team (the Epic Team field; an epic with several teams counts under each, one with none under (No Team)), then Pod. Names are in alphabetical order, never ordered by progress. Each row counts its own epics once; an epic with several teams or pods appears under each, and the last row counts each epic once. A pod used by epics of two teams is listed under both, with that team's epics only. A team with no pod label on any epic has no pod rows.`],
+      ["Pods", `a label names a pod when it matches the pod pattern of the epic's project, without regard to case. The default pattern is the text "pod" anywhere in the label. An epic with several pod labels counts under each pod once; an epic with none is under No Pod Label. Pods come from epic labels only, and many epics have none, so a pod's epic count can be too low: a pod can look idle, or stay at ${CY.podWip} or fewer, only because its epics carry no label. Limits: a pod label without the pattern text is not detected; a typo that contains it counts; a label that contains the text but is not a pod cannot be told apart. Distinct pod labels per project: ${cyPodRows()}.`],
+      ["Links", `every number opens a Jira search, not a saved list of epics, except the two pod tiles: they open a list of pods in the page, and each epic count in that list opens a Jira search. Jira finds the epics again when you open a link, so its list can differ from the page. A link too long for Jira shows as a plain number.`],
+      ["Freshness", `Epics, due dates, Target Sprints, Flagged and pod labels are updated by Refresh. Bugs under epics, the sprint calendar and the pod pattern are read only when the page is built. Data as of ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}.`]
+    ]}));
 }
 function cyRenderBody() {
   const y = state.cy, host = document.getElementById("cy-body"), M = CYM;
@@ -4238,20 +4459,25 @@ const SEC = (() => {
   window.addEventListener("resize", refit); if (window.ResizeObserver) { new ResizeObserver(refit).observe(filtersEl); new ResizeObserver(refit).observe(nav); }
   return {observe, refit, go, has: id => A.some(x => x.id === id), current: () => cur, anchors: A};
 })();
-document.getElementById("footer").innerHTML = `<details class="vd"><summary>How to Read This Page</summary><div style="margin-top:6px">
-<b>How to Read This.</b> Scope is Fix Version plus Commitment Type; status never defines scope. The Commitment Type filter shows every type by default,
-but the <b>target scope (Forecast Epics and the burnup scope) is always Committed or no Commitment Type, with Stretch left out, counted on the first day of W1</b>. <b>Removed epics are excluded from every number.</b> Done means the status
-named Done, not Jira's Done category.
-<br><b>Section Strip.</b> The strip under the Release heading jumps between the sections and marks the one being read. Tab reaches it once; then Left, Right, Home and End move along it, Enter jumps and Esc returns focus to the current section heading. Alt + Down and Alt + Up go to the next and previous section from anywhere outside a form field.
-<br><b>Cycle Time.</b> EDCT (Epic Development Cycle Time) matches the weekly email: calendar days an epic ended in In Progress or Validation, flagged days excluded. The trend shows P50 and P90 (linear interpolation).
-No percentile, share or trend is shown for fewer than ${MIN_N} items.
-<br><b>Burnup.</b> Done is cumulative by resolution date and counts target epics (Committed + Not Set). Scope is the number of target epics (Committed + Not Set, judged on each epic's current Commitment Type) that were in the release on the first day of W1, from each epic's Fix Version history; the Forecast Epics tile shows the same number, and the epics added since are shown beside it. The IP week is the first seven days of the release. No projection is drawn.
-<br><b>Bugs.</b> The backlog shows created, resolved and open per week, accessibility bugs excluded unless switched on. A bug is open while its status is not Done, Ready for Deploy, Closed, Resolved or Removed; bugs that are Done without a resolution date cannot be placed on the weekly line and are named in its notes. CFB follows the release closure report: bugs reported by the CFB account, fixed in the release window.
-<br><b>Snapshot and Refresh.</b> Numbers were read from Jira at the time shown above. In the published page the data refreshes when the page opens, and Refresh does it again: epics, bugs, dependency links, Capabilities and Capitalization. Capitalization and cycle time refresh on the first open each day and on the first two Refresh clicks. Story-level links, the sprint calendar and the Cycles pods are read only when the data is built.
-<br><b>Hover Text.</b> Hover text follows the pointer and is not itself hoverable; Esc closes it. The same text is in each chart's data table.
-<br><b>Delivery Cycle Governance.</b> The last section has its own data (INT, CXINT and WFM epics by pod label or Epic Team, read at build time, not by Refresh) and follows its own delivery cycle and pod groups, not the filters above. It states facts only: no verdict, no rating of a group.
-<br><b>Scope of Use.</b> Counts describe programs, releases and teams. Facts only: nothing here ranks or scores a team or a person.
-<br>Definitions follow the Program Intelligence Agent (workflow-status-map, commitment-classes, metrics).</div></details>`;
+document.getElementById("footer").innerHTML = `<details class="vd"><summary>How to Read This Page</summary><div class="cap">${howBody({id: "page",
+    bl: `This page shows release status from Jira. The numbers are facts about scope, status and dates; nothing here ranks or scores a team or a person.`,
+    defs: [
+      ["Scope", `Fix Version plus Commitment Type. Status never defines scope.`],
+      ["Target scope", `Committed and Not Set epics counted on the first day of W1. Stretch is left out. Forecast Epics and the burnup use it, whatever the Commitment Type filter shows.`],
+      ["Removed", `Removed epics are excluded from every number.`],
+      ["Done", `the status named Done, not Jira's Done category. The Bugs section says which bug statuses count as open.`],
+      ["Share", `a percentage, percentile or trend is shown only for ${MIN_N} or more items.`],
+      ["Data freshness", `read from Jira at the time shown at the top. In the published page the data refreshes when the page opens, and Refresh does it again. A local copy is a snapshot.`]
+    ],
+    know: `Each section and chart has its own How this is calculated with the exact rules.`,
+    more: [
+      ["What Refresh updates", `epics, bugs, dependency links and Capabilities. Capitalization and cycle time refresh on the first open of each day and on the first two Refresh clicks.`],
+      ["Read only when the page is built", `story-level dependency links, the sprint calendar, bugs under epics, status-since dates and the pod label pattern.`],
+      ["Section strip", `The strip under the Release heading jumps between the sections and marks the one being read. Tab reaches it once; then Left, Right, Home and End move along it, Enter jumps and Esc returns focus to the current section heading. Alt + Down and Alt + Up go to the next and previous section from anywhere outside a form field.`],
+      ["Hover text", `Hover or keyboard focus shows a short explanation, and Esc closes it. The same values are in each chart's data table.`],
+      ["Cycles section", `follows the Release, Projects, Teams and Commitment Type filters and has its own Delivery Cycle choice. It uses the same epics as the rest of the page. It states facts only: no verdict, no rating of a group.`],
+      ["Scope of use", `Counts describe programs, releases and teams.`]
+    ]})}</div></details>`;
 if (RUNTIME) slowLoad();                                     // the last limited refresh kept in this browser, before anything is drawn
 capInit(); cyInit(); loadState(); buildFilters(); update({anchor: false}); fitSticky(); SEC.observe();
 // Live data on open (the published page with the connector only): one automatic Refresh after the first paint, on EVERY open: a reload never shows older data. LIVE_GUARD_MS is the length of the old guard (skip when the last
