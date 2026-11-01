@@ -258,7 +258,7 @@ def sweep(template: Path | None = None, only_views: int | None = None, kinds: tu
                     q = urllib.parse.urlsplit(a["href"])
                     jql = urllib.parse.parse_qs(q.query, keep_blank_values=True).get("jql", [""])[0]
                     txt = a["text"].replace(",", "")
-                    if q.path.rstrip("/") != "/issues" or not txt.isdigit() or "issuetype = Epic" not in jql or not any(k in jql for k in QUERYISH) or "distinct pod labels" in a["tip"]:
+                    if q.path.rstrip("/") != "/issues" or not txt.isdigit() or "issuetype = Epic" not in jql or not any(k in jql for k in QUERYISH) or "distinct pod label" in a["tip"]:
                         continue                                                       # (the definition's count of pod LABELS per project prints labels, not the epics its query opens)
                     res["dom_links"] += 1
                     try:
@@ -361,14 +361,18 @@ def _(t: T):
     t.check(not exact, f"a link with labels that look like keys says it is an exact list: {exact[:2]}")
 
 
-@SUITE.test("cycles_tooltip_says_jira_finds_the_epics_again")
+@SUITE.test("cycles_links_caveat_is_in_how_this_is_calculated_not_on_every_number")
 def _(t: T):
+    """The caveat that Jira finds the epics again when a link is opened is said once, in the Links line of the Cycles How this is calculated, not on each of the hundreds of numbers; no tooltip says it opens epics by key."""
     data, url = page()
     ch = ctx.chrome
     ch.goto(url + "#r=27.1&cy=DC1")
     kit.wait_ready(ch)
     tips = ch.js("[...document.querySelectorAll('#h-cycles ~ * a[data-tip], section[aria-labelledby=\"h-cycles\"] a[data-tip]')].map(a => a.getAttribute('data-tip'))") or []
-    t.check(any("Jira finds these epics again when you open the link" in x for x in tips), "no Cycles number says that Jira finds the epics again")
+    t.check(len(tips) > 20, f"too few Cycles number tooltips were read ({len(tips)}): a blind check")
+    how = ch.js("(() => { const s = document.querySelector('section[aria-labelledby=\"h-cycles\"]'); const d = s && [...s.querySelectorAll('details')].map(x => x.textContent).join(' '); return d || ''; })()") or ""
+    t.check("Jira finds the epics again when you open a link" in how, "the Cycles How this is calculated has no Links line saying that Jira finds the epics again")
+    t.check(not any("Jira finds these epics again" in x for x in tips), "a Cycles number still carries the repeated caveat sentence")
     t.check(not any("by key" in x for x in tips), "a Cycles tooltip still says it opens the epics by key")
 
 

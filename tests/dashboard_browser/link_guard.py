@@ -74,7 +74,7 @@ def views(full: bool, data: dict) -> list[str]:
     rels = data["releases"] if full else ["26.4", "27.1"]
     psets = ["", "p=PMN", "p=PMN|CXCO", "p=INT"] + (["p=CXWFM|WFM|CXINT|INT"] if full else [])
     out = [f"r={r}&{p}&cy={c}".replace("&&", "&") for r in rels for p in psets for c in ("DC1", "DC2")]
-    facets = ["dc=1", "dc=2", "ax=1", "cfb=yes", "g=week", "g=quarter", "cg=quarter", "dp=all", "dp=overdue", "dp=gap", "dp=blocking", "p=PMN&dp=blocking", "dp=blockedby", "nt=capability", "nt=team", "cx=committed", "cpg=release", "cpm=count"]
+    facets = ["dc=1", "dc=2", "ax=yes", "ax=all", "cfb=yes", "g=week", "g=quarter", "cg=quarter", "dp=all", "dp=overdue", "dp=gap", "dp=blocking", "p=PMN&dp=blocking", "dp=blockedby", "nt=capability", "nt=team", "cx=committed", "cpg=release", "cpm=count", "clx=Stretch|~notset", "clx=Committed|Target", "clx=Committed|Stretch|Target"]
     out += [f"r=27.1&{f}" for f in facets]
     teams = sorted({t for e in data["epics"] for t in (e.get("tm") or [])})                   # every team ticked: the longest queries (team clauses and sprint names together)
     allt = "t=" + "|".join(urllib.parse.quote(t) for t in teams)
@@ -237,6 +237,69 @@ def _(t: T):
     t.check(n_keys('project = PMN AND labels in ("POD-11", "POD-12", "POD-13", "POD-14", "POD-15")') == 0, "five quoted labels shaped like keys were counted as keys")
     t.check(n_keys('key in (AB-1, AB-2, AB-3, AB-4)') == 4, "a list of four unquoted keys was not counted")
     t.check(n_keys('labels in ("say \\"POD-12\\"") AND key in (AB-1, AB-2)') == 2, "an escaped quote inside a label broke the quoting")
+
+
+# --------------------------------------------------------------------------------------------- the rendered hover texts
+TIP_BUDGET_WORDS = 25                           # the first block (the first two lines) of a hover: number, what it counts, scope, and one line
+TIP_BUDGET_LINES = 4                            # at most four lines in all (the page's own "Click to open in Jira" is added after them and is not part of data-tip)
+TIP_JS = r"""(() => [...document.querySelectorAll('[data-tip]')].map(e => ({tip: e.getAttribute('data-tip'), cls: String(e.getAttribute('class') || ''), inAttn: !!e.closest('#attn'), chip: !!e.closest('.achip'), link: e.getAttribute('data-link')})))()"""
+TIP_VIEWS = ["", "r=27.1&cy=DC1", "r=27.1&cy=DC2", "r=26.4", "p=PMN&dp=all", "r=27.1&dp=gap", "g=week", "cg=quarter", "nt=capability", "cx=committed", "cpg=release", "cpm=count", "r=27.1&p=PMN|CXCO&cy=DC1"]
+
+
+def _words(text: str) -> int:
+    return len([w for w in text.split() if re.search(r"[A-Za-z0-9]", w)])         # a separator such as the middle dot is not a word
+
+
+def tip_exception(h: dict) -> str | None:
+    """The documented exceptions to the budget: a line that a test asserts word for word, a line that carries a data list, a list preview, and the evidence of an item that meets two rules."""
+    tip = h["tip"]
+    if tip.startswith("Average over "):
+        return "EDCT sub line: line 1 is asserted word for word by tile_oracle.py"
+    if "exempt from the Capability check" in tip:
+        return "the line carries the list of exempt Issue Categories"
+    if h["chip"]:
+        return "Needs Attention chip: a header, at most three items and one action line"
+    if h["inAttn"] and tip.count("\n") + 1 > TIP_BUDGET_LINES and re.match(r"^[A-Z][A-Z0-9]+-\d+", tip):
+        return "Needs Attention evidence of an item that meets two or more rules"
+    return None
+
+
+@SUITE.test("tooltips_rendered_hovers_meet_the_word_budget_and_the_standard")
+def _(t: T):
+    """A sample of rendered hovers on the fixture (13 views, details opened, the Needs Attention panel expanded): the first block is at most 25 words, there are at most 4 lines, a count of 1 never reads '1 epics',
+    no running release is called 'in progress', no hand-written 'Opens N ... in Jira' sits beside the page's own link line, and every hover-only span is a keyboard stop."""
+    data = MS.make(MS.il_today())
+    url = ctx.write(kit.fragment_for(data), "tips")
+    ch = ctx.chrome
+    seen, over, plural_bug, legacy, opens, exempt = {}, [], [], [], [], {}
+    for h in TIP_VIEWS:
+        ch.goto(url + "#" + h)
+        kit.wait_ready(ch)
+        time.sleep(0.1)
+        ch.js(EXPAND_JS)
+        for x in ch.js(TIP_JS) or []:
+            seen.setdefault(x["tip"], x)
+        spans = ch.js("[...document.querySelectorAll('span.tt[data-tip]')].filter(e => e.getAttribute('tabindex') !== '0' || e.getAttribute('role') !== 'img' || !(e.getAttribute('aria-label') || '').trim()).map(e => e.textContent.trim().slice(0, 40))") or []
+        t.check(not spans, f"{h or '(default)'}: hover-only spans that are not a keyboard stop with a name: {spans[:3]}")
+    t.check(len(seen) > 500, f"too few distinct hover texts were read ({len(seen)}): a blind check")
+    for tip, x in seen.items():
+        lines = tip.split("\n")
+        why = tip_exception(x)
+        if why:
+            exempt[why] = exempt.get(why, 0) + 1
+        elif _words(" ".join(lines[:2])) > TIP_BUDGET_WORDS or len(lines) > TIP_BUDGET_LINES:
+            over.append(f"{_words(' '.join(lines[:2]))} words, {len(lines)} lines: {' / '.join(lines)[:140]}")
+        if re.search(r"(?<![\d,.A-Za-z])1 (epics|bugs|issues|Capabilities|dependencies|pods|items|cases|CFBs|regressions|Done epics|open bugs)\b", lines[0]):
+            plural_bug.append(lines[0][:100])
+        if re.search(r"\(in progress\)|\(current quarter\)|Provisional|\* \(running\)", tip):
+            legacy.append(lines[0][:100])
+        if re.search(r"(?i)\bopens? (the )?\d+ [a-z ]*in Jira|click opens", tip):
+            opens.append(lines[0][:100])
+    t.check(not over, f"{len(over)} hovers over the budget (first block <= {TIP_BUDGET_WORDS} words, <= {TIP_BUDGET_LINES} lines): {over[:4]}")
+    t.check(not plural_bug, f"a count of 1 with a plural noun: {plural_bug[:4]}")
+    t.check(not legacy, f"a retired running-release wording: {legacy[:4]}")
+    t.check(not opens, f"a hand-written 'Opens N ... in Jira': {opens[:4]}")
+    t.note(f"{len(seen)} distinct hovers in {len(TIP_VIEWS)} views; documented exceptions: " + "; ".join(f"{k} ({v})" for k, v in exempt.items()))
 
 
 @SUITE.test("selftest_guard_catches_a_seeded_key_list")

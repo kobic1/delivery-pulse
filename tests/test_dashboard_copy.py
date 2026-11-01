@@ -277,6 +277,29 @@ def test_the_edct_and_ai_tiles_say_last_30_days_not_a_calendar_month():
     assert "const lastMonths" not in TEMPLATE and "function lastMonths(n = 4)" in TEMPLATE
 
 
+def test_the_edct_average_has_no_five_epic_minimum_and_the_ai_share_keeps_it():
+    """Owner decision: one Done epic contributes to the EDCT average (Efficiency chart, its head line and tooltip, the EDCT Days tile and its target line). The AI share and every percentile keep MIN_N."""
+    assert "const MIN_N = 5;" in TEMPLATE and "const EDCT_MIN_N = 1;" in TEMPLATE
+    start = TEMPLATE.index("function renderEfficiency()")
+    eff = TEMPLATE[start:TEMPLATE.index("function renderAdoption()", start)]
+    assert "MIN_N" not in eff.replace("EDCT_MIN_N", "")                                     # the Efficiency chart never reads the 5-epic constant
+    assert "min: EDCT_MIN_N" in eff and "fewer than" not in eff.lower() and "Fewer than" not in eff
+    assert "none is shown" not in BLOCKS["eff"].lower() and "fewer than" not in BLOCKS["eff"].lower() and "shown from one epic" in BLOCKS["eff"]
+    assert "None is shown for fewer than 5." in BLOCKS["ai"]                                 # the share keeps its rule and says so
+    # the tile and its target line use the same constant, never MIN_N
+    assert "ms.edctN >= MIN_N" not in TEMPLATE and TEMPLATE.count("ms.edctN >= EDCT_MIN_N") == 3
+    assert "only ${ms.edctN} epics, need" not in TEMPLATE
+    # the shared monthChart: the placeholder and the empty text follow the chart's own minimum; the AI chart passes none and keeps MIN_N
+    chart = TEMPLATE[TEMPLATE.index("function monthChart("):TEMPLATE.index("const defs = html")]
+    assert "(o.min == null ? MIN_N : o.min) > 1" in chart and "o.empty ||" in chart
+    ai = TEMPLATE[TEMPLATE.index("function renderAdoption()"):TEMPLATE.index("function renderAdoption()") + 1200]
+    assert "min:" not in ai and "share: m.done >= MIN_N ? pct(m.ai, m.done) : null" in ai
+    # the hover text gives the epic count in the right number
+    assert '${nn(r.n, "AI-implemented epic", "AI-implemented epics")}' in eff and 'Average over ${nn(ms.edctN, "AI-implemented epic", "AI-implemented epics")} with an EDCT' in TEMPLATE
+    # percentiles of Cycle Time per Release are untouched
+    assert "ok: vals.length >= MIN_N" in TEMPLATE
+
+
 def test_blocking_external_scope_is_the_only_outside_scope_chip_and_says_what_it_counts():
     """Owner decision: one chip, Blocked by External (dp=blocking): an item in scope waits on a provider whose project is not selected and is not CXCROSS.
     The chip Blocked by Outside Scope is gone: no chip, no hash value, no count, no label, no empty text. An old dp=blockedby link opens the default view."""
@@ -387,9 +410,9 @@ def test_the_burnup_says_which_cycle_rules_the_filter_uses_and_what_history_it_c
     assert "Delivery Cycle 1 line is not drawn" in bu
 
 
-def test_the_tiles_that_name_the_burnup_say_it_matches_only_while_every_cycle_is_shown():
-    assert "counts the same ${tDone} while every Delivery Cycle is shown" in TEMPLATE
-    assert "Epics Delivered, and the burnup while every Delivery Cycle is shown, count" in TEMPLATE
+def test_no_tile_tooltip_claims_the_burnup_always_equals_a_headline_number():
+    """The burnup follows the Delivery Cycle filter, the tiles do not: a tile must not say the burnup counts what it counts."""
+    assert "The burnup under Epics Delivered counts the same" not in TEMPLATE and "Epics Delivered and the burnup count" not in TEMPLATE
 
 
 def test_the_cycles_section_says_how_the_filter_changes_it():
@@ -397,3 +420,12 @@ def test_the_cycles_section_says_how_the_filter_changes_it():
     assert "The Delivery Cycle filter in the filter bar decides which cycles the selector offers" in cy
     assert "epics in no cycle (no planned date, or planned after the release end) are left out" in cy
     assert "The Epics in Release column and the pod tiles that count the whole release do not follow it" in cy
+
+
+def test_the_capabilities_disclosure_names_the_commitment_level_filter_and_what_does_not_apply():
+    cap = BLOCKS["cap"]
+    assert "Commitment Level" in cap and "Not Set means the field is empty" in cap
+    assert "the Commitment Level filter above them, which applies to this section only" in cap
+    assert "Teams in the filter bar do not apply to Capabilities" in cap
+    assert "a Capability has neither" not in cap and "Teams and Commitment Type do not apply" not in cap
+    assert "Filters the Capabilities in this section only." in TEMPLATE

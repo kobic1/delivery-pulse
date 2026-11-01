@@ -179,7 +179,7 @@ def build_fixture() -> Fx:
                   cfbnode(oD["k"], status="Ready for Deploy", resolutiondate=stamp(TODAY, "10:00"), resolution={"name": "Fixed"}, customfield_10051=stamp(TODAY, "09:00"))]
     fx.oA, fx.oB, fx.oC, fx.oD, fx.oE = oA, oB, oC, oD, oE
     # ---- Capabilities
-    fx.capsnodes = [{"id": "1", "key": cap_key, "webUrl": "x", "fields": {"summary": hier[cap_key]["t"], "status": {"name": "In Progress"}, "issuetype": {"name": "Capability"}, "fixVersions": fv27, "project": {"key": "CXCROSS"}}}]
+    fx.capsnodes = [{"id": "1", "key": cap_key, "webUrl": "x", "fields": {"summary": hier[cap_key]["t"], "status": {"name": "In Progress"}, "issuetype": {"name": "Capability"}, "fixVersions": fv27, "project": {"key": "CXCROSS"}, "customfield_10136": {"value": "Revised Level", "id": "12399"}}}]
     # ---- Dependency links: an epic whose links changed (one pair dropped, a Dependency to a known epic, a Blocks from an unknown far end, a link to a Removed issue, another link type)
     lnk = lambda ty, k, status="In Progress", outward=True: {"type": {"name": ty}, ("outwardIssue" if outward else "inwardIssue"): {"key": k, "fields": {"status": {"name": status}, "issuetype": {"name": "Epic"}}}}
     fx.linknodes = [{"id": "1", "key": E1, "webUrl": "x", "fields": {"status": {"name": "In Progress"}, "issuelinks": [lnk("Dependency", E2), lnk("Blocks", "EXA-98001", outward=False), lnk("Dependency", "EXA-98002", status="Removed"), lnk("Relates", "EXA-98003")]}}]
@@ -469,6 +469,7 @@ def _(t: T):
     a, b = r["after"], r["before"]
     t.check(a["hierFv"] == ["27.1"] and b["hierFv"] == ["26.4"], f"the capability's fix version {b['hierFv']} -> {a['hierFv']} (a fix version moved after the pull) in the CXCROSS data")
     t.check(a["listFv"] == ["27.1"] and a["listS"] == "In Progress", f"the Capability list carries the new fix version and status: {a['listFv']} {a['listS']}")
+    t.check(a["listCl"] == "Revised Level" and b["listCl"] != "Revised Level", f"the Capability's Commitment Level is read again (customfield_10136): {b['listCl']!r} -> {a['listCl']!r}")
     t.check(a["capNoFv"] == {"total": 2, "done": 1} and a["capPulledAt"] != b["capPulledAt"], f"the no-fix-version count is re-read: {a['capNoFv']}")
 
 
@@ -940,6 +941,23 @@ def _(t: T):
         scenario("ok", hook=hook, cache=False, **kw)
         ch = ctx.chrome
         t.check(not ch.js("window.__x === 1") and ch.js("document.querySelectorAll('#status img').length") == 0, f"{label}: the hostile text did not run and made no element")
+
+
+@SUITE.test("refresh_accessibility_bug_follows_the_three_way_control")
+def _(t: T):
+    """A bug the Refresh reads through the accessibility query is flagged, and the Quality section places it by the Accessibility Bugs control: out under No, in under All, the only kind under Yes
+    (a new plain bug is the other way round). Driven through the real buttons after the Refresh."""
+    fx = build_fixture()
+    r = scenario("ok", cache=False)
+    t.check(not r["errors"], f"no uncaught page errors: {r['errors'][:2]}")
+    ch = ctx.chrome
+    js = ("(() => { const out = {}; for (const v of ['no', 'yes', 'all']) { document.querySelector('#f-ax input[value=\"' + v + '\"]').click(); const open = backlogBugs().filter(isOpenBug).map(b => b.k);"
+          " out[v] = {ax: open.includes('%s'), plain: open.includes('%s'), n: open.length, tile: document.querySelector('#bug-kpis .kpi .v').textContent.replace(/,/g, '')}; } return out; })()") % (fx.S["axBug"], fx.S["newBug"])
+    seen = ch.js(js)
+    t.check(seen["no"]["ax"] is False and seen["no"]["plain"] is True, f"No: the new accessibility bug is out, the new plain bug is in: {seen['no']}")
+    t.check(seen["yes"]["ax"] is True and seen["yes"]["plain"] is False, f"Yes: only the accessibility bug: {seen['yes']}")
+    t.check(seen["all"]["ax"] is True and seen["all"]["plain"] is True, f"All: both: {seen['all']}")
+    t.check(seen["all"]["n"] == seen["no"]["n"] + seen["yes"]["n"] and all(str(v["n"]) == v["tile"] for v in seen.values()), f"All = No + Yes and the tile shows the count: {seen}")
 
 
 @SUITE.test("refresh_redraws_after_the_first_step_not_only_at_the_end")

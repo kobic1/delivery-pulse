@@ -239,3 +239,29 @@ def test_the_helper_exists_once_in_each_and_the_page_reads_the_reserved_list_fro
 
 def test_int_uses_the_plain_pod_pattern_without_a_configuration_file():
     assert BD.pod_patterns()["INT"] == BD.POD_DEFAULT_RX and not (HERE.parent / "release_planning" / "config_int.json").exists()
+
+
+def test_a_capability_record_carries_its_commitment_level_or_an_empty_string():
+    """capList records are {t, s, p, fv, cl}: cl is the option of customfield_10136 (a single select), "" when the field is empty; the field is requested in every Capability read."""
+    asked = []
+
+    def issue(key, level):
+        f = {"summary": "A capability", "status": {"name": "New"}, "fixVersions": [{"name": "27.1"}], "project": {"key": key.split("-")[0]}}
+        if level is not False:
+            f["customfield_10136"] = level
+        return {"key": key, "fields": f}
+
+    class Jira:
+        issues = [issue("AAA-1", {"value": "Committed", "id": "1"}), issue("AAA-2", None), issue("AAA-3", False), issue("AAA-4", {"value": "Stretch"})]
+
+        def search(self, jql, fields):
+            asked.append((jql, list(fields)))
+            if "fixVersion is EMPTY" in jql:
+                return []
+            if jql.startswith("parent in"):
+                return []
+            return self.issues if "fixVersion in" in jql else []
+    out = BD.collect_capabilities(Jira(), set())
+    assert {k: v["cl"] for k, v in out["capList"].items()} == {"AAA-1": "Committed", "AAA-2": "", "AAA-3": "", "AAA-4": "Stretch"}
+    assert set(out["capList"]["AAA-1"]) == {"t", "s", "p", "fv", "cl"}
+    assert all("customfield_10136" in f for j, f in asked if "issuetype = Capability" in j and "fixVersion in" in j)

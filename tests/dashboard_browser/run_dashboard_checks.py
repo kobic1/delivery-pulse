@@ -7,6 +7,7 @@
      link_cycles.py (every Delivery Cycles query finds the epics the page counts);
      tile_oracle.py (the EDCT Days and Epics by AI tiles cover the last 30 days; every tile link finds the epics counted);
      cycle_filter_oracle.py (the Delivery Cycle filter: the burnup and the Cycles section against an independent recount, the header control, seeded defects);
+     ax_oracle.py (the Accessibility Bugs All / Yes / No control of the Quality section: recount, links, hash, keyboard, seeded defects);
   4. leak_check.py (nothing real in this folder, when a real payload is on the machine);
   5. a pass/fail summary. Exit code 1 on any FAIL. Tests that are expected to fail until a fix lands (XFAIL) are listed apart and
      do not fail the run unless --strict.
@@ -35,7 +36,7 @@ sys.path.insert(0, str(HERE))
 import kit                                                                          # noqa: E402
 import make_synthetic as MS                                                         # noqa: E402
 
-SUITES = [("harness", "harness.py"), ("canary", "canary.py"), ("link oracle", "link_oracle.py"), ("link guard", "link_guard.py"), ("cycles links", "link_cycles.py"), ("dependency direction", "dep_oracle.py"), ("headline tiles", "tile_oracle.py"), ("delivery cycle filter", "cycle_filter_oracle.py")]
+SUITES = [("harness", "harness.py"), ("canary", "canary.py"), ("link oracle", "link_oracle.py"), ("link guard", "link_guard.py"), ("cycles links", "link_cycles.py"), ("dependency direction", "dep_oracle.py"), ("capabilities commitment level", "cap_oracle.py"), ("headline tiles", "tile_oracle.py"), ("accessibility control", "ax_oracle.py"), ("delivery cycle filter", "cycle_filter_oracle.py")]
 
 
 def step_pytest() -> dict:

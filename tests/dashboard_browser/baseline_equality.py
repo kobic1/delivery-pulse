@@ -65,12 +65,15 @@ REWORDED: list[tuple[str, str]] = [
     ("Jira gaps that weaken the figures above; all commitment types.", "Jira gaps that weaken the figures above."),
     ("Forecast Epics and the burnup use it, whatever the Commitment Type filter shows.", "Forecast Epics and the burnup use it."),
     ("follows the Release, Projects, Teams and Commitment Type filters and has its own Delivery Cycle choice.", "follows the Release, Projects, Teams and Delivery Cycle filters, and its own cycle choice picks one of the cycles the filter leaves in."),
+    ("\nThe Commitment Type checkboxes do not change the target scope.", ""),
+    (", selected Commitment Types\"", "\""),
+    (", selected Commitment Types. Opens", ". Opens"),
+    (". The Commitment Type checkboxes do not change the target scope.", "."),
+    ("Teams and the Commitment Type in the filter bar do not apply to Capabilities,", "Teams in the filter bar do not apply to Capabilities,"),
+    ("Under the Projects, Teams and Commitment Type filters.", "Under the Projects and Teams filters."),
 ]
-# the two tooltip sentences that said the burnup counts what the Epics Delivered tile counts: true only while every Delivery Cycle is shown, so they say so
-REWORDED_RE: list[tuple[str, str]] = [
-    (r"(Epics Delivered counts the same \d+)\"", r'\1 while every Delivery Cycle is shown"'),
-    (r"Epics Delivered and the burnup count (\d+) Done epics", r"Epics Delivered, and the burnup while every Delivery Cycle is shown, count \1 Done epics"),
-]
+
+REWORDED_RE: list[tuple[str, str]] = []
 # regexes deleted from the NEW html: text that the Delivery Cycle filter adds (its two entries in the burnup's How this is calculated)
 ADDED = [r"<li>\s*<b>Delivery Cycle filter</b>.*?</li>", r"<li>\s*<b>Delivery Cycle filter, details</b>.*?</li>"]
 
