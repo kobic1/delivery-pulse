@@ -624,7 +624,12 @@ footer.f b { color:var(--ink); }
           <label class="chip"><input type="radio" name="f-cfb" value="yes"> Yes</label>
           <label class="chip"><input type="radio" name="f-cfb" value="no"> No</label>
         </div></div>
-      <label class="toggle" id="g-ax"><input type="checkbox" id="f-ax"> Include Accessibility Bugs</label>
+      <div class="fg" id="g-ax"><span class="lbl" id="lbl-ax">Accessibility Bugs</span>
+        <div class="chips seg" id="f-ax" role="radiogroup" aria-labelledby="lbl-ax">
+          <label class="chip"><input type="radio" name="f-ax" value="all"> All</label>
+          <label class="chip"><input type="radio" name="f-ax" value="yes"> Yes</label>
+          <label class="chip"><input type="radio" name="f-ax" value="no"> No</label>
+        </div></div>
     </div>
     <div class="kpis five" id="bug-kpis"></div>
     <a class="skip" href="#h-bugtable" data-skip="h-bugtable">Skip to the Bug Table</a>
@@ -807,6 +812,7 @@ const CLASS = {                                               // workflow-status
   notStarted: ["Candidate", "New", "In Definition", "Ready for Dev"],
 };
 const MIN_N = 5;                                              // no percentile, share or trend under 5 items
+const EDCT_MIN_N = 1;                                         // the EDCT average (tile and Efficiency chart) is shown from one epic: owner decision, MIN_N does not apply to it
 const NO_TEAM = "(No Team)";
 const EMPTY_SHORT = "Nothing to show for this selection.";
 const CFB_RESOLUTIONS = ["Fixed", "Fixed - Config"];
@@ -865,7 +871,7 @@ DATA.epics.forEach(e => (e.tm || []).forEach(t => KNOWN_TEAMS.add(t)));
 DATA.bugs.forEach(b => { if (b.tm) KNOWN_TEAMS.add(b.tm); });
 
 // ---------------------------------------------------------------- state (kept in the URL when opened as a file, in browser storage in the viewer)
-const defaults = () => ({release: DATA.current, projects: new Set(projectsAll), teams: new Set(), commit: new Set(DEFAULT_COMMIT), ax: false, bugPri: new Set(PRI_ALL), cfb: "all", capLvlOff: new Set(), gran: "month", cfbGroup: "version", depFilter: "epics", nfrTab: "project", cx: "all", cap: {by: "quarter", measure: "sp"}, cy: cyDefaults()});
+const defaults = () => ({release: DATA.current, projects: new Set(projectsAll), teams: new Set(), commit: new Set(DEFAULT_COMMIT), ax: "no", bugPri: new Set(PRI_ALL), cfb: "all", capLvlOff: new Set(), gran: "month", cfbGroup: "version", depFilter: "epics", nfrTab: "project", cx: "all", cap: {by: "quarter", measure: "sp"}, cy: cyDefaults()});
 const state = {...defaults()};
 let projMulti = false;                                         // the Multi-Select toggle; the mode is derived: 2 to 5 projects are always in multi-select mode, nothing is stored
 const resetFilters = () => { projMulti = false; cyBugsOpen.clear(); CY_FIND = ""; CY_PODLIST = null; CY_RET = null; return Object.assign(state, defaults()); };
@@ -876,7 +882,7 @@ function readParams(h) {
   { const p = (list("p") || []).filter(x => projectsAll.includes(x)); if (p.length) state.projects = new Set(projectsAll.filter(x => p.includes(x))); }      // p=none (an older link) reads as all projects: no view has an empty selection
   const t = (list("t") || []).filter(x => KNOWN_TEAMS.has(x)); if (t.length) state.teams = new Set(t);
   { const c = (list("c") || []).filter(x => COMMIT.includes(x)); if (c.length) state.commit = new Set(c); }      // c=none reads as all three
-  if (h.get("ax") === "1") state.ax = true;
+  if (["all", "yes"].includes(h.get("ax"))) state.ax = h.get("ax"); else if (h.get("ax") === "1") state.ax = "all";      // ax=1 is an older link: it opened with accessibility bugs included
   if (h.get("bp") === "none") state.bugPri = new Set(); else { const bp = (list("bp") || []).filter(x => PRI_ALL.includes(x)); if (bp.length) state.bugPri = new Set(bp); }
   if (["yes", "no"].includes(h.get("cfb"))) state.cfb = h.get("cfb");
   { const off = (list("clx") || []).map(x => x === CL_NONE_TOKEN ? "" : x).filter(x => CAP_LEVEL_VALUES().has(x)); if (off.length) state.capLvlOff = new Set(off); }      // Capabilities: the Commitment Levels switched off ("~notset" = Not Set); only a level the data holds is accepted
@@ -895,7 +901,7 @@ function serialize() {
   if (state.projects.size !== projectsAll.length && state.projects.size) h.set("p", projectsAll.filter(x => state.projects.has(x)).join("|"));      // canonical project order, whatever order they were clicked in
   if (state.teams.size) h.set("t", [...state.teams].join("|"));
   if ([...state.commit].sort().join() !== [...DEFAULT_COMMIT].sort().join()) if (state.commit.size) h.set("c", COMMIT.filter(x => state.commit.has(x)).join("|"));
-  if (state.ax) h.set("ax", "1");
+  if (state.ax !== "no") h.set("ax", state.ax);
   if (state.bugPri.size !== PRI_ALL.length) h.set("bp", state.bugPri.size ? [...state.bugPri].join("|") : "none");
   if (state.cfb !== "all") h.set("cfb", state.cfb);
   if (state.capLvlOff.size) h.set("clx", [...state.capLvlOff].sort((a, b) => a === "" ? 1 : b === "" ? -1 : a.localeCompare(b)).map(clTok).join("|"));
@@ -937,8 +943,8 @@ const cycleOf = e => e.edct;                                  // cycle time is a
 // bugs carry one team (Team Name)
 const bugTeamOk = b => !state.teams.size || state.teams.has(b.tm || NO_TEAM);
 const bugsBase = () => DATA.bugs.filter(b => state.projects.has(b.p) && bugTeamOk(b));
-// The Bugs Backlog section also honours the accessibility switch, Priority and CFB; the CFB section does not.
-const backlogBugs = () => bugsBase().filter(b => (state.ax || !b.ax) && (state.bugPri.size === PRI_ALL.length || state.bugPri.has(b.pr)) &&
+// The Bugs Backlog section also honours Accessibility Bugs (No = leave them out, Yes = only them, All = both), Priority and CFB; the CFB section does not.
+const backlogBugs = () => bugsBase().filter(b => (state.ax === "all" || (state.ax === "yes") === !!b.ax) && (state.bugPri.size === PRI_ALL.length || state.bugPri.has(b.pr)) &&
   (state.cfb === "all" || (state.cfb === "yes") === !!b.cfb));
 
 // One sentence that names why a section has nothing to show.
@@ -959,7 +965,8 @@ function whyEmpty(kind) {
     if (anyC && !scopeOf(state.release).length) return `No epics on ${rel} have the selected commitment types. ${anyC} ${epicWord(anyC)} have other types; change Commitment Type in the filter bar.`;
     return `No epics on ${rel} match these filters.`;
   }
-  return "No bugs match these filters. Priority, CFB and the accessibility switch also apply to this section.";
+  if (kind === "bugs" && state.ax === "yes" && !bugsBase().some(b => b.ax)) return "No accessibility bugs are recorded in the selected projects and teams. Set Accessibility Bugs to No or All to see the other bugs.";
+  return "No bugs match these filters. Priority, CFB and Accessibility Bugs also apply to this section.";
 }
 
 function percentile(sorted, p) {
@@ -1063,11 +1070,13 @@ function jira(o = {}) {
   return href(jql);
 }
 const AX_EXCLUDE = ` AND summary !~ "\\"[Accessibility]*\\"" AND (labels != DWP_Accessibility_Defect OR labels is EMPTY)`;
+const AX_ONLY = ` AND (summary ~ "\\"[Accessibility]*\\"" OR labels = DWP_Accessibility_Defect)`;
+const AX_WORDS = {no: "excluding accessibility bugs", all: "including accessibility bugs", yes: "only accessibility bugs"};
 function jiraBugs(o = {}) {
   const projects = o.projects || [...state.projects];
   if (!projects.length) return null;
   let jql = `project in (${pkeys(projects)}) AND issuetype = Bug` + bugTeamClause(o.teams === undefined ? state.teams : o.teams);
-  if (!o.keepAx && !state.ax) jql += AX_EXCLUDE;
+  if (!o.keepAx && state.ax !== "all") jql += state.ax === "yes" ? AX_ONLY : AX_EXCLUDE;
   if (state.bugPri.size !== PRI_ALL.length) {
     const named = PRIORITIES.filter(k => state.bugPri.has(k)), parts = [];
     if (named.length) parts.push(`priority in (${named.join(", ")})`);
@@ -1354,9 +1363,9 @@ function renderStatus() {
     {k: `Release ${esc(rel)}`, c: "d", v: tlink(TB.N, TB.href, TB.tip), l: "Forecast Epics",
      s: !TB.win ? "Target scope: Committed + Not Set" : TB.pre ? `Target scope so far; W1 starts ${shortDate(TB.w1)}` : `Committed + Not Set on ${shortDate(TB.w1)}`,
      x: !TB.win || TB.pre ? "" : `${tipSpan(`${TB.added >= 0 ? "+" : "−"}${Math.abs(TB.added).toLocaleString("en-US")} ${TB.added >= 0 ? "" : "removed "}since W1`, `${Math.abs(TB.added)} target epics ${TB.added >= 0 ? "were added to" : "left"} ${rel} after the first day of W1: ${TB.today} today minus ${TB.N} on ${shortDate(TB.w1)}`)} (${tlink(TB.today, TB.hrefToday, `${TB.today} epics are in the target today (Committed + Not Set)`)} today)`},
-    {k: to, c: "e", v: ms.edctN >= MIN_N ? link(Math.round(ms.edctAvg), jiraMonth(mo, aiMonth, "edct")) : "–", l: "EDCT Days",
-     s: ms.edctN >= MIN_N ? tipSpan("average of AI-implemented epics", `Average over ${ms.edctN} AI-implemented epics with an EDCT, resolved ${inWin}\nMaintenance epics are left out. The link opens the AI-implemented epics resolved in the same window; Jira cannot search for the EDCT, so an epic that has none yet is listed but not averaged.`) : `only ${ms.edctN} epics, need ${MIN_N}`, x: f.edct && f.edct.t, xc: f.edct && f.edct.c},
-    {k: "Today", c: "q", v: link(open.length, jiraBugs({extra: OPEN_BUG_JQL})), l: "Open Bugs", s: `${state.ax ? "including" : "excluding"} accessibility bugs${filtered ? "; Priority or CFB filter on" : ""}`, x: f.bugs && f.bugs.t, xc: f.bugs && f.bugs.c},
+    {k: to, c: "e", v: ms.edctN >= EDCT_MIN_N ? link(Math.round(ms.edctAvg), jiraMonth(mo, aiMonth, "edct")) : "–", l: "EDCT Days",
+     s: ms.edctN >= EDCT_MIN_N ? tipSpan("average of AI-implemented epics", `Average over ${ms.edctN} AI-implemented ${epicWord(ms.edctN)} with an EDCT, resolved ${inWin}\nMaintenance epics are left out. The link opens the AI-implemented epics resolved in the same window; Jira cannot search for the EDCT, so an epic that has none yet is listed but not averaged.`) : "no AI-implemented epics with an EDCT", x: f.edct && f.edct.t, xc: f.edct && f.edct.c},
+    {k: "Today", c: "q", v: link(open.length, jiraBugs({extra: OPEN_BUG_JQL})), l: "Open Bugs", s: `${AX_WORDS[state.ax]}${filtered ? "; Priority or CFB filter on" : ""}`, x: f.bugs && f.bugs.t, xc: f.bugs && f.bugs.c},
     {k: to, c: "a", v: ms.done >= MIN_N ? link(pct(ms.ai, ms.done) + "%", jiraMonth(mo, aiMonth)) : "–", l: `Epics by AI${infoMark("ai-excl", "Maintenance and SOW excluded", `Excludes ${AI_EXCL_TEXT} epics: ${ms.excl} resolved ${inWin}.`)}`,
      s: ms.done ? `${tlink(ms.ai, jiraMonth(mo, aiMonth), `${ms.ai} epics implemented by AI, resolved ${inWin}\nEpics with a fix version from ${DATA.releases[0]} to ${DATA.releases[DATA.releases.length - 1]}, ${AI_EXCL_TEXT} excluded.`)} of ${tlink(ms.done, jiraMonth(mo), `${ms.done} epics resolved ${inWin}\nEpics with a fix version from ${DATA.releases[0]} to ${DATA.releases[DATA.releases.length - 1]}, ${AI_EXCL_TEXT} excluded.`)} resolved${ms.done < MIN_N ? ", too few for a share" : ""} · ${ms.done - ms.ai ? tlink(ms.done - ms.ai, jiraMonth(mo, AI_NOT), aiNotTip(ms.done - ms.ai, `resolved ${inWin}`)) : "0"} not AI${f.ai ? ` · ${f.ai}` : ""}` : `no epics resolved in the last ${WINDOW_DAYS} days`,
      },
@@ -1370,7 +1379,7 @@ function statusFacts(ms) {
   if (p && p.N >= MIN_N) out.pace = p.closed ? `Target scope was ${p.N.toLocaleString("en-US")} on the first day of W1`
     : p.pre ? `W1 starts ${shortDate(p.w1)}`
     : `Target even-pace reference ${Math.round(p.pace).toLocaleString("en-US")} (day ${p.d} of ${p.D})`;
-  if (ms.edctN >= MIN_N) { const a = Math.round(ms.edctAvg), over = a - EDCT_TARGET;
+  if (ms.edctN >= EDCT_MIN_N) { const a = Math.round(ms.edctAvg), over = a - EDCT_TARGET;
     out.edct = {c: over > 0 ? "watch" : "ok", t: `${over > 0 ? `${over} over` : "Within"} the ≤${EDCT_TARGET} target`}; }
   const s4 = bugSeries().slice(-4), cr = s4.reduce((a, x) => a + x.created, 0), rs = s4.reduce((a, x) => a + x.resolved, 0), net = rs - cr;
   if (cr + rs >= MIN_N && backlogBugs().filter(isOpenBug).length >= MIN_N) out.bugs = net === 0 ? {t: "Unchanged over the last 4 weeks"}
@@ -1379,11 +1388,11 @@ function statusFacts(ms) {
   if (ms.done >= MIN_N && pm.done >= MIN_N) out.ai = tlink(`Previous ${WINDOW_DAYS} days ${pct(pm.ai, pm.done)}%`, jiraMonth(prev, " AND cf[15229] = Yes"), `The previous ${WINDOW_DAYS} days (${windowWords(prev)}) were ${pct(pm.ai, pm.done)}%: ${pm.ai} of ${pm.done} epics resolved; ${pm.done - pm.ai} not marked as AI\nOpens the ${pm.ai} epics implemented by AI`);
   return out;
 }
-function monthChart(hostId, capId, dataId, rows, o) {       // o: value(r), label(r), sc, fmtv, fill, target
+function monthChart(hostId, capId, dataId, rows, o) {       // o: value(r), label(r), sc, fmtv, fill, target; min (the smallest n a bar needs, MIN_N when absent; 1 = no minimum), empty (text when nothing can be plotted)
   const host = document.getElementById(hostId);
   if (!state.projects.size) { host.innerHTML = `<div class="empty">${whyEmpty("epics")}</div>`; document.getElementById(capId).textContent = ""; document.getElementById(dataId).innerHTML = ""; return; }
   if (rows.every(r => o.value(r) == null)) {
-    host.innerHTML = `<div class="empty">Not enough resolved epics yet. Each ${GRAN[state.gran].noun} needs at least ${MIN_N}.</div>`; document.getElementById(dataId).innerHTML = ""; return;
+    host.innerHTML = `<div class="empty">${o.empty || `Not enough resolved epics yet. Each ${GRAN[state.gran].noun} needs at least ${MIN_N}.`}</div>`; document.getElementById(dataId).innerHTML = ""; return;
   }
   // drawn at the pixel width it is shown at (text stays about 11px); a long series scrolls inside its own card
   const pl = 38, pr = 74, pt = 22, pb = 48, H2 = 240, W2 = chartWidth(host, rows.length * 36 + pl + pr), slot = (W2 - pl - pr) / rows.length, bw = Math.min(46, slot * .5);
@@ -1397,7 +1406,7 @@ function monthChart(hostId, capId, dataId, rows, o) {       // o: value(r), labe
   rows.forEach((r, i) => {
     const cx = pl + slot * i + slot / 2, v = o.value(r);
     let m = `<rect class="hit" x="${cx - slot / 2}" y="${pt - 8}" width="${slot}" height="${H2 - pb - pt + 8}" fill="transparent"/>`;
-    if (v == null) m += `<text x="${cx}" y="${H2 - pb - 8}" text-anchor="middle" font-size="11" fill="#5A5F6B">n&lt;${MIN_N}</text>`;
+    if (v == null) m += `<text x="${cx}" y="${H2 - pb - 8}" text-anchor="middle" font-size="11" fill="#5A5F6B">${(o.min == null ? MIN_N : o.min) > 1 ? `n&lt;${o.min == null ? MIN_N : o.min}` : "–"}</text>`;
     else {
       const run = i === rows.length - 1;                          // the running period is drawn as an outline, so a part-period never reads as a full one
       m += `<rect x="${cx - bw / 2}" y="${y(v)}" width="${bw}" height="${H2 - pb - y(v)}" fill="${o.fill}"${run ? ` fill-opacity=".3" stroke="${o.fill}" stroke-width="2" stroke-dasharray="4 2"` : ""}/>`;
@@ -1432,22 +1441,22 @@ function renderLimitedNotes() {
     : `Cycle time: ${e0 ? `refreshed ${ilLabel(e0)}` : "not refreshed yet"}; Capitalization: ${c ? `refreshed ${ilLabel(c)}` : "not refreshed yet"}`) + "; Refresh updates them up to twice a day.";
 }
 function renderEfficiency() {
-  const rows = periods().map(mo => { const m = monthStats(mo); return {mo, n: m.edctN, avg: m.edctN >= MIN_N ? m.edctAvg : null}; });
+  const rows = periods().map(mo => { const m = monthStats(mo); return {mo, n: m.edctN, avg: m.edctN >= EDCT_MIN_N ? m.edctAvg : null}; });
   const cur = rows[rows.length - 1], head = document.getElementById("eff-head"), cap = document.getElementById("eff-cap");
   document.getElementById("eff-sub").textContent = `AI-implemented epics, by resolution ${GRAN[state.gran].noun}.`;
-  monthChart("eff-chart", "eff-cap", "eff-data", rows, {value: r => r.avg == null ? null : Math.round(r.avg), sc: niceScale(Math.max(EDCT_TARGET, ...rows.map(r => r.avg || 0)) * 1.1), fmtv: v => String(v), fill: "#249A89", ink: "#1C7A6C", target: EDCT_TARGET, href: r => jiraMonth(r.mo, " AND cf[15229] = Yes", "edct"), nHref: r => r.n ? jiraMonth(r.mo, " AND cf[15229] = Yes", "edct") : null,
-    tip: r => r.avg == null ? `${pname(r.mo)}\nFewer than ${MIN_N} AI-implemented epics, so no average is shown` : `${pname(r.mo)}\nAverage EDCT ${Math.round(r.avg)} days\n${r.n} AI-implemented epics`, title: `Average EDCT days per ${GRAN[state.gran].noun}`, col: "Average EDCT Days"});
+  monthChart("eff-chart", "eff-cap", "eff-data", rows, {value: r => r.avg == null ? null : Math.round(r.avg), sc: niceScale(Math.max(EDCT_TARGET, ...rows.map(r => r.avg || 0)) * 1.1), fmtv: v => String(v), fill: "#249A89", ink: "#1C7A6C", target: EDCT_TARGET, min: EDCT_MIN_N, empty: "No resolved epic implemented by AI has an EDCT yet.", href: r => jiraMonth(r.mo, " AND cf[15229] = Yes", "edct"), nHref: r => r.n ? jiraMonth(r.mo, " AND cf[15229] = Yes", "edct") : null,
+    tip: r => r.avg == null ? `${pname(r.mo)}\nNo AI-implemented epics with an EDCT, so no average is shown` : `${pname(r.mo)}\nAverage EDCT ${Math.round(r.avg)} days\n${r.n} AI-implemented ${epicWord(r.n)}`, title: `Average EDCT days per ${GRAN[state.gran].noun}`, col: "Average EDCT Days"});
   renderLimitedNotes();
   if (!state.projects.size) { head.innerHTML = ""; cap.innerHTML = ""; return; }
   const a = cur.avg == null ? null : Math.round(cur.avg), over = a == null ? 0 : a - EDCT_TARGET;
-  head.innerHTML = a == null ? `– <small>${pwords(cur.mo)} · fewer than ${MIN_N} epics so far</small>`
-    : `${a} days <small>${pwords(cur.mo)} so far · ${over > 0 ? `${over} over` : "within"} the ≤${EDCT_TARGET} target</small>`;
+  head.innerHTML = a == null ? `– <small>${pwords(cur.mo)} · no epics with an EDCT so far</small>`
+    : `${a} days <small>${pwords(cur.mo)} so far · ${cur.n} ${epicWord(cur.n)} · ${over > 0 ? `${over} over` : "within"} the ≤${EDCT_TARGET} target</small>`;
   cap.innerHTML = defs(howBody({id: "eff",
     bl: `Use this to see whether AI-implemented epics finish inside the ${EDCT_TARGET}-day target. Each bar is the average EDCT of epics resolved in the ${GRAN[state.gran].noun}.`,
     defs: [
       ["EDCT (epic development cycle time)", `calendar days an epic ended in In Progress or Validation. Flagged days and the Done day are not counted.`],
       ["Included", `Done epics resolved in the period with Implemented by AI Agent set to Yes and an EDCT value.`],
-      ["Average", `the mean EDCT of those epics. None is shown for fewer than 5 epics.`]
+      ["Average", `the mean EDCT of those epics. It is shown from one epic; n= under a bar is the number of epics averaged.`]
     ],
     left: `Epics in the Maintenance Issue Category, and epics not marked as AI.`,
     know: `Follows Projects and Teams. Cycle Time per Release also counts epics that AI did not implement, so the two are not comparable. The EDCT Days tile at the top is a different window: the last ${WINDOW_DAYS} days, not this chart's running ${GRAN[state.gran].noun}. * and the dashed outline mark the running ${GRAN[state.gran].noun}.`}));
@@ -1999,7 +2008,6 @@ function bugNoDateNote() {
 function renderBugs() {
   const sub = document.getElementById("bugs-sub"), kpis = document.getElementById("bug-kpis"), el = document.getElementById("bug-chart");
   const legend = document.getElementById("bug-legend"), cap = document.getElementById("bug-cap");
-  document.getElementById("f-ax").checked = state.ax;
   {
     const sr = state.projects.size ? bugSeries() : [], pk = sr.length ? sr.reduce((a, b) => b.open > a.open ? b : a) : null;
     const nOpen = backlogBugs().filter(isOpenBug).length;
@@ -2013,7 +2021,7 @@ function renderBugs() {
       ["Open at a week end", `created before that week end, and either open today or resolved on or after it.`],
       ["Weeks", `the last ${WEEKS}, starting Monday. A dashed bar is the running week.`]
     ],
-    left: `Accessibility bugs are ${state.ax ? "included" : "excluded, as in the weekly email"}. ${bugNoDateNote()}`,
+    left: `${{no: "Accessibility bugs are excluded, as in the weekly email.", all: "Accessibility bugs are included.", yes: "Only accessibility bugs are counted."}[state.ax]} ${bugNoDateNote()}`,
     know: `Follows Projects and Teams. Release and Commitment Type filters do not apply. The Priority and CFB filters below apply here only. Links use Jira's own dates, so a bug at the edge of a day can differ by one.`,
     more: [
       ["The chart", `values are printed on top of each bar and on the line; every bar and point also has its value on hover. A narrow card scrolls the chart sideways.`]
@@ -3904,7 +3912,7 @@ function buildFilters() {
     if (!e.target.checked && state.commit.size === 1) { e.target.checked = true; announce("At least one commitment type must stay selected"); return; }       // the last one cannot be switched off
     e.target.checked ? state.commit.add(e.target.value) : state.commit.delete(e.target.value); update({hold: holdSel(e.target)});
   };
-  document.getElementById("f-ax").onchange = e => { state.ax = e.target.checked; update({hold: holdSel(e.target)}); };
+  document.getElementById("f-ax").onchange = e => { state.ax = e.target.value; update({hold: holdSel(e.target)}); };
   const bp = document.getElementById("f-bpri");
   bp.innerHTML = PRI_ALL.map(k => `<label class="chip"><input type="checkbox" value="${k}"> ${k}</label>`).join("");
   bp.onchange = e => { e.target.checked ? state.bugPri.add(e.target.value) : state.bugPri.delete(e.target.value); update({hold: holdSel(e.target)}); };
@@ -3963,7 +3971,7 @@ function renderTeamList() {
 function filterChanges() {
   const same = (a, b) => a.size === b.length && b.every(x => a.has(x));
   return {release: state.release !== DATA.current, projects: !same(state.projects, projectsAll), teams: state.teams.size > 0, commit: !same(state.commit, DEFAULT_COMMIT),
-    bugpri: state.bugPri.size !== PRI_ALL.length, cfb: state.cfb !== "all", caplevel: capLevelChanged(), ax: state.ax, period: state.gran !== "month", cfbgrp: state.cfbGroup !== "version", depfilter: state.depFilter !== "epics", nfrtab: state.nfrTab !== "project", cx: state.cx !== "all", cap: state.cap.by !== "quarter" || state.cap.measure !== "sp", cycles: cyChanged()};
+    bugpri: state.bugPri.size !== PRI_ALL.length, cfb: state.cfb !== "all", caplevel: capLevelChanged(), ax: state.ax !== "no", period: state.gran !== "month", cfbgrp: state.cfbGroup !== "version", depfilter: state.depFilter !== "epics", nfrtab: state.nfrTab !== "project", cx: state.cx !== "all", cap: state.cap.by !== "quarter" || state.cap.measure !== "sp", cycles: cyChanged()};
 }
 function syncControls() {
   const ch = filterChanges(), nCh = Object.values(ch).filter(Boolean).length;
@@ -3976,6 +3984,7 @@ function syncControls() {
   document.querySelectorAll("#f-cx input").forEach(i => { i.checked = i.value === state.cx; i.parentElement.classList.toggle("on", i.checked); });
   document.querySelectorAll("#f-cfbgrp input").forEach(i => { i.checked = i.value === state.cfbGroup; i.parentElement.classList.toggle("on", i.checked); });
   document.querySelectorAll("#f-cfb input").forEach(i => { i.checked = i.value === state.cfb; i.parentElement.classList.toggle("on", i.checked); });
+  document.querySelectorAll("#f-ax input").forEach(i => { i.checked = i.value === state.ax; i.parentElement.classList.toggle("on", i.checked); });
   document.querySelectorAll("#f-bpri input").forEach(i => { i.checked = state.bugPri.has(i.value); i.parentElement.classList.toggle("on", i.checked); });
   { const pc = document.getElementById("f-projects"), cmp = projMultiOn(), n = state.projects.size, N = projectsAll.length, chips = [...pc.querySelectorAll("button.chip")];
     pc.classList.toggle("seg", !cmp);
