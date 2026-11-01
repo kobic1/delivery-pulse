@@ -254,3 +254,24 @@ def test_the_edct_target_is_still_called_a_target():
     assert "finish inside the ${EDCT_TARGET}-day target" in BLOCKS["eff"]
     assert "the ≤${EDCT_TARGET} target" in TEMPLATE
     assert not re.search(r"EDCT[^`\n]{0,40}reference", BLOCKS["eff"])
+
+
+def test_the_edct_and_ai_tiles_say_last_30_days_not_a_calendar_month():
+    """Owner decision: the EDCT Days and Epics by AI tiles cover the last 30 days (a rolling window), so no text may call them month to date or equate them with the charts' running period."""
+    assert "to = `Last ${WINDOW_DAYS} Days`" in TEMPLATE and "const WINDOW_DAYS = 30;" in TEMPLATE
+    assert "`${mname} to Date`" not in TEMPLATE and "to Date`" not in TEMPLATE
+    assert "mo = lastDays()" in TEMPLATE and "lastMonths(1)[0]" not in TEMPLATE                  # the tiles use the window, not the calendar month
+    assert "lastDays(1)" in TEMPLATE and "lastMonths(2)[0]" not in TEMPLATE                      # the comparison is the 30 days before it
+    assert "Previous ${WINDOW_DAYS} days" in TEMPLATE and "previous full month" not in TEMPLATE
+    assert "tiles stay monthly" not in TEMPLATE and "the tiles use the last 30 days" in TEMPLATE
+    assert "in the last ${WINDOW_DAYS} days (${windowWords(mo)})" in TEMPLATE                      # the hover texts name the window in words, with its dates
+    start = TEMPLATE.index("function renderStatus()")
+    tiles = TEMPLATE[start:TEMPLATE.index("function monthChart(", start)]
+    tile_lines = "\n".join(l for l in tiles.splitlines() if "k: to," in l or "inWin" in l or "out.ai =" in l or "out.edct" in l)       # the two tiles and their comparison (the other tiles say "so far" about the target scope)
+    assert tile_lines.count("inWin") >= 6
+    for stale in ("to Date", "month-to-date", "so far", "previous month", "${mo.mon}", "${prev.mon}"):
+        assert stale not in tile_lines, stale
+    # the charts stay calendar-based and say that the tiles are a different window
+    assert "The EDCT Days tile at the top is a different window" in BLOCKS["eff"]
+    assert "The Epics by AI tile at the top is a different window" in BLOCKS["ai"]
+    assert "const lastMonths" not in TEMPLATE and "function lastMonths(n = 4)" in TEMPLATE
