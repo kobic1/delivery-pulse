@@ -291,6 +291,32 @@ def _(t: T):
     t.check(D["sprints"][0].keys() == R["sprints"][0].keys(), "sprint keys")
 
 
+@SUITE.test("back_to_top_shows_on_scroll_up_hides_on_scroll_down_and_at_the_top_and_returns_to_the_top")
+def _(t: T):
+    """The button appears after a scroll up from deep in the page, goes away on scroll down and at the top, and a click returns to the top with the heading focused."""
+    fx = build_fixture()
+    ch = ctx.chrome
+    ch.goto(ctx.write(fx.fragment, "plain"))
+    kit.wait_ready(ch, 15)
+    time.sleep(1.2)                                                # the page ignores scrolls for a moment after a redraw
+    state = lambda: json.loads(ch.js("JSON.stringify({on: document.getElementById('totop').classList.contains('on'), hidden: document.getElementById('totop').hidden, y: Math.round(window.scrollY), h1: document.activeElement && document.activeElement.tagName})"))
+    ch.js("window.scrollTo(0, window.innerHeight * 3)"); time.sleep(0.4)
+    ch.js("window.scrollBy(0, -60)"); time.sleep(0.4)
+    s = state()
+    t.check(s["on"] and not s["hidden"], f"after a scroll up from deep in the page the button is shown: {s}")
+    ch.js("window.scrollBy(0, 250)"); time.sleep(0.6)
+    s = state()
+    t.check(not s["on"] and s["hidden"], f"a scroll down hides it: {s}")
+    ch.js("window.scrollTo(0, window.innerHeight * 3)"); time.sleep(0.3); ch.js("window.scrollBy(0, -60)"); time.sleep(0.4)
+    ch.js("window.scrollTo(0, 0)"); time.sleep(0.6)
+    s = state()
+    t.check(not s["on"] and s["hidden"], f"at the top it is hidden: {s}")
+    ch.js("window.scrollTo(0, window.innerHeight * 3)"); time.sleep(0.3); ch.js("window.scrollBy(0, -60)"); time.sleep(0.4)
+    ch.js("document.getElementById('totop').click()"); time.sleep(2.0)
+    s = state()
+    t.check(s["y"] <= 2 and s["h1"] == "H1" and not s["on"], f"a click returns to the top with the heading focused and hides the button: {s}")
+
+
 @SUITE.test("fixture_renders_every_section_without_errors")
 def _(t: T):
     fx = build_fixture()

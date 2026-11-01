@@ -36,13 +36,13 @@ a { color:var(--blue-ink); }
 b, strong { font-weight:600; }
 .skip { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
 .skip:focus { position:static; display:inline-block; width:auto; height:auto; overflow:visible; clip:auto; margin:0 0 6px; padding:5px 10px; background:var(--bg); border:1px solid var(--blue-ink); border-radius:var(--radius-s); font-size:var(--t-cap); }
-.totop { position:fixed; right:max(16px, env(safe-area-inset-right, 0px)); bottom:max(16px, env(safe-area-inset-bottom, 0px)); z-index:40; display:inline-flex; align-items:center; gap:8px; height:36px; padding:0 12px; font:inherit; font-size:var(--t-cap); font-weight:600; color:var(--ink); background:#fff; border:1px solid var(--ctl); border-radius:var(--radius-s); box-shadow:0 1px 3px rgba(33,33,43,.16); cursor:pointer; opacity:0; pointer-events:none; transition:opacity .12s; }
+.totop { position:fixed; right:calc(16px + env(safe-area-inset-right, 0px)); bottom:calc(16px + env(safe-area-inset-bottom, 0px)); z-index:40; display:inline-flex; align-items:center; gap:8px; height:36px; padding:0 12px; font:inherit; font-size:var(--t-cap); font-weight:600; color:var(--ink); background:#fff; border:1px solid var(--ctl); border-radius:var(--radius-s); box-shadow:0 1px 3px rgba(33,33,43,.16); cursor:pointer; opacity:0; pointer-events:none; transition:opacity .12s; }
 .totop.on { opacity:1; pointer-events:auto; }
 .totop[hidden] { display:none; }
 .totop svg { width:14px; height:14px; fill:currentColor; }
 .totop:hover { background:var(--panel); }
-.totop:active { transform:translateY(1px); }
 body:has(#f-teams-panel.open) .totop { display:none; }
+@media (pointer:coarse) { .totop { height:44px; min-width:44px; } }
 @media (max-width:560px) { .totop { width:44px; height:44px; padding:0; justify-content:center; } .totop .tt { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; } .totop svg { width:18px; height:18px; } }
 .sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
 .gutter { max-width:1240px; margin:0 auto; padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px)); }
@@ -4111,7 +4111,8 @@ if (DATA.schema != null && DATA.schema !== PAGE_SCHEMA) {      // a payload from
   const scrollable = () => document.documentElement.scrollHeight - window.innerHeight > window.innerHeight * 0.5;
   const show = on => {
     if (on === shown) return;
-    if (!on && document.activeElement === top) return;                   // a focused button stays until focus leaves it shown = on; clearTimeout(hideTimer);
+    if (!on && document.activeElement === top) return;                   // a focused button stays until focus leaves it
+    shown = on; clearTimeout(hideTimer);
     if (on) { top.hidden = false; void top.offsetWidth; top.classList.add("on"); }
     else { top.classList.remove("on"); if (calm()) top.hidden = true; else hideTimer = setTimeout(() => { top.hidden = true; }, 130); }
   };
