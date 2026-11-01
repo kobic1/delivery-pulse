@@ -242,7 +242,7 @@ def il_label(iso: str) -> str:
 
 def live_oldest(snap) -> str:
     """The oldest of the five live sources, from a page snapshot after a refresh (independent of the page's own sourceTimes())."""
-    ts = [snap["refreshedAt"], snap["cfbAt"] or snap["cfbPulled"], snap["linksAt"], snap["capPulledAt"]]
+    ts = [snap["refreshedAt"], snap["linksAt"], snap["capPulledAt"]]
     f = lambda x: dt.datetime.fromisoformat(re.sub(r"([+-]\d\d)(\d\d)$", r"\1:\2", x.replace("Z", "+00:00")))
     return min(ts, key=f)
 
@@ -350,8 +350,6 @@ def _(t: T):
     firsts = {p: next((x for x in C if x["jql"].startswith(f"project = {p} AND issuetype in (Bug, Story, Task)")), None) for p in projs}
     t.check(all(firsts.values()) and all(c["jql"].startswith(f"project = {p} AND issuetype in (Bug, Story, Task) AND updated >=") for p, c in firsts.items()) and not any("sprint" in c["jql"] for c in C),
             "one capitalization delta query per dashboard project (any status, by `updated`), no sprint in the query")
-    t.check(any("(reporter = " in c["jql"] and "cf[10329] is not EMPTY" in c["jql"] and 'status not in (Done, "Ready for Deploy", Closed, Resolved, Removed)' in c["jql"] for c in C), "Open CFBs are re-read with the CFB definition and the final-status list")
-    t.check(any(c["jql"].startswith("key in (") for c in C), "an open CFB that left the open set is read again by key")
     t.check(any("issuetype = Capability AND (updated >=" in c["jql"] for c in C), "Capabilities changed since the snapshot are read")
     t.check(not ok()["errors"], f"no uncaught page errors: {ok()['errors'][:2]}")
 
@@ -368,7 +366,7 @@ def _(t: T):
     t.check(a["b_new"] and not a["b_new"].get("ax") and a["b_new"]["tm"] == MS.TEAMS["PMN"][0], "new bug added (not accessibility) with its team")
     t.check(a["b_ax"] and a["b_ax"].get("ax") == 1, "bug found by the accessibility query is flagged and so excluded by default")
     t.check(a["b_resolved"].get("rd") == TODAY_S, "open bug that was fixed now carries a resolution date")
-    t.check(a["pmn_open"] == b["pmn_open"] + 1 - 1 + 1 - 1 - 1, f"PMN open bugs (excl. accessibility): {b['pmn_open']} -> {a['pmn_open']} (+1 new bug, -1 fixed, +1 new open CFB, -1 CFB Done, -1 CFB Ready for Deploy)")
+    t.check(a["pmn_open"] == b["pmn_open"] + 1 - 1, f"PMN open bugs (excl. accessibility): {b['pmn_open']} -> {a['pmn_open']} (+1 new bug, -1 fixed)")
     t.check(a["epics"] == b["epics"] - 1 + 1, f"epic count: {b['epics']} -> {a['epics']} (-1 removed, +1 new)")
     t.check(r["badge"] == "Refreshed" and "Refreshed" in r["meta"] and "10 epics and 5 bugs changed" in r["meta"], f"header says refreshed with counts: {r['meta'][:110]}")
     t.check(not r["disabled"] and r["btn"] == "Refresh from Jira", "button re-enabled with its normal label")
@@ -437,21 +435,6 @@ def _(t: T):
     t.check("not refreshed yet" in b["capNote"] and "as of" not in b["capNote"], f"before it, the caption says it was not refreshed yet (there is no build value to show): {b['capNote'][-70:]}")
 
 
-@SUITE.test("refresh_open_cfbs")
-def _(t: T):
-    fx, r = build_fixture(), ok()
-    a, b = r["after"], r["before"]
-    t.check(a["cfbA"]["rca"] == 1 and a["cfbA"].get("rt", "").startswith("the root cause was"), "an open CFB whose analysis was edited is classified RCA edited (flag 1, excerpt kept)")
-    t.check(a["cfbB"]["rca"] == 0 and "rt" not in a["cfbB"], "an open CFB whose analysis still is the unedited template (learned as a hash at build time) is classified not edited")
-    t.check(a["cfbNew"] and a["cfbNew"]["rca"] == 1 and a["cfbNew"].get("rv") == "A" and a["cfbNew"]["t"] == "CFB " + fx.S["newCfb"], "a new open CFB is added with its summary, RCA flag and Approved review status")
-    t.check(a["cfbNewBug"] and a["cfbNewBug"].get("cfb") == 1 and a["cfbNewBug"]["s"] == "In Progress", "the new CFB is also a bug record (cfb flag set)")
-    t.check(fx.S["newCfb"] in a["openKeys"] and fx.S["oA"] in a["openKeys"], "the Open CFBs table lists the refreshed set")
-    t.check(fx.S["oC"] not in a["openKeys"] and a["bugC"]["s"] == "Done" and a["bugC"].get("cl") == TODAY_S and fx.S["oC"] in a["fixedKeys"], "an open CFB that moved to Done leaves the open list, carries its Closed day and is counted as fixed")
-    t.check(fx.S["oD"] not in a["openKeys"] and a["bugD"]["s"] == "Ready for Deploy" and fx.S["oD"] not in a["fixedKeys"], "an open CFB that moved to Ready for Deploy leaves the open list and is NOT counted as fixed until it is Done")
-    t.check(a["bugE"].get("rg") == 1 and b["bugE"].get("rg") != 1, "a changed regression flag is picked up")
-    t.check(a["cfbAt"] and a["cfbPulled"] != b["cfbPulled"], "the Open CFB stamp moves to the refresh time")
-
-
 @SUITE.test("refresh_capabilities")
 def _(t: T):
     fx, r = build_fixture(), ok()
@@ -506,26 +489,21 @@ def step_fail(t: T, mode, label, reason, same, moved):
 
 @SUITE.test("refresh_step_fails_alone_capitalization")
 def _(t: T):
-    f = step_fail(t, "capfail", "Capitalization", "capitalization boom", ["capRows"], ["hierFv", "cfbNew"])
+    f = step_fail(t, "capfail", "Capitalization", "capitalization boom", ["capRows"], ["hierFv"])
     t.check("not refreshed: capitalization boom" in f["after"]["capNote"] and "as of" in f["after"]["capNote"], f"capfail: the chart caption says what was not refreshed and keeps the as-of time -> {f['after']['capNote'][-90:]}")
     stamp_ = f["after"]["stampTxt"]
     t.check(stamp_.startswith("Data as of ") and stamp_ == "Data as of " + il_label(live_oldest(f["after"])), f"capfail: the header stamp is the oldest LIVE source time -> {stamp_}")
     t.check("Capitalization not refreshed yet" in f["after"]["stampTip"], f"capfail: the failed limited step is named in the tooltip, not in the header -> {f['after']['stampTip'][:120]}")
 
 
-@SUITE.test("refresh_step_fails_alone_open_cfbs")
-def _(t: T):
-    step_fail(t, "cfbfail", "Open CFBs", "cfb boom", ["cfbA", "cfbB", "openKeys"], ["hierFv", "capRows"])
-
-
 @SUITE.test("refresh_step_fails_alone_dependency_links")
 def _(t: T):
-    step_fail(t, "linksfail", "Dependency links", "links boom", ["deps", "ext1"], ["capRows", "cfbNew"])
+    step_fail(t, "linksfail", "Dependency links", "links boom", ["deps", "ext1"], ["capRows"])
 
 
 @SUITE.test("refresh_step_fails_alone_capabilities")
 def _(t: T):
-    step_fail(t, "capsfail", "Capabilities", "capabilities boom", ["hierFv", "listFv"], ["capRows", "cfbNew"])
+    step_fail(t, "capsfail", "Capabilities", "capabilities boom", ["hierFv", "listFv"], ["capRows"])
 
 
 @SUITE.test("refresh_empty_capitalization_response_never_deletes")
@@ -772,16 +750,12 @@ def _(t: T):
     X = TODAY - dt.timedelta(days=3)
     cases = {"98801": f"{X}T22:30:00.000Z", "98802": f"{X}T23:30:00.000+0300", "98803": f"{X + dt.timedelta(days=1)}T01:30:00.000+0300", "98804": f"{X}T23:30:00.000-0500", "98805": f"{X}T00:15:00.000+0000"}
     capnodes = [fx.capnode(f"PMN-{n}", V[fx.cap["capval"]], 3, ts) for n, ts in cases.items()]
-    zcfb = fx.cfbnode(fx.oC["k"], status="Done", resolutiondate=f"{X}T22:30:00.000Z", resolution={"name": "Fixed"}, customfield_10099=f"{X}T22:30:00.000Z")
-    pcfb = fx.cfbnode(fx.oD["k"], status="Done", resolutiondate=f"{X}T23:30:00.000-0500", resolution={"name": "Fixed"}, customfield_10099=f"{X}T23:30:00.000-0500")
     zep = fx.node("PMN-98810", "Epic", status="Done", resolutiondate=f"{X}T22:30:00.000Z", fixVersions=[{"name": "27.1"}], customfield_10094={"value": "Committed"})
-    r = scenario("ok", capnodes=fx.capnodes + capnodes, leftcfb=[zcfb, pcfb], page2=fx.page2 + [zep])
+    r = scenario("ok", capnodes=fx.capnodes + capnodes, page2=fx.page2 + [zep])
     rows = {x["n"]: x for x in rows_of(fx.crow, r["after"]["capRows"]) if x["p"] == "0"}
     for n, ts in cases.items():
         got = fx.day_of(rows[n]).isoformat() if n in rows else None
         t.check(got == il_day_of(ts), f"capitalization day of {ts} is the Israel-local day {il_day_of(ts)} (page: {got})")
-    t.check(r["after"]["bugC"].get("cl") == il_day_of(f"{X}T22:30:00.000Z"), f"CFB Closed day of a Z stamp is the Israel-local day {il_day_of(f'{X}T22:30:00.000Z')} (page: {r['after']['bugC'].get('cl')})")
-    t.check(r["after"]["bugD"].get("cl") is None or r["after"]["bugD"]["cl"] == il_day_of(f"{X}T23:30:00.000-0500"), f"CFB Closed day of a -0500 stamp is the Israel-local day (page: {r['after']['bugD'].get('cl')})")
     ep = ctx.chrome.js("(DATA.epics.find(e => e.k === 'PMN-98810') || {}).rd")
     t.check(ep == f"{X}", f"an epic's resolution date keeps the date part Jira sent, exactly as the build does ([:10]) (page: {ep})")
     t.note(f"for a Z stamp at 22:30 the Israel day is {il_day_of(f'{X}T22:30:00.000Z')} but an epic's rd stays {X} (build parity: both slice the first 10 characters)")
@@ -942,20 +916,20 @@ def _(t: T):
 
 @SUITE.test("refresh_redraws_after_the_first_step_not_only_at_the_end")
 def _(t: T):
-    """Epics and bugs are merged first; the page must show them as soon as that step is done, while a later step (Open CFBs) is still running."""
-    hook = "async (input, c) => { if (input.jql.includes('cf[10329] is not EMPTY') && input.jql.includes('status not in')) { await new Promise(r => setTimeout(r, 60000)); } }"
+    """Epics and bugs are merged first; the page must show them as soon as that step is done, while a later step (Dependency links) is still running."""
+    hook = "async (input, c) => { if (input.jql.includes('issuetype = Epic AND status != Removed AND fixVersion in (')) { await new Promise(r => setTimeout(r, 60000)); } }"
     r = scenario("ok", ls="none", click=False, hook=hook, wait="js", timeout=20,
-                 wait_js="window.__calls.some(c => c.jql.includes('cf[10329] is not EMPTY')) && /^Refreshed/.test(document.getElementById('meta').textContent) && document.getElementById('refresh').disabled")
-    t.check(not r["timed_out"], "the page header already says Refreshed (epics and bugs merged and drawn) while the Open CFBs step is still running")
+                 wait_js="window.__calls.some(c => c.jql.includes('issuetype = Epic AND status != Removed AND fixVersion in (')) && /^Refreshed/.test(document.getElementById('meta').textContent) && document.getElementById('refresh').disabled")
+    t.check(not r["timed_out"], "the page header already says Refreshed (epics and bugs merged and drawn) while the Dependency links step is still running")
     ch = ctx.chrome
     tip = ch.js("document.getElementById('asof').dataset.tip || ''")
     t.check(tip.startswith("Refreshing from Jira"), f"the stamp tooltip says it is mid-refresh -> {tip[:90]}")
     t.check("Epics: " not in tip and "Built from commit" not in tip, "the tooltip carries no per-source list or build detail")
-    t.check(not [c for c in r["calls"] if c["tool"] == "getJiraIssue" or "issuetype in (Bug, Story, Task)" in c["jql"]], "while Open CFBs (a live step) is running no limited step has started: the live tier comes first")
-    # the order of one whole refresh: epics, bugs and accessibility; then Open CFBs, Dependency links, Capabilities; then cycle time and Capitalization
+    t.check(not [c for c in r["calls"] if c["tool"] == "getJiraIssue" or "issuetype in (Bug, Story, Task)" in c["jql"]], "while Dependency links (a live step) is running no limited step has started: the live tier comes first")
+    # the order of one whole refresh: epics, bugs and accessibility; then Dependency links, Capabilities; then cycle time and Capitalization
     calls = scenario("ok", ls="recent", click=True, cache=False)["calls"]
     first = [c["i"] for c in calls if MAIN_Q in c["jql"] or "[Accessibility]" in c["jql"]]
-    live = [c["i"] for c in calls if "cf[10329] is not EMPTY" in c["jql"] or c["jql"].startswith("key in (") or "issuetype = Epic AND status != Removed AND fixVersion in (" in c["jql"] or "issuetype = Capability" in c["jql"]]
+    live = [c["i"] for c in calls if "issuetype = Epic AND status != Removed AND fixVersion in (" in c["jql"] or "issuetype = Capability" in c["jql"]]
     limited = [c["i"] for c in calls if c["tool"] == "getJiraIssue" or "issuetype in (Bug, Story, Task)" in c["jql"]]
     t.check(first and live and limited and max(first) < min(live) and max(live) < min(limited), f"step 1 ({len(first)} calls), then the live steps ({len(live)}), then the limited steps ({len(limited)})")
     ed = [c["i"] for c in calls if c["tool"] == "getJiraIssue"]
@@ -1007,7 +981,7 @@ def ran_limited(c):
 
 
 def skipped_limited(c):
-    return c["edct"] == 0 and c["cap"] == 0 and c["live"] >= 1 and any("cf[10329] is not EMPTY" in x["jql"] for x in c["calls"])
+    return c["edct"] == 0 and c["cap"] == 0 and c["live"] >= 1 and any("issuetype = Epic AND status != Removed AND fixVersion in (" in x["jql"] for x in c["calls"])
 
 
 def today_il():
