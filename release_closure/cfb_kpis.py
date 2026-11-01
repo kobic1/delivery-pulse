@@ -1,6 +1,6 @@
 """Customer-found bugs (CFB), Regressions and PQCR per release, as a section for the release closure emails.
 
-CFB: Bug, status Done, reported by the CFB account, resolution Fixed or Fixed - Config, bucketed by resolution date
+CFB: Bug, status Done, reported by the CFB account or linked to a Salesforce case (SF Connection Case Reference not empty), resolution Fixed or Fixed - Config, bucketed by resolution date
 inside the release window (IP week start to release date). Regressions: the same bugs with Regression = Yes.
 PQCR: the sum of Number of Incidents over the CFB bugs."""
 from __future__ import annotations
@@ -10,10 +10,11 @@ from datetime import date, timedelta
 import build_report as B
 
 INC, REG = "customfield_10068", "customfield_10055"   # Number of Incidents, Regression
+# A bug linked to a Salesforce case (field SF Connection Case Reference, cf[10329]) is a customer-found bug even when another account reported it, as on the Delivery Pulse dashboard.
 TITLE = "Customer-Found Bugs (CFB)"
 SUB = ("Bugs found by customers and fixed (Fixed or Fixed - Config) in each release window. "
        "PQCR is the sum of &ldquo;Number of Incidents&rdquo; across those bugs. Counts, not percentages.")
-NOTE = ("CFB: Bug, Done, reported by the CFB account, resolution Fixed or Fixed - Config, bucketed by resolution date within the release window; "
+NOTE = ("CFB: Bug, Done, reported by the CFB account or linked to a Salesforce case, resolution Fixed or Fixed - Config, bucketed by resolution date within the release window; "
         "Regressions have Regression = Yes; PQCR is the sum of Number of Incidents over those bugs.")
 
 
@@ -22,7 +23,7 @@ def _iso(d):
 
 
 def cfb_jql(cfg, extra=""):
-    return (f'project = {cfg["project"]} AND issuetype = Bug AND status = Done AND reporter = "{cfg["cfb_reporter"]}" '
+    return (f'project = {cfg["project"]} AND issuetype = Bug AND status = Done AND (reporter = "{cfg["cfb_reporter"]}" OR cf[10329] is not EMPTY) '
             f'AND resolution in (Fixed, "Fixed - Config"){extra}')
 
 
