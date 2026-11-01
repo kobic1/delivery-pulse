@@ -802,6 +802,7 @@ const CLASS = {                                               // workflow-status
   notStarted: ["Candidate", "New", "In Definition", "Ready for Dev"],
 };
 const MIN_N = 5;                                              // no percentile, share or trend under 5 items
+const EDCT_MIN_N = 1;                                         // the EDCT average (tile and Efficiency chart) is shown from one epic: owner decision, MIN_N does not apply to it
 const NO_TEAM = "(No Team)";
 const EMPTY_SHORT = "Nothing to show for this selection.";
 const CFB_RESOLUTIONS = ["Fixed", "Fixed - Config"];
@@ -1347,8 +1348,8 @@ function renderStatus() {
     {k: `Release ${esc(rel)}`, c: "d", v: tlink(TB.N, TB.href, TB.tip), l: "Forecast Epics",
      s: !TB.win ? "Target scope: Committed + Not Set" : TB.pre ? `Target scope so far; W1 starts ${shortDate(TB.w1)}` : `Committed + Not Set on ${shortDate(TB.w1)}`,
      x: !TB.win || TB.pre ? "" : `${tipSpan(`${TB.added >= 0 ? "+" : "−"}${Math.abs(TB.added).toLocaleString("en-US")} ${TB.added >= 0 ? "" : "removed "}since W1`, `${Math.abs(TB.added)} target epics ${TB.added >= 0 ? "were added to" : "left"} ${rel} after the first day of W1: ${TB.today} today minus ${TB.N} on ${shortDate(TB.w1)}`)} (${tlink(TB.today, TB.hrefToday, `${TB.today} epics are in the target today (Committed + Not Set)`)} today)`},
-    {k: to, c: "e", v: ms.edctN >= MIN_N ? link(Math.round(ms.edctAvg), jiraMonth(mo, aiMonth, "edct")) : "–", l: "EDCT Days",
-     s: ms.edctN >= MIN_N ? tipSpan("average of AI-implemented epics", `Average over ${ms.edctN} AI-implemented epics with an EDCT, resolved ${inWin}\nMaintenance epics are left out. The link opens the AI-implemented epics resolved in the same window; Jira cannot search for the EDCT, so an epic that has none yet is listed but not averaged.`) : `only ${ms.edctN} epics, need ${MIN_N}`, x: f.edct && f.edct.t, xc: f.edct && f.edct.c},
+    {k: to, c: "e", v: ms.edctN >= EDCT_MIN_N ? link(Math.round(ms.edctAvg), jiraMonth(mo, aiMonth, "edct")) : "–", l: "EDCT Days",
+     s: ms.edctN >= EDCT_MIN_N ? tipSpan("average of AI-implemented epics", `Average over ${ms.edctN} AI-implemented ${epicWord(ms.edctN)} with an EDCT, resolved ${inWin}\nMaintenance epics are left out. The link opens the AI-implemented epics resolved in the same window; Jira cannot search for the EDCT, so an epic that has none yet is listed but not averaged.`) : "no AI-implemented epics with an EDCT", x: f.edct && f.edct.t, xc: f.edct && f.edct.c},
     {k: "Today", c: "q", v: link(open.length, jiraBugs({extra: OPEN_BUG_JQL})), l: "Open Bugs", s: `${state.ax ? "including" : "excluding"} accessibility bugs${filtered ? "; Priority or CFB filter on" : ""}`, x: f.bugs && f.bugs.t, xc: f.bugs && f.bugs.c},
     {k: to, c: "a", v: ms.done >= MIN_N ? link(pct(ms.ai, ms.done) + "%", jiraMonth(mo, aiMonth)) : "–", l: `Epics by AI${infoMark("ai-excl", "Maintenance and SOW excluded", `Excludes ${AI_EXCL_TEXT} epics: ${ms.excl} resolved ${inWin}.`)}`,
      s: ms.done ? `${tlink(ms.ai, jiraMonth(mo, aiMonth), `${ms.ai} epics implemented by AI, resolved ${inWin}\nEpics with a fix version from ${DATA.releases[0]} to ${DATA.releases[DATA.releases.length - 1]}, ${AI_EXCL_TEXT} excluded.`)} of ${tlink(ms.done, jiraMonth(mo), `${ms.done} epics resolved ${inWin}\nEpics with a fix version from ${DATA.releases[0]} to ${DATA.releases[DATA.releases.length - 1]}, ${AI_EXCL_TEXT} excluded.`)} resolved${ms.done < MIN_N ? ", too few for a share" : ""} · ${ms.done - ms.ai ? tlink(ms.done - ms.ai, jiraMonth(mo, AI_NOT), aiNotTip(ms.done - ms.ai, `resolved ${inWin}`)) : "0"} not AI${f.ai ? ` · ${f.ai}` : ""}` : `no epics resolved in the last ${WINDOW_DAYS} days`,
@@ -1363,7 +1364,7 @@ function statusFacts(ms) {
   if (p && p.N >= MIN_N) out.pace = p.closed ? `Target scope was ${p.N.toLocaleString("en-US")} on the first day of W1`
     : p.pre ? `W1 starts ${shortDate(p.w1)}`
     : `Target even-pace reference ${Math.round(p.pace).toLocaleString("en-US")} (day ${p.d} of ${p.D})`;
-  if (ms.edctN >= MIN_N) { const a = Math.round(ms.edctAvg), over = a - EDCT_TARGET;
+  if (ms.edctN >= EDCT_MIN_N) { const a = Math.round(ms.edctAvg), over = a - EDCT_TARGET;
     out.edct = {c: over > 0 ? "watch" : "ok", t: `${over > 0 ? `${over} over` : "Within"} the ≤${EDCT_TARGET} target`}; }
   const s4 = bugSeries().slice(-4), cr = s4.reduce((a, x) => a + x.created, 0), rs = s4.reduce((a, x) => a + x.resolved, 0), net = rs - cr;
   if (cr + rs >= MIN_N && backlogBugs().filter(isOpenBug).length >= MIN_N) out.bugs = net === 0 ? {t: "Unchanged over the last 4 weeks"}
@@ -1372,11 +1373,11 @@ function statusFacts(ms) {
   if (ms.done >= MIN_N && pm.done >= MIN_N) out.ai = tlink(`Previous ${WINDOW_DAYS} days ${pct(pm.ai, pm.done)}%`, jiraMonth(prev, " AND cf[15229] = Yes"), `The previous ${WINDOW_DAYS} days (${windowWords(prev)}) were ${pct(pm.ai, pm.done)}%: ${pm.ai} of ${pm.done} epics resolved; ${pm.done - pm.ai} not marked as AI\nOpens the ${pm.ai} epics implemented by AI`);
   return out;
 }
-function monthChart(hostId, capId, dataId, rows, o) {       // o: value(r), label(r), sc, fmtv, fill, target
+function monthChart(hostId, capId, dataId, rows, o) {       // o: value(r), label(r), sc, fmtv, fill, target; min (the smallest n a bar needs, MIN_N when absent; 1 = no minimum), empty (text when nothing can be plotted)
   const host = document.getElementById(hostId);
   if (!state.projects.size) { host.innerHTML = `<div class="empty">${whyEmpty("epics")}</div>`; document.getElementById(capId).textContent = ""; document.getElementById(dataId).innerHTML = ""; return; }
   if (rows.every(r => o.value(r) == null)) {
-    host.innerHTML = `<div class="empty">Not enough resolved epics yet. Each ${GRAN[state.gran].noun} needs at least ${MIN_N}.</div>`; document.getElementById(dataId).innerHTML = ""; return;
+    host.innerHTML = `<div class="empty">${o.empty || `Not enough resolved epics yet. Each ${GRAN[state.gran].noun} needs at least ${MIN_N}.`}</div>`; document.getElementById(dataId).innerHTML = ""; return;
   }
   // drawn at the pixel width it is shown at (text stays about 11px); a long series scrolls inside its own card
   const pl = 38, pr = 74, pt = 22, pb = 48, H2 = 240, W2 = chartWidth(host, rows.length * 36 + pl + pr), slot = (W2 - pl - pr) / rows.length, bw = Math.min(46, slot * .5);
@@ -1390,7 +1391,7 @@ function monthChart(hostId, capId, dataId, rows, o) {       // o: value(r), labe
   rows.forEach((r, i) => {
     const cx = pl + slot * i + slot / 2, v = o.value(r);
     let m = `<rect class="hit" x="${cx - slot / 2}" y="${pt - 8}" width="${slot}" height="${H2 - pb - pt + 8}" fill="transparent"/>`;
-    if (v == null) m += `<text x="${cx}" y="${H2 - pb - 8}" text-anchor="middle" font-size="11" fill="#5A5F6B">n&lt;${MIN_N}</text>`;
+    if (v == null) m += `<text x="${cx}" y="${H2 - pb - 8}" text-anchor="middle" font-size="11" fill="#5A5F6B">${(o.min == null ? MIN_N : o.min) > 1 ? `n&lt;${o.min == null ? MIN_N : o.min}` : "–"}</text>`;
     else {
       const run = i === rows.length - 1;                          // the running period is drawn as an outline, so a part-period never reads as a full one
       m += `<rect x="${cx - bw / 2}" y="${y(v)}" width="${bw}" height="${H2 - pb - y(v)}" fill="${o.fill}"${run ? ` fill-opacity=".3" stroke="${o.fill}" stroke-width="2" stroke-dasharray="4 2"` : ""}/>`;
@@ -1425,22 +1426,22 @@ function renderLimitedNotes() {
     : `Cycle time: ${e0 ? `refreshed ${ilLabel(e0)}` : "not refreshed yet"}; Capitalization: ${c ? `refreshed ${ilLabel(c)}` : "not refreshed yet"}`) + "; Refresh updates them up to twice a day.";
 }
 function renderEfficiency() {
-  const rows = periods().map(mo => { const m = monthStats(mo); return {mo, n: m.edctN, avg: m.edctN >= MIN_N ? m.edctAvg : null}; });
+  const rows = periods().map(mo => { const m = monthStats(mo); return {mo, n: m.edctN, avg: m.edctN >= EDCT_MIN_N ? m.edctAvg : null}; });
   const cur = rows[rows.length - 1], head = document.getElementById("eff-head"), cap = document.getElementById("eff-cap");
   document.getElementById("eff-sub").textContent = `AI-implemented epics, by resolution ${GRAN[state.gran].noun}.`;
-  monthChart("eff-chart", "eff-cap", "eff-data", rows, {value: r => r.avg == null ? null : Math.round(r.avg), sc: niceScale(Math.max(EDCT_TARGET, ...rows.map(r => r.avg || 0)) * 1.1), fmtv: v => String(v), fill: "#249A89", ink: "#1C7A6C", target: EDCT_TARGET, href: r => jiraMonth(r.mo, " AND cf[15229] = Yes", "edct"), nHref: r => r.n ? jiraMonth(r.mo, " AND cf[15229] = Yes", "edct") : null,
-    tip: r => r.avg == null ? `${pname(r.mo)}\nFewer than ${MIN_N} AI-implemented epics, so no average is shown` : `${pname(r.mo)}\nAverage EDCT ${Math.round(r.avg)} days\n${r.n} AI-implemented epics`, title: `Average EDCT days per ${GRAN[state.gran].noun}`, col: "Average EDCT Days"});
+  monthChart("eff-chart", "eff-cap", "eff-data", rows, {value: r => r.avg == null ? null : Math.round(r.avg), sc: niceScale(Math.max(EDCT_TARGET, ...rows.map(r => r.avg || 0)) * 1.1), fmtv: v => String(v), fill: "#249A89", ink: "#1C7A6C", target: EDCT_TARGET, min: EDCT_MIN_N, empty: "No resolved epic implemented by AI has an EDCT yet.", href: r => jiraMonth(r.mo, " AND cf[15229] = Yes", "edct"), nHref: r => r.n ? jiraMonth(r.mo, " AND cf[15229] = Yes", "edct") : null,
+    tip: r => r.avg == null ? `${pname(r.mo)}\nNo AI-implemented epics with an EDCT, so no average is shown` : `${pname(r.mo)}\nAverage EDCT ${Math.round(r.avg)} days\n${r.n} AI-implemented ${epicWord(r.n)}`, title: `Average EDCT days per ${GRAN[state.gran].noun}`, col: "Average EDCT Days"});
   renderLimitedNotes();
   if (!state.projects.size) { head.innerHTML = ""; cap.innerHTML = ""; return; }
   const a = cur.avg == null ? null : Math.round(cur.avg), over = a == null ? 0 : a - EDCT_TARGET;
-  head.innerHTML = a == null ? `– <small>${pwords(cur.mo)} · fewer than ${MIN_N} epics so far</small>`
-    : `${a} days <small>${pwords(cur.mo)} so far · ${over > 0 ? `${over} over` : "within"} the ≤${EDCT_TARGET} target</small>`;
+  head.innerHTML = a == null ? `– <small>${pwords(cur.mo)} · no epics with an EDCT so far</small>`
+    : `${a} days <small>${pwords(cur.mo)} so far · ${cur.n} ${epicWord(cur.n)} · ${over > 0 ? `${over} over` : "within"} the ≤${EDCT_TARGET} target</small>`;
   cap.innerHTML = defs(howBody({id: "eff",
     bl: `Use this to see whether AI-implemented epics finish inside the ${EDCT_TARGET}-day target. Each bar is the average EDCT of epics resolved in the ${GRAN[state.gran].noun}.`,
     defs: [
       ["EDCT (epic development cycle time)", `calendar days an epic ended in In Progress or Validation. Flagged days and the Done day are not counted.`],
       ["Included", `Done epics resolved in the period with Implemented by AI Agent set to Yes and an EDCT value.`],
-      ["Average", `the mean EDCT of those epics. None is shown for fewer than 5 epics.`]
+      ["Average", `the mean EDCT of those epics. It is shown from one epic; n= under a bar is the number of epics averaged.`]
     ],
     left: `Epics in the Maintenance Issue Category, and epics not marked as AI.`,
     know: `Follows Projects and Teams. Cycle Time per Release also counts epics that AI did not implement, so the two are not comparable. The EDCT Days tile at the top is a different window: the last ${WINDOW_DAYS} days, not this chart's running ${GRAN[state.gran].noun}. * and the dashed outline mark the running ${GRAN[state.gran].noun}.`}));
