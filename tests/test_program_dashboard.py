@@ -1,6 +1,7 @@
 """Delivery Pulse dashboard collector: synthetic fixtures only (fictitious labels, teams and dates)."""
 import datetime as dt
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -284,3 +285,86 @@ def test_pbi_scope_is_one_list_shared_with_the_page_and_the_flag_is_a_mode_flag(
     with pytest.raises(SystemExit) as e:
         BD.main()
     assert e.value.code == 2 and "one mode flag at a time" in capsys.readouterr().err
+
+# ---------------------------------------------------------------- INT is a reserved JQL word: every query that names a project key quotes it
+TEMPLATE_SRC = (HERE / "dashboard.template.html").read_text(encoding="utf-8")
+BUILDER_SRC = (HERE / "build_dashboard.py").read_text(encoding="utf-8")
+
+
+def bare_reserved(jql: str) -> list:
+    """The reserved keys left unquoted in a query (a quoted string is blanked first, and INT-123 is an issue key, not the word)."""
+    bare = re.sub(r'"(?:[^"\\]|\\.)*"', '""', jql)
+    return [k for k in BD.JQL_RESERVED_KEYS if re.search(rf"(?<![\w-]){k}(?![\w-])", bare)]
+
+
+def test_a_reserved_project_key_is_quoted_and_every_other_key_is_left_alone():
+    assert BD.JQL_RESERVED_KEYS == ["INT"] and BD.PROJECTS[-1] == "INT" and BD.PROJECTS[:6] == ["PMN", "CXCO", "CXSUP", "CXWFM", "WFM", "CXINT"]
+    assert BD.pkey("INT") == '"INT"' and BD.pkey("CXINT") == "CXINT" and BD.pkey("PMN") == "PMN"
+    assert BD.pkeys(["PMN", "INT", "CXCROSS"]) == 'PMN, "INT", CXCROSS'
+    assert BD.pkeys(["PMN", "CXCO"]) == "PMN, CXCO"                                    # the other projects' queries are byte-identical to before
+    assert BD.definitions()["jqlReservedKeys"] == BD.JQL_RESERVED_KEYS
+
+
+def test_no_query_the_collector_sends_names_the_reserved_key_bare(monkeypatch):
+    """Runs every collector (and the main pull) against a recording Jira that answers nothing: each query that names INT must hold it in quotation marks."""
+    sent = []
+
+    class Resp:
+        def json(self):
+            return []
+
+    class Session:
+        def get(self, *a, **k):
+            return Resp()
+
+    class FakeJira:
+        base, s = "https://example.invalid", Session()
+
+        def search(self, jql, fields=None, **k):
+            sent.append(jql)
+            return []
+
+        def changelog(self, key):
+            return []
+
+    monkeypatch.setenv("JIRA_BASE_URL", "https://example.invalid")
+    monkeypatch.setattr(BD.E, "Jira", FakeJira)
+    BD.fetch()
+    j = FakeJira()
+    BD.collect_bug_updates(j, [])
+    BD.collect_pods(j, [])
+    BD.collect_nfr(j, [])
+    BD.collect_capitalization(j)
+    BD.collect_capabilities(j, set())
+    BD.collect_cfb(j)
+    BD.collect_links(j, [])
+    BD.collect_bugs(j)
+    named = [q for q in sent if "INT" in q]
+    assert len(named) >= 12, "the check is blind: too few queries named INT"
+    assert all(not bare_reserved(q) for q in sent), [q for q in sent if bare_reserved(q)][:3]
+    assert any(q.startswith('project = "INT" AND issuetype = Epic') for q in sent) and any('"INT"' in q and q.startswith("project in (") for q in sent)
+
+
+# a project key interpolated into JQL must pass through the helper: `project = ${pkey(p)}`, `project in (${pkeys(list)})`; a bare `${p}` or `${list.join(", ")}` is the mistake this test is here for
+TEMPLATE_SITE = re.compile(r"\bproject (?:not in|in|=) \(?\$\{(?!pkeys?\()")
+BUILDER_SITE = re.compile(r"\bproject (?:not in|in|=) \(?\{(?!pkeys?\()")
+ANY_SITE = r"\bproject (?:not in|in|=) \(?\$?\{"
+
+
+def test_the_page_and_the_collector_quote_every_project_key_through_the_helper():
+    bad = [m.group(0) + TEMPLATE_SRC[m.end():m.end() + 40] for m in TEMPLATE_SITE.finditer(TEMPLATE_SRC)]
+    assert not bad, f"a project key goes into JQL without pkey/pkeys in the template: {bad[:3]}"
+    bad = [m.group(0) + BUILDER_SRC[m.end():m.end() + 40] for m in BUILDER_SITE.finditer(BUILDER_SRC)]
+    assert not bad, f"a project key goes into JQL without pkey/pkeys in build_dashboard.py: {bad[:3]}"
+    assert len(re.findall(ANY_SITE, TEMPLATE_SRC)) >= 20 and len(re.findall(ANY_SITE, BUILDER_SRC)) >= 8, "the scan is blind: it found too few sites"
+    assert not re.search(r"project (?:=|in \() ?INT\b", TEMPLATE_SRC + BUILDER_SRC), "a literal unquoted INT in a query"
+
+
+def test_the_helper_exists_once_in_each_and_the_page_reads_the_reserved_list_from_the_payload():
+    assert len(re.findall(r"^def pkey\(", BUILDER_SRC, re.M)) == 1 and len(re.findall(r"^def pkeys\(", BUILDER_SRC, re.M)) == 1
+    assert len(re.findall(r"^const pkey = ", TEMPLATE_SRC, re.M)) == 1 and len(re.findall(r"^const pkeys = ", TEMPLATE_SRC, re.M)) == 1
+    assert "DEFS.jqlReservedKeys" in TEMPLATE_SRC
+
+
+def test_int_uses_the_plain_pod_pattern_without_a_configuration_file():
+    assert BD.pod_patterns()["INT"] == BD.POD_DEFAULT_RX and not (HERE.parent / "release_planning" / "config_int.json").exists()

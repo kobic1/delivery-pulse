@@ -31,6 +31,7 @@ def test_the_pages_fallback_definitions_equal_the_collectors():
     assert re.search(r'const NFR_LABEL = DEFS\.nfrLabel \|\| "([^"]+)"', TEMPLATE).group(1) == d["nfrLabel"]
     assert js_array("COMMIT") == d["commitTypes"]
     assert js_array("TARGET_COMMIT") == d["targetCommit"]
+    assert js_array("JQL_RESERVED_KEYS") == d["jqlReservedKeys"]
 
 
 def test_the_page_reads_every_definition_the_collector_writes():

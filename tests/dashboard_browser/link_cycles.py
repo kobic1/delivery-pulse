@@ -120,7 +120,7 @@ def page(kind: str = "stock") -> tuple[dict, str]:
 
 def views(full: bool, data: dict, name: str = "stock") -> list[str]:
     rels = data["releases"] if full else (["26.4", "27.1"] if name == "stock" else ["27.1", "27.2"])
-    psets = ["", "p=PMN", "p=PMN|CXCO", "t=Team%20Alpha"] + (["p=CXWFM|WFM|CXINT", "c=Stretch"] if full else [])
+    psets = ["", "p=PMN", "p=PMN|CXCO", "p=INT", "t=Team%20Alpha"] + (["p=CXWFM|WFM|CXINT|INT", "c=Stretch"] if full else [])
     return [f"r={r}&{p}&cy={c}".replace("&&", "&") for r in rels for p in psets for c in ("DC1", "DC2")]
 
 

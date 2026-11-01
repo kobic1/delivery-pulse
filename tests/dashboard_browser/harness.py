@@ -279,7 +279,7 @@ def _(t: T):
         raise Skip("no build/program_data.json here (it is git-ignored); the shape check needs it")
     R = json.loads(real.read_text())
     D = build_fixture().data
-    SCHEMA2 = {"cycles", "quality", "bugsPulledAt", "linksPulledAt"}       # schema 2 dropped the two dead sections and added two pull times; the synthetic payload also serves the frozen v52 page
+    SCHEMA2 = {"cycles", "quality", "bugsPulledAt", "linksPulledAt", "schema", "defs", "build"}       # schema 2 dropped the two dead sections and added two pull times; the synthetic payload also serves the frozen v52 page
     t.check(set(D) - SCHEMA2 == set(R) - SCHEMA2, f"top-level keys differ: only synthetic {sorted(set(D) - set(R) - SCHEMA2)}, only real {sorted(set(R) - set(D) - SCHEMA2)}")
     keys = lambda lst: set().union(*(set(x) for x in lst))
     t.check(keys(D["epics"]) == keys(R["epics"]), f"epic keys: synthetic {sorted(keys(D['epics']))} vs real {sorted(keys(R['epics']))}")
@@ -346,10 +346,12 @@ def _(t: T):
     t.check(any(c["token"] == "cursor-1" for c in C), "a later call carried the cursor from the first page as nextPageToken")
     t.check(all(c["server"] == "Atlassian" and c["tool"] in ("searchJiraIssuesUsingJql", "getJiraIssue") and c["opts"] == {"cache": False} for c in C), "every call used the declared server and a declared tool, uncached")
     t.check(all("updated >=" in c["jql"] for c in C if MAIN_Q in c["jql"] or "issuetype in (Bug, Story, Task)" in c["jql"]), "epic, bug and capitalization queries are incremental (updated >= since)")
-    projs = ("PMN", "CXCO", "CXSUP", "CXWFM", "WFM", "CXINT")
-    firsts = {p: next((x for x in C if x["jql"].startswith(f"project = {p} AND issuetype in (Bug, Story, Task)")), None) for p in projs}
-    t.check(all(firsts.values()) and all(c["jql"].startswith(f"project = {p} AND issuetype in (Bug, Story, Task) AND updated >=") for p, c in firsts.items()) and not any("sprint" in c["jql"] for c in C),
+    projs = ("PMN", "CXCO", "CXSUP", "CXWFM", "WFM", "CXINT", "INT")
+    firsts = {p: next((x for x in C if x["jql"].startswith(f"project = {kit.jqlkey(p)} AND issuetype in (Bug, Story, Task)")), None) for p in projs}
+    t.check(all(firsts.values()) and all(c["jql"].startswith(f"project = {kit.jqlkey(p)} AND issuetype in (Bug, Story, Task) AND updated >=") for p, c in firsts.items()) and not any("sprint" in c["jql"] for c in C),
             "one capitalization delta query per dashboard project (any status, by `updated`), no sprint in the query")
+    t.check(any(c["jql"].startswith('project = "INT" AND issuetype in (Bug, Story, Task)') for c in C) and any('"INT"' in c["jql"] and c["jql"].startswith("project in (") for c in C),
+            "the reserved project key INT is quoted in the per-project and the project-list queries (the mocked Jira refuses it bare, as the real one does)")
     t.check(any("issuetype = Capability AND (updated >=" in c["jql"] for c in C), "Capabilities changed since the snapshot are read")
     t.check(not ok()["errors"], f"no uncaught page errors: {ok()['errors'][:2]}")
 
@@ -827,7 +829,7 @@ def _(t: T):
 def _(t: T):
     """The earlier projects return changes, the last project's fetch fails: no capitalization change may be applied, and the stamp, caption, counters and checklist must all say so."""
     fx = build_fixture()
-    hook = ("async (input, c) => { if (input.jql.startsWith('project = CXINT AND issuetype in (Bug, Story, Task)')) { "
+    hook = ("async (input, c) => { if (input.jql.startsWith('project = \"INT\" AND issuetype in (Bug, Story, Task)')) { "
             "if (!input.nextPageToken) return c.ok([], 'cap-page-2'); throw {code: 'tool_error', message: 'cap last fetch boom'}; } }")        # the last project's SECOND page fails
     newval = fx.capnode("PMN-98903", "Capitalize - Synthetic New Value", 6, stamp(TODAY, "13:00"))      # a value and a team the page has not seen: they must not be added either
     newval["fields"]["customfield_10098"] = {"value": "Team Synthetic New"}
