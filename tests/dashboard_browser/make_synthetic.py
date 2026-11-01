@@ -265,6 +265,8 @@ class Gen:
             for i in range(4):
                 cap_epics.append([self.key(p), p, r.choice(["New", "Done"]), [CURRENT] if i % 2 else [], "Product - Other", r.choice([k for k, c in cap_list.items() if c["p"] == p])])
         cap_nofv = [c for c in cap_list.values() if not c["fv"] and c["s"] != "Removed"]
+        for n, k in enumerate(sorted(cap_list)):                                          # Commitment Level of every Capability: a fixed cycle (no random draw, so no other record moves); three levels and empty
+            cap_list[k]["cl"] = CAP_LEVELS[n % len(CAP_LEVELS)]
 
         cap = self.capitalization(cap_start, windows)
         data = {
@@ -716,6 +718,9 @@ class Gen:
 
 
 # ---------------------------------------------------------------- the escaping canary
+CAP_LEVELS = ["Committed", "Stretch", "Target", "", "Committed", "Stretch", "", "Committed"]      # fictitious Commitment Levels, "" = not set; every project and release gets a spread
+
+
 def canarify(data: dict) -> dict:
     """Put the two hostile strings into every free-text field the page renders. The mapping is consistent (the same text always becomes
     the same hostile text), so team filters, sprint lookups and capability names still match."""
@@ -749,7 +754,7 @@ def canarify(data: dict) -> dict:
                 rec["t"] = can(rec["t"])
             if rec.get("tm"):
                 rec["tm"] = [can(x) for x in rec["tm"]]
-            for f in ("ts",):
+            for f in ("ts", "cl"):
                 if rec.get(f):
                     rec[f] = can(rec[f])
     for rec in data["cfbx"]["bugs"].values():

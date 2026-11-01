@@ -16,7 +16,7 @@
     bugC: find(DATA.bugs, S.oC), bugD: find(DATA.bugs, S.oD), bugE: find(DATA.bugs, S.oE),
     fixedKeys: DATA.bugs.filter(isCfbFixed).map(b => b.k),
     deps: DATA.deps, ext1: (DATA.ext || {})[S.farKey] || null, linksAt: DATA.linksPulledAt || null,
-    hierFv: DATA.hier[S.cap].fv, listFv: DATA.capList[S.cap] ? DATA.capList[S.cap].fv : null, listS: DATA.capList[S.cap] ? DATA.capList[S.cap].s : null, capNoFv: DATA.capNoFv, capPulledAt: DATA.capPulledAt,
+    hierFv: DATA.hier[S.cap].fv, listFv: DATA.capList[S.cap] ? DATA.capList[S.cap].fv : null, listS: DATA.capList[S.cap] ? DATA.capList[S.cap].s : null, listCl: DATA.capList[S.cap] ? DATA.capList[S.cap].cl : null, capNoFv: DATA.capNoFv, capPulledAt: DATA.capPulledAt,
     stampTxt: document.getElementById("asof").textContent, stampTip: document.getElementById("asof").dataset.tip || "", capFail: DATA.capRefreshFailed || null,
     capVals: DATA.cap.values.slice(), capTeams: DATA.cap.teams.slice(), capRows: DATA.cap.rows, capAt: DATA.capRefreshedAt || null, capN: DATA.capRefreshedN == null ? null : DATA.capRefreshedN, capNote: (document.getElementById("capz-cap") || {}).textContent || "",
     refreshedAt: DATA.refreshedAt || null, refreshedStats: DATA.refreshedStats || null,
