@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A FICTITIOUS Delivery Pulse payload with the same schema as program_dashboard/build/program_data.json.
 
-Nothing here comes from Jira: the project codes are the six dashboard codes (plus CXCROSS, which the page hard-codes for its
+Nothing here comes from Jira: the project codes are the seven dashboard codes (plus CXCROSS, which the page hard-codes for its
 own section), every issue number starts at 90001, teams are "Team Alpha" ..., people are "Person A" ..., titles are made of
 invented words, and every date is relative to `today` (Israel-local, the page's time base) so the page's time logic works on
 any day. The generator is deterministic: the same `today` and `seed` give the same payload.
@@ -14,6 +14,7 @@ any day. The generator is deterministic: the same `today` and `seed` give the sa
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as dt
 import json
 import random
@@ -30,7 +31,8 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 LIVE_TEMPLATE = REPO / "program_dashboard" / "dashboard.template.html"
 
-PROJECTS = ["PMN", "CXCO", "CXSUP", "CXWFM", "WFM", "CXINT"]
+BASE_PROJECTS = ["PMN", "CXCO", "CXSUP", "CXWFM", "WFM", "CXINT"]      # the first six share one random stream and one issue counter, in this order
+PROJECTS = BASE_PROJECTS + ["INT"]                                      # INT is drawn from its own stream (Gen.stream) after everything else, so adding it left every other project's records as they were
 RELEASES = ["25.4", "26.1", "26.2", "26.3", "26.4", "27.1", "27.2"]
 CURRENT = "27.1"
 PROVISIONAL = ["27.1", "27.2"]
@@ -50,8 +52,9 @@ TEAMS = {                                           # project -> the fictitious 
     "WFM": ["Team Mike", "Team November", "Team Oscar"],
     "CXINT": ["Team Papa", "Team Quebec"],
 }
-EPICS_PER_RELEASE = {"PMN": 22, "CXCO": 12, "CXSUP": 6, "CXWFM": 14, "WFM": 12, "CXINT": 10}
-BUGS_PER_PROJECT = {"PMN": 330, "CXCO": 180, "CXSUP": 90, "CXWFM": 210, "WFM": 200, "CXINT": 110}
+TEAMS_ALL = {**TEAMS, "INT": ["Team Romeo", "Team Sierra"]}       # TEAMS stays the six projects' (the base draws pick from all of its teams); INT's teams are only ever picked by INT's own stream
+EPICS_PER_RELEASE = {"PMN": 22, "CXCO": 12, "CXSUP": 6, "CXWFM": 14, "WFM": 12, "CXINT": 10, "INT": 8}
+BUGS_PER_PROJECT = {"PMN": 330, "CXCO": 180, "CXSUP": 90, "CXWFM": 210, "WFM": 200, "CXINT": 110, "INT": 90}
 CATEGORIES = [("Product - Feature work", 30), ("Product - Other", 10), ("R&D - Arch/infra refactoring", 10), ("Maintenance", 8), ("Product - Scale enhancement", 6),
               ("R&D - 3rd party upgrades", 5), ("Product - Security", 4), ("NFR", 3), ("SOW", 2), ("R&D Infra", 2), ("DevOps", 2), (None, 12)]
 WORDS_A = ["Orbit", "Lattice", "Beacon", "Quill", "Harbor", "Prism", "Ember", "Cobalt", "Meadow", "Summit", "Tundra", "Willow", "Zephyr", "Granite", "Mosaic", "Nimbus"]
@@ -102,6 +105,7 @@ class Gen:
         self.today = today
         self.r = random.Random(seed)
         self.n = 90000                                  # every issue number is 90001 or more, from one counter
+        self.seed, self.streams = seed, {}
         self.windows = {}
         self.cur_i = RELEASES.index(CURRENT)
         s = today - dt.timedelta(days=23)               # the current release started 23 days ago (the IP week plus two weeks)
@@ -111,6 +115,17 @@ class Gen:
         self.generated_day = today - dt.timedelta(days=2)
 
     # ---- helpers
+    @contextlib.contextmanager
+    def stream(self, name: str):
+        """Inside the block every draw and every issue number comes from the stream of `name` (its own random generator and counter), so what is drawn here cannot move anything drawn outside."""
+        saved = (self.r, self.n)
+        self.r, self.n = self.streams.get(name) or (random.Random(f"{self.seed}:{name}"), 90000)
+        try:
+            yield
+        finally:
+            self.streams[name] = (self.r, self.n)
+            self.r, self.n = saved
+
     def num(self) -> int:
         self.n += self.r.randint(1, 2)
         return self.n
@@ -178,8 +193,8 @@ class Gen:
             hier[k] = rec
             cap_list[k] = {"fv": fv, "p": "CXCROSS", "s": rec["s"], "t": rec["t"]}
             caps[k] = rec["t"]
-        proj_caps = {p: [] for p in PROJECTS}
-        for p in PROJECTS:
+        proj_caps = {p: [] for p in BASE_PROJECTS}
+        for p in BASE_PROJECTS:
             for i in range(6):
                 k = self.key(p)
                 t = f"{r.choice(WORDS_A)} capability {p.lower()} {i + 1}"
@@ -197,11 +212,11 @@ class Gen:
         # ---- teams and epics
         used_ts = set()
         epics = []
-        pod_names = {p: [f"Pod-{t.split()[1]}-{i}" for t in TEAMS[p] for i in (1, 2)] for p in PROJECTS}
+        pod_names = {p: [f"Pod-{t.split()[1]}-{i}" for t in TEAMS[p] for i in (1, 2)] for p in BASE_PROJECTS}
         pod_names["CXCO"] = [f"CXCO-{t.split()[1]}-{i}" for t in TEAMS["CXCO"] for i in (1, 2)]
         for ri, rel in enumerate(RELEASES):
             ws, we = self.windows[rel]
-            for proj in PROJECTS:
+            for proj in BASE_PROJECTS:
                 for _ in range(EPICS_PER_RELEASE[proj]):
                     e = self.epic(proj, rel, ri, ws, we, by_rel, pod_names, proj_caps, cx_caps, used_ts)
                     epics.append(e)
@@ -212,6 +227,7 @@ class Gen:
         epics.sort(key=lambda e: -int(e["k"].split("-")[1]))
 
         self.anchor_epics(epics, by_rel, used_ts, proj_caps)
+        int_epics = self.int_epics(by_rel, caps, cap_list, cx_caps, used_ts)
         sprints = self.sprints(used_ts)
 
         # ---- bugs
@@ -224,6 +240,22 @@ class Gen:
         # ---- dependency links, story links, bugs under epics, external issues
         deps, ext, sdeps, sinfo, eb = self.links(epics, bugs)
         self.anchor_deps(epics, deps)
+
+        # ---- INT, last: its bugs, customer-found bugs, dependency links and issues under epics, from its own stream
+        with self.stream("INT"):
+            int_bugs = self.bugs(epics, ["INT"])
+            icf = self.cfbx(int_bugs, ["INT"])
+            ideps, isdeps, isinfo, ieb = self.int_links(int_epics, epics, int_bugs)
+        cfbx["bugs"].update(icf["bugs"])
+        cfbx["allOpenByProject"]["INT"] = icf["allOpenByProject"]["INT"]
+        cfbx["allOpen"] += icf["allOpen"] - 5
+        deps += ideps
+        deps.sort(key=lambda d: (d[0], d[1]))
+        sdeps += isdeps
+        sinfo.update(isinfo)
+        eb.update(ieb)
+        bugs += int_bugs
+        epics += int_epics
 
         # ---- capabilities' child epics and the no-fix-version count
         cap_epics = [[e["k"], e["p"], e["s"], [v for v in e["fv"] if v in RELEASES], e["cat"] or "", e["cp"]] for e in epics if e.get("cp")]
@@ -257,7 +289,7 @@ class Gen:
             s = self.pick(["New", "In Definition", "Ready for Dev"], [40, 25, 35])
         k = self.key(proj)
         cr = ws - dt.timedelta(days=r.randint(5, 120))
-        teams = [] if r.random() < .08 else r.sample(TEAMS[proj], 2 if r.random() < .1 and len(TEAMS[proj]) > 1 else 1)
+        teams = [] if r.random() < .08 else r.sample(TEAMS_ALL[proj], 2 if r.random() < .1 and len(TEAMS_ALL[proj]) > 1 else 1)
         ai = r.random() < (.05 + .08 * ri)
         e = {"k": k, "p": proj, "t": self.title(), "s": s, "fv": [rel], "c": self.pick(["Committed", "Stretch", None], [70, 15, 15]), "tm": teams, "ai": ai,
              "m": f"Model-{r.randint(1, 3)}" if ai else None, "rd": None, "cr": self.d(cr), "cat": self.pick([c for c, _ in CATEGORIES], [w for _, w in CATEGORIES])}
@@ -293,6 +325,53 @@ class Gen:
         if r.random() < .03 and s != "Done":
             e["fl"] = 1
         return e
+
+    # ---- INT: capabilities, epics and links, all from INT's own stream (the base draws never see them)
+    def int_epics(self, by_rel, caps, cap_list, cx_caps, used_ts) -> list:
+        out, keys = [], []
+        with self.stream("INT"):
+            r = self.r
+            for i in range(6):
+                k = self.key("INT")
+                keys.append(k)
+                caps[k] = f"{r.choice(WORDS_A)} capability int {i + 1}"
+                cap_list[k] = {"fv": r.choice([[CURRENT], ["26.4"], ["27.2"], [], [CURRENT, "27.2"]]), "p": "INT", "s": r.choice(["New", "In Progress", "Done", "In Progress"]), "t": caps[k]}
+            pod_names = {"INT": [f"Pod-{t.split()[1]}-{i}" for t in TEAMS_ALL["INT"] for i in (1, 2)]}
+            for ri, rel in enumerate(RELEASES):
+                ws, we = self.windows[rel]
+                for _ in range(EPICS_PER_RELEASE["INT"]):
+                    out.append(self.epic("INT", rel, ri, ws, we, by_rel, pod_names, {"INT": keys}, cx_caps, used_ts))
+            for e in r.sample([x for x in out if x["fv"] == [CURRENT] and x["s"] != "Done"], 2):
+                e["fv"] = [CURRENT, "27.2"]
+                e["ad"]["27.2"] = self.d(self.today - dt.timedelta(days=r.randint(1, 9)))
+        out.sort(key=lambda e: -int(e["k"].split("-")[1]))
+        assert sum(1 for e in out if e["fv"][0] == CURRENT and e["s"] != "Done") >= 3, "the generator drew too few INT release epics"
+        return out
+
+    def int_links(self, int_epics, epics, int_bugs):
+        """Dependencies between INT epics and others (both directions), story-level links inside INT, and open bugs under INT epics. Call inside stream("INT")."""
+        r = self.r
+        mine = [e for e in int_epics if e["fv"][0] in (CURRENT, "26.4", "27.2")]
+        others = [e for e in epics if e["fv"][0] in (CURRENT, "26.4", "27.2")]
+        deps, seen = [], set()
+        for i in range(14):
+            a, b = (r.choice(mine), r.choice(others)) if i % 2 else (r.choice(others), r.choice(mine))
+            if a["k"] == b["k"] or (a["k"], b["k"]) in seen:
+                continue
+            seen.add((a["k"], b["k"]))
+            deps.append([a["k"], b["k"], r.choice(["D", "D", "B", "DB"])])
+        sdeps, sinfo = [], {}
+        for _ in range(4):
+            a, b = self.key("INT"), self.key("INT")
+            parent = r.choice(mine)["k"]
+            sinfo[a] = {"s": r.choice(["New", "In Progress", "Done"]), "ty": r.choice(["Story", "Task", "Bug"]), "par": parent}
+            sinfo[b] = {"s": r.choice(["New", "In Progress", "Done"]), "ty": r.choice(["Story", "Task"])}
+            sdeps.append([a, b, r.choice(["B", "D"]), [parent]])
+        open_bugs = [b for b in int_bugs if b["s"] not in ("Done", "Ready for Deploy", "Closed", "Resolved", "Removed")]
+        eb = {}
+        for e in r.sample([x for x in int_epics if x["fv"][0] == CURRENT], 5):
+            eb[e["k"]] = [[b["k"], b["s"], b.get("pr", "P3")] for b in r.sample(open_bugs, r.randint(1, 3))]
+        return deps, sdeps, sinfo, eb
 
     # ---- anchors: whatever the random draw gave, the tests need subjects with certain facts (kept small and explicit)
     def anchor_epics(self, epics, by_rel, used_ts, proj_caps):
@@ -348,11 +427,11 @@ class Gen:
             deps.sort(key=lambda d: (d[0], d[1]))
 
     # ---- bugs
-    def bugs(self, epics) -> list:
+    def bugs(self, epics, projects=None) -> list:
         r, today = self.r, self.today
         since = self.windows[RELEASES[0]][0]
         out = []
-        for proj in PROJECTS:
+        for proj in projects or BASE_PROJECTS:
             for _ in range(BUGS_PER_PROJECT[proj]):
                 cr = self.between(since, today)
                 age = (today - cr).days
@@ -370,7 +449,7 @@ class Gen:
                     b["rd"] = self.d(rd)
                     b["rs"] = self.pick(["Fixed", "Not a bug", "Won't Fix", "Duplicate", "Cannot Reproduce", "Limitation", "Fixed - Config", "Works as Designed"], [55, 14, 6, 8, 6, 4, 4, 3])
                 if r.random() < .9:
-                    b["tm"] = r.choice(TEAMS[proj])
+                    b["tm"] = r.choice(TEAMS_ALL[proj])
                 if r.random() < .06:
                     b["rg"] = 1
                 if r.random() < .12:
@@ -397,7 +476,7 @@ class Gen:
         out.sort(key=lambda b: -int(b["k"].split("-")[1]))
         return out
 
-    def cfbx(self, bugs) -> dict:
+    def cfbx(self, bugs, projects=None) -> dict:
         r = self.r
         res = {}
         for b in bugs:
@@ -413,7 +492,7 @@ class Gen:
             res[b["k"]] = rec
         open_cfb = [b for b in bugs if b.get("cfb") and b["s"] not in ("Done", "Ready for Deploy", "Closed", "Resolved", "Removed")]
         return {"bugs": res, "templates": len(RCA_TEMPLATES), "tpl": [h53(norm_text(t)) for t in RCA_TEMPLATES], "allOpen": len(open_cfb) + 5,
-                "allOpenByProject": {**{p: sum(1 for b in open_cfb if b["p"] == p) for p in PROJECTS}, "EXA": 3, "EXB": 2}, "pulledAt": il_stamp(self.generated_day, 0, 36)}
+                "allOpenByProject": {**{p: sum(1 for b in open_cfb if b["p"] == p) for p in projects or BASE_PROJECTS}, "EXA": 3, "EXB": 2}, "pulledAt": il_stamp(self.generated_day, 0, 36)}
 
     # ---- links
     def links(self, epics, bugs):
@@ -438,7 +517,7 @@ class Gen:
         deps.sort(key=lambda d: (d[0], d[1]))
         sdeps, sinfo = [], {}
         for _ in range(30):
-            a, b = self.key(r.choice(PROJECTS)), self.key(r.choice(PROJECTS))
+            a, b = self.key(r.choice(BASE_PROJECTS)), self.key(r.choice(BASE_PROJECTS))
             parent = r.choice(pool)["k"]
             sinfo[a] = {"s": r.choice(["New", "In Progress", "Done"]), "ty": r.choice(["Story", "Task", "Bug"]), "par": parent}
             sinfo[b] = {"s": r.choice(["New", "In Progress", "Done", "Removed"]), "ty": r.choice(["Story", "Task", "Test"])}
@@ -456,7 +535,7 @@ class Gen:
         teams = sorted({t for ts in TEAMS.values() for t in ts})
         rows = []
         total_days = (today - start).days
-        for pi, proj in enumerate(PROJECTS):
+        for pi, proj in enumerate(BASE_PROJECTS):
             for _ in range(int(300 * EPICS_PER_RELEASE[proj] / 22) + 40):
                 day = start + dt.timedelta(days=r.randint(0, total_days))
                 v = r.randrange(len(CAP_VALUES)) if r.random() < .97 else -1
@@ -465,8 +544,8 @@ class Gen:
                 rows.append((self.num(), pi, v, sp, (day - epoch).days, t, 1 if r.random() < .04 else 0))
         gap_end = self.windows["26.1"][0] - dt.timedelta(days=1)                   # enough issues in the left-out release for its "not plotted" link to be a range query, not a key list
         for _ in range(300):
-            pi = r.randrange(len(PROJECTS))
-            proj = PROJECTS[pi]
+            pi = r.randrange(len(BASE_PROJECTS))
+            proj = BASE_PROJECTS[pi]
             day = start + dt.timedelta(days=r.randint(0, (gap_end - start).days))
             rows.append((self.num(), pi, r.randrange(len(CAP_VALUES)), r.choice([0, 1, 2, 3, 5, 8]), (day - epoch).days, teams.index(r.choice(TEAMS[proj])), 0))
         # the current quarter, the day before it and today carry rows too, so a delta refresh has neighbours
@@ -474,6 +553,19 @@ class Gen:
         for i in range(4):                                         # PMN issues closed in the current quarter, whatever day of it today is
             d = qs + dt.timedelta(days=min((today - qs).days, i))
             rows.append((self.num(), 0, r.randrange(len(CAP_VALUES)), r.choice([1, 2, 3, 5]), (d - epoch).days, 0, 0))
+        with self.stream("INT"):                                   # INT: its teams go after the sorted ones, so no other project's team index moves
+            ri, pi = self.r, PROJECTS.index("INT")
+            teams += TEAMS_ALL["INT"]
+            for _ in range(int(300 * EPICS_PER_RELEASE["INT"] / 22) + 40):
+                day = start + dt.timedelta(days=ri.randint(0, total_days))
+                rows.append((self.num(), pi, ri.randrange(len(CAP_VALUES)) if ri.random() < .97 else -1, ri.choice([0, 0, 1, 2, 3, 5, 8, 13]) if ri.random() > .15 else 0,
+                             (day - epoch).days, teams.index(ri.choice(TEAMS_ALL["INT"])) if ri.random() < .92 else -1, 1 if ri.random() < .04 else 0))
+            for _ in range(40):                                    # the left-out release, so INT has "not plotted" issues in Release mode
+                day = start + dt.timedelta(days=ri.randint(0, (gap_end - start).days))
+                rows.append((self.num(), pi, ri.randrange(len(CAP_VALUES)), ri.choice([0, 1, 2, 3, 5, 8]), (day - epoch).days, teams.index(ri.choice(TEAMS_ALL["INT"])), 0))
+            for i in range(2):                                     # closed in the current quarter
+                d = qs + dt.timedelta(days=min((today - qs).days, i))
+                rows.append((self.num(), pi, ri.randrange(len(CAP_VALUES)), ri.choice([1, 2, 3, 5]), (d - epoch).days, teams.index(TEAMS_ALL["INT"][0]), 0))
         rows.sort(key=lambda x: -x[0])
         return {"start": self.d(start), "prefix": "Capitalize", "epoch": EPOCH, "projects": list(PROJECTS), "values": list(CAP_VALUES), "teams": teams,
                 "rows": ";".join(",".join(str(x) for x in row) for row in rows), "pulledAt": il_stamp(self.generated_day, 0, 30)}

@@ -68,7 +68,7 @@ NODES_JS = "[...document.querySelectorAll('#cy-ovbody [data-cyact=\"open\"]')].m
 
 def views(full: bool, data: dict) -> list[str]:
     rels = data["releases"] if full else ["26.4", "27.1"]
-    psets = ["", "p=PMN", "p=PMN|CXCO"] + (["p=CXWFM|WFM|CXINT"] if full else [])
+    psets = ["", "p=PMN", "p=PMN|CXCO", "p=INT"] + (["p=CXWFM|WFM|CXINT|INT"] if full else [])
     out = [f"r={r}&{p}&cy={c}".replace("&&", "&") for r in rels for p in psets for c in ("DC1", "DC2")]
     facets = ["c=Stretch", "ax=1", "cfb=yes", "g=week", "g=quarter", "cg=quarter", "dp=all", "dp=overdue", "dp=gap", "nt=capability", "nt=team", "cx=committed", "cpg=release", "cpm=count"]
     out += [f"r=27.1&{f}" for f in facets]

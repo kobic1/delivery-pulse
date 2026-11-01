@@ -1,6 +1,7 @@
 """A small JQL evaluator: the subset the Delivery Pulse links use for bugs, customer-found bugs and capitalization, run over the baked records.
 
 Supported: AND, OR, NOT, parentheses; =, !=, >, >=, <, <=, ~, !~; IN / NOT IN (...); IS [NOT] EMPTY (or NULL); quoted strings with \\" escapes; cf[NNNNN] fields.
+A reserved word used as an unquoted value (a project key such as INT) is Malformed, as Jira rejects it.
 Anything else (WAS, functions, unknown fields) raises Unsupported, so a test can tell "the oracle cannot judge this" from Malformed ("this query is broken").
 Dates are day strings (YYYY-MM-DD); a comparison with a date-only operand compares days, which is the granularity the baked data has.
 """
@@ -19,6 +20,7 @@ class Unsupported(Exception):
 
 TOKEN = re.compile(r'\s*(?:(?P<str>"(?:[^"\\]|\\.)*")|(?P<cf>cf\[\d+\])|(?P<op>>=|<=|!=|!~|=|<|>|~)|(?P<punct>[(),])|(?P<word>[A-Za-z0-9_][\w.\-]*))')
 KEYWORDS = {"AND", "OR", "NOT", "IN", "IS", "EMPTY", "NULL", "WAS", "ON", "CHANGED"}
+RESERVED = {"INT"}          # words Jira refuses as an unquoted value ("'INT' is a reserved JQL word. You must surround it in quotation marks"): here the project keys that are one
 
 
 def tokenize(jql: str):
@@ -119,6 +121,8 @@ class Parser:
 
     def value(self):
         kind, v = self.peek()
+        if kind == "word" and v.upper() in RESERVED:
+            raise Malformed(f"'{v}' is a reserved JQL word: it must be surrounded by quotation marks")
         if kind in ("str", "word"):
             self.i += 1
             return v

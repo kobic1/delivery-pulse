@@ -33,6 +33,7 @@ STATES = [
     "", "r=26.4", "r=26.2&p=PMN", "p=PMN", "p=CXWFM|WFM", "p=PMN|CXCO|CXSUP", "TEAM", "p=PMN&TEAM", "c=Stretch", "ax=1", "bp=P1|P2", "bp=P3&ax=1", "cfb=yes", "cfb=no", "cfb=yes&p=PMN",
     "cg=quarter", "cg=month&p=CXCO", "g=quarter", "cpg=release", "cpg=release&cpm=count", "cpm=count", "cpg=release&p=PMN", "cpg=release&TEAM", "cpg=release&p=CXWFM|WFM&cpm=count",
     "p=CXINT&cpm=count", "p=WFM&cg=quarter&bp=P1|P2|P3&ax=1",
+    "p=INT", "p=CXINT|INT&cfb=yes", "cpg=release&p=INT&cpm=count",
 ]
 
 COLLECT_JS = """(() => {
@@ -225,6 +226,40 @@ def _(t: T):
     t.check(seen > 20, f"{seen} Capitalization links inspected in 8 states, none is a key list")
 
 
+# ================================================================ the reserved project key: INT must be quoted in every query
+BARE_INT = re.compile(r"(?<![\w-])INT(?![\w-])")
+QUOTED = re.compile(r'"(?:[^"\\]|\\.)*"')
+
+
+def quoting_problems(url=None) -> list[str]:
+    """Jira rejects `project = INT` ("'INT' is a reserved JQL word") and wants `project = "INT"`. With INT selected, and with every project selected, every JQL link must name it quoted;
+    a link whose query names a project while INT is the only selection must carry `"INT"`. The count of links seen keeps the check from being blind."""
+    out, quoted = [], 0
+    for spec in ("p=INT", "p=CXINT|INT&cfb=yes", "cpg=release&p=INT&cpm=count", "", "r=26.4", "cpg=release", "cfb=yes", "TEAM"):
+        for a in anchors_for(spec, url):
+            j = jql_of(a["href"])
+            if j is None:
+                continue
+            bare = QUOTED.sub('""', j)
+            if BARE_INT.search(bare):
+                out.append(f"[{spec or '(default)'}] a bare INT: {describe(a, j)}")
+            elif '"INT"' in j:
+                quoted += 1
+            if spec == "p=INT" and re.search(r"\bproject\b", bare) and '"INT"' not in j and "CXCROSS" not in j:
+                out.append(f"[p=INT] a query that names a project but not \"INT\": {describe(a, j)}")
+    if quoted < 40:
+        out.append(f"only {quoted} links name \"INT\" quoted (at least 40 expected, or the check is blind)")
+    return out
+
+
+@SUITE.test("links_reserved_project_key_INT_is_quoted_in_every_query")
+def _(t: T):
+    probs = quoting_problems()
+    for p in sorted(set(probs))[:12]:
+        t.failures.append(p)
+    t.passed += 0 if probs else 1
+
+
 # ================================================================ the known defects, each on its own
 def _row_links(spec: str, row_text: str, container: str):
     return [a for a in anchors_for(spec) if a["block"] == "cap" and row_text in a["row"] and numeric(a) is not None and container in ("any", a["row"])]
@@ -285,6 +320,7 @@ def _(t: T):
 MUTATIONS = [
     ("a NaN date in the 'since the pull' range (Quarter mode defect)", "const START_R = [C.start, null]", 'const START_R = ["0-NaN-01", null]', quarter_mode_problems),
     ("an unscoped 'no story points' range in Release mode", 'const noSpRanges = by === "release" ? shownR : [START_R];', "const noSpRanges = [START_R];", release_mode_problems),
+    ("the reserved project key INT left unquoted", "const pkey = k => JQL_RESERVED_KEYS.includes(k) ? q(k) : k;", "const pkey = k => k;", quoting_problems),
     ("accessibility bugs left in the Open Bugs links", "const AX_EXCLUDE = ", 'const AX_EXCLUDE = ""; const AX_EXCLUDE_UNUSED = ', None),
 ]
 

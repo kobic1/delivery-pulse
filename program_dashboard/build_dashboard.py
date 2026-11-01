@@ -44,7 +44,21 @@ _spec = _ilu.spec_from_file_location("release_planning_model", HERE.parent / "re
 RPM = _ilu.module_from_spec(_spec)                       # the release planning report's own pod rule (classify / pod_labels), reused rather than copied
 _spec.loader.exec_module(RPM)
 
-PROJECTS = ["PMN", "CXCO", "CXSUP", "CXWFM", "WFM", "CXINT"]
+PROJECTS = ["PMN", "CXCO", "CXSUP", "CXWFM", "WFM", "CXINT", "INT"]
+# Project keys that are reserved JQL words: Jira rejects INT as a bare project key ("'INT' is a reserved JQL word. You must surround it in quotation marks") and wants it quoted.
+# EVERY query that names a project key goes through pkey / pkeys; the page has the same helper (JQL_RESERVED_KEYS reaches it through definitions()), and tests/test_program_dashboard.py fails on an unquoted interpolation.
+JQL_RESERVED_KEYS = ["INT"]
+
+
+def pkey(proj: str) -> str:
+    """A project key as JQL names it: quoted when it is a reserved word, unchanged otherwise."""
+    return f'"{proj}"' if proj in JQL_RESERVED_KEYS else proj
+
+
+def pkeys(projects) -> str:
+    return ", ".join(pkey(p) for p in projects)
+
+
 RELEASES = ["25.4", "26.1", "26.2", "26.3", "26.4", "27.1", "27.2"]
 CURRENT_RELEASE = "27.1"
 PROVISIONAL = ["27.1", "27.2"]          # still running or planned
@@ -303,7 +317,7 @@ def collect_bug_updates(j, bugs) -> int:
     for b in bugs:
         b.pop("ud", None)                                    # a bug that is no longer an open customer-found bug must not keep an earlier pull's date
     for proj in PROJECTS:
-        for i in j.search(f'project = {proj} AND issuetype = Bug AND {CFB_JQL} AND status not in ({BUG_CLOSED_JQL})', ["updated"]):
+        for i in j.search(f'project = {pkey(proj)} AND issuetype = Bug AND {CFB_JQL} AND status not in ({BUG_CLOSED_JQL})', ["updated"]):
             if i["key"] in by and i["fields"].get("updated"):
                 by[i["key"]]["ud"] = i["fields"]["updated"][:10]
                 n += 1
@@ -393,7 +407,7 @@ def collect_pods(j, epics) -> dict:
         e.pop("pl", None)                                                    # a label removed in Jira must not survive from an earlier pull
     n = 0
     for proj in PROJECTS:
-        jql = f'project = {proj} AND issuetype = Epic AND status != Removed AND fixVersion in ({quoted}) AND labels is not EMPTY'
+        jql = f'project = {pkey(proj)} AND issuetype = Epic AND status != Removed AND fixVersion in ({quoted}) AND labels is not EMPTY'
         for i in j.search(jql, ["labels"]):
             if i["key"] in by_key:
                 pods = RPM.pod_labels(i["fields"].get("labels"), rx[proj])
@@ -453,7 +467,7 @@ def collect_capitalization(j) -> dict:
     fallbacks = 0
     t0 = time.time()
     for pi, proj in enumerate(PROJECTS):
-        jql = (f'project = {proj} AND status = Done AND issuetype in (Bug, Story, Task) AND '
+        jql = (f'project = {pkey(proj)} AND status = Done AND issuetype in (Bug, Story, Task) AND '
                f'(cf[10099] >= "{wide}" OR (cf[10099] is EMPTY AND resolutiondate >= "{wide}"))')
         issues = j.search(jql, CAP_FIELDS)
         counts[proj] = 0
@@ -483,7 +497,7 @@ def collect_nfr(j, epics) -> int:
         e.pop("nf", None)
     n = 0
     for proj in PROJECTS:
-        jql = f'project = {proj} AND issuetype = Epic AND status != Removed AND fixVersion in ({quoted}) AND labels = {NFR_LABEL}'
+        jql = f'project = {pkey(proj)} AND issuetype = Epic AND status != Removed AND fixVersion in ({quoted}) AND labels = {NFR_LABEL}'
         for i in j.search(jql, ["labels"]):
             if i["key"] in by_key:
                 by_key[i["key"]]["nf"] = 1
@@ -567,7 +581,7 @@ def rca_flags(texts: dict[str, str]) -> tuple[dict[str, int], int]:
 
 def collect_cfb(j) -> dict:
     """Every CFB (bug reported by the CFB account) of the six projects with its Root Cause Analysis state, plus the open count across ALL projects."""
-    jql = f'project in ({", ".join(PROJECTS)}) AND issuetype = Bug AND {CFB_JQL}'
+    jql = f'project in ({pkeys(PROJECTS)}) AND issuetype = Bug AND {CFB_JQL}'
     got = j.search(jql, ["summary", "status", RCA_FIELD, RCA_REVIEW, "issuelinks"])
     texts = {i["key"]: plain_text(i["fields"].get(RCA_FIELD)) for i in got}
     flag, ntemplates = rca_flags(texts)
@@ -617,7 +631,7 @@ def collect_capabilities(j, known: dict) -> dict:
         f = i["fields"]
         return {"t": f["summary"], "s": (f.get("status") or {}).get("name"), "p": (f.get("project") or {}).get("key") or i["key"].split("-")[0],
                 "fv": [v["name"] for v in f.get("fixVersions") or []]}
-    caps = {i["key"]: rec(i) for i in j.search(f'project in ({", ".join(CAP_PROJECTS)}) AND issuetype = Capability AND status != Removed AND fixVersion in ({quoted})', fields)}
+    caps = {i["key"]: rec(i) for i in j.search(f'project in ({pkeys(CAP_PROJECTS)}) AND issuetype = Capability AND status != Removed AND fixVersion in ({quoted})', fields)}
     print(f"capabilities: {len(caps)} with a fix version in {CAP_RELEASES[0]} to {CAP_RELEASES[-1]}", flush=True)
     want = sorted(set(known) - set(caps))                            # the Capabilities that our epics (the release data) point to and that are not in the list yet
     extra = 0
@@ -626,7 +640,7 @@ def collect_capabilities(j, known: dict) -> dict:
             caps[i["key"]] = rec(i)
             extra += 1
     print(f"capabilities: {extra} more that our epics point to (any project)", flush=True)
-    nofv = j.search(f'project in ({", ".join(CAP_PROJECTS)}) AND issuetype = Capability AND status != Removed AND fixVersion is EMPTY', ["status"])
+    nofv = j.search(f'project in ({pkeys(CAP_PROJECTS)}) AND issuetype = Capability AND status != Removed AND fixVersion is EMPTY', ["status"])
     no_fv = {"total": len(nofv), "done": sum(1 for i in nofv if (i["fields"].get("status") or {}).get("name") == "Done")}
     keys = sorted(k for k, v in caps.items() if v["p"] in PROJECTS and any(r in CAP_RELEASES for r in v["fv"]))
     rows = []
@@ -726,7 +740,7 @@ def collect_links(j, epics) -> dict:
     pairs, caps, dropped = set(), {}, {"removed": 0}
     other_type = {}                                           # issue type of the far end of each pair, read from the link itself
     for proj in PROJECTS:
-        jql = f'project = {proj} AND issuetype = Epic AND status != Removed AND fixVersion in ({quoted})'
+        jql = f'project = {pkey(proj)} AND issuetype = Epic AND status != Removed AND fixVersion in ({quoted})'
         for i in j.search(jql, ["issuelinks", "parent"] + PLAN_FIELDS):
             f = i["fields"]
             if i["key"] in by_key:
@@ -789,7 +803,7 @@ def collect_bugs(j) -> list:
     """Every Bug of the six projects open, created, resolved or closed since BUG_SINCE, as compact rows (see bug_record)."""
     bugs = []
     for proj in PROJECTS:
-        base = (f'project = {proj} AND issuetype = Bug AND (created >= "{BUG_SINCE}" '
+        base = (f'project = {pkey(proj)} AND issuetype = Bug AND (created >= "{BUG_SINCE}" '
                 f'OR resolutiondate >= "{BUG_SINCE}" OR cf[10099] >= "{BUG_SINCE}" OR resolution is EMPTY)')
         ax_keys = {i["key"] for i in j.search(f"{base} AND {AX_JQL}", ["summary"])}
         got = j.search(base, BUG_FIELDS)
@@ -805,7 +819,7 @@ def fetch() -> dict:
     quoted = ", ".join(f'"{r}"' for r in RELEASES)
     epics = []
     for proj in PROJECTS:
-        jql = (f'project = {proj} AND issuetype = Epic AND status != Removed '
+        jql = (f'project = {pkey(proj)} AND issuetype = Epic AND status != Removed '
                f'AND fixVersion in ({quoted})')
         got = j.search(jql, FIELDS)
         print(f"{proj}: {len(got)} epics", flush=True)
@@ -883,7 +897,7 @@ def definitions() -> dict:
     """The definitions that the collector and the page must agree on, written once into the payload (DATA.defs). The page reads them from here;
     its own literals are only a fallback for an older payload, and tests/test_definitions_contract.py keeps the two equal."""
     return {"bugClosed": list(BUG_CLOSED), "nfrLabel": NFR_LABEL, "nfrCategories": list(NFR_CATEGORIES),
-            "commitTypes": ["Committed", "Not Set", "Stretch"], "targetCommit": ["Committed", "Not Set"]}
+            "commitTypes": ["Committed", "Not Set", "Stretch"], "targetCommit": ["Committed", "Not Set"], "jqlReservedKeys": list(JQL_RESERVED_KEYS)}
 
 
 def build_stamp() -> dict:

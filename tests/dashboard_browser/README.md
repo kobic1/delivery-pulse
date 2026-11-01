@@ -25,7 +25,7 @@ Results: `PASS`, `FAIL`, `XFAIL` (expected to fail until a fix lands, see below)
 
 | File | What it is |
 |---|---|
-| `make_synthetic.py` | The fictitious payload, same schema and keys as `build/program_data.json`. Seeded, dates relative to today (Israel time), issue numbers from 90001. Also `render_page` (the same single-placeholder substitution as `build_dashboard.render()`) and `canarify`. `python3 make_synthetic.py out.html` renders a page you can open. |
+| `make_synthetic.py` | The fictitious payload, same schema and keys as `build/program_data.json`. Seeded, dates relative to today (Israel time), issue numbers from 90001. Seven projects: the first six share one random stream and one issue counter; INT (a reserved JQL word) is drawn last from its own stream, so adding it left every other project's records unchanged. Also `render_page` (the same single-placeholder substitution as `build_dashboard.render()`) and `canarify`. `python3 make_synthetic.py out.html` renders a page you can open. |
 | `cdp.py` | A small Chrome DevTools driver (standard library only), temporary profile, free port, `wait_for` with a timeout. |
 | `kit.py` | The tiny suite (PASS/FAIL/XFAIL/XPASS), the expectation flags, shared page helpers. |
 | `mock_claude.js`, `probe.js` | The mocked `claude.use("mcp")` (the real shape of the Atlassian `searchJiraIssuesUsingJql` answer) and the in-page probe. The mock clears `dp.slowRuns` and `dp.slowData` at the start of every page (`CFG.keep` keeps them: the page is a reload of the previous one) and seeds the daily allowance with `CFG.sr`: `none`, `auto` (the first open of the day used), `one`, `used` (both clicks used), `yesterday`, `future`, `corrupt`, a raw string stored as it is, or an object such as `{"n": 0, "auto": 1}`; the Israel day is computed after the `CFG.shift` clock override. `CFG.ls`: `recent` seeds `dp.lastRefresh` and drops the page's automatic refresh (the case is about a click), `recentauto` seeds it and lets the automatic refresh run. The probe adds `dp.slowRuns` (`slowRaw`), `DATA.edctAt`, the Efficiency and Release Analysis notes and the 'Done Epics with No EDCT' row to the snapshot. |
@@ -65,16 +65,16 @@ own data byte-identical and never blocks the others (four steps); an empty respo
 
 **Escaping canary (F16)**: `"><img src=x onerror=window.__x=1>` and `<script>window.__x=1</script>` are put into every free-text field of the payload (epic title, team,
 assignee, category, AI model, pod label, sprint name, status, capability and initiative names, fix versions, bug team and resolution, CFB summary, links and
-analysis text, capitalization values and teams, far-end issues, bugs under epics, the pod pattern). The page is loaded in 27 filter states (the URL hash), every
+analysis text, capitalization values and teams, far-end issues, bugs under epics, the pod pattern). The page is loaded in 28 filter states (the URL hash), every
 `details` (Show data) is opened, collapsed groups are expanded, the hover text of every mark is shown. After each: `window.__x` is undefined, no `img` with `src=x`
 or `onerror`, no inline handler attribute and no script element beyond the template's own, no hostile node in the tooltip. A control test proves the detector fires on an
 unescaped injection, and a test proves the payload is really rendered as text. The refresh path is covered with hostile strings in the mocked Jira responses.
 Left untouched on purpose: project codes, release labels, issue keys, `jiraBase`, `cloudId`, `cfbAccount` (the page builds logic and URLs from them).
 
-**Link oracle (F14b)**: under 26 filter states every `href` is checked for `NaN`, `undefined`, `null`, `[object` and for being well formed (https, the Jira host,
+**Link oracle (F14b)**: under 29 filter states every `href` is checked for `NaN`, `undefined`, `null`, `[object` and for being well formed (https, the Jira host,
 `/browse/KEY` or `/issues/?jql=` with parseable JQL). In the Open Bugs, CFB and Capitalization blocks the JQL of every link whose text is a number is
 **evaluated in Python over the baked records** (`jql_eval.py`) and must match the printed number. Named tests cover the two Capitalization defects (Quarter mode
-"All issues" and "no story points": no `NaN` date; Release mode "Not plotted" and "no story points": scoped). `oracle_selftest_catches_seeded_defects` copies the template,
+"All issues" and "no story points": no `NaN` date; Release mode "Not plotted" and "no story points": scoped). `links_reserved_project_key_INT_is_quoted_in_every_query` loads the page with INT selected, with INT among others and with everything selected, and requires every Jira query that names it to hold `"INT"` in quotation marks (INT is a reserved JQL word; `jql_eval.py` rejects a bare one as Jira does, and `mock_claude.js` answers a bare one with Jira's error, so a Refresh that forgets the quotes fails too). `oracle_selftest_catches_seeded_defects` copies the template,
 seeds each defect, and requires the oracle to catch it, so a green oracle is not a blind one. The evaluator knows the fields these blocks use; a query it cannot
 judge is reported as "not judged", a query it cannot parse is a failure.
 
