@@ -1504,7 +1504,7 @@ function renderBurnup() {
     done.push(di);
   }
   const finalDone = done[snapD], N = baseScope, added = target.length - N;
-  const W = chartWidth(el, 300), narrow = W < 520, H = 344, pl = 44, pr = narrow ? 100 : 112, pt = narrow ? 40 : 22, pb = 48, pw = W - pl - pr, ph = H - pt - pb;
+  const W = chartWidth(el, 300), narrow = W < 520, H = 344, pl = 44, pr = 14, pt = narrow ? 40 : 22, pb = 48, pw = W - pl - pr, ph = H - pt - pb;
   const sc = niceScale(Math.max(N, ...done) * 1.04);
   const x = d => pl + pw * d / D, y = v => pt + ph * (1 - v / sc.max);
   let g = "";
@@ -1514,8 +1514,8 @@ function renderBurnup() {
   const tickEvery = Math.max(7, Math.ceil(74 / (pw / D) / 7) * 7);
   for (let d = 0; d <= D; d += tickEvery)
     g += `<line x1="${x(d)}" x2="${x(d)}" y1="${pt + ph}" y2="${pt + ph + 4}" stroke="#8A8F98"/>` +
-         `<text x="${x(d)}" y="${pt + ph + 18}" text-anchor="middle" font-size="11" fill="#4A4F57">${shortDate(w1 + d * DAY)}</text>` +
-         `<text x="${x(d)}" y="${pt + ph + 32}" text-anchor="middle" font-size="11" font-weight="600" fill="#5A5F6B">W${d / 7 + 1}</text>`;
+         `<text x="${x(d)}" y="${pt + ph + 18}" text-anchor="${x(d) + 32 > W ? "end" : "middle"}" font-size="11" fill="#4A4F57">${shortDate(w1 + d * DAY)}</text>` +
+         `<text x="${x(d)}" y="${pt + ph + 32}" text-anchor="${x(d) + 32 > W ? "end" : "middle"}" font-size="11" font-weight="600" fill="#5A5F6B">W${d / 7 + 1}</text>`;
   g += `<line x1="${x(D)}" x2="${x(D)}" y1="${pt}" y2="${pt + ph}" stroke="#8A8F98" stroke-dasharray="4 3"/>` +
        `<text x="${x(D)}" y="${pt - 7}" text-anchor="${x(D) > W - pr - 70 ? "end" : "middle"}" font-size="11" fill="#4A4F57">release end ${shortDate(end)}</text>`;
   if (snapD < D) g += `<line x1="${x(snapD)}" x2="${x(snapD)}" y1="${pt}" y2="${pt + ph}" stroke="#5A5F6B" stroke-opacity=".7" stroke-dasharray="2 3"/>` +
@@ -1525,11 +1525,12 @@ function renderBurnup() {
   g += `<path d="${doneLine} V${y(0)} H${x(0)} Z" fill="#3694FC" fill-opacity=".16"/>`;
   g += `<path d="${doneLine}" fill="none" stroke="#025AFB" stroke-width="2.5"/>`;
   const yS = y(N), yD = y(finalDone), gap = Math.abs(yS - yD) < 15, pace = D ? N * snapD / D : 0, dv = Math.round(finalDone - pace);
-  g += `<circle cx="${x(D)}" cy="${yS}" r="4" fill="#21212B" pointer-events="none"/><text pointer-events="none" x="${x(D) + 9}" y="${yS + 4 - (gap ? 8 : 0)}" font-size="12" font-weight="600" fill="#21212B">Scope ${N.toLocaleString("en-US")}</text>`;
-  if (!gap && !TB.pre) g += `<text x="${x(D) + 9}" y="${yS + 18}" font-size="11" fill="#3B3F4A">${added >= 0 ? "+" : "−"}${Math.abs(added)} since W1</text>`;
+  const sTop = Math.max(pt + 10, yS - 21), addTxt = TB.pre ? "" : `${added >= 0 ? "+" : "−"}${Math.abs(added)} since W1`;      // the Scope label is inside the plot, left of the end dot, so the plot reaches the card edge
+  g += `<circle cx="${x(D)}" cy="${yS}" r="4" fill="#21212B" pointer-events="none"/><text pointer-events="none" x="${x(D) - 9}" y="${sTop}" text-anchor="end" font-size="12" font-weight="600" fill="#21212B" stroke="#fff" stroke-width="3" paint-order="stroke">Scope ${N.toLocaleString("en-US")}</text>`;
+  if (addTxt) g += `<text pointer-events="none" x="${x(D) - 9}" y="${sTop + 13}" text-anchor="end" font-size="11" fill="#3B3F4A" stroke="#fff" stroke-width="3" paint-order="stroke">${addTxt}</text>`;
   const paceTxt = snap >= w1 && snapD < D && N >= MIN_N ? `${dv >= 0 ? "+" : "−"}${Math.abs(dv)} vs even pace` : "";
   const doneTxt = `Done ${finalDone.toLocaleString("en-US")}`, est = (narrow ? Math.max(doneTxt.length, paceTxt.length) : (doneTxt + " · " + paceTxt).length) * 6.6;
-  const flip = snapD < D && x(snapD) + 7 + est > W - 4, tx = flip ? x(snapD) - 7 : x(snapD) + 7, ty = yD + 4 + (gap && snapD === D ? 8 : 0), anc = flip ? "end" : "start";
+  const flip = x(snapD) + 7 + est > W - 4, tx = flip ? x(snapD) - 7 : x(snapD) + 7, ty = yD + 4 + (gap && snapD === D ? 8 : 0), anc = flip ? "end" : "start";
   g += `<text x="${tx}" text-anchor="${anc}" y="${ty}" font-size="12" font-weight="600" fill="#025AFB" stroke="#fff" stroke-width="3" paint-order="stroke">${doneTxt}${paceTxt && !narrow ? " · " + paceTxt : ""}</text>`;
   if (paceTxt && narrow) g += `<text x="${tx}" text-anchor="${anc}" y="${ty + 15}" font-size="11" fill="#025AFB" stroke="#fff" stroke-width="3" paint-order="stroke">${paceTxt}</text>`;
   g += `<text x="${x(D * .64)}" y="${y(N * .64) - 8}" text-anchor="middle" font-size="11" fill="#5A5F6B" stroke="#fff" stroke-width="3" paint-order="stroke">Even pace</text>`;
@@ -1556,7 +1557,7 @@ function renderBurnup() {
   }
   g += `<line id="bu-cross" x1="0" x2="0" y1="${pt}" y2="${pt + ph}" stroke="#444" stroke-opacity=".45" style="display:none"/>`;
   g += `<a id="bu-link" href="${jira({kind: "done", commit: ALLC}) || ""}" target="_blank" rel="noopener" aria-label="Open the Done epics in Jira"><rect id="bu-hit" x="${pl}" y="${pt}" width="${pw}" height="${ph}" fill="transparent" style="touch-action:pan-y;cursor:pointer"/></a>`;
-  g += ga(`<circle cx="${x(D)}" cy="${yS}" r="9" fill="transparent" stroke="none"/><rect class="hit" x="${x(D) - 9}" y="${yS - 16}" width="${pr - 4}" height="34" fill="transparent"/>`, TB.href, `Target scope ${N.toLocaleString("en-US")} on ${shortDate(w1)}\n${TB.tip}`);
+  g += ga(`<circle cx="${x(D)}" cy="${yS}" r="9" fill="transparent" stroke="none"/><rect class="hit" x="${x(D) - 92}" y="${sTop - 13}" width="${92 + 12}" height="${addTxt ? 34 : 20}" fill="transparent"/>`, TB.href, `Target scope ${N.toLocaleString("en-US")} on ${shortDate(w1)}\n${TB.tip}`);
   const w6tip = W6 ? `Delivery Cycle 1 (W1 to W6, ends ${W6.w6}): ${W6.within.length} Committed ${epicWord(W6.within.length)} planned by the cycle end, of ${W6.list.length} Committed in the release\n${W6.done.length} Done, ${W6.open.length} not Done; ${W6.none.length} with no due date or Target Sprint.\nCommitted only, Not Set is not included. A Target Sprint counts by its end date (the 2nd sprint of the release or earlier); with both a Target Sprint and a due date the later one counts. The dependency board keeps the due date over the Target Sprint.` : "";
   if (W6) g += ga(w6Hit + w6Dot, W6.hrefs.within, w6tip);
   const w6n = (list, href, what) => list.length ? tlink(list.length, href, `${list.length} Committed ${epicWord(list.length)} ${what}\nCommitted only; with both a Target Sprint and a due date the later one counts (a sprint by its end date).`) : "0";
