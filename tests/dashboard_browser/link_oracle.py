@@ -23,6 +23,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import jql_eval as J                                                                # noqa: E402
 import kit                                                                          # noqa: E402
+import link_cycles as LC                                                            # noqa: E402  (epic_issue: a baked epic as the Jira fields the epic queries use)
 import make_synthetic as MS                                                         # noqa: E402
 from kit import ctx, T                                                              # noqa: E402
 
@@ -316,11 +317,194 @@ def _(t: T):
     t.passed += 0 if probs else 1
 
 
+
+# ================================================================ Cycle Time per Release: the chart's n, the table's n, the tile and the Jira link query are one population
+# Owner decision: Cycle Time per Release counts the Done epics with an EDCT of the release, Maintenance (Issue Category) excluded, whatever Implemented by AI says (Yes, No, empty). SOW stays in.
+CYCLE_STATES = ["", "p=PMN", "p=PMN|CXCO", "p=CXWFM|WFM&c=Stretch", "TEAM", "p=PMN&TEAM"]
+CYCLE_JS = r"""(() => {
+  const chart = document.querySelector('[data-chart="cycle"]'), svg = chart.querySelector('svg');
+  const marks = [...svg.querySelectorAll('a.cl, g.cl')].map(a => ({href: a.getAttribute('href'), tip: a.getAttribute('data-tip')}));
+  const ns = [...svg.querySelectorAll('text')].map(t => t.textContent.trim()).filter(t => /^n=\d+$/.test(t)).map(t => +t.slice(2));
+  const lab = [...svg.querySelectorAll('text[fill="var(--chart-cycle-ink)"]')].map(t => +t.textContent);
+  const rows = {};
+  document.querySelectorAll('#trend-data tbody tr').forEach(tr => { const c = [...tr.children], a = c[8].querySelector('a');
+    rows[c[0].textContent.replace('*', '')] = {p50: c[6].textContent.trim(), p90: c[7].textContent.trim(), n: c[8].textContent.trim(), nHref: a ? a.getAttribute('href') : null}; });
+  const k = [...document.querySelectorAll('#an-kpis .kpi')].find(x => /Cycle Time P50/.test(x.textContent)), a = k && k.querySelector('.s a');
+  const tile = k ? {text: k.textContent.replace(/\s+/g, ' ').trim(), href: a ? a.getAttribute('href') : null} : null;
+  return {marks, ns, lab, rows, tile, release: state.release, rels: DATA.releases.slice(), projects: [...state.projects], teams: [...state.teams]};
+})()"""
+
+
+def _pct(vals, p):
+    vals = sorted(vals)
+    if not vals:
+        return None
+    i = (len(vals) - 1) * p
+    lo, hi = int(i), min(int(i) + 1, len(vals) - 1)
+    return vals[lo] + (vals[hi] - vals[lo]) * (i - lo)
+
+
+def _fmt(v):
+    """The page's fmt: one decimal at most, no trailing .0"""
+    if v is None:
+        return "–"
+    r = round(v * 10) / 10
+    return str(int(r)) if r == int(r) else str(r)
+
+
+def cycle_expected(data: dict, rel: str, projects, teams):
+    """The independent recount, from the baked epics: Done, in the release, in the selected projects and teams, Issue Category not Maintenance, with an EDCT. Nothing about AI."""
+    out = []
+    for e in data["epics"]:
+        if e["s"] != "Done" or rel not in e["fv"] or e["p"] not in projects or e.get("edct") is None:
+            continue
+        if teams and not (set(e.get("tm") or []) & set(teams)):
+            continue
+        if str(e.get("cat") or "").lower() == "maintenance":
+            continue
+        out.append(e)
+    return out
+
+
+def cycle_population_ok(data: dict) -> list[str]:
+    """The fixture must contain the epics the rule is about, or the check is blind: Done epics with an EDCT that are Maintenance, SOW, not AI, AI, and have no Issue Category."""
+    done = [e for e in data["epics"] if e["s"] == "Done" and e.get("edct") is not None]
+    need = {"Maintenance with an EDCT": [e for e in done if e.get("cat") == "Maintenance"], "SOW with an EDCT": [e for e in done if e.get("cat") == "SOW"],
+            "not AI with an EDCT": [e for e in done if not e.get("ai")], "AI with an EDCT": [e for e in done if e.get("ai")], "no Issue Category with an EDCT": [e for e in done if not e.get("cat")]}
+    return [f"the fixture has no Done epic: {k}" for k, v in need.items() if not v]
+
+
+def cycle_check_page(url, data, spec: str, label: str):
+    """Return (problems, facts) for one filter state: the chart n and labels, the hover text, the table row, the tile and the link query agree with the recount."""
+    F = fixture()
+    ch = ctx.chrome
+    ch.goto(url + ("#" + state_hash(spec, F["team"]) if spec else ""))
+    kit.wait_ready(ch)
+    res = ch.js(CYCLE_JS)
+    probs, facts = [], []
+    tag = f"[{label}:{spec or '(default)'}]"
+    universe = [LC.epic_issue(e) for e in data["epics"]]
+    edct = {e["k"]: e.get("edct") for e in data["epics"]}
+    rels, marks, ns, lab, li = res["rels"], res["marks"], res["ns"], res["lab"], 0
+    if len(marks) != len(rels) or len(ns) != len(rels):
+        return [f"{tag} the chart has {len(marks)} marks and {len(ns)} n labels for {len(rels)} releases"], facts
+    for i, rel in enumerate(rels):
+        exp = cycle_expected(data, rel, res["projects"], res["teams"])
+        vals = [e["edct"] for e in exp]
+        ok = len(vals) >= 5
+        m = marks[i]
+        got_labels = None
+        if "P50" in m["tip"]:
+            got_labels, li = lab[li:li + 2], li + 2
+        # 1. the plotted n and percentiles against the recount
+        if ns[i] != len(exp):
+            probs.append(f"{tag} {rel}: the chart plots n={ns[i]}, the recount gives {len(exp)}")
+        if ok != (got_labels is not None):
+            probs.append(f"{tag} {rel}: plotted={got_labels is not None}, expected plotted={ok}")
+        elif ok and [_fmt(_pct(vals, .5)), _fmt(_pct(vals, .9))] != [_fmt(x) for x in got_labels]:
+            probs.append(f"{tag} {rel}: plotted P50/P90 {got_labels}, the recount gives {_fmt(_pct(vals, .5))}/{_fmt(_pct(vals, .9))}")
+        # 2. the hover text names the same n
+        hover_n = re.search(r"\n(\d+) Done epics\n", m["tip"])
+        if not hover_n or int(hover_n.group(1)) != ns[i]:
+            probs.append(f"{tag} {rel}: the hover text says {hover_n.group(1) if hover_n else None} Done epics, the chart plots n={ns[i]}")
+        # 3. the table row
+        row = res["rows"].get(rel)
+        if not row or row["n"].replace(",", "") != str(ns[i]):
+            probs.append(f"{tag} {rel}: the table says n={row and row['n']}, the chart plots n={ns[i]}")
+        if row and ok and (row["p50"], row["p90"]) != (_fmt(_pct(vals, .5)), _fmt(_pct(vals, .9))):
+            probs.append(f"{tag} {rel}: the table says P50/P90 {row['p50']}/{row['p90']}, the recount gives {_fmt(_pct(vals, .5))}/{_fmt(_pct(vals, .9))}")
+        # 4. the links (bar and table) are the same query, and the query finds the same epics
+        hrefs = {"chart": m["href"], "table": row and row["nHref"]}
+        for name, h in hrefs.items():
+            if h is None:
+                if ns[i] or name == "chart":
+                    probs.append(f"{tag} {rel}: the {name} has no Jira link for n={ns[i]}")
+                continue
+            j = jql_of(h)
+            if "Maintenance" not in (j or "") or "cf[10139]" not in j:
+                probs.append(f"{tag} {rel}: the {name} link does not exclude Maintenance: {j}")
+                continue
+            if "cf[15229]" in j:
+                probs.append(f"{tag} {rel}: the {name} link filters on Implemented by AI: {j}")
+            try:
+                tree = J.parse(j)
+                found = [x for x in universe if J.evaluate(tree, x)]
+            except (J.Malformed, J.Unsupported) as e:
+                probs.append(f"{tag} {rel}: the {name} link cannot be evaluated: {e}")
+                continue
+            with_edct = [x for x in found if edct[x["key"]] is not None]
+            if len(with_edct) != ns[i]:
+                probs.append(f"{tag} {rel}: the {name} link query finds {len(found)} epics, {len(with_edct)} with an EDCT; the chart plots n={ns[i]}")
+            if {x["key"] for x in with_edct} != {e["k"] for e in exp}:
+                probs.append(f"{tag} {rel}: the {name} link query finds other epics than the recount")
+        if rel == res["release"]:
+            t = res["tile"]
+            if not t or f"{ns[i]} Done epics" not in t["text"] or t["href"] != m["href"]:
+                probs.append(f"{tag} {rel}: the selected-release tile does not agree with the chart (n={ns[i]}): {t}")
+        facts.append(f"{rel} n={ns[i]} P50/P90={_fmt(_pct(vals, .5)) if ok else '-'}/{_fmt(_pct(vals, .9)) if ok else '-'}")
+    return probs, facts
+
+
+def cycle_problems(url=None) -> list[str]:
+    F = fixture()
+    url = url or F["url"]
+    out = list(cycle_population_ok(F["data"]))
+    seen = 0
+    for spec in CYCLE_STATES:
+        p, f = cycle_check_page(url, F["data"], spec, "fixture")
+        out += p
+        seen += len(f)
+    if seen < len(CYCLE_STATES) * 5:
+        out.append(f"only {seen} release figures were compared (the check is blind)")
+    return out
+
+
+@SUITE.test("cycle_time_per_release_n_and_the_jira_link_are_one_population")
+def _(t: T):
+    """The chart n, its hover text, the Release Analysis row, the selected-release tile and the Jira link (evaluated with the repo's JQL evaluator) all equal the independent recount:
+    Done epics with an EDCT, Maintenance out, AI / not AI / empty all in. Run in six filter states."""
+    F = fixture()
+    probs = cycle_problems()
+    for p in probs[:15]:
+        t.failures.append(p)
+    t.passed += 0 if probs else 1
+    t.note("plotted (default filters): " + "; ".join(cycle_check_page(F["url"], F["data"], "", "fixture")[1]))
+
+
+@SUITE.test("cycle_time_per_release_says_so_when_an_epic_has_no_edct")
+def _(t: T):
+    """Jira cannot search for an EDCT: when a Done epic has none, the link lists it and the hover text says that n is smaller by that many, instead of the two numbers silently differing."""
+    import copy
+    F = fixture()
+    d = copy.deepcopy(F["data"])
+    rel = "26.4"
+    cand = [e for e in d["epics"] if e["s"] == "Done" and rel in e["fv"] and e["p"] == "PMN" and e.get("cat") != "Maintenance" and e.get("edct") is not None][:2]
+    t.check(len(cand) == 2, "the fixture has two PMN Done epics in 26.4 outside Maintenance")
+    for e in cand:
+        e["edct"] = None
+    url = ctx.write(kit.fragment_for(d), "cycle_noedct")
+    ch = ctx.chrome
+    ch.goto(url + "#p=PMN")
+    kit.wait_ready(ch)
+    res = ch.js(CYCLE_JS)
+    i = res["rels"].index(rel)
+    m = res["marks"][i]
+    t.check(res["ns"][i] == len(cycle_expected(d, rel, ["PMN"], [])), "the chart n leaves out the epics with no EDCT")
+    t.check("2 of them have no EDCT yet" in m["tip"], f"the hover text says that 2 epics have no EDCT: {m['tip']!r}")
+    found = J.count(jql_of(m["href"]), [LC.epic_issue(e) for e in d["epics"]])
+    t.check(found == res["ns"][i] + 2, f"the link lists the {res['ns'][i]} counted epics plus the 2 without an EDCT (found {found})")
+
+
+
 # ================================================================ the oracle must not be blind: seed each known defect into a copy of the template and require it to be caught
 MUTATIONS = [
     ("a NaN date in the 'since the pull' range (Quarter mode defect)", "const START_R = [C.start, null]", 'const START_R = ["0-NaN-01", null]', quarter_mode_problems),
     ("an unscoped 'no story points' range in Release mode", 'const noSpRanges = by === "release" ? shownR : [START_R];', "const noSpRanges = [START_R];", release_mode_problems),
     ("the reserved project key INT left unquoted", "const pkey = k => JQL_RESERVED_KEYS.includes(k) ? q(k) : k;", "const pkey = k => k;", quoting_problems),
+    ('Cycle Time per Release counting Maintenance epics again', 'const pop = list.filter(e => cls(e.s) === "done" && !cycleExcluded(e)),', 'const pop = list.filter(e => cls(e.s) === "done"),', cycle_problems),
+    ('Cycle Time per Release dropping the epics AI did not implement', 'const pop = list.filter(e => cls(e.s) === "done" && !cycleExcluded(e)),', 'const pop = list.filter(e => cls(e.s) === "done" && !cycleExcluded(e) && e.ai),', cycle_problems),
+    ('the Cycle Time per Release link losing the Maintenance exclusion', 'const cycleHref = rel => jira({release: rel, kind: "done", commit: ALLC, extra: CYCLE_KEPT_JQL});', 'const cycleHref = rel => jira({release: rel, kind: "done", commit: ALLC});', cycle_problems),
+    ('the Cycle Time per Release link filtering on AI', 'const cycleHref = rel => jira({release: rel, kind: "done", commit: ALLC, extra: CYCLE_KEPT_JQL});', 'const cycleHref = rel => jira({release: rel, kind: "done", commit: ALLC, extra: `${CYCLE_KEPT_JQL} AND cf[15229] = Yes`});', cycle_problems),
     ("accessibility bugs left in the Open Bugs links", "const AX_EXCLUDE = ", 'const AX_EXCLUDE = ""; const AX_EXCLUDE_UNUSED = ', None),
 ]
 

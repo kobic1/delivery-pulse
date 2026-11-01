@@ -919,7 +919,7 @@ const inRelease = (e, r) => e.fv.includes(r);
 const targetOf = r => DATA.epics.filter(e => base(e) && inRelease(e, r) && TARGET_COMMIT.includes(commitOf(e)));
 const scopeOf = (r, opts = {}) => DATA.epics.filter(e =>
   base(e) && inRelease(e, r) && (opts.anyCommit || state.commit.has(commitOf(e))));
-const ALLC = new Set(COMMIT);                                  // Done-based per-release figures (cycle time, AI share) count every Done epic whatever its Commitment Type
+const ALLC = new Set(COMMIT);                                  // Done-based per-release figures (cycle time, AI share) count Done epics of any Commitment Type (each applies its own Issue Category rule)
 const doneScope = r => scopeOf(r, {anyCommit: true});
 const cycleOf = e => e.edct;                                  // cycle time is always EDCT, as in the weekly email
 // bugs carry one team (Team Name)
@@ -955,12 +955,20 @@ function percentile(sorted, p) {
   const i = (sorted.length - 1) * p, lo = Math.floor(i), hi = Math.ceil(i);
   return sorted[lo] + (sorted[hi] - sorted[lo]) * (i - lo);
 }
+// Cycle Time per Release (the selected-release tile, the chart and the Release Analysis row all read cycleStats, so they agree): Done epics with an EDCT, EXCEPT the Maintenance Issue Category
+// (Jira field cf10139, stored spelling, compared case-insensitively; SOW is not excluded here). Implemented by AI plays no part: Yes, No and empty all count. Every link that opens these epics adds
+// CYCLE_KEPT_JQL, so the query lists the same epics (Jira cannot search for an EDCT, which is read from change history: `linked` counts the epics the link lists, `n` those with an EDCT).
+const CYCLE_EXCLUDED_CATEGORY = "Maintenance";
+const cycleExcluded = e => String(e.cat || "").toLowerCase() === CYCLE_EXCLUDED_CATEGORY.toLowerCase();
+const CYCLE_KEPT_JQL = `(cf[10139] is EMPTY OR cf[10139] != "${CYCLE_EXCLUDED_CATEGORY}")`;
 function cycleStats(list) {
-  const vals = list.filter(e => cls(e.s) === "done").map(cycleOf).filter(v => v != null).sort((a, b) => a - b);
-  return {n: vals.length, ok: vals.length >= MIN_N, p50: percentile(vals, .5), p75: percentile(vals, .75), p90: percentile(vals, .9), p95: percentile(vals, .95)};
+  const pop = list.filter(e => cls(e.s) === "done" && !cycleExcluded(e)), vals = pop.map(cycleOf).filter(v => v != null).sort((a, b) => a - b);
+  return {n: vals.length, linked: pop.length, ok: vals.length >= MIN_N, p50: percentile(vals, .5), p75: percentile(vals, .75), p90: percentile(vals, .9), p95: percentile(vals, .95)};
 }
+const cycleHref = rel => jira({release: rel, kind: "done", commit: ALLC, extra: CYCLE_KEPT_JQL});
+const cycleNote = c => `${CYCLE_EXCLUDED_CATEGORY} epics excluded; AI, non-AI and empty all count` + (c.linked > c.n ? `\nThe link lists ${c.linked} Done epics: ${c.linked - c.n} of them have no EDCT yet and are not in ${c.n}` : "");
 // AI Adoption leaves out epics in these Issue Categories (Jira field cf10139, stored spelling, compared case-insensitively) from EVERY AI figure: the tile and its previous-month line, the chart, its View Data
-// table and all their Jira links, the Release Analysis AI share. One list drives the numbers (aiExcluded) and every link (AI_KEPT_JQL / AI_EXCLUDED_JQL). EDCT is not an AI figure: it keeps its own Maintenance-only rule.
+// table and all their Jira links, the Release Analysis AI share. One list drives the numbers (aiExcluded) and every link (AI_KEPT_JQL / AI_EXCLUDED_JQL). EDCT is not an AI figure: Efficiency keeps its own rule (Maintenance out, AI-implemented only) and Cycle Time per Release has its own (Maintenance out, AI or not).
 const AI_EXCLUDED_CATEGORIES = ["Maintenance", "SOW"];
 const aiExcluded = e => AI_EXCLUDED_CATEGORIES.some(c => String(e.cat || "").toLowerCase() === c.toLowerCase());
 const AI_KEPT_JQL = `(cf[10139] is EMPTY OR cf[10139] not in (${AI_EXCLUDED_CATEGORIES.join(", ")}))`;
@@ -1219,7 +1227,7 @@ function renderKpis() {
     `<div class="s">${RC.html}</div></div>`
     : `<div class="kpi"><div class="v">${state.projects.size ? "0" : "–"}</div><div class="l">Epics in Target Scope on ${rel}</div><div class="s">${state.projects.size ? "nothing in the target scope" : "No project is selected"}</div></div>`;
   host.innerHTML = bar +
-    `<div class="kpi"><div class="v">${cy.ok ? `${fmt(cy.p50)} <span class="muted" style="font-weight:400">/ ${fmt(cy.p90)}</span>` : "–"}</div><div class="l">Cycle Time P50 / P90, Release ${rel}</div><div class="s">${!state.projects.size ? "No project is selected" : cy.ok ? `${defLabel}, ${cy.n} Done epics` : `${defLabel}: only ${cy.n} Done epics, need ${MIN_N}`}</div></div>` +
+    `<div class="kpi"><div class="v">${cy.ok ? `${fmt(cy.p50)} <span class="muted" style="font-weight:400">/ ${fmt(cy.p90)}</span>` : "–"}</div><div class="l">Cycle Time P50 / P90, Release ${rel}</div><div class="s">${!state.projects.size ? "No project is selected" : cy.ok ? `${defLabel}, ${tlink(cy.n, cycleHref(state.release), `${cy.n} Done epics with an EDCT in ${state.release}\n${cycleNote(cy)}`)} Done epics` : `${defLabel}: only ${tlink(cy.n, cycleHref(state.release), `${cy.n} Done epics with an EDCT in ${state.release}\n${cycleNote(cy)}`)} Done epics, need ${MIN_N}`}</div></div>` +
     `<div class="kpi"><div class="v">${small ? "–" : `${aiPct}%`}</div><div class="l">Epics by AI, Release ${rel}</div><div class="s">${!state.projects.size ? "No project is selected" : c.aiDone ? `${tlink(c.ai, jira({kind: "done", commit: ALLC, extra: `cf[15229] = Yes AND ${AI_KEPT_JQL}`}), `${c.ai} Done epics implemented by AI\n${AI_EXCL_TEXT} excluded`)} of ${tlink(c.aiDone, jira({kind: "done", commit: ALLC, extra: AI_KEPT_JQL}), `${c.aiDone} Done epics\n${AI_EXCL_TEXT} excluded`)} Done ${epicWord(c.aiDone)}${small ? ", too few for a share" : ""}` : "no Done epics yet"}${state.projects.size ? `<br><span class="muted">Excludes ${AI_EXCL_TEXT} (${c.aiExcl ? tlink(c.aiExcl, jira({kind: "done", commit: ALLC, extra: AI_EXCLUDED_JQL}), `${c.aiExcl} Done ${AI_EXCL_TEXT} ${epicWord(c.aiExcl)}\nLeft out of every AI figure.\n${AI_EXCL_WHY}`) : "0"} Done ${epicWord(c.aiExcl)})</span>` : ""}</div></div>`;
   const none = [...state.projects].filter(p => !DATA.epics.some(e => e.p === p && inRelease(e, state.release)));
   let html = "";
@@ -1273,7 +1281,7 @@ const AI_NOT = " AND (cf[15229] is EMPTY OR (cf[15229] = No AND cf[15229] != Yes
 const aiNotTip = (n, what) => `${n} ${epicWord(n)} not marked as AI, ${what}\nImplemented by AI Agent is empty, or No without Yes.`;
 function jiraMonth(mo, extra = "", basis = "ai") {                 // basis: "ai" the AI population (excluded categories out), "excluded" the epics those categories leave out, "edct" the EDCT population (Maintenance out)
   if (!state.projects.size) return null;
-  const cat = basis === "edct" ? `(cf[10139] is EMPTY OR cf[10139] != "Maintenance")` : basis === "excluded" ? AI_EXCLUDED_JQL : AI_KEPT_JQL;
+  const cat = basis === "edct" ? CYCLE_KEPT_JQL : basis === "excluded" ? AI_EXCLUDED_JQL : AI_KEPT_JQL;
   return href(`project in (${pkeys(state.projects)}) AND issuetype = Epic AND status = Done AND resolutiondate >= "${iso(mo.s)}" AND resolutiondate < "${iso(mo.e)}" AND ${cat} AND fixVersion in (${DATA.releases.map(q).join(", ")})` + teamClause(state.teams) + extra);
 }
 function weekOf(rel) {                                       // where the release stands today, in its own 12-week frame
@@ -1420,7 +1428,7 @@ function renderEfficiency() {
       ["Average", `the mean EDCT of those epics. None is shown for fewer than 5 epics.`]
     ],
     left: `Epics in the Maintenance Issue Category, and epics not marked as AI.`,
-    know: `Follows Projects and Teams. Cycle Time per Release counts all Done epics, so the two are not comparable. * and the dashed outline mark the running ${GRAN[state.gran].noun}.`}));
+    know: `Follows Projects and Teams. Cycle Time per Release also counts epics that AI did not implement, so the two are not comparable. * and the dashed outline mark the running ${GRAN[state.gran].noun}.`}));
 }
 function renderAdoption() {
   const rows = periods().map(mo => { const m = monthStats(mo); return {mo, n: m.done, ai: m.ai, excl: m.excl, share: m.done >= MIN_N ? pct(m.ai, m.done) : null}; });
@@ -1672,17 +1680,17 @@ function chartCycle(rels) {
       s += `<text x="${cx + 9}" y="${yOf(c.p90, sc.max) + 4 - nudge}" font-size="11" fill="var(--chart-cycle-ink)">${fmt(c.p90)}</text>`;
     } else s += `<text x="${cx}" y="${H - PAD.b - 8}" text-anchor="middle" font-size="11" fill="#5A5F6B">n&lt;${MIN_N}</text>`;
     s += relLabel(r, cx) + `<text x="${cx}" y="${H - PAD.b + 30}" text-anchor="middle" font-size="11" fill="#5A5F6B">n=${c.n}</text>`;
-    s += ga(`<rect class="hit" x="${cx - step / 2}" y="${PAD.t}" width="${step}" height="${H - PAD.b - PAD.t}" fill="transparent"/>`, jira({release: r, kind: "done", commit: ALLC}),
-      c.ok ? `${nm}\nP50 ${fmt(c.p50)} days · P90 ${fmt(c.p90)} days\n${c.n} Done epics` : `${nm}\nFewer than ${MIN_N} Done epics, so no percentile is shown`);
+    s += ga(`<rect class="hit" x="${cx - step / 2}" y="${PAD.t}" width="${step}" height="${H - PAD.b - PAD.t}" fill="transparent"/>`, cycleHref(r),
+      c.ok ? `${nm}\nP50 ${fmt(c.p50)} days · P90 ${fmt(c.p90)} days\n${c.n} Done epics\n${cycleNote(c)}` : `${nm}\nFewer than ${MIN_N} Done epics, so no percentile is shown\n${c.n} Done epics\n${cycleNote(c)}`);
   });
   return {svg: s, short: `Time to finish an epic, per release, in days. Filled dot: P50. Hollow dot: P90.`, how: howBody({id: "ch-cycle",
     defs: [
       ["EDCT (epic development cycle time)", `calendar days an epic ended in In Progress or Validation. Flagged days and the Done day are not counted.`],
       ["P50 and P90", `the median and the 90th percentile of EDCT (linear interpolation) over the Done epics of the release.`],
-      ["n", `Done epics of the release that have an EDCT, whatever their Commitment Type.`]
+      ["n", `Done epics of the release that have an EDCT, whatever their Commitment Type and whether Implemented by AI Agent is Yes, No or empty.`]
     ],
-    left: `Epics with no EDCT. A release with fewer than 5 such epics is not plotted.`,
-    know: `Projects and Teams filters apply. Unlike Efficiency, this counts epics of every category, not only AI-implemented epics.`})};
+    left: `Epics in the ${CYCLE_EXCLUDED_CATEGORY} Issue Category, and epics with no EDCT. A release with fewer than 5 epics left is not plotted.`,
+    know: `Projects and Teams filters apply. Unlike Efficiency, this is not limited to AI-implemented epics; like Efficiency, it leaves out ${CYCLE_EXCLUDED_CATEGORY}. The bar link opens the Done epics of the release outside ${CYCLE_EXCLUDED_CATEGORY} as a Jira query; Jira cannot search for an EDCT, so an epic with no EDCT is listed there and not counted in n.`})};
 }
 function chartAI(rels) {
   const rows = rels.map(r => counts(doneScope(r)));
@@ -1901,7 +1909,7 @@ function renderCharts() {
     defs: [
       ["Projects and Teams", `apply to every chart. Done Capabilities follows Projects only (a Capability has no team).`],
       ["Commitment Type", `changes no chart. It changes only the "selected types" columns of the table and the By Project and By Team tables.`],
-      ["All Done epics", `Cycle Time per Release and Epics by AI count every Done epic of the release.`],
+      ["Done epics per release", `Cycle Time per Release counts the Done epics that have an EDCT, outside ${CYCLE_EXCLUDED_CATEGORY}, whether or not AI implemented them. Epics by AI counts the Done epics outside ${esc(AI_EXCL_TEXT)}. Both ignore Commitment Type.`],
       ["Target epics", `Epics per Release and NFR Share use the target scope: Committed and Not Set epics.`],
       ["Running releases", `marked * and dashed: ${esc(DATA.provisional.join(", "))}. Their numbers can still change.`]
     ],
@@ -1910,11 +1918,11 @@ function renderCharts() {
     const list = scopeOf(r), c = counts(list), dl = doneScope(r), cd = counts(dl), cy = cycleStats(dl), rb = releaseBar(r);
     return [esc(r) + (isProv(r) ? "*" : ""), tlink(rb.scope, rb.TB.href, rb.TB.tip), tlink(rb.done, rb.doneHref, `${rb.done} target epics Done in ${r} (Committed + Not Set)`),
       `${rb.bar} <span class="muted">${rb.done > rb.scope ? "done" : "scope"}</span>`, link(c.scope, jira({release: r})), link(c.done, jira({release: r, kind: "done"})),
-      cy.ok ? fmt(cy.p50) : "–", cy.ok ? fmt(cy.p90) : "–", cy.n,
+      cy.ok ? fmt(cy.p50) : "–", cy.ok ? fmt(cy.p90) : "–", cy.n ? tlink(cy.n, cycleHref(r), `${cy.n} Done epics with an EDCT in ${r}\n${cycleNote(cy)}`) : "0",
       cd.aiDone >= MIN_N ? pct(cd.ai, cd.aiDone) + "%" : cd.aiDone ? `${cd.ai} of ${cd.aiDone}` : "–",
       cd.aiExcl ? tlink(cd.aiExcl, jira({release: r, kind: "done", commit: ALLC, extra: AI_EXCLUDED_JQL}), `${cd.aiExcl} ${AI_EXCL_TEXT} Done ${epicWord(cd.aiExcl)} in ${r}\nLeft out of every AI figure.`) : "0"];
   });
-  dataTable("trend-data", "Target scope and done, the Epics per Release bar, epics of the selected commitment types, and cycle time and AI share of all Done epics per release",
+  dataTable("trend-data", "Target scope and done, the Epics per Release bar, epics of the selected commitment types, and cycle time (Done epics outside Maintenance) and AI share (Done epics outside Maintenance and SOW) per release",
     ["Release", "Target Scope", "Target Done", "Epics per Release Bar (Higher)", "Epics in Scope (Selected Types)", "Done (Selected Types)", "Cycle P50", "Cycle P90", "Done with Cycle Time", "Epics by AI", `Excluded From AI (${AI_EXCLUDED_CATEGORIES.join(", ")})`], rows);
   { const aiHelp = document.querySelector('[data-chart="ai"] .cc-foot details > .cap'); if (aiHelp) aiHelp.insertAdjacentHTML("beforeend", `<br><b>Excluded from the AI share, per release</b> (${esc(AI_EXCL_TEXT)} Done epics): ${rels.map((r, i) => `${esc(r)} ${rows[i][10]}`).join(" · ")}.`); }
   nfrShareData(nfrC.rows); renderCapitalization();        // two tables sit under the chart grid: say which charts each one belongs to
@@ -3218,8 +3226,8 @@ const CY_KPI = {
     s: s.staleIn.length ? `${cyNum(s.staleIn, `overdue by more than ${CY.stale} days`, `Planned in ${c.name}, not Done, planned before ${cyAdd(CY.asOf, -CY.stale)}.`, "stale", g, c)} of them stale, more than ${CY.stale} days` : `none more than ${CY.stale} days late`}),
   next: ({s, c, g}) => ({c: "cy", v: cyNum(s.next, `planned in the next ${CY.next} days`, `Planned ${cyWindow()} (today through today plus ${CY.next} days), not Done.`, "next", g, c), l: `Due Next ${CY.next} Days`,
     s: `${cyNum(s.nextNs, "planned in the window and not started", `Planned ${cyWindow()}; status New, In Definition, Ready for Dev or Candidate.`, "nextNs", g, c)} not started`}),
-  flagged: ({s, c, g}) => ({c: "cy", v: !CY_RAW_OK() ? "–" : cyNum(s.flag, "flagged as blocked", "Jira Flagged field set, not Done; planned epics.", "flag", g, c), l: "Flagged",
-    s: !CY_RAW_OK() ? "the Flagged field is not in this build (run --add-planning)" : s.flagCarry.length ? `${cyNum(s.flagCarry, "flagged, in carry-over", "Flagged and not Done, planned before the cycle start.", "flagCarry", g, c)} more in carry-over` : "planned epics, not Done"}),
+  flagged: ({s, c, g}) => ({c: "cy", v: !CY_RAW_OK() ? "–" : cyNum(s.flag, "flagged as blocked", "Flagged as blocked in Jira (the Flagged field is set), not Done; planned epics.", "flag", g, c), l: "Flagged",
+    s: !CY_RAW_OK() ? "the Flagged (blocked) field is not in this build (run --add-planning)" : s.flagCarry.length ? `${cyNum(s.flagCarry, "flagged, in carry-over", "Flagged as blocked in Jira and not Done, planned before the cycle start.", "flagCarry", g, c)} more in carry-over` : "planned epics, not Done"}),
   idle: ({c, fig}) => { const n = fig.idle.length, rel = state.release;
     return {c: "cy2", l: tipFocus("Idle Pods", `Pods in ${rel} (one pod label per project, case ignored) with no epic planned in ${c.name}.\nA fact about the plan, not a verdict on people.\n${CY_POD_LIMIT}`),
       ...(cyPodState(fig) || {v: n ? cyPodBtn("idle", n, `${n} idle ${plural(n, "pod", "pods")} in ${rel}`) : "0", s: `of ${fig.pods.length} ${plural(fig.pods.length, "pod", "pods")} in ${rel} with no epic planned in ${c.name}`})}; },
@@ -3432,7 +3440,7 @@ function cyGroupHtml(g) {
   return `<div class="cydetail">${crumb}` + head + `<div class="kpis five" id="cy-gkpis"></div>` +
     `<div class="cap" id="cy-gfacts">${[fact(d.carry.length, "carried over", "carry", "carried over"), fact(d.noDue.length, "active with no planned date", "noDue", "active with no planned date"), ...podFacts].join(" · ")}</div>` +
     cyFilterBar(d) +
-    `<div class="cyblock" id="cy-concerns"><h3>Epics with Flags (${cyConcerns(d).length ? tlink(cyConcerns(d).length, cyQ("concerns", g, c), `${cyConcerns(d).length} epics with at least one flag\nOverdue, flagged, planned soon and not started, carried over, or no planned date; the rules are under How this is calculated.\n${CY_TIP}`) : 0})</h3><div class="cymeta">One row per epic with at least one flag, in planned-date order. A flag is a fact about dates or a Jira field, not a rating or a ranking.</div>${cyConcernHtml(d)}</div>` +
+    `<div class="cyblock" id="cy-concerns"><h3>Epics with Flags (${cyConcerns(d).length ? tlink(cyConcerns(d).length, cyQ("concerns", g, c), `${cyConcerns(d).length} epics with at least one flag\nOverdue, flagged as blocked, planned soon and not started, carried over, or no planned date; the rules are under How this is calculated.\n${CY_TIP}`) : 0})</h3><div class="cymeta">One row per epic with at least one flag, in planned-date order. A flag is a fact about dates or a Jira field, not a rating or a ranking.</div>${cyConcernHtml(d)}</div>` +
     (d.planned.length ? `<div class="cyblock" id="cy-weekly"><h3>Weekly Plan vs. Actual</h3><div class="cymeta">Epics by the week of their planned date. Weeks run seven days from the cycle start date. The Result column states what the dates show; it is not a rating.</div>${cyWeekly(d)}</div>` : "") +
     `<div id="cy-lists">${L.html}</div></div>`;
 }
@@ -3464,7 +3472,7 @@ function cyDefs() {
       ["Done", `planned epics with the status Done.`],
       ["Overdue", `planned in the cycle, before the as-of date, and not Done.`],
       [`Due next ${CY.next} days`, `planned in the cycle, not Done, from the as-of date up to ${CY.next} days later.`],
-      ["Flagged", `planned in the cycle, not Done, with the Jira Flagged field set.`],
+      ["Flagged", `planned in the cycle, not Done, and flagged as blocked in Jira (the Flagged field is set).`],
       ["Idle Pods", `pods that have at least one epic in ${esc(state.release)} and no epic planned in the selected cycle, under the Release, Projects, Teams and Commitment Type filters.`],
       [`Pods with more than ${CY.podWip} epics in flight`, `pods with more than ${CY.podWip} epics In Progress or Validation in ${esc(state.release)}, counted over the whole release, not the selected cycle. The level ${CY.podWip} is a reference chosen by the owner, not a program rule.`]
     ],
@@ -3477,14 +3485,14 @@ function cyDefs() {
       ["No planned date", `in flight (In Progress or Validation) with no due date and no Target Sprint.`],
       ["Open bugs", `issues of type Bug whose parent is the epic, Removed excluded. Open means a status other than Done, Ready for Deploy, Closed, Resolved or Removed. A check of Jira found no other relation between a bug and an epic.`],
       ["EDCT (epic development cycle time)", `calendar days an epic ended in In Progress or Validation. Flagged days and the Done day are not counted. Shown for Done epics; open epics show a dash.`],
-      ["Epics with Flags", `one row per epic with at least one of these facts, in planned-date order: overdue (with the number of days), planned in the next ${CY.next} days and still not started (New, In Definition, Ready for Dev or Candidate), flagged, carried over, in flight with no planned date. A flag is a fact about dates or a Jira field, not a rating.`],
+      ["Epics with Flags", `one row per epic with at least one of these facts, in planned-date order: overdue (with the number of days), planned in the next ${CY.next} days and still not started (New, In Definition, Ready for Dev or Candidate), flagged as blocked in Jira, carried over, in flight with no planned date. A flag is a fact about dates or a Jira field, not a rating.`],
       ["Dates", `A cycle includes its first and last day. Due next ${CY.next} days covers ${CY.next + 1} calendar days: the as-of date and the ${CY.next} days after it. An epic planned on the as-of date is not yet overdue. Weeks in the weekly view run seven days from the cycle start date.`],
       ["Shares", `a percentage next to a count appears only for 5 or more epics.`],
       ["Other planned-date rules", `The dependency board uses a different rule: there the due date wins over the Target Sprint. The burnup's Delivery Cycle 1 line counts Committed epics only, with any planned date up to the cycle end; this section counts planned dates inside the cycle and shows earlier ones as carry-over, so the two numbers can differ. A Target Sprint that the sprint calendar does not know counts as no Target Sprint.`],
       ["Hierarchy", `Project, then Team (the Epic Team field; an epic with several teams counts under each, one with none under (No Team)), then Pod. Names are in alphabetical order, never ordered by progress. Each row counts its own epics once; an epic with several teams or pods appears under each, and the last row counts each epic once. A pod used by epics of two teams is listed under both, with that team's epics only. A team with no pod label on any epic has no pod rows.`],
       ["Pods", `a label names a pod when it matches the pod pattern of the epic's project, without regard to case. The default pattern is the text "pod" anywhere in the label. An epic with several pod labels counts under each pod once; an epic with none is under No Pod Label. Pods come from epic labels only, and many epics have none, so a pod's epic count can be too low: a pod can look idle, or stay at ${CY.podWip} or fewer, only because its epics carry no label. Limits: a pod label without the pattern text is not detected; a typo that contains it counts; a label that contains the text but is not a pod cannot be told apart. Distinct pod labels per project: ${cyPodRows()}.`],
       ["Links", `every number opens a Jira search, not a saved list of epics, except the two pod tiles: they open a list of pods in the page, and each epic count in that list opens a Jira search. Jira finds the epics again when you open a link, so its list can differ from the page. A link too long for Jira shows as a plain number.`],
-      ["Freshness", `Epics, due dates, Target Sprints, Flagged and pod labels are updated by Refresh. Bugs under epics, the sprint calendar and the pod pattern are read only when the page is built. Data as of ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}.`]
+      ["Freshness", `Epics, due dates, Target Sprints, the Flagged-as-blocked mark and pod labels are updated by Refresh. Bugs under epics, the sprint calendar and the pod pattern are read only when the page is built. Data as of ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}.`]
     ]}));
 }
 function cyRenderBody() {
