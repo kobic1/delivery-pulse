@@ -44,7 +44,6 @@ ALLOW: list[tuple[str, str, str, str]] = []      # (regex on the elided JQL, reg
 PROPOSED_ALLOW = [      # the accepted gaps: every entry is a population Jira cannot express as a query, or a documented pending decision; the list may only shrink      # sites whose population Jira's native JQL cannot express (reasons checked on the synthetic payload, see the QA report)
     (r"\bparent in \(<keys>\)", "", "child epics / bugs selected by an attribute of their PARENT (the Capability's fix version, the epic's planned date): not searchable in native JQL", "none; the Capabilities query is the closest"),
     (r"^key in \(<keys>\)$", "", "pairs whose far end is not Done, story-level links, dependency cards, Needs Attention groups, DQ 'no cycle time' (changelog-derived): a linked issue's status / the changelog is not searchable", "issueLinkType in (...) is a superset"),
-    (r"\bkey in \(<keys>\)", r"epics with open bugs", "epics selected by the state of their CHILD bugs: not searchable in native JQL", "none"),
 ]
 ALLOW_CALENDAR: list[tuple[str, str]] = [(r"fixVersion in \(", "the release list is the dashboard's own release set, fixed when the data is built (a new release needs a rebuild)")]
 
@@ -60,8 +59,11 @@ EXPAND_JS = r"""(() => {
   const ex = document.querySelector('[data-cyact="expall"]'); if (ex) ex.click();
   document.querySelectorAll('[data-cyact="bug"][aria-expanded="false"]').forEach(b => { try { b.click(); } catch (e) {} });
   document.querySelectorAll('details').forEach(d => { d.open = true; });
-  return [...document.querySelectorAll('a[href]')].map(a => { const s = a.closest('section[aria-labelledby]');
+  const grab = root => [...root.querySelectorAll('a[href]')].map(a => { const s = a.closest('section[aria-labelledby]');
     return {href: a.getAttribute('href'), text: (a.textContent || '').trim().slice(0, 50), sec: s ? s.getAttribute('aria-labelledby') : 'other', tip: ((a.getAttribute('data-tip') || '').split('\n')[0]).slice(0, 100), full: (a.getAttribute('data-tip') || '').slice(0, 600)}; });
+  const out = grab(document);
+  if (!document.getElementById('cy-pods').hidden) document.querySelectorAll('#cy-kpis2 [data-cyact="pods"]').forEach(b => { b.click(); out.push(...grab(document.getElementById('cy-podlist'))); b.click(); });      // the pod lists, opened in turn
+  return out;
 })()"""
 NODES_JS = "[...document.querySelectorAll('#cy-ovbody [data-cyact=\"open\"]')].map(b => b.dataset.cyval)"
 
@@ -134,8 +136,12 @@ def elide(jql: str) -> str:
     return s
 
 
+QUOTED = re.compile(r'"(?:[^"\\]|\\.)*"')
+
+
 def n_keys(jql: str) -> int:
-    return len(set(KEYRE.findall(jql)))
+    """Issue keys in the query. A quoted value is never a key: a pod label can look like one (POD-12), and `labels in ("POD-11", "POD-12", ...)` is a query, not a frozen list."""
+    return len(set(KEYRE.findall(QUOTED.sub('""', jql))))
 
 
 def allowed(site: str, tip: str = "") -> str | None:
@@ -221,6 +227,14 @@ def _(t: T):
     for site, meta in bad.items():
         t.failures.append(f"a frozen list of releases in section {meta['sec']}: '{meta['tip'] or meta['text']}' -> {site}")
     t.passed += 0 if bad else 1
+
+
+@SUITE.test("links_a_quoted_label_that_looks_like_a_key_is_not_a_key")
+def _(t: T):
+    """Pod labels are quoted values: four of them shaped like issue keys must not make a query a frozen list, while a real list of unquoted keys still counts."""
+    t.check(n_keys('project = PMN AND labels in ("POD-11", "POD-12", "POD-13", "POD-14", "POD-15")') == 0, "five quoted labels shaped like keys were counted as keys")
+    t.check(n_keys('key in (AB-1, AB-2, AB-3, AB-4)') == 4, "a list of four unquoted keys was not counted")
+    t.check(n_keys('labels in ("say \\"POD-12\\"") AND key in (AB-1, AB-2)') == 2, "an escaped quote inside a label broke the quoting")
 
 
 @SUITE.test("selftest_guard_catches_a_seeded_key_list")
