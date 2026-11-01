@@ -48,6 +48,7 @@
       if (!(opts && opts.__silent)) window.__calls.push({i: idx, server, tool, jql: input.jql, token: input.nextPageToken || null, fields: (input.fields || []).length, opts});
       if (CFG.slow) await new Promise(r => setTimeout(r, CFG.slow));
       const jql = input.jql, MODE = CFG.mode, farHasProject = (input.fields || []).includes("project");
+      if (/(?<![\w-])INT(?![\w-])/i.test(String(jql).replace(/"(?:[^"\\]|\\.)*"/g, '""'))) throw {code: "tool_error", message: "Error in the JQL Query: 'INT' is a reserved JQL word. You must surround it in quotation marks."};      // as Jira answers a project key that is a reserved word
       if (window.__hook) { const h = await window.__hook(input, {idx, calls: window.__calls, CFG, ok}); if (h !== undefined) return h; }
       if (MODE === "denied") throw {code: "approval_required", message: "declined"};
       if (jql.includes("issuetype = Capability AND status != Removed AND fixVersion is EMPTY")) return ok([{key: "CXCROSS-90001", fields: {status: {name: "Done"}}}, {key: "CXCROSS-90002", fields: {status: {name: "New"}}}]);
@@ -58,7 +59,7 @@
       if (/^key in \(/.test(jql)) return ok(CFG.leftcfb);
       if (jql.includes("issuetype in (Bug, Story, Task)")) {
         if (MODE === "capfail") throw {code: "tool_error", message: "capitalization boom"};
-        const proj = jql.match(/project = (\w+)/)[1];
+        const proj = jql.match(/project = "?(\w+)"?/)[1];
         return ok(MODE === "emptycap" ? [] : CFG.capnodes.filter(n => n.key.startsWith(proj + "-")));
       }
       if (jql.includes("[Accessibility]")) return ok([{key: CFG.axkey, fields: {}}]);

@@ -27,6 +27,11 @@ REPO = HERE.parent.parent
 FROZEN = REPO / "program_dashboard" / "build" / "fallback_v52"
 LIVE_TEMPLATE = REPO / "program_dashboard" / "dashboard.template.html"
 
+def jqlkey(project: str) -> str:
+    """A project key as Jira wants it in JQL: INT is a reserved word and must be quoted. Spelled here on purpose, not imported from the page or the collector, so the tests do not repeat a mistake made there."""
+    return f'"{project}"' if project == "INT" else project
+
+
 # ---- the expectation flags: False = the fix has not landed yet, so the test is expected to fail (XFAIL)
 EXPECT_DEADLINE = True             # F15e: a callTool that never resolves ends in a message and a usable button (per-call deadline)
 EXPECT_REAL_ERROR_TEXT = True      # F15i: an automatic refresh that fails with a tool_error shows the real reason, not "needs Jira access"
