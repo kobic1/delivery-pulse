@@ -279,7 +279,7 @@ def _(t: T):
         raise Skip("no build/program_data.json here (it is git-ignored); the shape check needs it")
     R = json.loads(real.read_text())
     D = build_fixture().data
-    SCHEMA2 = {"cycles", "quality", "bugsPulledAt", "linksPulledAt"}       # schema 2 dropped the two dead sections and added two pull times; the synthetic payload also serves the frozen v52 page
+    SCHEMA2 = {"cycles", "quality", "bugsPulledAt", "linksPulledAt", "schema", "defs", "build"}       # schema 2 dropped the two dead sections and added two pull times; the synthetic payload also serves the frozen v52 page
     t.check(set(D) - SCHEMA2 == set(R) - SCHEMA2, f"top-level keys differ: only synthetic {sorted(set(D) - set(R) - SCHEMA2)}, only real {sorted(set(R) - set(D) - SCHEMA2)}")
     keys = lambda lst: set().union(*(set(x) for x in lst))
     t.check(keys(D["epics"]) == keys(R["epics"]), f"epic keys: synthetic {sorted(keys(D['epics']))} vs real {sorted(keys(R['epics']))}")
