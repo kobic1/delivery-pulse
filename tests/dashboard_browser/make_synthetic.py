@@ -569,7 +569,7 @@ class Gen:
         add("ns_ts_only", ns, None, "Ready for Dev", None, s1)                                # in: the Target Sprint alone, no pod label
         add("ns_in_progress", ns, None, "In Progress", 0)                                     # out: not a not-started status
         add("ns_done", ns, None, "Done", 0)                                                   # out: Done
-        add("ns_stretch", ns, None, "New", 2, c="Stretch")                                    # in only while Stretch is ticked
+        add("ns_stretch", ns, None, "New", 2, c="Stretch")                                    # a Stretch epic is in the Cycles numbers like any other
         add("ns_yesterday", ns, None, "Ready for Dev", -1)                                    # out: overdue, not due soon
         add("ns_other_release", ns, None, "New", 1, fv=["27.2"])                              # out of 27.1 (in the scope of 27.2)
 

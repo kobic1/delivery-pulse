@@ -31,9 +31,9 @@ SUITE = kit.Suite("Delivery Pulse link oracle")
 BAD_TOKEN = re.compile(r"NaN|undefined|\[object|\bnull\b")
 
 STATES = [
-    "", "r=26.4", "r=26.2&p=PMN", "p=PMN", "p=CXWFM|WFM", "p=PMN|CXCO|CXSUP", "TEAM", "p=PMN&TEAM", "c=Stretch", "ax=1", "bp=P1|P2", "bp=P3&ax=1", "cfb=yes", "cfb=no", "cfb=yes&p=PMN",
+    "", "r=26.4", "r=26.2&p=PMN", "p=PMN", "p=CXWFM|WFM", "p=PMN|CXCO|CXSUP", "TEAM", "p=PMN&TEAM", "dc=1", "ax=all", "ax=yes", "bp=P1|P2", "bp=P3&ax=all", "bp=P1|P2&ax=yes&cfb=yes", "cfb=yes", "cfb=no", "cfb=yes&p=PMN",
     "cg=quarter", "cg=month&p=CXCO", "g=quarter", "cpg=release", "cpg=release&cpm=count", "cpm=count", "cpg=release&p=PMN", "cpg=release&TEAM", "cpg=release&p=CXWFM|WFM&cpm=count",
-    "p=CXINT&cpm=count", "p=WFM&cg=quarter&bp=P1|P2|P3&ax=1",
+    "p=CXINT&cpm=count", "p=WFM&cg=quarter&bp=P1|P2|P3&ax=all", "p=CXCO&ax=yes&cfb=no",
     "p=INT", "p=CXINT|INT&cfb=yes", "cpg=release&p=INT&cpm=count", "dp=blockedby", "dp=blocking", "dp=blocking&p=PMN",
 ]
 
@@ -322,7 +322,7 @@ def _(t: T):
 # Owner decision: Cycle Time per Release counts the Done epics with an EDCT of the release, the Issue Categories Maintenance AND SOW excluded (the same two as the AI figures), whatever Implemented by AI says
 # (Yes, No, empty) and whatever the Flagged field says (it plays no part in who is counted).
 CYCLE_EXCLUDED = ("maintenance", "sow")
-CYCLE_STATES = ["", "p=PMN", "p=PMN|CXCO", "p=CXWFM|WFM&c=Stretch", "TEAM", "p=PMN&TEAM"]
+CYCLE_STATES = ["", "p=PMN", "p=PMN|CXCO", "p=CXWFM|WFM&dc=2", "TEAM", "p=PMN&TEAM"]
 CYCLE_JS = r"""(() => {
   const chart = document.querySelector('[data-chart="cycle"]'), svg = chart.querySelector('svg');
   const marks = [...svg.querySelectorAll('a.cl, g.cl')].map(a => ({href: a.getAttribute('href'), tip: a.getAttribute('data-tip')}));
@@ -406,7 +406,7 @@ def cycle_check_page(url, data, spec: str, label: str):
         elif ok and [_fmt(_pct(vals, .5)), _fmt(_pct(vals, .9))] != [_fmt(x) for x in got_labels]:
             probs.append(f"{tag} {rel}: plotted P50/P90 {got_labels}, the recount gives {_fmt(_pct(vals, .5))}/{_fmt(_pct(vals, .9))}")
         # 2. the hover text names the same n
-        hover_n = re.search(r"\n(\d+) Done epics\n", m["tip"])
+        hover_n = re.search(r"\n(\d+) Done epics?\n", m["tip"])
         if not hover_n or int(hover_n.group(1)) != ns[i]:
             probs.append(f"{tag} {rel}: the hover text says {hover_n.group(1) if hover_n else None} Done epics, the chart plots n={ns[i]}")
         # 3. the table row
