@@ -227,6 +227,7 @@ class Gen:
         epics.sort(key=lambda e: -int(e["k"].split("-")[1]))
 
         self.anchor_epics(epics, by_rel, used_ts, proj_caps)
+        self.proactive_epics(epics, by_rel, used_ts)
         int_epics = self.int_epics(by_rel, caps, cap_list, cx_caps, used_ts)
         sprints = self.sprints(used_ts)
 
@@ -240,6 +241,7 @@ class Gen:
         # ---- dependency links, story links, bugs under epics, external issues
         deps, ext, sdeps, sinfo, eb = self.links(epics, bugs)
         self.anchor_deps(epics, deps, ext)
+        self.proactive_deps(epics, deps, ext)
 
         # ---- INT, last: its bugs, customer-found bugs, dependency links and issues under epics, from its own stream
         with self.stream("INT"):
@@ -527,6 +529,114 @@ class Gen:
         open_cfb = [b for b in bugs if b.get("cfb") and b["s"] not in ("Done", "Ready for Deploy", "Closed", "Resolved", "Removed")]
         return {"bugs": res, "templates": len(RCA_TEMPLATES), "tpl": [h53(norm_text(t)) for t in RCA_TEMPLATES], "allOpen": len(open_cfb) + 5,
                 "allOpenByProject": {**{p: sum(1 for b in open_cfb if b["p"] == p) for p in projects or BASE_PROJECTS}, "EXA": 3, "EXB": 2}, "pulledAt": il_stamp(self.generated_day, 0, 36)}
+
+    # ---- the four proactive Pods KPIs (Not-Started Epics Due Within 7 Days, Waiting Dependents Due Soon, Pods To Level, In-Flight Epics Without a Pod Label): FIXED cases, no random draw, fictitious
+    # team and pod names, every date relative to the AS-OF day (the generated day, which is what the page calls today). Keys start at 98001, clear of the random counter and of the 97xxx far ends.
+    # The first 27.1 sprint ends on as-of + 6 (the release started 23 days before `today`, as-of is today - 2) and the second on as-of + 27: the 'later date counts' cases rely on both ends.
+    def proactive_epics(self, epics, by_rel, used_ts):
+        asof, sp = self.generated_day, by_rel[CURRENT]
+        s1, s2 = sp[0], sp[1]
+        assert dt.date.fromisoformat(s1["end"]) == asof + dt.timedelta(days=6) and dt.date.fromisoformat(s2["end"]) == asof + dt.timedelta(days=27), "the fixed cases need the sprint ends at as-of + 6 and + 27"
+        used_ts.update([s1["n"], s2["n"]])
+        n = [98000]
+        keys: dict = {}
+
+        def add(name, team, labels, status, dd=None, ts=None, c="Committed", nf=False, fv=None) -> str:
+            n[0] += 1
+            k = f"PMN-{n[0]}"
+            e = {"k": k, "p": "PMN", "t": f"Fixed case {name}", "s": status, "fv": list(fv or [CURRENT]), "c": c, "tm": [team], "ai": False, "m": None, "rd": None,
+                 "cr": self.d(asof - dt.timedelta(days=60)), "cat": None, "ad": {(fv or [CURRENT])[0]: self.d(asof - dt.timedelta(days=22))}, "ts": ts["n"] if ts else None,
+                 "dd": self.d(asof + dt.timedelta(days=dd)) if dd is not None else None, "ud": self.d(asof)}
+            if status == "Done":
+                e["rd"] = self.d(asof - dt.timedelta(days=1))
+                e["ip"], e["vl"], e["edct"], e["cal"] = 5, 0, 5, 5
+            if labels:
+                e["pl"] = list(labels)
+            if nf:
+                e["nf"] = 1
+            epics.append(e)
+            keys[name] = k
+            return k
+
+        ns = "Team Seed Ns"                                                                   # 1. not started, planned in [as-of, as-of + 7]
+        add("ns_0", ns, ["Pod-Ns-A"], "Ready for Dev", 0)                                     # in: today
+        add("ns_7", ns, ["Pod-Ns-A"], "New", 7)                                               # in: the last day
+        add("ns_8", ns, ["Pod-Ns-A"], "New", 8)                                               # out: one day after
+        add("ns_later_in", ns, ["Pod-Ns-B"], "In Definition", -5, s1)                         # in: the due date is past, the Target Sprint ends at +6, the later date counts
+        add("ns_later_out", ns, ["Pod-Ns-B"], "Candidate", 3, s2)                             # out: the due date is inside, the Target Sprint ends at +27, the later date counts
+        add("ns_ts_only", ns, None, "Ready for Dev", None, s1)                                # in: the Target Sprint alone, no pod label
+        add("ns_in_progress", ns, None, "In Progress", 0)                                     # out: not a not-started status
+        add("ns_done", ns, None, "Done", 0)                                                   # out: Done
+        add("ns_stretch", ns, None, "New", 2, c="Stretch")                                    # in only while Stretch is ticked
+        add("ns_yesterday", ns, None, "Ready for Dev", -1)                                    # out: overdue, not due soon
+        add("ns_other_release", ns, None, "New", 1, fv=["27.2"])                              # out of 27.1 (in the scope of 27.2)
+
+        def team(name, spec):                                                                  # spec: [(pod label, in progress, validation, other open epics)]
+            for lab, ip, vl, other in spec:
+                for i in range(ip):
+                    add(f"{name}:{lab}:ip{i}", name, [lab], "In Progress")
+                for i in range(vl):
+                    add(f"{name}:{lab}:vl{i}", name, [lab], "Validation")
+                for i in range(other):
+                    add(f"{name}:{lab}:new{i}", name, [lab], "New")
+
+        team("Team Seed Lvl A", [("Pod-Lvl-A1", 2, 0, 0), ("Pod-Lvl-A2", 8, 2, 0), ("Pod-Lvl-A3", 0, 0, 1)])   # 2 vs 10 and a pod with none in flight: flagged (10 of 12)
+        team("Team Seed Lvl B", [("Pod-Lvl-B1", 3, 0, 0), ("Pod-Lvl-B2", 2, 0, 0)])                       # 3 vs 2: total 5, spread 20%: not flagged
+        team("Team Seed Lvl C", [("Pod-Lvl-C1", 1, 0, 0), ("Pod-Lvl-C2", 4, 0, 0)])                       # 1 vs 4: total 5, spread 60%: flagged
+        team("Team Seed Lvl D", [("Pod-Lvl-D1", 2, 0, 0), ("Pod-Lvl-D2", 2, 0, 0)])                       # 2 vs 2: not flagged
+        team("Team Seed Lvl E", [("Pod-Lvl-E1", 0, 0, 1), ("Pod-Lvl-E2", 4, 0, 0)])                       # 0 vs 4: spread 100% but total 4: not evaluated
+        team("Team Seed Lvl F", [("Pod-Lvl-F1", 8, 0, 0)])                                                # a single pod: never flagged
+        team("Team Seed Lvl G", [("Pod-Lvl-G1", 3, 0, 0), ("Pod-Lvl-G2", 1, 0, 0), ("Pod-Lvl-G3", 1, 0, 0)])   # 3, 1, 1: spread 2 of 5 = 40% exactly: flagged; the two lightest tie
+        team("Team Seed Lvl H", [("Pod-Lvl-H1", 4, 0, 0), ("Pod-Lvl-H2", 2, 0, 0)])                       # 4 vs 2: spread 33%: not flagged
+        team("Team Seed Lvl I", [("Pod-Lvl-I1", 5, 0, 0)])                                                # a pod with Done epics only does not take part
+        add("lvl_i2_done_a", "Team Seed Lvl I", ["Pod-Lvl-I2"], "Done")
+        add("lvl_i2_done_b", "Team Seed Lvl I", ["Pod-Lvl-I2"], "Done")
+
+        wt = "Team Seed Wt"                                                                    # 3. providers for the waiting items
+        add("wt_pod", wt, ["Pod-Wt-A"], "In Progress")                                        # provider with a pod label
+        add("wt_nopod", wt, None, "In Progress")                                              # provider with no pod label
+        add("wt_done", wt, ["Pod-Wt-A"], "Done")                                              # a Done provider: its pairs are not open
+        add("wt_other", wt, ["Pod-Wt-B"], "In Progress", fv=["27.2"])                         # a provider outside the release 27.1
+
+        np_ = "Team Seed Np"                                                                   # 4. in flight, with and without a pod label (labels that look like issue keys are pods too)
+        add("np_a", np_, ["POD-31"], "In Progress")
+        add("np_b", np_, ["POD-31"], "Validation")
+        add("np_c", np_, ["POD-32"], "In Progress")
+        for i in range(3):
+            add(f"np_none{i}", np_, None, "In Progress")
+        add("np_val", np_, None, "Validation")
+        add("np_nfr", np_, None, "In Progress", nf=True)                                      # a label that is not a pod label (NFR): still no pod label
+        add("np_done", np_, None, "Done")
+        add("np_new", np_, None, "New")
+        for i in range(2):
+            add(f"np2_none{i}", "Team Seed Np Small", None, "In Progress")                    # two in flight, none labelled: no share under 5
+        self.fixed = keys
+
+    def proactive_deps(self, epics, deps, ext):
+        asof, sp = self.generated_day, [s for s in self.sprints(set()) if s["rel"] == CURRENT]
+        s1, s2 = sp[0], sp[1]
+        K = self.fixed
+        far = {                                                                                # key: (type, status, due offset or None, Target Sprint)
+            "EXA-98101": ("Story", "New", 7, None),          # in: due on the last day, provider with a pod label
+            "EXA-98102": ("Task", "In Progress", 8, None),   # out: one day after
+            "EXA-98103": ("Story", "New", None, s1),         # in: the Target Sprint alone (ends at +6), provider with no pod label
+            "EXB-98104": ("Task", "New", 0, None),           # in once: due today, waits on both providers (appears under both)
+            "EXB-98105": ("Story", "Done", 2, None),         # out: the waiting item is Done
+            "EXB-98106": ("Task", "New", 3, None),           # out: the provider is Done
+            "EXA-98107": ("Task", "New", 3, None),           # out: the provider is in another release
+            "EXB-98108": ("Bug", "New", -1, None),           # out: due yesterday
+            "EXA-98109": ("Story", "New", 7, s2),            # in: the due date wins over the Target Sprint (ends at +27)
+        }
+        for k, (ty, st, off, ts) in far.items():
+            assert k not in ext and not any(e["k"] == k for e in epics), k
+            ext[k] = {"p": k.split("-")[0], "t": f"Fixed waiting {ty} {k[-3:]}", "s": st, "fv": [], "tm": [], "ud": self.d(asof), "ty": ty,
+                      **({"dd": self.d(asof + dt.timedelta(days=off))} if off is not None else {}), **({"ts": ts["n"]} if ts else {})}
+        add = [["EXA-98101", K["wt_pod"], "D"], ["EXA-98102", K["wt_pod"], "D"], ["EXA-98103", K["wt_nopod"], "B"], ["EXB-98104", K["wt_pod"], "D"], ["EXB-98104", K["wt_nopod"], "D"],
+               ["EXB-98105", K["wt_pod"], "D"], ["EXB-98106", K["wt_done"], "D"], ["EXA-98107", K["wt_other"], "D"], ["EXB-98108", K["wt_pod"], "D"], ["EXA-98109", K["wt_nopod"], "D"],
+               [K["ns_7"], K["wt_pod"], "D"]]                                                  # an epic (due on the last day) waits too: in
+        have = {(d[0], d[1]) for d in deps}
+        deps += [x for x in add if (x[0], x[1]) not in have]
+        deps.sort(key=lambda d: (d[0], d[1]))
 
     # ---- links
     def links(self, epics, bugs):

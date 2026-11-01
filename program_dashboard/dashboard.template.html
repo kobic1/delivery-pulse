@@ -3565,7 +3565,8 @@ function cyPodRows() {                                           // distinct pod
   if (!cyLabelOk()) return "none";
   const R = podRegistry(), rels = DATA.releases.map(q).join(", ");
   const rows = Object.keys(DATA.podRx).filter(p => state.projects.has(p)).map(p => { const sp = [...(R.per[p] || [])];
-    return `${esc(p)} ${sp.length ? tlink(sp.length, href(`project = ${pkey(p)} AND issuetype = Epic AND status != Removed AND fixVersion in (${rels}) AND ${podSpellingsClause(sp)}`), `${sp.length} distinct pod labels (as spelled) on ${p} epics of ${DATA.releases[0]} to ${DATA.releases[DATA.releases.length - 1]}\nThe link opens the epics that carry them.`) : "0"} (pattern <code>${esc(DATA.podRx[p])}</code>)`; }).join("; ");
+    const h = sp.length ? href(`project = ${pkey(p)} AND issuetype = Epic AND status != Removed AND fixVersion in (${rels}) AND ${podSpellingsClause(sp)}`) : null;      // over the URL budget the count is plain text, like every other Cycles link
+    return `${esc(p)} ${sp.length ? tlink(sp.length, h && h.length <= CY_URL_MAX ? h : null, `${sp.length} distinct pod labels (as spelled) on ${p} epics of ${DATA.releases[0]} to ${DATA.releases[DATA.releases.length - 1]}\nThe link opens the epics that carry them.`) : "0"} (pattern <code>${esc(DATA.podRx[p])}</code>)`; }).join("; ");
   return rows || "none";
 }
 function cyDefs() {
@@ -3584,7 +3585,7 @@ function cyDefs() {
       [`Pods with more than ${CY.podWip} epics in flight`, `pods with more than ${CY.podWip} epics In Progress or Validation in ${esc(state.release)}, counted over the whole release, not the selected cycle. The level ${CY.podWip} is a reference chosen by the owner, not a program rule.`],
       [`Not-started epics due within ${CY.next} days`, `epics in Candidate, New, In Definition or Ready for Dev whose planned date is from the as-of date up to ${CY.next} days later; the later date counts (the later of the due date and the Target Sprint end). Any cycle, under the same filters.`],
       ["Waiting dependents due soon", `open dependencies, neither end Done, where an epic of ${esc(state.release)} blocks an item of any issue type that is planned from the as-of date up to ${CY.next} days later (the due date first, else the Target Sprint end). Each waiting item counts once.`],
-      ["Pods to level", `for each team with at least two pods, the in-flight epics (In Progress or Validation) of each pod. A team is flagged when its busiest and lightest pods differ by ${Math.round(CY.levelSpread * 100)}% or more of the team's in-flight epics (teams with at least ${MIN_N} in flight). The tile counts the busiest and lightest pods of flagged teams. A pod takes part when it has an epic in ${esc(state.release)} that is not Done.`],
+      ["Pods to level", `for each team with at least two pods, the in-flight epics of each pod. A team is flagged when its busiest and lightest pods differ by ${Math.round(CY.levelSpread * 100)}% or more of the team's in-flight epics (teams with at least ${MIN_N} in flight). The tile counts those two pods. A pod takes part when it has an epic in ${esc(state.release)} that is not Done.`],
       ["In-flight epics without a pod label", `epics In Progress or Validation in ${esc(state.release)} with no pod label, out of all in-flight epics. The share shows from ${MIN_N} in-flight epics.`]
     ],
     left: `Removed epics. Epics with no planned date, or planned after the release end, are in no cycle. Stale, Carry-over, No planned date and Open bugs: see More detail.`,
@@ -3690,7 +3691,7 @@ function cyActList(kind) {
   const c = CYM.c;
   return kind === "nsSoon" ? (CY_ACT.ns.length ? cyListNs(c) : "") : kind === "level" ? (CY_ACT.level.n ? cyListLevel(c) : "") : kind === "noPod" ? (CY_ACT.noPod.length ? cyListNoPod(c) : "") : kind === "wait" ? (CY_ACT.wait.items.size ? cyListWait() : "") : "";
 }
-function cyPodList() {                                           // DOM only: shows the open list and keeps the two buttons in step; the clicked button keeps the focus
+function cyPodList() {                                           // DOM only: shows the open list and keeps the six buttons in step; the clicked button keeps the focus
   const host = document.getElementById("cy-podlist"), f = CY_PODFIG, k = CY_PODLIST, pods = !f ? [] : k === "idle" ? f.idle : k === "wip" ? f.wip : [];
   const html = !f || !k ? "" : k === "idle" || k === "wip" ? (pods.length ? cyPodTable(k, pods) : "") : cyActList(k);
   if (!html) CY_PODLIST = null;

@@ -48,6 +48,8 @@ MODEL_JS = r"""(() => {
     const add = (kind, list, arg) => { const u = cyQ(kind, g, c, arg); out.push({tag: sc.tag, kind: arg ? kind + ":w" + arg[2] : kind, jql: dec(u), len: u ? u.length : 0, exp: K(list)}); };
     add("planned", s.planned); add("done", s.done); add("over", s.over); add("stale", s.staleIn); add("next", s.next); add("nextNs", s.nextNs);
     add("flag", s.flag); add("flagCarry", s.flagCarry); add("carry", d.carry); add("noDue", d.noDue);
+    add("nsSoon", (g ? g.epics : M.epics).filter(cyNsSoon)); add("flightIn", (g ? g.epics : M.epics).filter(cyInFlight));
+    if (g && g.level === "team") add("noPodFlight", g.epics.filter(e => cyInFlight(e) && !e.pl.length));
     if (g) { add("scope", g.epics); add("concerns", cyConcerns(d).map(r => r.e)); }
     else add("scope", M.epics);
     const len = CY_DAY(c.end) - CY_DAY(c.start) + 1, nw = Math.ceil(len / 7);
@@ -59,6 +61,7 @@ MODEL_JS = r"""(() => {
       const u = cyQ("after", null, last); out.push({tag: "top", kind: "after", jql: dec(u), len: u ? u.length : 0, exp: K(M.epics.filter(e => e.due && e.due > last.end))});
       if (cyLabelOk()) {
         add("podWith", M.epics.filter(e => e.pl.length)); add("podNone", M.epics.filter(e => !e.pl.length));
+        add("podNoneFlight", M.epics.filter(e => cyInFlight(e) && !e.pl.length)); add("nsSoonRfd", M.epics.filter(e => cyNsSoon(e) && e.s === "Ready for Dev"));
         const fig = cyPodFig(M.epics, M.planned()), addp = (kind, list, arg) => { const u = cyQ(kind, null, c, arg); out.push({tag: "top", kind, jql: dec(u), len: u ? u.length : 0, exp: K(list)}); };
         addp("podWip", fig.wipEpics, fig.wip);
         fig.pods.forEach(p => { addp("podEpics", p.epics, p); addp("podFlight", p.flight, p); });
@@ -186,11 +189,11 @@ def page(kind: str = "stock") -> tuple[dict, str]:
 
 def views(full: bool, data: dict, name: str = "stock") -> list[str]:
     rels = data["releases"] if full else (["26.4", "27.1"] if name == "stock" else ["27.1", "27.2"])
-    psets = ["", "p=PMN", "p=PMN|CXCO", "p=INT", "t=Team%20Alpha"] + (["p=CXWFM|WFM|CXINT|INT", "c=Stretch"] if full else [])
+    psets = ["", "p=PMN", "p=PMN|CXCO", "p=INT", "t=Team%20Alpha", "c=Committed|Not%20Set"] + (["p=CXWFM|WFM|CXINT|INT", "c=Stretch"] if full else [])      # c=Committed|Not Set: Stretch unticked
     return [f"r={r}&{p}&cy={c}".replace("&&", "&") for r in rels for p in psets for c in ("DC1", "DC2")]
 
 
-def sweep(template: Path | None = None, only_views: int | None = None, kinds: tuple = ("stock", "variant")) -> dict:
+def sweep(template: Path | None = None, only_views: int | None = None, kinds: tuple = ("stock", "variant"), hashes: list | None = None, with_nodes: bool = True) -> dict:
     """Loads the page in every view and compares, query by query, the set the query finds with the set the page counts."""
     old = ctx.template
     if template:
@@ -204,7 +207,7 @@ def sweep(template: Path | None = None, only_views: int | None = None, kinds: tu
         for variant_name in kinds:
             data, url = page(variant_name)
             universe = [epic_issue(e) for e in data["epics"]]
-            todo = views(full, data, variant_name)
+            todo = list(hashes) if hashes else views(full, data, variant_name)
             if only_views:
                 todo = todo[:only_views]
             for h in todo:
@@ -243,7 +246,7 @@ def sweep(template: Path | None = None, only_views: int | None = None, kinds: tu
                             res["ex"][r["kind"].split(":")[0]].append(f"{tag}: the page counts {len(exp)}, the query finds {len(got)}; differ on {sorted(exp ^ got)[:3]}")
                 # the links the DOM holds: the printed number must equal what its query finds
                 anchors = ch.js(DOM_JS) or []
-                nodes = (ch.js(NODES_JS) or [])[: (None if full else 6)] if (kinds and variant_name == "variant" and h.endswith("cy=DC1")) else []
+                nodes = (ch.js(NODES_JS) or [])[: (None if full else 6)] if (with_nodes and kinds and variant_name == "variant" and h.endswith("cy=DC1")) else []
                 if nodes:
                     nodes += [x for x in (ch.js(PO.PODS_JS) or []) if x not in nodes]                    # and a few pod leaves
                 for nd in nodes:
@@ -283,7 +286,8 @@ def full_sweep() -> dict:
 
 
 KINDS = ["planned", "done", "over", "stale", "next", "nextNs", "flag", "flagCarry", "carry", "noDue", "scope", "concerns",
-         "week", "weekDone", "weekOpen", "after", "podWith", "podNone", "podWip", "podEpics", "podFlight"]
+         "week", "weekDone", "weekOpen", "after", "podWith", "podNone", "podWip", "podEpics", "podFlight",
+         "nsSoon", "nsSoonRfd", "flightIn", "noPodFlight", "podNoneFlight"]            # the last five: the links of the four proactive tiles and their lists
 GONE = ["due", "dueDone", "staleAll", "staleCarry"]                                                  # the kinds of the removed tiles and columns: the page no longer builds them
 
 
@@ -333,7 +337,7 @@ def _(t: T):
     data, url = page("variant")
     ch = ctx.chrome
     keyre = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
-    bad, keylike, exact = [], 0, []
+    bad, keylike, exact, waiting = [], 0, [], []
     for h in ("r=27.1&cy=DC1", "r=27.1&cy=DC2", "r=27.1&p=PMN&cy=DC1"):
         ch.goto(url + "#" + h)
         kit.wait_ready(ch)
@@ -343,13 +347,16 @@ def _(t: T):
                 kit.wait_ready(ch)
             for a in ch.js(DOM_JS) or []:
                 jql = urllib.parse.parse_qs(urllib.parse.urlsplit(a["href"]).query).get("jql", [""])[0]
-                if G.n_keys(jql) > 3:
+                if G.n_keys(jql) > 3 and "waiting" in a["tip"]:
+                    waiting.append(a["tip"])                                              # the waiting items of Waiting Dependents Due Soon: Jira cannot search for issue links; an exact list that says so
+                elif G.n_keys(jql) > 3:
                     bad.append(f"{h} {a['tip'][:60]!r}")
-                if len(set(keyre.findall(jql))) > 3:
+                if G.n_keys(jql) <= 3 and len(set(keyre.findall(jql))) > 3:
                     keylike += 1                                                           # a link that carries 4+ labels that look like keys (the guard must still pass it)
                     if re.search(r"exact|by key", a["tip"], re.I):
                         exact.append(f"{h} {a['tip'][:60]!r}")
     t.check(not bad, f"{len(bad)} Cycles links open a list of keys: {bad[:3]}")
+    t.check(waiting and all(re.search(r"exact", x, re.I) for x in waiting), f"the waiting-items key lists must say they are exact lists ({len(waiting)} seen): {waiting[:1]}")
     t.check(keylike > 0, "no link carried labels that look like issue keys (the seeded pods POD-21..24 did not reach a link: a blind check)")
     t.check(not exact, f"a link with labels that look like keys says it is an exact list: {exact[:2]}")
 
@@ -425,9 +432,10 @@ def _(t: T):
     r = full_sweep()
     t.check(not r["pod_bad"], f"{len(r['pod_bad'])} differences from the independent recount, e.g. {r['pod_bad'][:3]}")
     seen = r["pod_seen"]
-    for k in ("views", "idle>0", "wip>0", "pods==0", "node_idle>0", "node_wip>0"):
+    for k in ("views", "idle>0", "wip>0", "pods==0", "node_idle>0", "node_wip>0", "ns>0", "wait>0", "level>0", "noPod>0", "wait_withpod>0", "wait_nopod>0"):
         t.check(seen[k] > 0, f"the matrix never reached '{k}' (a blind recount): {dict(seen)}")
-    t.note(f"{seen['views']} views recounted; idle>0 in {seen['idle>0']}, wip>0 in {seen['wip>0']}, no pods in {seen['pods==0']}; detail views: idle>0 {seen['node_idle>0']}, wip>0 {seen['node_wip>0']}")
+    t.note(f"{seen['views']} views recounted; idle>0 in {seen['idle>0']}, wip>0 in {seen['wip>0']}, no pods in {seen['pods==0']}; detail views: idle>0 {seen['node_idle>0']}, wip>0 {seen['node_wip>0']}; "
+           f"not-started due soon >0 in {seen['ns>0']} (0 in {seen['ns==0']}), waiting >0 in {seen['wait>0']} (0 in {seen['wait==0']}; a pod provider in {seen['wait_withpod>0']}, none in {seen['wait_nopod>0']}), to level >0 in {seen['level>0']} (0 in {seen['level==0']}), no pod label >0 in {seen['noPod>0']}")
 
 
 @SUITE.test("cycles_the_seeded_pods_land_where_the_definitions_put_them")
@@ -478,6 +486,45 @@ def _(t: T):
         t.check(not info["sixCss"], "a .kpis.six CSS rule is still in the page")
 
 
+@SUITE.test("cycles_the_fixed_proactive_cases_land_where_the_brief_puts_them")
+def _(t: T):
+    """The named FIXED cases of make_synthetic (as-of + 0, 7 and 8 days, the later date, Stretch; 2 vs 10, 3 vs 2, 1 vs 4, 2 vs 2, 4 only, a single pod, 3-1-1 = exactly 40%, 4 vs 2; providers with and
+    without a pod; Done pairs; in-flight with and without pod labels, labels shaped like issue keys). The general recount above checks every view; this pins the owner's examples."""
+    data, url = page()
+    ch = ctx.chrome
+
+    def lists(h):
+        ch.goto(url + "#" + h)
+        kit.wait_ready(ch)
+        return {k: (ch.js(PO.LIST2_JS + f"({json.dumps(k)})") or {"rows": []})["rows"] for k in ("nsSoon", "wait", "level", "noPod")}
+
+    allc = lists("r=27.1&cy=DC1")
+    noss = lists("r=27.1&c=Committed|Not%20Set&cy=DC1")
+
+    def ns(rows):
+        return {(r["cells"][0] if r["rep"] else "*"): int(r["cells"][2]) for r in rows if r["th"] == "Team Seed Ns"}
+    t.check(ns(allc["nsSoon"]) == {"*": 5, "Pod-Ns-A": 2, "Pod-Ns-B": 1, "No Pod Label": 2}, f"not-started due soon in Team Seed Ns: {ns(allc['nsSoon'])} (today, +7, the later date, the Target Sprint alone and the Stretch epic count; +8, the later date outside, In Progress, Done and overdue do not)")
+    t.check(ns(noss["nsSoon"]) == {"*": 4, "Pod-Ns-A": 2, "Pod-Ns-B": 1, "No Pod Label": 1}, f"with Stretch unticked the Stretch epic leaves: {ns(noss['nsSoon'])}")
+    lvl = {}
+    for r in allc["level"]:
+        lvl.setdefault(r["th"], {})[r["cells"][1]] = (int(r["cells"][2]), r["cells"][4])
+    want = {"Team Seed Lvl A": {"Pod-Lvl-A1": (2, "In between"), "Pod-Lvl-A2": (10, "Busiest"), "Pod-Lvl-A3": (0, "Lightest")},
+            "Team Seed Lvl C": {"Pod-Lvl-C1": (1, "Lightest"), "Pod-Lvl-C2": (4, "Busiest")},
+            "Team Seed Lvl G": {"Pod-Lvl-G1": (3, "Busiest"), "Pod-Lvl-G2": (1, "Lightest"), "Pod-Lvl-G3": (1, "Lightest")}}
+    got = {k: v for k, v in lvl.items() if k.startswith("Team Seed Lvl")}
+    t.check(got == want, f"Pods To Level flags exactly the teams 2/10/0, 1/4 and 3/1/1 (40% exactly), not 3/2, 2/2, 0/4 (total 4), a single pod, 4/2 (33%) or a pod with Done epics only: {got}")
+    waiting = {r["cells"][0].split()[0] for r in allc["wait"] if not r["grp"]}
+    mine = {"EXA-98101", "EXA-98103", "EXB-98104", "EXA-98109"}
+    never = {"EXA-98102", "EXB-98105", "EXB-98106", "EXA-98107", "EXB-98108"}
+    t.check(mine <= waiting and not (never & waiting), f"waiting items: due on day 7, the Target Sprint alone, due today and the due date over a later sprint count; day 8, a Done item, a Done provider, another release and yesterday do not: {sorted(waiting & (mine | never))}")
+    heads = [r["th"] for r in allc["wait"] if r["grp"] and "Team Seed Wt" in r["th"]]
+    t.check(len(heads) == 2 and any("Pod-Wt-A" in h for h in heads) and any("No Pod Label" in h for h in heads), f"the provider with a pod and the provider without one have their own groups: {heads}")
+    both = [r for r in allc["wait"] if not r["grp"] and r["cells"][0].startswith("EXB-98104")]
+    t.check(len(both) == 2, "a waiting item that waits on two providers appears under each")
+    np_ = {(r["th"]): tuple(r["cells"]) for r in allc["noPod"] if r["th"].startswith("Team Seed Np")}
+    t.check(np_.get("Team Seed Np") == ("PMN", "5", "8", "63%") and np_.get("Team Seed Np Small") == ("PMN", "2", "2", "–"), f"in flight without a pod label: {np_} (POD-31 and POD-32 are pods, NFR is not; a share needs 5 in flight)")
+
+
 # --------------------------------------------------------------------------------------------- the suite must fail on a seeded defect
 MUTANTS = [
     ("a due date on the end day is left out (<= becomes <)", '(duedate is EMPTY OR duedate <= "${hi}")', '(duedate is EMPTY OR duedate < "${hi}")'),
@@ -486,19 +533,34 @@ MUTANTS = [
     ("in flight counted as In Progress only", "p.flight = p.epics.filter(e => CLASS.flight.includes(e.s));", 'p.flight = p.epics.filter(e => e.s === "In Progress");'),
     ("Idle Pods ignores the selected cycle", "p.planned = p.epics.filter(e => ps.has(e)).length;", "p.planned = p.epics.filter(e => e.due).length;"),
     ("the in-flight union link drops the project guard", "arg.map(p => `(${cyPodClause(p)})`).join(\" OR \")", "arg.map(p => `(labels in (${p.sp.map(q).join(\", \")}))`).join(\" OR \")"),
+    ("Not-started due soon counts 8 days instead of 7", "e.due <= cyAdd(CY.asOf, CY.next);\nconst cyTeamNodes", "e.due <= cyAdd(CY.asOf, CY.next + 1);\nconst cyTeamNodes"),
+    ("Not-started due soon uses the due date instead of the later date", "cls(e.s) === \"notStarted\" && !!e.due && e.due >= CY.asOf && e.due <= cyAdd(CY.asOf, CY.next);", "cls(e.s) === \"notStarted\" && !!e.dd && e.dd >= CY.asOf && e.dd <= cyAdd(CY.asOf, CY.next);"),
+    ("Stretch epics stay in when Stretch is unticked", "let eps = scopeOf(state.release).map(", "let eps = scopeOf(state.release, {anyCommit: true}).map("),
+    ("Pods To Level flags from 30% instead of 40%", "levelSpread: 0.40,", "levelSpread: 0.30,"),
+    ("Pods To Level flags from 50% instead of 40%", "levelSpread: 0.40,", "levelSpread: 0.50,"),
+    ("Pods To Level ignores the minimum of 5 in flight", "const flagged = total >= MIN_N && spread >= CY.levelSpread - 1e-9;", "const flagged = spread >= CY.levelSpread - 1e-9;"),
+    ("Pods To Level divides by the busiest pod instead of the team total", "spread = total ? (hi - lo) / total : 0;", "spread = hi ? (hi - lo) / hi : 0;"),
+    ("Waiting Dependents counts Done dependencies", "depModel().openAll.forEach(x => {", "depModel().inView.forEach(x => {"),
+    ("Waiting Dependents counts a provider without a pod as a pod", "withPod: !!(items.get(x.d.k) || {}).withPod || prov.pl.length > 0}", "withPod: !!(items.get(x.d.k) || {}).withPod || true}"),
+    ("in flight is In Progress only", "const cyInFlight = e => CLASS.flight.includes(e.s);", 'const cyInFlight = e => e.s === "In Progress";'),
+    ("the pod label rule changes: a label shaped like POD-12 is no pod", "noPod = flight.filter(e => !e.pl.length), ns =", "noPod = flight.filter(e => !e.pl.length || e.pl.some(l => /^pod-\\d+$/i.test(l))), ns ="),
     ("a pod is counted per team instead of once", "const k = l.toLowerCase(), id = e.p + \"\\n\" + k; if (seen.has(id)) return; seen.add(id);", "const k = l.toLowerCase(), id = e.p + \"\\n\" + k + \"\\n\" + e.tm.join(); if (seen.has(id)) return; seen.add(id);"),
 ]
+
+
+LIGHT = range(6, 17)                                                                    # MUTANTS[6:17] are the proactive-tile defects (see their order above)
 
 
 @SUITE.test("selftest_cycles_suite_catches_seeded_defects")
 def _(t: T):
     src = ctx.template.read_text(encoding="utf-8")
     for i, (what, old, new) in enumerate(MUTANTS):
+        light = i in LIGHT                                                        # the defects of the proactive tiles show on the Overview tiles and lists: no detail view is needed (saves most of the time)
         if src.count(old) != 1:
             raise kit.Skip(f"the seeding anchor for '{what}' is not in this template exactly once")
         tmp = Path(ctx.dir) / f"cycles_mutant_{i}.html"
         tmp.write_text(src.replace(old, new, 1), encoding="utf-8")
-        r = sweep(tmp, only_views=2, kinds=("variant",))
+        r = sweep(tmp, kinds=("variant",), hashes=["r=27.1&cy=DC1", "r=27.1&c=Committed|Not%20Set&cy=DC1"], with_nodes=not light)
         caught = sum(r["bad"].values()) + len(r["dom_bad"]) + len(r["pod_bad"])
         t.check(caught > 0, f"the suite did not notice the seeded defect: {what}")
 
