@@ -159,7 +159,7 @@ def test_no_stale_statement_about_what_refresh_does_not_update():
     assert "Refresh updates Capabilities" in BLOCKS["cap"] + BLOCKS["ch-capab"]
     assert "Refresh updates all quarters" in BLOCKS["capz"]
     cy = BLOCKS["cy"]
-    assert "Epics, due dates, Target Sprints, Flagged and pod labels are updated by Refresh" in cy
+    assert "Epics, due dates, Target Sprints, the Flagged-as-blocked mark and pod labels are updated by Refresh" in cy
     assert "Bugs under epics, the sprint calendar and the pod pattern are read only when the page is built" in cy
 
 
@@ -174,8 +174,9 @@ def test_links_are_described_as_what_they_are():
 
 def test_populations_are_named_where_two_numbers_could_be_confused():
     assert "every epic with the status Done in the release, whatever its Commitment Type" in BLOCKS["bu"]
-    assert "Cycle Time per Release counts all Done epics, so the two are not comparable" in BLOCKS["eff"]
-    assert "not only AI-implemented epics" in BLOCKS["ch-cycle"]
+    assert "Cycle Time per Release also counts epics that AI did not implement, so the two are not comparable" in BLOCKS["eff"]
+    cyc = BLOCKS["ch-cycle"].replace("${CYCLE_EXCLUDED_CATEGORY}", "Maintenance")
+    assert "not limited to AI-implemented epics" in cyc and "leaves out Maintenance" in cyc
     trend = BLOCKS["trend"]
     assert "Done Capabilities follows Projects only" in trend and "Commitment Type" in trend
     assert "Projects and Teams filters apply to every chart" not in TEMPLATE                  # the old sentence contradicted itself
@@ -209,3 +210,32 @@ def test_the_sentences_the_owner_asked_to_keep_are_still_in_the_text(sentence):
 def test_the_cfb_text_names_its_unit_from_its_own_table_not_a_variable_of_another_function():
     cfb = BLOCKS["cfb"]
     assert "CFB_UNIT[state.cfbGroup].noun" in cfb and "${U.noun}" not in cfb
+
+
+def test_cycle_time_per_release_is_described_as_maintenance_out_ai_or_not():
+    """Owner decision: Cycle Time per Release leaves out the Maintenance Issue Category (only), and counts AI, non-AI and empty-AI Done epics with an EDCT."""
+    cyc = BLOCKS["ch-cycle"].replace("${CYCLE_EXCLUDED_CATEGORY}", "Maintenance")
+    assert "Epics in the Maintenance Issue Category" in cyc
+    assert "whether Implemented by AI Agent is Yes, No or empty" in cyc
+    assert "SOW" not in cyc                                                                     # SOW is excluded from Epics by AI only
+    trend = BLOCKS["trend"].replace("${CYCLE_EXCLUDED_CATEGORY}", "Maintenance")
+    assert "Cycle Time per Release counts the Done epics that have an EDCT, outside Maintenance, whether or not AI implemented them" in trend
+    for stale in ("count every Done epic of the release", "counts all Done epics", "counts every Done epic", "of every category"):
+        assert stale not in TEMPLATE, stale
+    assert 'const CYCLE_KEPT_JQL = `(cf[10139] is EMPTY OR cf[10139] != "${CYCLE_EXCLUDED_CATEGORY}")`;' in TEMPLATE
+    assert 'const CYCLE_EXCLUDED_CATEGORY = "Maintenance";' in TEMPLATE
+    assert "Epics by AI" in trend and "${esc(AI_EXCL_TEXT)}" in trend                           # Epics by AI keeps its own rule (Maintenance and SOW)
+
+
+def test_flagged_always_means_blocked_in_the_cycles_copy():
+    assert "Flagged field set" not in TEMPLATE and "Jira Flagged field" not in TEMPLATE
+    cy = BLOCKS["cy"]
+    assert "flagged as blocked in Jira (the Flagged field is set)" in cy
+    assert "flagged as blocked in Jira, carried over" in cy
+
+
+def test_the_edct_target_is_still_called_a_target():
+    assert "const EDCT_TARGET = 10;" in TEMPLATE
+    assert "finish inside the ${EDCT_TARGET}-day target" in BLOCKS["eff"]
+    assert "the ≤${EDCT_TARGET} target" in TEMPLATE
+    assert not re.search(r"EDCT[^`\n]{0,40}reference", BLOCKS["eff"])
