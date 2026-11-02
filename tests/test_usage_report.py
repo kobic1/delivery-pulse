@@ -143,7 +143,7 @@ def test_the_report_knows_the_keys_the_page_records():
 
 def test_the_page_reads_only_the_id_and_never_leaves_the_page():
     block = TEMPLATE[TEMPLATE.index("const USAGE_VOC"):]
-    assert re.search(r"Usage statistics: this page counts, per (anonymous|pseudonymous) user id \(no name or e-mail\)", block)
+    assert re.search(r"Usage statistics: this page counts, per pseudonymous user id \(a code, no name or e-mail; the editors of this page can read these records\)", block)
     assert "What is counted" in block and "Kept for 12 weeks" in block
     assert re.search(r"user\.id\(\)", block) and not re.search(r"user\.(name|email|me|profiles|search)\b", block)
     assert block.count('window.claude.use("db")') == 1 and block.count('window.claude.use("user")') == 1 and "scopes" not in block
