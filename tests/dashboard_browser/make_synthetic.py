@@ -532,7 +532,7 @@ class Gen:
         return {"bugs": res, "templates": len(RCA_TEMPLATES), "tpl": [h53(norm_text(t)) for t in RCA_TEMPLATES], "allOpen": len(open_cfb) + 5,
                 "allOpenByProject": {**{p: sum(1 for b in open_cfb if b["p"] == p) for p in projects or BASE_PROJECTS}, "EXA": 3, "EXB": 2}, "pulledAt": il_stamp(self.generated_day, 0, 36)}
 
-    # ---- the four proactive Pods KPIs (Not-Started Epics Due Within 7 Days, Waiting Dependents Due Soon, Pods To Level, In-Flight Epics Without a Pod Label): FIXED cases, no random draw, fictitious
+    # ---- the four proactive Pods KPIs (Not-Started Epics Due Within 7 Days, Waiting Dependents Due Soon, Pods To Level, In-Progress Epics Without a Pod Label): FIXED cases, no random draw, fictitious
     # team and pod names, every date relative to the AS-OF day (the generated day, which is what the page calls today). Keys start at 96001, clear of the random counter and of the 97xxx far ends.
     # The first 27.1 sprint ends on as-of + 6 (the release started 23 days before `today`, as-of is today - 2) and the second on as-of + 27: the 'later date counts' cases rely on both ends.
     def proactive_epics(self, epics, by_rel, used_ts):
@@ -582,7 +582,7 @@ class Gen:
                 for i in range(other):
                     add(f"{name}:{lab}:new{i}", name, [lab], "New")
 
-        team("Team Seed Lvl A", [("Pod-Lvl-A1", 2, 0, 0), ("Pod-Lvl-A2", 8, 2, 0), ("Pod-Lvl-A3", 0, 0, 1)])   # 2 vs 10 and a pod with none in flight: flagged (10 of 12)
+        team("Team Seed Lvl A", [("Pod-Lvl-A1", 2, 0, 0), ("Pod-Lvl-A2", 8, 2, 0), ("Pod-Lvl-A3", 0, 0, 1)])   # 2 vs 10 and a pod with none in-progress: flagged (10 of 12)
         team("Team Seed Lvl B", [("Pod-Lvl-B1", 3, 0, 0), ("Pod-Lvl-B2", 2, 0, 0)])                       # 3 vs 2: total 5, spread 20%: not flagged
         team("Team Seed Lvl C", [("Pod-Lvl-C1", 1, 0, 0), ("Pod-Lvl-C2", 4, 0, 0)])                       # 1 vs 4: total 5, spread 60%: flagged
         team("Team Seed Lvl D", [("Pod-Lvl-D1", 2, 0, 0), ("Pod-Lvl-D2", 2, 0, 0)])                       # 2 vs 2: not flagged
@@ -600,7 +600,7 @@ class Gen:
         add("wt_done", wt, ["Pod-Wt-A"], "Done")                                              # a Done provider: its pairs are not open
         add("wt_other", wt, ["Pod-Wt-B"], "In Progress", fv=["27.2"])                         # a provider outside the release 27.1
 
-        np_ = "Team Seed Np"                                                                   # 4. in flight, with and without a pod label (labels that look like issue keys are pods too)
+        np_ = "Team Seed Np"                                                                   # 4. in-progress, with and without a pod label (labels that look like issue keys are pods too)
         add("np_a", np_, ["POD-31"], "In Progress")
         add("np_b", np_, ["POD-31"], "Validation")
         add("np_c", np_, ["POD-32"], "In Progress")
@@ -611,7 +611,7 @@ class Gen:
         add("np_done", np_, None, "Done")
         add("np_new", np_, None, "New")
         for i in range(2):
-            add(f"np2_none{i}", "Team Seed Np Small", None, "In Progress")                    # two in flight, none labelled: no share under 5
+            add(f"np2_none{i}", "Team Seed Np Small", None, "In Progress")                    # two in-progress, none labelled: no share under 5
         self.fixed = keys
 
     def proactive_deps(self, epics, deps, ext):

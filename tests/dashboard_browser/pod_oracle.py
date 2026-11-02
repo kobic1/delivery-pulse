@@ -4,8 +4,8 @@ The page counts pods with podRegistry / cyPodsOf / cyPodFig. This module counts 
 
   * a POD is one pod label per project, compared without regard to case; an epic with several labels counts once under each pod; an epic with no label is in no pod;
   * Idle Pods: pods that carry at least one epic of the release (under the page's Release, Projects and Teams filters) and have NO epic planned in the selected cycle;
-  * Pods With More Than 3 Epics in Flight: more than POD_LEVEL epics In Progress or Validation among the epics of the release, and the number of those epics, each once;
-  * the four proactive tiles (act_oracle below): Not-Started Epics Due Within 7 Days, Waiting Dependents Due Soon, Pods To Level, In-Flight Epics Without a Pod Label, with their lists.
+  * Pods With More Than 3 Epics In-Progress: more than POD_LEVEL epics In Progress or Validation among the epics of the release, and the number of those epics, each once;
+  * the four proactive tiles (act_oracle below): Not-Started Epics Due Within 7 Days, Waiting Dependents Due Soon, Pods To Level, In-Progress Epics Without a Pod Label, with their lists.
 
 The only things taken from the page are its filters and the planned date of each epic (plannedLater; the Target Sprint calendar is proven by the other kinds of link_cycles.py).
 `check_pods` compares the printed tiles and the two lists opened in turn; `check_node` compares the facts line and the strip of a detail view.
@@ -19,7 +19,7 @@ import re
 N_FLIGHT = ("In Progress", "Validation")
 POD_LEVEL = 3                                    # the page's CY.podWip, the owner's reference level; spelled here on purpose, not read from the page
 EPIC_IDS = ["planned", "done", "overdue", "next", "flagged"]
-ACT_IDS = ["nsSoon", "wait", "level", "noPod", "idle", "wip"]     # the six tiles of #cy-kpis2, in order: the four proactive ones first, then Idle Pods and Pods With More Than 3 Epics in Flight
+ACT_IDS = ["nsSoon", "wait", "level", "noPod", "idle", "wip"]     # the six tiles of #cy-kpis2, in order: the four proactive ones first, then Idle Pods and Pods With More Than 3 Epics In-Progress
 
 # What the strips print, what the page was asked (its own state, not its pod figures), and the pod lists opened in turn (the button is focused and clicked, then clicked again).
 POD_JS = r"""(() => {
@@ -72,7 +72,7 @@ def figures(epics: list, due: dict, cycle: dict) -> dict:
 
     idle = {k for k, es in pods.items() if not any(planned(e) for e in es)}
     wip = {k for k, es in pods.items() if len(flight(es)) > POD_LEVEL}
-    return {"pods": pods, "idle": idle, "wip": wip, "wip_epics": {e["k"] for k in wip for e in flight(pods[k])}}
+    return {"pods": pods, "idle": idle, "wip": wip, "wip_epics": {e["k"] for k in wip for e in-progress(pods[k])}}
 
 
 def oracle(data: dict, st: dict) -> dict:
@@ -118,9 +118,9 @@ def check_pods(res: dict, data: dict, st, tag: str, ch) -> None:
         m = re.match(r"of (\d+) pods? in", ti["s"])
         if not m or int(m.group(1)) != n:
             bad.append(f"{tag}: the idle sub-line '{ti['s']}' should name {n} pods")
-        m = re.match(r"([\d,]+) epics? in flight in these pods", tw["s"])
+        m = re.match(r"([\d,]+) epics? in-progress in these pods", tw["s"])
         if wip and (not m or int(m.group(1).replace(",", "")) != len(exp["wip_epics"])):
-            bad.append(f"{tag}: the in-flight sub-line prints '{tw['s']}', the recount is {len(exp['wip_epics'])} epics")
+            bad.append(f"{tag}: the in-progress sub-line prints '{tw['s']}', the recount is {len(exp['wip_epics'])} epics")
         if not wip and "no pod has more than" not in tw["s"]:
             bad.append(f"{tag}: the sub-line of 0 pods over the level is '{tw['s']}'")
         if ti["btn"] != bool(idle) or tw["btn"] != bool(wip):
@@ -153,7 +153,7 @@ def check_pods(res: dict, data: dict, st, tag: str, ch) -> None:
               and re.match(r"\d+ .*pods? .*, (show|hide) the list$", got["label"]) is not None)
         if not ok:
             bad.append(f"{tag}: the {kind} button or list misbehaves: {({k: v for k, v in got.items() if k != 'rows'})}")
-        want_hdr = ["Pod", "Project", "Teams", "Epics in Release", f"Planned in {st['cycle']['name']}"] if kind == "idle" else ["Pod", "Project", "Teams", "Epics in Flight"]
+        want_hdr = ["Pod", "Project", "Teams", "Epics in Release", f"Planned in {st['cycle']['name']}"] if kind == "idle" else ["Pod", "Project", "Teams", "Epics In-Progress"]
         if got["hdr"] != want_hdr:
             bad.append(f"{tag}: the {kind} list header is {got['hdr']}")
 
@@ -175,25 +175,25 @@ def check_node(res: dict, data: dict, nd, tag: str) -> None:
         bad.append(f"{tag}: the facts line still says 'flagged as blocked': {facts}")
     idle, wip = len(fig["idle"]), len(fig["wip"])
     if nd["level"] == "pod":
-        if "idle pod" in facts or "epics in flight" in facts:
+        if "idle pod" in facts or "epics in-progress" in facts:
             bad.append(f"{tag}: a pod leaf shows pod facts: {facts}")
         return
     res["pod_seen"]["node_idle>0"] += idle > 0
     res["pod_seen"]["node_wip>0"] += wip > 0
     want_idle = f"{idle} idle {'pod' if idle == 1 else 'pods'}" if idle else None
-    want_wip = f"{wip} {'pod' if wip == 1 else 'pods'} with more than {POD_LEVEL} epics in flight" if wip else None
-    for what, w, present in (("idle", want_idle, "idle pod" in facts), ("wip", want_wip, "epics in flight" in facts)):
+    want_wip = f"{wip} {'pod' if wip == 1 else 'pods'} with more than {POD_LEVEL} epics in-progress" if wip else None
+    for what, w, present in (("idle", want_idle, "idle pod" in facts), ("wip", want_wip, "epics in-progress" in facts)):
         if (w and w not in facts) or (not w and present):
             bad.append(f"{tag}: the facts line '{facts}' should {'say ' + repr(w) if w else 'not mention ' + what + ' pods'}")
 
 
 # ----------------------------------------------------------------------------------------------------------------------------------------------------------------
-# The four proactive tiles: Not-Started Epics Due Within 7 Days, Waiting Dependents Due Soon, Pods To Level, In-Flight Epics Without a Pod Label.
+# The four proactive tiles: Not-Started Epics Due Within 7 Days, Waiting Dependents Due Soon, Pods To Level, In-Progress Epics Without a Pod Label.
 # Recounted from the baked payload in plain Python with the definitions the owner decided, spelled here on purpose (never read from the page):
 NS_STATUSES = ("Candidate", "New", "In Definition", "Ready for Dev")
 SOON_DAYS = 7                                    # the page's CY.next
-LEVEL_SPREAD = 0.40                              # the page's CY.levelSpread: (busiest - lightest) / the team's in-flight epics
-MIN_SAMPLE = 5                                   # the page's MIN_N: a team is evaluated from this many in-flight epics
+LEVEL_SPREAD = 0.40                              # the page's CY.levelSpread: (busiest - lightest) / the team's in-progress epics
+MIN_SAMPLE = 5                                   # the page's MIN_N: a team is evaluated from this many in-progress epics
 LEVEL_WORDS = {"busiest": "Busiest", "lightest": "Lightest", "between": "In between"}
 
 LIST2_JS = r"""((kind) => {
@@ -270,7 +270,7 @@ def act_oracle(data: dict, st: dict) -> dict:
     in_flight = lambda e: e["s"] in N_FLIGHT                                                                      # noqa: E731
     ns = [e for e in scope if is_ns(e)]
     flight = [e for e in scope if in_flight(e)]
-    nopod = [e for e in flight if not _pods(e)]
+    nopod = [e for e in-progress if not _pods(e)]
     # 2. Pods To Level
     level_rows, flagged, ends, multi = {}, [], set(), 0
     for (p, t), es in by_team.items():
@@ -362,7 +362,7 @@ def check_act(res: dict, data: dict, st: dict, tag: str, ch) -> None:
         bad.append(f"{tag}: level sub-line '{s}', the recount is {len(X['flagged'])} of {X['multi']} teams")
     s = T["noPod"]["s"]
     share = f" ({int(100 * X['nopod'] / X['flight'] + 0.5)}%)" if X["flight"] >= MIN_SAMPLE else ""
-    if X["flight"] and s != f"of {X['flight']} {'epic' if X['flight'] == 1 else 'epics'} in flight{share}":
+    if X["flight"] and s != f"of {X['flight']} {'epic' if X['flight'] == 1 else 'epics'} in-progress{share}":
         bad.append(f"{tag}: noPod sub-line '{s}', the recount is {X['nopod']} of {X['flight']}{share}")
     # ---- the lists
     for kind in ("nsSoon", "wait", "level", "noPod"):
@@ -399,7 +399,7 @@ def _check_ns(bad, X, got, tag):
 
 
 def _check_level(bad, X, got, tag):
-    if got["hdr"] != ["Team", "Project", "Pod", "Epics in Flight", "Share of Team's In-Flight Epics", "Position"]:
+    if got["hdr"] != ["Team", "Project", "Pod", "Epics In-Progress", "Share of Team's In-Progress Epics", "Position"]:
         bad.append(f"{tag}: the level header is {got['hdr']}")
     rows = {}
     for r in got["rows"]:
@@ -413,11 +413,11 @@ def _check_level(bad, X, got, tag):
     for r in got["rows"]:                                           # a count of 0 has no link; above 0 it is a Jira query
         n = _num(r["cells"][2])
         if bool(n) != bool(r["hrefs"]):
-            bad.append(f"{tag}: level row {r['th']} / {r['cells'][1]} has {n} in flight and {len(r['hrefs'])} links")
+            bad.append(f"{tag}: level row {r['th']} / {r['cells'][1]} has {n} in-progress and {len(r['hrefs'])} links")
 
 
 def _check_nopod(bad, X, got, tag):
-    if got["hdr"] != ["Team", "Project", "Without Pod Label", "In Flight", "Share Without"]:
+    if got["hdr"] != ["Team", "Project", "Without Pod Label", "In-Progress", "Share Without"]:
         bad.append(f"{tag}: the noPod header is {got['hdr']}")
     rows = {}
     for r in got["rows"]:
