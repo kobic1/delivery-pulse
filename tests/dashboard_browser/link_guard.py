@@ -46,6 +46,7 @@ PROPOSED_ALLOW = [      # the accepted gaps: every entry is a population Jira ca
     (r"^key in \(<keys>\) OR \(key in \(<keys>\) AND project not in \(", "", "Blocked by External headline: the dependents by key, and the external providers by key AND a project clause (not in the selected projects and CXCROSS); which pairs are open is a linked issue's status, not searchable", "issueLinkType in (...) is a superset"),
     (r"^key in \(<keys>\)$", r"^\d[\d,]* waiting items?", "the waiting items of Waiting Dependents Due Soon (Cycles, Pods block): an item of any issue type that waits on an epic through an issue link, due soon by the Dependencies planned-date rule; Jira cannot search for the far end of a link or for a planned date taken from a sprint, so the list is exact and its tooltip says so", "none; issueLinkType in (...) is a superset and cannot tell which items are due soon"),
     (r"^key in \(<keys>\)$", "", "pairs whose far end is not Done, story-level links, dependency cards, Needs Attention groups, DQ 'no cycle time' (changelog-derived): a linked issue's status / the changelog is not searchable", "issueLinkType in (...) is a superset"),
+    (r"^issuetype = Bug AND key in \(<keys>\)$", "", "open CFBs by Root Cause Analysis state: the field is pre-filled with a template Jira cannot search", "all open CFBs (superset)"),
 ]
 ALLOW_CALENDAR: list[tuple[str, str]] = [(r"fixVersion in \(", "the release list is the dashboard's own release set, fixed when the data is built (a new release needs a rebuild)")]
 

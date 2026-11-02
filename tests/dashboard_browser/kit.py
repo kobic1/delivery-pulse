@@ -76,6 +76,18 @@ class Skip(Exception):
     pass
 
 
+def selected(name: str, only: str | None) -> bool:
+    """--only filter: comma-separated parts; a part starting with '!' excludes the tests whose name contains it, any other part
+    includes (a test runs when it matches at least one include part, or there is none, and no exclude part). So --only selftest runs
+    the seeded-defect self-tests and --only '!selftest' runs everything else (how CI splits the long suites into parallel jobs)."""
+    if not only:
+        return True
+    parts = [x.strip() for x in only.split(",") if x.strip()]
+    inc = [x for x in parts if not x.startswith("!")]
+    exc = [x[1:] for x in parts if x.startswith("!") and len(x) > 1]
+    return (not inc or any(x in name for x in inc)) and not any(x in name for x in exc)
+
+
 class Suite:
     def __init__(self, title: str):
         self.title = title
@@ -90,7 +102,7 @@ class Suite:
     def run(self, only: str | None = None, verbose: bool = True) -> list[dict]:
         results = []
         for name, expect, fn in self.tests:
-            if only and only not in name:
+            if not selected(name, only):
                 continue
             t0 = time.time()
             t = T()
