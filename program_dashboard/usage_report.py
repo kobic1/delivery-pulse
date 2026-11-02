@@ -8,7 +8,7 @@ program_dashboard/README.md for the record, the vocabulary and the access rules)
     python3 program_dashboard/usage_report.py export.json --html usage.html --as-of ... --since 2026-10-14 --audience 120 --calendar build/usage_calendar.json
     python3 program_dashboard/usage_report.py --demo --html usage_demo.html --standalone            # the same page from fictitious data (a "Demo data" banner), to review the layout
 
-Options: --since YYYY-MM-DD (the go-live day: earlier days are the Sandbox and are ignored), --audience N (the size of the intended audience: without it the page shows no adoption percentage),
+Options: --min-group N (the smallest group of people a number is shown for, default 5), --since YYYY-MM-DD (the go-live day: earlier days are the Sandbox and are ignored), --audience N (the size of the intended audience: without it the page shows no adoption percentage),
 --thresholds file.json (overrides of THRESHOLDS), --calendar usage_calendar.json (from `build_dashboard.py --emit-usage-calendar`: release milestones, sprint boundaries, optional owner review days and quiet weeks),
 --as-of (when the export was taken; without it the current Israel date is used and the page says that no export time was given), --today (the Israel day to report about, default the current one).
 
@@ -16,7 +16,7 @@ The input is a JSON list of the documents. Both shapes are accepted: the bodies 
 "documents", "docs", "items", "rows" or "results"). The id of a document is read ONLY to drop a duplicated document (it is hashed in memory and then forgotten); users are told apart by their position in the file,
 and no user id, name, e-mail address, issue key or team name is ever printed or written to the page. A record is "pseudonymous, not anonymous": the editors of the published page can read the ids.
 
-Privacy rule of the report: every breakdown that rests on fewer than 5 distinct people prints "<5 users" instead of a number (and its chart bar is not drawn); a figure that would reveal such a group by subtraction
+Privacy rule of the report (the minimum group size is 5 by default; --min-group N or the `min_group` threshold changes it, 1 shows every number as it is, and every sentence of the page and of the text report then says the setting in force): every breakdown that rests on fewer than 5 distinct people prints "<5 users" instead of a number (and its chart bar is not drawn); a figure that would reveal such a group by subtraction
 (a partition printed next to its total) is withheld too (`protect_partition`); a percentage prints only when its denominator is at least 20, otherwise the counts are printed with "n=".
 The report never ranks or evaluates people or teams. Counts are computed over what the people's browsers recorded; people that are signed out or hold view-only access, that open an offline copy, or whose browser blocks
 the page's storage are not in the data.
@@ -45,8 +45,8 @@ try:
 except Exception:                                                                    # pragma: no cover - a Python without time zone data
     IL = dt.timezone(dt.timedelta(hours=2))
 
-MIN_USERS = 5
-SMALL = "<5 users"
+MIN_USERS = 5                                                                         # the minimum group size (THRESHOLDS["min_group"]; set_min_group changes it for a run): a group of fewer people is withheld
+SMALL = f"<{MIN_USERS} users"                                                         # what a withheld figure prints
 SHORT_HISTORY_DAYS = 14
 SECTION_MIN_SECONDS = 30                                                              # a person "reached" a section in a week with at least this many seconds in it (summed over the week)
 
@@ -90,7 +90,34 @@ THRESHOLDS = {
     "workweek_min_visits": 30,
     # the retention promise of the page
     "retention_weeks": 12,
+    # privacy: the smallest group of distinct people the report shows a number for. 5 is the safe default; 1 shows every number as it is (a page for its owner alone: with few people the numbers describe individual visits).
+    # The statistical guards (a percentage needs 20 in the denominator, a baseline 5 completed weeks, a weak signal under 30 active people, a growth verdict 6 weeks) are separate and do not move with it.
+    "min_group": 5,
 }
+
+
+def set_min_group(n) -> None:
+    """Set the minimum group size for the run (an integer of 1 or more): every guard (g, gn, protect_group, partition_cells, the charts) and every sentence about it reads the module values set here.
+    aggregate, text_report and html_report call it with the setting of the thresholds they were given, so a report is always printed with the setting it was computed with."""
+    global MIN_USERS, SMALL
+    if isinstance(n, bool) or not isinstance(n, int) or n < 1:
+        raise ValueError("min_group must be a whole number of 1 or more")
+    MIN_USERS = n
+    SMALL = f"<{n} users"
+
+
+def guard_note(template: str) -> str:
+    """A sentence about the withheld groups ('{n}' = the minimum group size, '{g}' = the guard text): empty when the minimum is 1, because then no group is withheld."""
+    return template.replace("{n}", str(MIN_USERS)).replace("{g}", SMALL) if MIN_USERS > 1 else ""
+
+
+def small_rule(cap: bool = False, ribbon: bool = False) -> str:
+    """The sentence that says what the small-group setting is, true for the setting in force."""
+    if MIN_USERS <= 1:
+        t = "small groups are shown as they are: with few people these numbers describe individual visits, so keep this page private and do not share screenshots of it."
+        return t[0].upper() + t[1:] if cap or ribbon else t
+    t = f"groups under {MIN_USERS} people {'show' if ribbon else 'print'} {SMALL}."
+    return t[0].upper() + t[1:] if cap or ribbon else t
 
 # ------------------------------------------------------------------------------------------------------------ the record shape this report reads
 # ONE place that defines what a record looks like: the page (dashboard.template.html, the usage block) writes it, this report reads it, and the tests build their fictitious data from it.
@@ -106,7 +133,7 @@ RECORD_SHAPE = {
         "w": "{week key: {ISO day: {session id: S}}}; v1 week key = ISO week '2026-W44', v2 week key = 'S' + ISO date of the Sunday 'S2026-10-25'",
     },
     "session": {
-        "t": "opened at: v1 minutes since the epoch, (v2) hours since the epoch; not read by this report",
+        "t": "opened at: v1 minutes since the epoch (not read by this report), (v2) hours since the epoch (UTC): read only for the hour of the day (Israel time) of the day-and-hour chart",
         "s": "active seconds (page visible and focused or with input within 60 s)",
         "vs": "(v2) visible seconds, whether or not focused",
         "g": "(v2) 1 = glance visit: visible 5 s or more, no input, under 30 s visible",
@@ -145,7 +172,9 @@ CONTROL_FAMILIES = [("Scope", ["release", "projects", "multi", "teams"]),
                     ("Dependencies and NFRs", ["dp", "nfrtab"]),
                     ("Capabilities and CXCROSS", ["cx", "caplevel", "capby", "capmeasure"])]
 DISCLOSURES = {"how": "How this is calculated", "data": "Show data", "attn": "Needs Attention details", "other": "Other details"}
-DEVICES = {"s": "Small screen (up to 480 px)", "m": "Medium screen (up to 900 px)", "l": "Large screen"}
+DEVICES = {"s": "Phone (narrow window)", "m": "Tablet (medium window)", "l": "Desktop (wide window)"}         # the page records the browser window width: 's' up to 480 px, 'm' up to 900 px, 'l' wider
+DEVICE_ORDER = ("l", "m", "s")
+DEVICE_CAVEAT = "By browser window width, not device type: a narrow desktop window counts as phone."
 LV = {0: "live", 1: "snapshot only", 2: "live with a failed step"}
 FA = {0: "under 1 hour old", 1: "1 to 24 hours old", 2: "1 to 3 days old", 3: "older than 3 days"}
 RO = {"ok": "succeeded", "fail": "failed", "declined": "declined"}
@@ -542,7 +571,7 @@ def gm(x) -> str:
 
 def nlabel(v) -> str:
     """'n=40', or the words for a count that is withheld because fewer than 5 people are behind it."""
-    return f"n={v}" if v != SMALL else "count withheld: fewer than 5 people"
+    return f"n={v}" if v != SMALL else f"count withheld: fewer than {MIN_USERS} people"
 
 
 def fmt_n(v) -> str:
@@ -826,7 +855,7 @@ def detect_signals(m: Model, ctx: dict | None = None) -> dict:
         SIG("S4", f"Control: {nm}", f"{nm} is newly used" if new else f"{nm} is no longer used",
             (f"{ev['x']} established people ({share_text(ev['x'], ev['n'], th)}) changed this control in {wk}; in the {len(m.baseline(L))} weeks before, fewer than {MIN_USERS} people did."
              if new else f"Fewer than {MIN_USERS} established people changed this control in each of the last 2 completed weeks."),
-            "Newly used: under 5 people in every comparable week before." if new else f"Stopped: {th['s4_stop_pct']}% or more of established people in {th['s4_stop_weeks']} of the baseline weeks.",
+            f"Newly used: under {MIN_USERS} people in every comparable week before." if new else f"Stopped: {th['s4_stop_pct']}% or more of established people in {th['s4_stop_weeks']} of the baseline weeks.",
             f"Newly used: {MIN_USERS} or more people and {th['s4_new_pct']}% or more. Stopped: under {MIN_USERS} people in {th['s4_stop_consecutive']} consecutive weeks.", _confidence(seen, ev["n"], th),
             "Whether the control works or is wanted: a change counts the people that touched it, not the effect.",
             "Worth investigating: whether a change of the page or a new routine coincides with the change in use; the control may have moved or been renamed.")
@@ -1404,6 +1433,7 @@ def aggregate(bodies: list, today: dt.date | None = None, as_of: dt.datetime | N
     today: the Israel day the report is made (default: the current one). as_of: when the export was taken; the day of the data (`ref`) is its Israel date. Without as_of the data is read as taken today:
     the last day in the data is NEVER taken for today. since: the go-live day. audience: the size of the intended audience (optional). calendar: a parsed calendar (parse_calendar). stats: load_export's counts."""
     th = th or THRESHOLDS
+    set_min_group(th.get("min_group", 5))
     now = now or dt.datetime.now(IL)
     now_date = today or (now.astimezone(IL).date() if now.tzinfo else now.date())
     if as_of:
@@ -1453,12 +1483,23 @@ def demo_calendar(ref: dt.date) -> dict:
             "events": [(cur - dt.timedelta(days=11)).isoformat()]}
 
 
+DEMO_HOUR_WEIGHTS = {7: 2, 8: 8, 9: 14, 10: 16, 11: 14, 12: 7, 13: 8, 14: 13, 15: 14, 16: 10, 17: 5, 18: 2, 19: 1}      # the opening hour of a demo visit (Israel time): a working day with a morning and an afternoon peak
+
+
+def demo_open_hour(day: dt.date, rnd_: random.Random) -> int:
+    """The `t` of a v2 session: hours since the epoch (UTC) of an opening hour drawn for the day."""
+    hour = rnd_.choices(list(DEMO_HOUR_WEIGHTS), weights=list(DEMO_HOUR_WEIGHTS.values()))[0]
+    local = dt.datetime(day.year, day.month, day.day, hour, 30, tzinfo=IL)
+    return int(local.astimezone(dt.timezone.utc).timestamp() // 3600)
+
+
 def demo_bodies(ref: dt.date, seed: int = 20261102, v2_from: int = 3) -> list:
     """About 50 fictitious people over 11 completed weeks and the week in progress, built to exercise the failure modes: the first week starts mid-week (provisional), the oldest weeks are v1 records and the rest v2
     (a mixture, with a rollover week), a lapsed group of regulars, a growing group of new people, a quiet week below 20 active people, one build with a single error, a section whose reach drops, a control newly used and one no longer used.
     v2_from: the index of the first v2 week (0 to 10; 99 = every week is a v1 record, the page of a data set from before the upgrade).
     Ids are u_synthetic_NNN; a few sections and controls are used by only a few people so that the small-group guard shows."""
     r = random.Random(seed)
+    rt = random.Random(seed + 1)                                                         # the opening hours of the visits: a separate generator so that every other number of the demo is unchanged
     cur = week_start(ref)
     L = cur - dt.timedelta(days=7)
     week_of = lambda k: L - dt.timedelta(days=7 * (10 - k))                              # k = 0 .. 10 are the completed weeks, 11 the week in progress
@@ -1546,6 +1587,8 @@ def demo_bodies(ref: dt.date, seed: int = 20261102, v2_from: int = 3) -> list:
                         if i == 3 and k == 9 and "er" not in s and not glance:
                             s["er"] = 1                                             # the single error of one page version
                             s["b"] = "bbb2222"
+                    if v2:
+                        s["t"] = demo_open_hour(day, rt)                           # a plausible opening hour (Israel time) from its own generator: the numbers drawn above stay as they were
                     wkey = sunday_key(day) if v2 else iso_week_key(day)
                     sessions.setdefault(wkey, {}).setdefault(day.isoformat(), {})["".join(r.choice("abcdefghijklmnopqrstuvwxyz0123456789") for _ in range(8))] = s
         if sessions:
@@ -1559,25 +1602,31 @@ def demo_bodies(ref: dt.date, seed: int = 20261102, v2_from: int = 3) -> list:
 # Words the page and the text report never use: they name or rank people, or claim a cause the data cannot show. tests/test_usage_report.py checks every output against this list.
 WORDING_BLOCKLIST = [r"\bwho\b", r"top users?", r"least active", r"most active", r"engaged people", r"people who read", r"\bbecause\b", r"\bcaused?\b", r"\bdue to\b", r"leaderboard", r"\branking\b", r"(?<!not )\banonymous"]
 
-COVERAGE_NOT_COUNTED = "Not counted: people signed out, with view-only access, using an offline copy or whose browser blocks storage. Includes the owner's and testers' visits. Aggregate counts only; groups under 5 people print <5 users. Never used to rank or assess people or teams."
+def coverage_not_counted() -> str:
+    return ("Not counted: people signed out, with view-only access, using an offline copy or whose browser blocks storage. Includes the owner's and testers' visits. Aggregate counts only; " + small_rule() + " Never used to rank or assess people or teams.")
 
 
 def fmt_date(d: dt.date) -> str:
     return f"{d.day} {d:%b %Y}"
 
 
-def coverage_text(a: dict) -> str:
+def _who(a: dict) -> str:
     n = a["n_people"]["n"]
-    who = "fewer than 5 people" if n == SMALL else f"{n} people"
+    return f"fewer than {MIN_USERS} people" if n == SMALL else (f"{n} person" if n == 1 else f"{n} people")
+
+
+def coverage_text(a: dict) -> str:
+    who = _who(a)
     span = f" between {fmt_date(a['first_day'])} and {fmt_date(a['last_day'])} (Israel time)" if a["first_day"] else ""
     aud = ""
     if a["audience"]:
         aud = f", of an audience of {a['audience']['size']} (a lower bound: only people with edit access and an id are recorded)"
-    return f"Based on {who} with an id{span}{aud}. {COVERAGE_NOT_COUNTED}"
+    return f"Based on {who} with an id{span}{aud}. {coverage_not_counted()}"
 
 
 def text_report(a: dict) -> str:
     """The aggregate text report: the same numbers as the page, in the same order (coverage, what changed, adoption, reading, use, rhythm, recording health). Nothing here names a person."""
+    set_min_group(a["model"].th.get("min_group", 5))
     L: list = []
     add = L.append
     add(f"Delivery Pulse usage, data as of {a['ref']}" + ("   [DEMO DATA]" if a["demo"] else ""))
@@ -1643,6 +1692,12 @@ def text_report(a: dict) -> str:
     add(f"\nHow people use it ({u['weeks']} weeks, {nlabel(u['engaged_g'])} engaged visits (30 s or more, or with input))")
     add(f"  Visits with a Jira link click: {SMALL if lk['x'] == SMALL else (str(lk['pct']) + '% of engaged visits' if lk['pct'] is not None else str(lk['visits']) + ' visits')}")
     add(f"  Small-screen share of engaged visits: {share_text(u['phone']['x'], u['phone']['n_g'], a['model'].th)} ({nlabel(u['phone']['n_g'])})")
+    dev_lines = device_period_lines(a)
+    if dev_lines:
+        lbl, dc = dev_lines[0]
+        dv = device_card(dc, a["model"].th)
+        add(f"  Device ({lbl}): " + ("no browser window width recorded" if dv["state"] == "none" else SMALL if dv["state"] == "hidden" else f"{dv['fig']}; {dv['sub']}"))
+        add(f"  {DEVICE_CAVEAT}")
     add(f"  Refresh pressed by {share_text(u['refresh']['x'], u['refresh']['n_g'], a['model'].th)} of active people")
     for key, fr in u["fresh"].items():
         if fr:
@@ -1699,108 +1754,217 @@ def export_warnings(a: dict) -> list:
     return out
 
 
-# ------------------------------------------------------------------------------------------------------------ the dashboard page
+# ------------------------------------------------------------------------------------------------------------ the dashboard page (graph first)
+# Order, as in an analytics report: key figures (scorecards), the trend, the breakdowns, the detail (the signals S0 to S9 are in the text report, not on the page); every chart has a one-line caption and a "Show data" table behind it.
+# The charts are HTML and CSS with a little inline SVG (lines and sparklines): the text of a chart is real text, so it stays readable at 390 px. A chart is one role="img" with a label that holds its numbers.
 CSS = """
 :root {
   --bg:#FFFFFF; --panel:#F2F0EB; --ink:#21212B; --muted:#5A5F6B; --line:#DAD7D0; --line-soft:#ECEAE5; --ctl:#767B86;
-  --blue:#3694FC; --blue-ink:#025AFB; --blue-tint:#E4F0FF; --teal-ink:#1C7A6C;
+  --blue:#3694FC; --blue-ink:#025AFB; --blue-tint:#E4F0FF; --teal-ink:#1C7A6C; --coral-ink:#B3234F; --indigo:#6100FF;
+  --seq1:#E4F0FF; --seq2:#BCD9FE; --seq3:#7FB5FD; --seq4:#3694FC; --seq5:#025AFB;
   --amber:#C77700; --amber-ink:#8A5200; --warn-bg:#FFF6E5; --warn-line:#F0D9A8; --warn-ink:#6B4A00;
   --radius:12px; --radius-s:8px;
+  --hatch:repeating-linear-gradient(135deg,#767B86 0 2px,#FFFFFF 2px 5px);
+  --hatch-blue:repeating-linear-gradient(135deg,#025AFB 0 3px,#FFFFFF 3px 6px);
   --font:'Be Vietnam Pro', Arial, 'Segoe UI', -apple-system, sans-serif;
-  --t-xs:12px; --t-cap:13px; --t-body:14px; --t-sub:16px; --t-title:20px; --t-fig:28px; --t-hero:48px;
+  --t-xs:12px; --t-cap:13px; --t-body:14px; --t-sub:16px; --t-title:20px;
   color-scheme:light;
 }
 * { box-sizing:border-box; }
 body { margin:0; background:var(--bg); color:var(--ink); font-family:var(--font); font-size:var(--t-body); font-weight:400; line-height:1.5; }
-.gutter { max-width:1100px; margin:0 auto; padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px)); }
+.gutter { max-width:1180px; margin:0 auto; padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px)); }
 a { color:var(--blue-ink); }
 h1 { font-size:var(--t-title); font-weight:600; line-height:1.25; margin:0; }
-h2 { font-size:var(--t-sub); font-weight:600; line-height:1.3; margin:0 0 4px; }
-h3 { font-size:var(--t-body); font-weight:600; line-height:1.3; margin:18px 0 4px; }
-.top { padding-top:20px; display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 16px; }
-.stamp { color:var(--muted); font-size:var(--t-cap); }
+h2 { font-size:var(--t-sub); font-weight:600; line-height:1.3; margin:0 0 6px; }
+h3 { font-size:var(--t-sub); font-weight:600; line-height:1.3; margin:0 0 2px; }
+.top { padding-top:20px; display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 16px; }
+.stamp, .period { color:var(--muted); font-size:var(--t-cap); }
 .demo { margin:12px 0 0; padding:8px 12px; background:var(--warn-bg); border:1px solid var(--warn-line); border-radius:var(--radius-s); color:var(--warn-ink); font-weight:600; font-size:var(--t-body); }
 .warn { display:flex; gap:8px; align-items:flex-start; margin:12px 0 0; padding:8px 12px; background:var(--warn-bg); border:1px solid var(--warn-line); border-radius:var(--radius-s); color:var(--warn-ink); font-weight:600; }
 .warn svg { flex:none; width:18px; height:18px; margin-top:2px; }
 .ribbon { margin:12px 0 0; padding:8px 12px; background:var(--panel); border-radius:var(--radius-s); font-size:var(--t-cap); color:var(--ink); }
 .note { margin:12px 0 0; padding:8px 12px; background:var(--panel); border-radius:var(--radius-s); font-size:var(--t-body); }
-.hero { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.4fr); gap:12px 40px; align-items:end; padding:24px 0 20px; border-bottom:1px solid var(--line); }
-.hero .fig { font-size:var(--t-hero); font-weight:600; line-height:1.05; font-variant-numeric:tabular-nums; margin:0; }
-.hero .what { font-size:var(--t-sub); margin:0 0 2px; font-weight:500; }
-.hero .ctx { color:var(--muted); font-size:var(--t-body); margin:4px 0 0; }
-.verdict { margin:12px 0 0; padding:8px 12px; border-left:4px solid var(--blue-ink); background:var(--panel); border-radius:0 var(--radius-s) var(--radius-s) 0; font-size:var(--t-body); }
-.verdict b { font-weight:600; }
-.chartwrap { position:relative; }
-.bars { display:flex; align-items:flex-end; gap:3px; height:130px; border-bottom:1px solid var(--ctl); position:relative; }
-.bars .d { flex:1 1 0; min-width:0; background:var(--blue-ink); border-radius:2px 2px 0 0; position:relative; z-index:1; }
-.bars .d.we { background:var(--blue); }
-.bars .d.part { background:repeating-linear-gradient(135deg,var(--blue-ink) 0 3px,#FFFFFF 3px 6px); outline:1px solid var(--blue-ink); outline-offset:-1px; }
-.bars .gap { flex:1 1 0; min-width:0; height:100%; display:flex; align-items:flex-end; justify-content:center; }
-.bars .gap.we { background:var(--line-soft); }
-.bars .stub { display:block; width:100%; height:12%; background:repeating-linear-gradient(135deg,var(--ctl) 0 2px,#FFFFFF 2px 4px); }
-.bars .dot { display:block; width:100%; max-width:8px; height:3px; background:var(--muted); }
-.band { position:absolute; left:0; right:0; background:var(--blue-tint); border-top:1px dashed var(--blue-ink); border-bottom:1px dashed var(--blue-ink); z-index:0; }
-.marks { display:flex; gap:3px; height:14px; margin-top:2px; }
-.marks span { flex:1 1 0; min-width:0; text-align:center; font-size:10px; line-height:14px; color:var(--amber-ink); }
-.marks span.sp { color:var(--muted); } .marks span.ev { color:var(--teal-ink); }
-.axis { display:flex; justify-content:space-between; gap:8px; color:var(--muted); font-size:var(--t-xs); margin-top:4px; }
-section.blk { padding:26px 0 4px; }
-section.blk .why { color:var(--muted); margin:0 0 12px; }
-.sigs { list-style:none; margin:12px 0 0; padding:0; }
-.sigs > li { padding:12px 0; border-top:1px solid var(--line-soft); }
-.sigs > li:first-child { border-top:0; padding-top:4px; }
-.sh { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 10px; }
-.sh strong { font-size:var(--t-sub); font-weight:600; }
-.tag { display:inline-block; padding:0 8px; border:1px solid var(--ctl); border-radius:10px; font-size:var(--t-xs); color:var(--ink); background:var(--bg); }
-.sid { color:var(--muted); font-size:var(--t-xs); }
-.sigs p { margin:2px 0; }
+section.blk { padding:28px 0 0; }
+section.blk > h2 { font-size:var(--t-sub); margin:0 0 8px; }
+.cap { color:var(--muted); font-size:var(--t-cap); margin:0 0 10px; }
+.cap.after { margin:8px 0 0; }
 .small { color:var(--muted); font-size:var(--t-cap); }
+/* key figures: one strip with hairline dividers, the first figure is the hero */
+.kpis { display:grid; grid-template-columns:minmax(0,1.4fr) repeat(5,minmax(0,1fr)); gap:1px; background:var(--line); border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; }
+.kpi { background:var(--bg); padding:14px 16px 12px; display:flex; flex-direction:column; min-width:0; }
+.kpi h3 { font-size:var(--t-cap); font-weight:500; color:var(--muted); margin:0; }
+.kpi .fig { font-size:30px; font-weight:600; line-height:1.15; font-variant-numeric:tabular-nums; margin:4px 0 0; }
+.kpi.hero .fig { font-size:52px; line-height:1.05; }
+.kpi#kpi-device { grid-column:span 2; }
+.kpi .fig.sm { font-size:21px; line-height:1.25; margin-top:6px; }
+.kpi { container-type:inline-size; }
+.dwrap { display:flex; flex-direction:column; align-items:flex-start; gap:6px; }
+.donut { position:relative; width:96px; height:96px; flex:none; } .donut svg { display:block; width:100%; height:100%; }
+.dn { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:11px; line-height:1.1; color:var(--muted); text-align:center; } .dn b { font-size:16px; font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums; }
+.dp { position:absolute; transform:translate(-50%,-50%); padding:1px 0; font-size:10px; font-weight:600; line-height:1; font-variant-numeric:tabular-nums; }
+.dlg { list-style:none; margin:0; padding:0; font-size:12px; line-height:1.3; min-width:0; } .dlg li { display:flex; gap:6px; align-items:flex-start; margin:1px 0; } .dlg .sw { width:10px; height:10px; margin-top:3px; border-radius:2px; flex:none; }
+@container (min-width:250px) { .dwrap { flex-direction:row; align-items:center; gap:16px; } .donut { width:120px; height:120px; } .dn b { font-size:20px; } .dn { font-size:12px; } .dp { font-size:11px; } .dlg { font-size:13px; } }
+.kpi .dl { font-size:var(--t-xs); font-weight:600; margin:4px 0 0; }
+.kpi .dl.up { color:var(--teal-ink); } .kpi .dl.down { color:var(--coral-ink); } .kpi .dl.flat, .kpi .dl.nt { color:var(--muted); }
+.kpi .den { font-size:var(--t-xs); color:var(--muted); margin:2px 0 0; }
+.kpi .sp { margin-top:auto; padding-top:8px; }
+.kpi.skel .fig { color:var(--muted); font-size:18px; font-weight:500; line-height:1.4; margin-top:10px; }
+.kpi.skel.hero .fig { font-size:24px; }
+.skbar { height:30px; border-radius:4px; background:repeating-linear-gradient(90deg,var(--line-soft) 0 6px,#FFFFFF 6px 9px); }
+.spark { display:block; width:100%; height:30px; overflow:visible; }
+.spark path.l { fill:none; stroke:var(--blue-ink); stroke-width:1.6; vector-effect:non-scaling-stroke; stroke-linejoin:round; }
+.spark path.a { fill:#3694FC; fill-opacity:.16; stroke:none; }
+.sparkwrap { position:relative; }
+.sparkwrap .ld { position:absolute; width:7px; height:7px; margin:-3.5px 0 0 -3.5px; border-radius:50%; background:var(--blue-ink); }
+details.vd { margin:10px 0 0; }
+details.vd > summary { cursor:pointer; color:var(--blue-ink); font-size:var(--t-cap); padding:2px 0; }
+details.vd > summary:focus-visible, a:focus-visible { outline:2px solid var(--blue-ink); outline-offset:2px; }
+.scroll { overflow-x:auto; max-width:100%; }
+.scroll:focus-visible { outline:2px solid var(--blue-ink); outline-offset:2px; }
+/* panels and grids */
+.panel { border:1px solid var(--line); border-radius:var(--radius); padding:14px 16px 12px; background:var(--bg); min-width:0; }
+.row2 { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr); gap:16px; align-items:start; }
+.row2e { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; align-items:start; }
+.stk { display:flex; flex-direction:column; gap:16px; min-width:0; }
+.sub { margin:16px 0 0; }
+.sub:first-of-type { margin-top:0; }
+.sub .st { font-size:var(--t-cap); font-weight:600; margin:0 0 6px; }
+.verdict { margin:10px 0 0; padding:8px 12px; background:var(--panel); border-radius:var(--radius-s); font-size:var(--t-cap); }
+.verdict b { font-weight:600; }
+.leg { display:flex; flex-wrap:wrap; gap:2px 14px; margin:8px 0 0; font-size:var(--t-xs); color:var(--muted); list-style:none; padding:0; }
+.leg li { display:flex; align-items:center; gap:6px; }
+.sw { display:inline-block; width:14px; height:10px; flex:none; }
+.sw.ln { height:0; border-top:3px solid var(--blue-ink); } .sw.bd { background:var(--blue-tint); border-top:1px dashed var(--blue-ink); border-bottom:1px dashed var(--blue-ink); }
+.sw.hb { background:var(--hatch-blue); outline:1px solid var(--blue-ink); outline-offset:-1px; } .sw.hg { background:var(--hatch); outline:1px solid var(--ctl); outline-offset:-1px; }
+.sw.tk { height:12px; width:0; border-left:1px dashed var(--amber-ink); } .sw.we { background:var(--blue); }
+/* time-series plot */
+.plot { display:grid; grid-template-columns:30px minmax(0,1fr); grid-template-rows:var(--ph,250px) auto; column-gap:6px; }
+.ya { position:relative; }
+.yl { position:absolute; right:0; transform:translateY(50%); font-size:11px; line-height:1; color:var(--muted); font-variant-numeric:tabular-nums; }
+.pa { position:relative; border-bottom:1px solid var(--ctl); }
+.gl { position:absolute; left:0; right:0; height:0; border-top:1px solid var(--line-soft); }
+.slots { position:absolute; inset:0; display:grid; grid-template-columns:repeat(var(--n),minmax(0,1fr)); }
+.slot { position:relative; min-width:0; }
+.band { position:absolute; left:0; right:0; background:var(--blue-tint); border-top:1px dashed var(--blue-ink); border-bottom:1px dashed var(--blue-ink); }
+.ln2 { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+.ln2 path.l { fill:none; stroke:var(--blue-ink); stroke-width:2.5; vector-effect:non-scaling-stroke; stroke-linejoin:round; }
+.ln2 path.a { fill:#3694FC; fill-opacity:.16; stroke:none; }
+.hbar { position:absolute; bottom:0; left:22%; right:22%; background:var(--hatch-blue); outline:1px solid var(--blue-ink); outline-offset:-1px; }
+.col { position:absolute; bottom:0; left:12%; right:12%; background:var(--blue-ink); border-radius:2px 2px 0 0; }
+.col.we { background:var(--blue); }
+.col.part { background:var(--hatch-blue); outline:1px solid var(--blue-ink); outline-offset:-1px; }
+.stub { position:absolute; bottom:0; left:22%; right:22%; height:9%; min-height:8px; background:var(--hatch); outline:1px solid var(--ctl); outline-offset:-1px; }
+.zero { position:absolute; bottom:0; left:30%; right:30%; height:3px; background:var(--muted); }
+.dot { position:absolute; left:50%; width:10px; height:10px; margin:0 0 -5px -5px; border-radius:50%; background:var(--blue-ink); box-shadow:0 0 0 2px #FFFFFF; }
+.dot.big { width:14px; height:14px; margin:0 0 -7px -7px; }
+.vl { position:absolute; left:50%; transform:translateX(-50%); font-size:11px; line-height:1; font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; color:var(--ink); }
+.tk { position:absolute; top:0; bottom:0; width:0; border-left:1px dashed var(--amber-ink); pointer-events:none; }
+.tk .tl { position:absolute; top:calc(var(--r) * 15px + 2px); left:4px; font-size:11px; line-height:14px; color:var(--amber-ink); white-space:nowrap; background:rgba(255,255,255,.9); padding:0 3px; }
+.tk.fl .tl { left:auto; right:4px; }
+.tk.rc { border-left-color:var(--ctl); } .tk.rc .tl { color:var(--muted); }
+.xa { grid-column:2; display:grid; grid-template-columns:repeat(var(--n),minmax(0,1fr)); margin-top:5px; }
+.xa.day span:first-child { text-align:left; } .xa.day span:last-child { text-align:right; }
+.xa span { text-align:center; font-size:11px; line-height:1.2; color:var(--muted); white-space:nowrap; }
+.mk { grid-column:2; display:grid; grid-template-columns:repeat(var(--n),minmax(0,1fr)); height:12px; margin-top:2px; }
+.mk span { text-align:center; font-size:10px; line-height:12px; color:var(--amber-ink); }
+/* horizontal bars */
+.hbars { display:flex; flex-direction:column; gap:5px; --hl:11.5rem; --hv:5.4rem; container-type:inline-size; }
+.hb { display:grid; grid-template-columns:var(--hl) minmax(0,1fr) var(--hv); column-gap:10px; align-items:center; min-height:22px; }
+.hl { font-size:var(--t-cap); line-height:1.25; min-width:0; }
+.hl .tag { margin-left:4px; font-size:11px; padding:0 6px; }
+.ht { position:relative; height:14px; border-left:1px solid var(--ctl); background:linear-gradient(var(--line-soft),var(--line-soft)) 50% 0/1px 100% no-repeat, linear-gradient(var(--line-soft),var(--line-soft)) 100% 0/1px 100% no-repeat; }
+.ht i { display:block; height:100%; background:var(--blue-ink); border-radius:0 3px 3px 0; }
+.ht i.alt { background:var(--blue); }
+.ht i.gstub { width:16%; background:var(--hatch); outline:1px solid var(--ctl); outline-offset:-1px; border-radius:0; }
+.hv { font-size:var(--t-cap); font-weight:600; text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.hv.g { font-weight:500; color:var(--muted); }
+.hg { font-size:var(--t-xs); font-weight:600; margin-top:8px; padding-bottom:2px; border-bottom:1px solid var(--line-soft); }
+.hax { display:grid; grid-template-columns:var(--hl) minmax(0,1fr) var(--hv); column-gap:10px; font-size:11px; color:var(--muted); }
+.hax span { grid-column:2; position:relative; display:block; height:14px; }
+.hax b { position:absolute; top:0; font-weight:400; white-space:nowrap; }
+.hax b:nth-child(1) { left:0; } .hax b:nth-child(2) { left:50%; transform:translateX(-50%); } .hax b:nth-child(3) { right:0; }
+@container (max-width:470px) {
+  .hbars { gap:9px; }
+  .hb { grid-template-columns:minmax(0,1fr) auto; grid-template-areas:"l v" "t t"; row-gap:3px; }
+  .hb .hl { grid-area:l; } .hb .ht { grid-area:t; } .hb .hv { grid-area:v; }
+  .hg { margin-top:4px; }
+  .hax { grid-template-columns:minmax(0,1fr); } .hax span { grid-column:1; }
+}
+.sbgrid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px 36px; } .sbgrid .sub { margin:0; }
+.sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+/* stacked bars */
+.sb { display:flex; height:28px; gap:2px; border-radius:4px; overflow:hidden; }
+.sb span { display:flex; align-items:center; justify-content:center; font-size:var(--t-xs); font-weight:600; min-width:0; overflow:hidden; white-space:nowrap; }
+.sb .stubfull { flex:1 1 auto; background:var(--hatch); outline:1px solid var(--ctl); outline-offset:-1px; color:var(--ink); font-weight:500; }
+.sb .stubfull b { background:#FFFFFF; padding:0 10px; font-weight:500; border-radius:3px; }
+.c1 { background:var(--blue-ink); color:#FFFFFF; } .c2 { background:var(--blue); color:var(--ink); } .c3 { background:#BCD9FE; color:var(--ink); } .c4 { background:var(--indigo); color:#FFFFFF; }
+.sl { display:flex; flex-wrap:wrap; gap:2px 14px; margin:6px 0 0; padding:0; list-style:none; font-size:var(--t-xs); color:var(--ink); }
+.sl li { display:flex; align-items:center; gap:6px; }
+.sl .sw { width:10px; height:10px; border-radius:2px; }
+.sw.c1 { background:var(--blue-ink); } .sw.c2 { background:var(--blue); } .sw.c3 { background:#BCD9FE; } .sw.c4 { background:var(--indigo); }
+/* heatmap and cohort grid */
+.hm { display:grid; grid-template-columns:2.6rem repeat(var(--cols),minmax(0,1fr)); gap:2px; align-items:center; }
+.hm .d, .hm .x, .ch .rl, .ch .x { font-size:11px; color:var(--muted); line-height:1.2; }
+.hm .x, .ch .x { text-align:center; }
+.hm .c { height:26px; border-radius:2px; background:#FFFFFF; box-shadow:inset 0 0 0 1px var(--line-soft); }
+.hm .c.h, .ch .cc.h { background:var(--hatch); box-shadow:inset 0 0 0 1px var(--ctl); }
+.v1 { background:var(--seq1) !important; } .v2 { background:var(--seq2) !important; } .v3 { background:var(--seq3) !important; } .v4 { background:var(--seq4) !important; } .v5 { background:var(--seq5) !important; }
+.ramp { display:flex; align-items:center; flex-wrap:wrap; gap:4px 6px; margin:10px 0 0; font-size:var(--t-xs); color:var(--muted); }
+.ramp i { display:inline-block; width:22px; height:12px; border-radius:2px; box-shadow:inset 0 0 0 1px var(--line-soft); }
+.ramp i.h { background:var(--hatch); box-shadow:inset 0 0 0 1px var(--ctl); }
+.ramp .sep { margin-left:10px; }
+.ch { display:grid; grid-template-columns:var(--cl,8.2rem) repeat(var(--cols),minmax(0,1fr)); gap:2px; align-items:center; }
+.ch .cc { font-style:normal; height:28px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:600; font-variant-numeric:tabular-nums; border-radius:2px; background:#FFFFFF; box-shadow:inset 0 0 0 1px var(--line-soft); }
+.ch .cc.n { background:var(--seq1); box-shadow:none; }
+.ch .cc.dk { color:#FFFFFF; }
+.ch .rl { text-align:right; padding-right:6px; }
+.empty-note { padding:10px 12px; border:1px dashed var(--ctl); border-radius:var(--radius-s); color:var(--muted); font-size:var(--t-cap); }
 table { border-collapse:collapse; width:100%; font-size:var(--t-body); }
 th { text-align:left; font-weight:500; font-size:var(--t-xs); color:var(--muted); padding:6px 8px 6px 0; border-bottom:1px solid var(--line); }
-td { padding:7px 8px 7px 0; border-bottom:1px solid var(--line-soft); vertical-align:middle; }
-tbody th { font-weight:400; color:var(--ink); font-size:var(--t-body); padding:7px 8px 7px 0; border-bottom:1px solid var(--line-soft); }
+td { padding:6px 8px 6px 0; border-bottom:1px solid var(--line-soft); vertical-align:top; }
+tbody th { font-weight:400; color:var(--ink); font-size:var(--t-body); padding:6px 8px 6px 0; border-bottom:1px solid var(--line-soft); }
 th.n, td.n { text-align:right; font-variant-numeric:tabular-nums; }
-td.n { white-space:nowrap; vertical-align:top; }
-table.two th[scope=row] .cap { margin:2px 0 0; }
+td.n { white-space:nowrap; }
 table.two td.n { width:5.5em; }
-td.bar { width:30%; }
-tr.fam th { padding-top:14px; font-weight:600; font-size:var(--t-cap); color:var(--ink); border-bottom:1px solid var(--line); }
-.track { height:10px; background:var(--line-soft); border-radius:5px; overflow:hidden; }
-.track i { display:block; height:100%; background:var(--blue-ink); border-radius:5px; }
-.cols { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 40px; }
-.flag { display:flex; gap:8px; align-items:flex-start; padding:10px 12px; border-radius:var(--radius-s); border:1px solid var(--warn-line); background:var(--warn-bg); color:var(--warn-ink); font-weight:600; }
-.ok { display:flex; gap:8px; align-items:flex-start; padding:10px 12px; border-radius:var(--radius-s); background:var(--panel); }
-.flag svg, .ok svg { flex:none; width:18px; height:18px; margin-top:1px; }
-details.vd { margin:10px 0 0; }
-details.vd > summary { cursor:pointer; color:var(--blue-ink); font-size:var(--t-cap); }
-details.vd > summary:focus-visible, a:focus-visible { outline:2px solid var(--blue-ink); outline-offset:2px; }
-.cap { color:var(--muted); font-size:var(--t-cap); margin:6px 0 0; }
+tr.fam th { padding-top:12px; font-weight:600; font-size:var(--t-cap); color:var(--ink); border-bottom:1px solid var(--line); }
+.cap2 { color:var(--muted); font-size:var(--t-cap); margin:2px 0 0; }
 .gov { margin:8px 0 0; padding-left:18px; font-size:var(--t-cap); }
 .gov li { margin:2px 0; }
 footer { padding:28px 0 64px; color:var(--muted); font-size:var(--t-cap); }
 .empty { padding:28px 0 8px; }
 .empty h2 { font-size:var(--t-title); }
 .empty ol { margin:10px 0 0; padding-left:20px; }
-.wk-table { font-size:var(--t-cap); table-layout:fixed; } .wk-table th, .wk-table td { padding-right:4px; overflow-wrap:anywhere; } .wk-table th:first-child { width:30%; }
-@media (max-width:760px) {
-  .hero { grid-template-columns:minmax(0,1fr); padding-top:18px; }
-  .hero .fig { font-size:40px; }
-  .cols { grid-template-columns:minmax(0,1fr); }
-  td.bar, th.barh { display:none; }
-  .bars { gap:2px; height:110px; }
-  table { font-size:var(--t-cap); }
-  tbody th { font-size:var(--t-cap); }
-  td, th { padding-right:5px; }
+.wk-table { font-size:var(--t-cap); min-width:30rem; } .wk-table th, .wk-table td { padding-right:6px; }
+@media (max-width:900px) {
+  .kpis { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .kpi.hero { grid-column:1 / -1; }
+  .kpi:last-child, .kpi:nth-child(4), .kpi#kpi-device { grid-column:1 / -1; }
+  .row2, .row2e, .sbgrid { grid-template-columns:minmax(0,1fr); }
 }
+@media (max-width:560px) {
+  .kpi { padding:12px 12px 10px; }
+  .kpi.hero .fig { font-size:46px; }
+  .panel { padding:12px 12px 10px; }
+  .plot { --ph:210px; grid-template-columns:26px minmax(0,1fr); column-gap:4px; }
+  .xa span.nk, .vl.nk { visibility:hidden; }
+  .xa span:last-child { text-align:right; }
+  .hm { grid-template-columns:2.2rem repeat(var(--cols),minmax(0,1fr)); gap:1px; } .hm .c { height:22px; }
+  .ch { --cl:5.6rem; gap:1px; } .ch .cc { height:26px; font-size:10px; } .ch .rl { line-height:12px; font-size:10px; padding-right:4px; }
+}
+@media (prefers-reduced-motion: reduce) { * { animation:none !important; transition:none !important; scroll-behavior:auto !important; } }
 """
 
 ICON_WARN = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>'
 ICON_OK = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg>'
-GOV = ["Pseudonymous, not anonymous: a record holds a user id (a code, no name or e-mail); the editors of the published page can read these records.",
-       "Kept for 12 weeks: older weeks are removed from a person's record when they next open the page, and the owner also deletes records not seen for 12 weeks.",
-       "The exported JSON file is deleted after the report is built. Screenshots of this page carry the same rules as the page.",
-       "A group of 0 people prints as 0; a group of 1 to 4 prints as <5 users and its neighbours are withheld when a subtraction would reveal it. A percentage prints only when its denominator is 20 or more; below that the counts are printed with n=.",
-       "Wording: say readers of a section, reach and people active. Never rank, name or evaluate people or teams, and never state a reason for a change: a change coincides with, or is associated with, something worth investigating."]
+def gov() -> list:
+    return ["Pseudonymous, not anonymous: a record holds a user id (a code, no name or e-mail); the editors of the published page can read these records.",
+            "Kept for 12 weeks: older weeks are removed from a person's record when they next open the page, and the owner also deletes records not seen for 12 weeks.",
+            "The exported JSON file is deleted after the report is built. Screenshots of this page carry the same rules as the page.",
+            ((f"A group of 0 people prints as 0; a group of {'1' if MIN_USERS == 2 else '1 to ' + str(MIN_USERS - 1)} prints as {SMALL} and its neighbours are withheld when a subtraction would reveal it. " if MIN_USERS > 1 else "No group is withheld (the minimum group size is 1), so there is no group to protect by subtraction. ")
+             + "A percentage prints only when its denominator is 20 or more; below that the counts are printed with n=." + ("" if MIN_USERS > 1 else " " + small_rule(cap=True))),
+            "Wording: say readers of a section, reach and people active. Never rank, name or evaluate people or teams, and never state a reason for a change: a change coincides with, or is associated with, something worth investigating."]
+HEATMAP_MIN_VISITS = 50                                                              # engaged visits with a recorded opening time needed before the day-and-hour map is drawn
+HM_BUCKETS = 5
 
 
 def e(x) -> str:
@@ -1825,38 +1989,553 @@ def il_stamp(as_of: dt.datetime | None) -> str:
     return t.strftime("%Y-%m-%d %H:%M") + " Israel time"
 
 
-def bar_cell(frac, track_ok: bool) -> str:
-    return f'<td class="bar" aria-hidden="true">' + (f'<div class="track"><i style="width:{max(1.5, 100 * frac):.1f}%"></i></div>' if track_ok and frac is not None else "") + "</td>"
+# ------------------------------------------------------------------------------------------------------------ chart building blocks
+def nice_axis(v: float) -> tuple:
+    """(top, step) of a value axis that starts at zero: 3 to 5 round gridlines and a little head room above the largest value."""
+    v = max(v, 1)
+    for step in (1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000, 10000):
+        if math.ceil(v * 1.06 / step) <= 5:
+            return step * math.ceil(v * 1.06 / step), step
+    return int(v), int(v)
 
 
-def _verdict_icon(state: str) -> str:
-    return ICON_OK if state in ("growing", "flat") else ICON_WARN if state in ("falling",) else ""
+def _grid(top: int, step: int) -> tuple:
+    vals = list(range(0, top + 1, step))
+    lines = "".join(f'<i class="gl" style="bottom:{100 * v / top:.2f}%"></i>' for v in vals if v)
+    labels = "".join(f'<span class="yl" style="bottom:{100 * v / top:.2f}%">{v}</span>' for v in vals)
+    return lines, labels
+
+
+def _legend(items: list) -> str:
+    return '<ul class="leg" aria-hidden="true">' + "".join(f'<li><span class="sw {cls}"></span>{e(txt)}</li>' for cls, txt in items) + "</ul>"
+
+
+def show_data(inner: str, label: str = "Show data") -> str:
+    """The table equivalent of a chart, behind a disclosure (a keyboard stop). A wide table scrolls inside its own box, never the page."""
+    return f'<details class="vd"><summary>{e(label)}</summary><div class="scroll" tabindex="0" role="region" aria-label="Data table">{inner}</div></details>'
+
+
+def panel(title: str, caption: str, body: str, data: str = "", hid: str = "", extra_cls: str = "") -> str:
+    """A chart with a title (the metric or the takeaway), a one-line caption (what the marks are and the period), the chart and its data."""
+    i = f' id="{hid}"' if hid else ""
+    return f'<div class="panel {extra_cls}"{i}><h3>{e(title)}</h3><p class="cap">{e(caption)}</p>{body}{data}</div>'
+
+
+def spark(vals: list, label: str) -> str:
+    """A sparkline of a weekly series (None = a week that cannot be drawn: a gap). Drawn only from 3 numbers; autoscaled (a trend shape, not a magnitude)."""
+    pts = [(i, v) for i, v in enumerate(vals) if isinstance(v, (int, float)) and not isinstance(v, bool)]
+    if len(pts) < 3:
+        return '<div class="skbar" aria-hidden="true"></div>'
+    lo, hi = min(v for _, v in pts), max(v for _, v in pts)
+    pad = (hi - lo) * 0.12 or max(1.0, abs(hi) * 0.1)
+    lo, hi = lo - pad, hi + pad
+    n = max(len(vals) - 1, 1)
+    xy = lambda i, v: (100 * i / n, 28 - 26 * (v - lo) / (hi - lo) + 1)
+    runs, cur = [], []
+    for i, v in enumerate(vals):
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            cur.append((i, v))
+        elif cur:
+            runs.append(cur)
+            cur = []
+    if cur:
+        runs.append(cur)
+    d_l = " ".join(("M" if k == 0 else "L") + "%.2f %.2f" % xy(i, v) for run in runs for k, (i, v) in enumerate(run))
+    d_a = " ".join(" ".join(("M" if k == 0 else "L") + "%.2f %.2f" % xy(i, v) for k, (i, v) in enumerate(run)) + " L%.2f 29 L%.2f 29 Z" % (xy(run[-1][0], 0)[0], xy(run[0][0], 0)[0]) for run in runs)
+    li, lv = pts[-1]
+    lx, ly = xy(li, lv)
+    return (f'<div class="sparkwrap"><svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label="{e(label)}"><path class="a" d="{d_a}"/><path class="l" d="{d_l}"/></svg>'
+            f'<i class="ld" aria-hidden="true" style="left:{lx:.1f}%;top:{100 * ly / 30:.1f}%"></i></div>')
+
+
+def hbars(rows: list, scale: str = "0 to 100% of the people shown", axis: tuple = ("0", "50%", "100%")) -> tuple:
+    """A horizontal bar chart. rows: {label, text (the value as printed), frac (0..1 of the axis, or None), guard (bool), tag, group, alt}. Returns (html, summary of the numbers for the label).
+    A guarded row is a hatched stub of fixed length with the text '<5 users': its length says nothing. Bars start at zero; the axis is the same for every row."""
+    out, summ = [], []
+    for r in rows:
+        if r.get("group"):
+            out.append(f'<div class="hg">{e(r["group"])}</div>')
+            summ.append(r["group"] + ":")
+            continue
+        tag = f' <span class="tag">{e(r["tag"])}</span>' if r.get("tag") else ""
+        if r["guard"]:
+            bar, val = '<i class="gstub"></i>', f'<span class="hv g">{e(SMALL)}</span>'
+        else:
+            w = 0 if not r.get("frac") else max(0.8, min(100.0, 100 * r["frac"]))
+            bar = f'<i{" class=alt" if r.get("alt") else ""} style="width:{w:.1f}%"></i>' if w else ""
+            val = f'<span class="hv">{e(r["text"])}</span>'
+        out.append(f'<div class="hb"><span class="hl">{e(r["label"])}{tag}</span><span class="ht">{bar}</span>{val}</div>')
+        summ.append(f'{r["label"]} {SMALL if r["guard"] else r["text"]}')
+    ax = f'<div class="hax" aria-hidden="true"><span><b>{e(axis[0])}</b><b>{e(axis[1])}</b><b>{e(axis[2])}</b></span></div>'
+    return f'<div class="hbars">{"".join(out)}{ax}</div>', "; ".join(summ)
+
+
+def chart_img(inner: str, label: str, cls: str = "", style: str = "") -> str:
+    s = f' style="{style}"' if style else ""
+    return f'<div class="{cls}" role="img" aria-label="{e(label)}"{s}>{inner}</div>'
+
+
+def stack_bar(cells: dict, names: dict, th=THRESHOLDS, unit: str = "visits") -> tuple:
+    """A 100% stacked bar of a partition already protected by partition_cells / protect_partition (a withheld cell is SMALL).
+    Only the printed cells are drawn, as shares of the printed cells: a withheld group gets no length, so the bar can never reveal it by subtraction (a bar with a withheld group is drawn only when 2 or more groups remain).
+    Returns (html, summary, drawn): drawn = the numbers that are on the chart (for the tests)."""
+    shown = [(k, v) for k, v in cells.items() if v != SMALL and v > 0]
+    hidden = [k for k, v in cells.items() if v == SMALL]
+    den = sum(v for _, v in shown)
+    legend = [f'<li><span class="sw c{i % 4 + 1}"></span>{e(names[k])}</li>' for i, (k, _) in enumerate(shown)]
+    legend += [f'<li><span class="sw hg"></span>{e(names[k])}: {e(SMALL)}</li>' for k in hidden]
+    if len(shown) < (2 if hidden else 1) or not den:
+        bar = f'<div class="sb" aria-hidden="true"><span class="stubfull"><b>{e(SMALL if hidden else "none")}</b></span></div>'
+        return bar + f'<ul class="sl">{"".join(legend)}</ul>', ("; ".join(f"{names[k]} {SMALL}" for k in hidden) or "none"), []
+    use_pct = den >= th["min_den"]
+    segs, summ, drawn = [], [], []
+    for i, (k, v) in enumerate(shown):
+        p = 100 * v / den
+        txt = f"{rnd(p)}%" if use_pct else str(v)
+        drawn.append(txt)
+        segs.append(f'<span class="c{i % 4 + 1}" style="flex:{p:.2f} 1 0">{e(txt) if p >= 9 else ""}</span>')
+        summ.append(f"{names[k]} {txt}")
+    summ += [f"{names[k]} {SMALL}" for k in hidden]
+    note = f'{"share of the " + str(den) + " " + unit + " shown; groups under " + str(MIN_USERS) + " people are left out" if hidden else "n=" + str(den) + " " + unit}'
+    bar = f'<div class="sb" aria-hidden="true">{"".join(segs)}</div><ul class="sl">{"".join(legend)}</ul>'
+    return bar, "; ".join(summ) + f" ({note})", drawn
+
+
+def stack_note(cells: dict, th=THRESHOLDS, unit: str = "visits") -> str:
+    shown = [v for v in cells.values() if v != SMALL and v > 0]
+    den = sum(shown)
+    if not shown:
+        return f"Withheld: a group under {MIN_USERS} people, and the figures next to it would reveal it." if SMALL in cells.values() else ""
+    if SMALL in cells.values():
+        return f"Share of the {den} {unit} shown; groups under {MIN_USERS} people are left out."
+    return f"n={den} {unit}" + ("" if den >= th["min_den"] else " (counts: fewer than 20)")
+
+
+# ------------------------------------------------------------------------------------------------------------ the weekly series behind the key figures
+def _comparable_run(m: Model) -> list:
+    """The completed weeks that end at the last completed week and share its recording rules (the weeks before a change of the rules, the rollover week and the provisional first week are left out)."""
+    L = m.last
+    rg = m.regime(L)
+    run, w = [], L
+    while rg is not None and m.usable(w) and m.regime(w) == rg and not (w == m.rollover and rg == "v2"):
+        run.append(w)
+        w -= dt.timedelta(days=7)
+    return sorted(run)
+
+
+def kpi_period(m: Model) -> dict:
+    """The period the key figures describe: the last completed week when it can be used; otherwise everything recorded so far (marked 'so far': a period in progress or a provisional first week is never compared with complete weeks)."""
+    L = m.last
+    if m.usable(L):
+        return {"kind": "week", "rows": m.visits(L), "label": week_label(L), "so_far": False}
+    if m.rows:
+        if m.first_day >= m.cur:
+            label = f"so far, {d_label(m.cur)} to {d_label(m.ref)} (week in progress)"
+        else:
+            label = f"all data so far, {d_label(m.first_day)} to {d_label(m.last_day)}"
+        return {"kind": "todate", "rows": m.rows, "label": label, "so_far": True}
+    return {"kind": "none", "rows": [], "label": "", "so_far": True}
+
+
+def period_values(rows: list, th: dict) -> dict:
+    """The key figures (and the device split) of a set of visits, with the report's guards: engaged visits per active person needs the minimum group of people; the median active minutes needs it among the people with active time."""
+    people = {r["u"] for r in rows}
+    n = len(people)
+    eng = [r for r in rows if not r["glance"]]
+    pos = [r for r in eng if is_num(r["s"].get("s")) and r["s"]["s"] > 0]
+    mp = {r["u"] for r in pos}
+    out = {"n": n, "people": gn(n), "eng": len(eng), "vpp": round(len(eng) / n, 1) if n >= MIN_USERS else (SMALL if n else None),
+           "pos": (len(pos), len(mp)), "min": g(len(mp), round(statistics.median([r["s"]["s"] / 60 for r in pos]), 1)) if pos else None, "dev": device_counts(rows)}
+    return out
+
+
+DEVICE_SHORT = {"l": "Desktop", "m": "Tablet", "s": "Phone"}
+
+
+def device_card(dc: dict, th=THRESHOLDS) -> dict:
+    """The Device key figure of a device_counts result: the largest window-width class with its share of the visits ('Desktop 50%'; on a tie the first of Desktop, Tablet, Phone), and in the sub line the other classes with their shares and the number of visits.
+    Percentages always add up to 100 and carry their n, however small (the owner knows the base from the sub line and the centre of the donut). A class under the minimum group size (or one a printed total would reveal) prints the guard text and the
+    denominator is the printed classes only, so a withheld class can never be rebuilt by subtraction."""
+    n = dc["n"]
+    if not n:
+        return {"state": "none"}
+    cells = dc["cells"]
+    hidden = SMALL in cells.values()
+    shown = [(k, cells[k]) for k in DEVICE_ORDER if cells[k] != SMALL and cells[k] > 0]
+    if not shown:
+        return {"state": "hidden"}
+    den = sum(v for _, v in shown) if hidden else n
+    sh_ = device_shares(dc)
+    top = max(v for _, v in shown)
+    lead = next(k for k, v in shown if v == top)
+    rest = [k for k in ("s", "m", "l") if k != lead]
+    parts = [f"{DEVICE_SHORT[k]} {SMALL if cells[k] == SMALL else str(sh_[k]) + '%'}" for k in rest]
+    unit = f"{den} visit{'s' if den != 1 else ''}" + (" shown" if hidden else "")
+    return {"state": "ok", "fig": f"{DEVICE_SHORT[lead]} {sh_[lead]}%", "sub": " · ".join(parts + [unit]), "desk": (sh_["l"] if (not hidden and den >= th["min_den"]) else None), "den": den, "hidden": hidden}
+
+
+DONUT_COLORS = {"l": "#3694FC", "m": "#5B6B8C", "s": "#1C7A6C"}            # NiCE blue, a grey-blue and a teal, each at least 3:1 against white
+DONUT_TEXT = {"l": "#21212B", "m": "#FFFFFF", "s": "#FFFFFF"}               # the label colour on each (4.5:1 or more)
+DONUT_GAP_DEG = 4.0                                                          # about 2 px of white between neighbouring segments
+DONUT_HATCH_DEG = 14.0                                                       # the fixed size of the hatched arc of a withheld class: its length says nothing about the class
+DONUT_LABEL_MIN_PCT = 12                                                     # a segment of this share or more carries its percentage on itself
+
+
+def device_donut(dc: dict, th=THRESHOLDS) -> tuple:
+    """A small donut of the visits by window-width class, for the Device key figure. Returns (html, label, segments) with segments = [(class, degrees, hidden)] (for the tests).
+    A class with no visits is not drawn; a class that is withheld (under the minimum group size, or one a printed total would reveal) is one hatched arc of a fixed size, and the other classes share the rest of the ring as shares of the
+    printed classes only, so the ring can never reveal a withheld class by subtraction. Percentages add up to 100 (largest remainder) and are always shown, with the counts behind them in the legend; the centre says the number of visits
+    (of the printed classes when one is withheld); the legend carries every number in words, so colour is never the only carrier."""
+    cells = dc["cells"]
+    hidden = [k for k in DEVICE_ORDER if cells[k] == SMALL]
+    shown = [(k, cells[k]) for k in DEVICE_ORDER if cells[k] != SMALL and cells[k] > 0]
+    den = sum(v for _, v in shown) if hidden else dc["n"]
+    sh_ = device_shares(dc)
+    avail = 360.0 - DONUT_HATCH_DEG * len(hidden)
+    segs = [(k, avail * v / den, False) for k, v in shown] + [(k, DONUT_HATCH_DEG, True) for k in hidden]
+    n_seg = len(segs)
+    r = 34.0
+    circles, labels, start = [], [], 0.0
+    for k, deg, is_hidden in segs:
+        length = deg if n_seg == 1 else max(1.0, deg - DONUT_GAP_DEG)
+        off = start + (0 if n_seg == 1 else DONUT_GAP_DEG / 2)
+        stroke = "url(#dev-hatch)" if is_hidden else DONUT_COLORS[k]
+        circles.append(f'<circle class="dseg" data-deg="{deg:.2f}" cx="50" cy="50" r="{r:g}" fill="none" stroke="{stroke}" stroke-width="26" pathLength="360" stroke-dasharray="{length:.2f} {360 - length:.2f}" stroke-dashoffset="{-off:.2f}" transform="rotate(-90 50 50)"/>')
+        if not is_hidden and sh_[k] >= DONUT_LABEL_MIN_PCT:
+            mid = math.radians(start + deg / 2)
+            labels.append(f'<span class="dp" style="left:{50 + r * math.sin(mid):.1f}%;top:{50 - r * math.cos(mid):.1f}%;color:{DONUT_TEXT[k]};background:{DONUT_COLORS[k]}">{sh_[k]}%</span>')
+        start += deg
+    parts, legend = [], []
+    for k in DEVICE_ORDER:
+        if cells[k] == SMALL:
+            parts.append(f"{DEVICE_SHORT[k]} {SMALL}")
+            legend.append(f'<li><span class="sw hg"></span><span>{e(DEVICE_SHORT[k])} {e(SMALL)}</span></li>')
+        elif cells[k] > 0:
+            parts.append(f"{DEVICE_SHORT[k]} {sh_[k]}%")
+            legend.append(f'<li><span class="sw" style="background:{DONUT_COLORS[k]}"></span><span>{e(DEVICE_SHORT[k])} {sh_[k]}% ({cells[k]} of {den})</span></li>')
+    label = f"Device split of {den} visit{'s' if den != 1 else ''}{' shown' if hidden else ''}: " + ", ".join(parts)
+    svg = (f'<svg viewBox="0 0 100 100" role="img" aria-label="{e(label)}"><defs><pattern id="dev-hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="5" height="5" fill="#FFFFFF"/>'
+           f'<rect width="2" height="5" fill="#767B86"/></pattern></defs>{"".join(circles)}</svg>')
+    centre = f'<div class="dn" aria-hidden="true"><b>{den}</b><span>visit{"s" if den != 1 else ""}{" shown" if hidden else ""}</span></div>'
+    return f'<div class="dwrap"><div class="donut">{svg}{centre}{"".join(labels)}</div><ul class="dlg">{"".join(legend)}</ul></div>', label, segs
+
+
+def kpi_series(a: dict) -> dict:
+    """Weekly values of the key figures over the comparable run (the sparklines and the changes): the same period_values as the cards, one week at a time; the desktop share of the visits with a width needs 20 visits and no withheld class."""
+    m, th = a["model"], a["model"].th
+    run = _comparable_run(m)
+    grow = {w["ws"]: w for w in a["weeks"]}
+    ser = {k: {} for k in ("people", "new", "vpp", "min", "desk")}
+    cnt_ = {"vpp": {}, "min": {}}
+    for w in run:
+        v = period_values(m.visits(w), th)
+        ser["people"][w] = v["people"]
+        ser["new"][w] = grow[w]["new"] if w in grow else None
+        ser["vpp"][w] = v["vpp"]
+        cnt_["vpp"][w] = (v["eng"], v["n"])
+        ser["min"][w] = v["min"]
+        cnt_["min"][w] = v["pos"]
+        ser["desk"][w] = device_card(v["dev"], th).get("desk")
+    return {"run": run, "ser": ser, "cnt": cnt_}
+
+
+def _delta(cur, prev, pct_ok: bool, decimals: int = 0, unit: str = "", good_up: bool | None = None) -> tuple:
+    """(css class, text) of the change against the previous week: an arrow and words, never colour alone. A figure that is withheld has no change."""
+    if cur in (None, SMALL) or prev in (None, SMALL):
+        return "nt", "Change not shown"
+    d = round(cur - prev, decimals) if decimals else int(round(cur - prev))
+    pct = f" ({rnd(100 * abs(d) / prev)}%)" if pct_ok and prev else ""
+    fmt = (lambda x: f"{abs(x):.{decimals}f}") if decimals else (lambda x: str(abs(x)))
+    if d == 0:
+        return "flat", '- No change<span class="sr"> vs previous week</span>'
+    up = d > 0
+    cls = ("up" if up else "down") if good_up else "flat"
+    return cls, f"{'&#9650; Up' if up else '&#9660; Down'} {fmt(d)}{unit}{pct}<span class=\"sr\"> vs previous week</span>"
+
+
+def _kpi(title: str, fig: str, delta: tuple | None, den: str, spark_html: str, hero: bool = False, skel: str | None = None, hid: str = "", fig_cls: str = "") -> str:
+    cls = "kpi" + (" hero" if hero else "") + (" skel" if skel else "")
+    i = f' id="{hid}"' if hid else ""
+    if skel:
+        return f'<div class="{cls}"{i}><h3>{e(title)}</h3><p class="fig">{e(skel)}</p><p class="den">{e(den)}</p><div class="sp"><div class="skbar" aria-hidden="true"></div></div></div>'
+    dl = f'<p class="dl {delta[0]}">{delta[1]}</p>' if delta else ""
+    return f'<div class="{cls}"{i}><h3>{e(title)}</h3><p class="fig{" " + fig_cls if fig_cls else ""}">{fig}</p>{dl}<p class="den">{den}</p><div class="sp">{spark_html}</div></div>'
+
+
+def device_counts(rows: list) -> dict:
+    """Visits (engaged or glance) by the window-width class the page recorded, and the distinct people in each class. A visit without a width is not counted. The classes are a partition of the visits, protected like every other partition
+    (a class under the minimum group size is withheld, and so is a class that a printed total would reveal)."""
+    rows = [r for r in rows if r["s"].get("d") in DEVICES]
+    groups = {k: ({r["u"] for r in rows if r["s"]["d"] == k}, sum(1 for r in rows if r["s"]["d"] == k)) for k in DEVICES}
+    return {"n": len(rows), "people": {k: len(v[0]) for k, v in groups.items()}, "cells": partition_cells(groups) if rows else {k: 0 for k in DEVICES}}
+
+
+def pct_split(values: list) -> list:
+    """Whole percentages of the values that add up to exactly 100 (largest remainder: 1/3 each is 34, 33, 33); all zeros stay 0."""
+    tot = sum(values)
+    if not tot:
+        return [0 for _ in values]
+    raw = [100 * v / tot for v in values]
+    base = [int(math.floor(x)) for x in raw]
+    order = sorted(range(len(values)), key=lambda i: (-(raw[i] - base[i]), i))
+    for i in order[:100 - sum(base)]:
+        base[i] += 1
+    return base
+
+
+def device_shares(dc: dict) -> dict:
+    """{class: whole percentage} over the printed classes of a device_counts result (a withheld class has none and the others share 100 between them), adding up to 100."""
+    ks = [k for k in DEVICE_ORDER if dc["cells"][k] != SMALL]
+    return dict(zip(ks, pct_split([dc["cells"][k] for k in ks])))
+
+
+def device_texts(dc: dict, th=THRESHOLDS) -> dict:
+    """{class: (share, full text)} for a device_counts result: always a percentage of the visits (a small base is shown by its n, here and in the card), adding up to 100, with the counts behind it. The denominator is the printed classes only when a class
+    is withheld, so the total of a withheld class is never printed. A withheld class prints the guard text and nothing else."""
+    cells = dc["cells"]
+    hidden = SMALL in cells.values()
+    den = sum(v for v in cells.values() if v != SMALL) if hidden else dc["n"]
+    sh_ = device_shares(dc)
+    out = {}
+    for k in DEVICE_ORDER:
+        c = cells[k]
+        if c == SMALL:
+            out[k] = (SMALL, SMALL)
+            continue
+        ppl = dc["people"][k]
+        who = f"{ppl} {'person' if ppl == 1 else 'people'}"
+        out[k] = (f"{sh_[k]}%", f"{sh_[k]}% ({c} of {den} visits, {who})")
+    return out
+
+
+def device_line(dc: dict, th=THRESHOLDS) -> str:
+    """'Desktop (wide window) 80% | Tablet (medium window) 5% | Phone (narrow window) 15%' (the short form of device_texts)."""
+    tx = device_texts(dc, th)
+    return " | ".join(f"{DEVICES[k]} {tx[k][0]}" for k in DEVICE_ORDER)
+
+
+def _pl(n: int, one: str, many: str) -> str:
+    return f"{n} {one if n == 1 else many}"
+
+
+def _first_comparison_note(m: Model) -> str:
+    """Why there is nothing to compare yet and when there will be: a week of data that starts mid-week is never compared, and a change needs two complete weeks."""
+    first_usable = m.first_week + dt.timedelta(days=7) if m.provisional_first else m.first_week
+    sat = first_usable + dt.timedelta(days=13)
+    start = f"Data starts {d_label(m.data_start)}, mid-week: that week is not compared. " if m.provisional_first else f"Data starts {d_label(m.data_start)}. "
+    return start + f"Comparisons appear after two complete weeks (from Sat {d_label(sat)})."
+
+
+def device_period_lines(a: dict) -> list:
+    """[(label, device_counts)] for the period of the key figures and, when it differs, all the recorded visits."""
+    m = a["model"]
+    P = kpi_period(m)
+    out = []
+    if P["kind"] != "none":
+        out.append((P["label"], device_counts(P["rows"])))
+        if P["kind"] == "week" and m.rows:
+            out.append((f"all recorded visits, {d_label(m.first_day)} to {d_label(m.last_day)}", device_counts(m.rows)))
+    return out
+
+
+def _kpis(a: dict) -> str:
+    """The five key figures: people active (the hero), new people, engaged visits per person, median visit length and the device (twice as wide; the glance share is under Recording health). Each shows its value for the period (the last completed week, or the data so far while there is none)
+    with the number behind it; only the comparison (the change against the week before, the usual range, the sparkline) falls back to a short muted note when there is nothing comparable."""
+    m, th = a["model"], a["model"].th
+    c, au = a["compared"], a["audience"]
+    P = kpi_period(m)
+    ks = kpi_series(a)
+    run, ser, cn = ks["run"], ks["ser"], ks["cnt"]
+    vals = period_values(P["rows"], th)
+    L = m.last
+    prev = L - dt.timedelta(days=7)
+    week_mode = P["kind"] == "week"
+    has_prev = week_mode and prev in run and L in run
+    weeks_n = len(run)
+    if not week_mode:
+        why = "No comparison yet: first week of data"
+    elif L not in run:
+        why = "No comparison: recording rules changed" if m.regime(L) is not None else "No comparison: no visits that week"
+    elif not has_prev:
+        why = "No comparison yet: first complete week"
+    else:
+        why = ""
+    note = ("nt", why)
+    so = ", so far" if P["so_far"] else ""
+    arr = lambda key: [ser[key].get(w) if isinstance(ser[key].get(w), (int, float)) and not isinstance(ser[key].get(w), bool) else None for w in run]
+    cells = []
+    # 1 people active (hero)
+    if vals["people"] == SMALL:
+        cells.append(_kpi("People active", "", None, f"A group under {MIN_USERS} people is not shown", "", hero=True, skel=SMALL, hid="kpi-people"))
+    else:
+        cur = vals["n"]
+        pp = ser["people"].get(prev)
+        dl = _delta(cur, pp, pp not in (None, SMALL) and pp >= th["min_den"], good_up=True) if has_prev else note
+        if week_mode and c and c["state"] == "ok":
+            where = "above" if c["above"] else "below" if c["below"] else "inside"
+            den = f"Usual {e(c['median'])} (range {e(c['lo'])} to {e(c['hi'])}): {where} the usual range"
+        elif week_mode and c:
+            den = f"Usual range building: {c['n_baseline']} of {th['baseline_min']} comparable weeks"
+        else:
+            den = e(P["label"][0].upper() + P["label"][1:]) + "<br>No usual range yet: it needs 5 complete weeks"
+        if au:
+            den += (f"<br>{num(au['x'])} of an audience of {au['size']}" + (f" ({au['pct']}%)" if au["pct"] is not None else "") + ", a lower bound") if (au["x"] is not None and week_mode) else f"<br>Audience of {au['size']} supplied"
+        else:
+            den += "<br>No audience size supplied"
+        cells.append(_kpi("People active", num(vals["people"]), dl, den, spark(arr("people"), f"People active per week, last {weeks_n} comparable weeks, ending at {cur}."), hero=True, hid="kpi-people"))
+    # 2 new people
+    if week_mode:
+        row = next((w for w in a["weeks"] if w["ws"] == L), None)
+        new = row["new"] if row else None
+    elif vals["n"]:
+        new_n = sum(1 for u in m.people if m.first_seen[u] >= m.first_day)
+        new = SMALL if 0 < vals["n"] < MIN_USERS else protect_partition({"new": new_n, "other": vals["n"] - new_n}, vals["n"])["new"]
+    else:
+        new = None
+    if new is None:
+        cells.append(_kpi("New people", "", None, "First week of data", "", skel="No data", hid="kpi-new"))
+    elif new == SMALL:
+        cells.append(_kpi("New people", "", None, f"A group under {MIN_USERS} people is not shown", "", skel=SMALL, hid="kpi-new"))
+    else:
+        pv = ser["new"].get(prev)
+        dl = _delta(new, pv, False, good_up=True) if has_prev else note
+        cells.append(_kpi("New people", num(new), dl, e(f"of {vals['people'] if vals['people'] == SMALL else _pl(vals['n'], 'person', 'people')} active{so}"), spark(arr("new"), f"New people per week, last {weeks_n} comparable weeks, ending at {new}."), hid="kpi-new"))
+    # 3 engaged visits per active person
+    v = vals["vpp"]
+    if v is None:
+        cells.append(_kpi("Engaged visits per person", "", None, "No visits in the period", "", skel="No visits", hid="kpi-vpp"))
+    elif v == SMALL:
+        cells.append(_kpi("Engaged visits per person", "", None, f"Fewer than {MIN_USERS} people", "", skel=SMALL, hid="kpi-vpp"))
+    else:
+        pv = ser["vpp"].get(prev)
+        dl = _delta(v, pv, pv not in (None, SMALL) and cn["vpp"][prev][1] >= th["min_den"], 1, good_up=None) if has_prev else note
+        cells.append(_kpi("Engaged visits per person", num(v), dl, e(f"{_pl(vals['eng'], 'engaged visit', 'engaged visits')}, {_pl(vals['n'], 'person', 'people')}{so}"), spark(arr("vpp"), f"Engaged visits per active person per week, last {weeks_n} comparable weeks, ending at {v}."), hid="kpi-vpp"))
+    # 4 median active minutes
+    v = vals["min"]
+    if v is None:
+        cells.append(_kpi("Median visit length", "", None, "No active seconds recorded in the period", "", skel="No active time", hid="kpi-min"))
+    elif v == SMALL:
+        cells.append(_kpi("Median visit length", "", None, f"Fewer than {MIN_USERS} people", "", skel=SMALL, hid="kpi-min"))
+    else:
+        pv = ser["min"].get(prev)
+        dl = _delta(v, pv, False, 1, unit=" min", good_up=None) if has_prev else note
+        cells.append(_kpi("Median visit length", f"{num(v)}<span class=\"small\"> min</span>", dl, e(f"active minutes, {_pl(vals['pos'][0], 'engaged visit', 'engaged visits')}{so}"), spark(arr("min"), f"Median active minutes per engaged visit per week, last {weeks_n} comparable weeks, ending at {v}."), hid="kpi-min"))
+    # 5 device (twice as wide as the others: the donut and its legend sit side by side)
+    dev = device_card(vals["dev"], th)
+    if dev["state"] == "none":
+        cells.append(_kpi("Device", "", None, "No browser window width recorded", "", skel="No width", hid="kpi-device"))
+    elif dev["state"] == "hidden":
+        cells.append(_kpi("Device", "", None, f"A group under {MIN_USERS} people is not shown", "", skel=SMALL, hid="kpi-device"))
+    else:
+        dk, pk = ser["desk"].get(L), ser["desk"].get(prev)
+        dl = _delta(dk, pk, False, unit=" points", good_up=None) if (has_prev and dk is not None and pk is not None) else (note if not has_prev else ("nt", "Change not shown: under 20 visits"))
+        cells.append(_kpi("Device", e(dev["fig"]), dl, e(dev["sub"]), device_donut(vals["dev"], th)[0], fig_cls="sm", hid="kpi-device"))
+    # the table behind the sparklines and the cards
+    body = []
+
+    def trow(label, v_people, v_new, v_vpp, v_min):
+        return f'<tr><th scope="row">{e(label)}</th><td class="n">{num(v_people)}</td><td class="n">{num(v_new)}</td><td class="n">{num(v_vpp)}</td><td class="n">{num(v_min)}</td></tr>'
+    if not week_mode:
+        body.append(trow(P["label"][0].upper() + P["label"][1:], vals["people"], new, vals["vpp"], vals["min"]))
+    for w in reversed(run):
+        body.append(trow(week_label(w), ser["people"].get(w), ser["new"].get(w), ser["vpp"].get(w), ser["min"].get(w)))
+    usable_n = len([w for w in m.weeks if not m.is_prov(w)])
+    table = ('<table id="kpi-table"><thead><tr><th scope="col">Period</th><th scope="col" class="n">People active</th><th scope="col" class="n">New people</th><th scope="col" class="n">Engaged visits per person</th><th scope="col" class="n">Median visit length (min)</th>'
+             f'</tr></thead><tbody>{"".join(body)}</tbody></table>'
+             + (f'<p class="cap2">{usable_n - len(run)} earlier completed week(s) are left out: the page recorded visits under other rules, so the figures are not comparable.</p>' if usable_n > len(run) else ""))
+    drows = []
+    for label, dc in device_period_lines(a):
+        if not dc["n"]:
+            drows.append(f'<tr><th scope="row">{e(label)}</th><td class="n">no browser window width recorded</td></tr>')
+            continue
+        tx = device_texts(dc, th)
+        for k in DEVICE_ORDER:
+            drows.append(f'<tr><th scope="row">{e(label)}: {e(DEVICES[k])}</th><td class="n">{e(tx[k][1])}</td></tr>')
+    table += (f'<table id="device-table"><thead><tr><th scope="col">Window width class</th><th scope="col" class="n">Share of visits</th></tr></thead><tbody>{"".join(drows)}</tbody></table>'
+              f'<p class="cap2">{e(DEVICE_CAVEAT)} Every visit counts, glance or engaged; a visit without a width is not counted.</p>')
+    if week_mode:
+        sub = f"Last completed week: {week_label(L)}. Each figure is compared with the week before; the line shows the weeks since the last change of the recording rules."
+        if not has_prev:
+            sub = f"Last completed week: {week_label(L)}. " + _first_comparison_note(m)
+    elif P["kind"] == "todate":
+        sub = P["label"][0].upper() + P["label"][1:] + ". " + _first_comparison_note(m)
+    else:
+        sub = "No data yet."
+    return (f'<section class="blk" id="kpis" aria-labelledby="h-kpi"><h2 id="h-kpi">Key figures</h2><p class="cap" id="kpi-note">{e(sub)}</p><p class="cap" id="device-caveat">Device is by browser window width, not device type: a narrow desktop window counts as phone.</p>'
+            f'<div class="kpis">{"".join(cells)}</div>{show_data(table)}</section>')
+
+
+# ------------------------------------------------------------------------------------------------------------ the trend
+def _tick_label(label: str) -> str:
+    return ("W1 starts" if label.startswith("W1 starts") else "Delivery Cycle 1 ends" if label.startswith("End of W6") else "Release ends" if label.startswith("Release end") else label)
 
 
 def _chart_weeks(a: dict) -> str:
-    rows = a["weeks"]
-    comp = a["compared"]
+    """People active per Sunday-to-Saturday week: a line and area for the complete weeks, hatched columns for the incomplete ones (the provisional first week and the week in progress), the usual range, the calendar events."""
+    rows, comp, m = a["weeks"], a["compared"], a["model"]
+    n = len(rows)
     vis = [w["raw"] for w in rows if w["active"] != SMALL]
-    top = max(vis + ([comp["raw_hi"]] if comp and comp.get("raw_hi") else []) + [1])
-    cols, parts = [], []
-    for w in rows:
-        tip = f"{w['label']}: " + ("provisional, data starts mid-week, " if w["status"] == "provisional" else "so far this week, not comparable, " if w["status"] == "in_progress" else "") + (SMALL if w["active"] == SMALL else str(w["active"])) + " people"
-        parts.append(tip)
-        cls = " part" if w["status"] != "complete" else ""
-        if w["active"] == SMALL:
-            cols.append(f'<div class="gap" title="{e(tip)}"><i class="stub"></i></div>')
-        elif w["raw"] == 0:
-            cols.append(f'<div class="gap" title="{e(tip)}"><i class="dot"></i></div>')
+    hi_band = comp["raw_hi"] if comp and comp.get("raw_hi") is not None else 0
+    top, step = nice_axis(max(vis + [hi_band, 1]))
+    lines, labels = _grid(top, step)
+    slots, parts, runs, cur, ticks = [], [], [], [], []
+    last_c = max((i for i, w in enumerate(rows) if w["status"] == "complete" and w["active"] != SMALL), default=None)
+    for i, w in enumerate(rows):
+        tag = "provisional, data starts mid-week" if w["status"] == "provisional" else "so far this week, not comparable" if w["status"] == "in_progress" else ""
+        val = SMALL if w["active"] == SMALL else str(w["active"])
+        parts.append(f"{w['label']}: {val} people" + (f" ({tag})" if tag else ""))
+        tip = e(f"{w['label']}: {val} people" + (f" ({tag})" if tag else ""))
+        y = 100 * w["raw"] / top
+        keep = "" if (i in (0, n - 1, last_c) or w["raw"] == max(vis + [0])) else " nk"
+        if w["status"] != "complete":
+            if w["active"] == SMALL:
+                slots.append(f'<div class="slot" title="{tip}"><i class="stub"></i></div>')
+            elif w["raw"] == 0:
+                slots.append(f'<div class="slot" title="{tip}"><i class="zero"></i></div>')
+            else:
+                slots.append(f'<div class="slot" title="{tip}"><i class="hbar" style="height:{max(1.5, y):.1f}%"></i><span class="vl{keep}" style="bottom:calc({y:.1f}% + 5px)">{w["raw"]}</span></div>')
+            if cur:
+                runs.append(cur)
+                cur = []
+        elif w["active"] == SMALL:
+            slots.append(f'<div class="slot" title="{tip}"><i class="stub"></i></div>')
+            if cur:
+                runs.append(cur)
+                cur = []
         else:
-            cols.append(f'<div class="d{cls}" style="height:{max(2.0, 100 * w["raw"] / top):.1f}%" title="{e(tip)}"></div>')
-    band = ""
+            cur.append((i, y))
+            big = " big" if i == last_c else ""
+            slots.append(f'<div class="slot" title="{tip}"><i class="dot{big}" style="bottom:{y:.1f}%"></i><span class="vl{keep}" style="bottom:calc({y:.1f}% + {13 if i == last_c else 10}px)">{w["raw"]}</span></div>')
+    if cur:
+        runs.append(cur)
+    xy = lambda i, y: (100 * (i + 0.5) / n, 100 - y)
+    d_l = " ".join(("M" if k == 0 else "L") + "%.2f %.2f" % xy(i, y) for run in runs for k, (i, y) in enumerate(run))
+    d_a = " ".join(" ".join(("M" if k == 0 else "L") + "%.2f %.2f" % xy(i, y) for k, (i, y) in enumerate(run)) + " L%.2f 100 L%.2f 100 Z" % (xy(run[-1][0], 0)[0], xy(run[0][0], 0)[0]) for run in runs if len(run) > 1)
+    svg = f'<svg class="ln2" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path class="a" d="{d_a}"/><path class="l" d="{d_l}"/></svg>' if runs else ""
+    band, band_txt = "", ""
     if comp and comp.get("raw_hi") is not None:
         lo, hi = max(0, comp["raw_lo"]), min(top, comp["raw_hi"])
         band = f'<div class="band" style="bottom:{100 * lo / top:.1f}%;height:{max(1.0, 100 * (hi - lo) / top):.1f}%"></div>'
-    first, last = rows[0]["label"], rows[-1]["label"]
-    legend = "Bars: people active per Sunday-to-Saturday week. Hatched: not comparable (the first week of data when it starts mid-week, and the week in progress). Grey hatch: under 5 people. Dot: nobody." + (" Shaded band: the usual range of the previous completed weeks." if band else "")
-    return (f'<div class="chartwrap"><div class="bars" role="img" aria-label="People active per week. {e("; ".join(parts))}">{band}{"".join(cols)}</div></div>'
-            f'<div class="axis" aria-hidden="true"><span>{e(first)}</span><span>{e(last)}</span></div><p class="cap">{e(legend)}</p>')
+        band_txt = f" Usual range of the last completed week: {comp['lo']} to {comp['hi']}."
+    # calendar events and the change of recording rules
+    first_ws, last_day = rows[0]["ws"], rows[-1]["ws"] + dt.timedelta(days=6)
+    evs = [(d, _tick_label(lb), "") for d, lb, kind in calendar_marks(m, first_ws, last_day) if kind == "ms"]
+    if m.rollover and first_ws <= m.rollover <= last_day:
+        evs.append((m.rollover, "New recording rules", " rc"))
+    tk, cal_txt = [], []
+    for j, (d, lb, cls) in enumerate(sorted(evs)):
+        idx = (week_start(d) - first_ws).days // 7
+        x = 100 * (idx + ((d - week_start(d)).days + 0.5) / 7) / n
+        r = j % 3                                                                          # neighbouring labels sit on different rows, so they never overlap
+        fl = " fl" if x > 62 else ""
+        tk.append(f'<div class="tk{cls}{fl}" style="left:{x:.2f}%;--r:{r}"><span class="tl">{e(lb)}</span></div>')
+        cal_txt.append(f"{d_label(d)}: {lb}")
+    xl = "".join(f'<span class="{"" if (n - 1 - i) % 3 == 0 else "nk"}">{e(w["label"])}</span>' for i, w in enumerate(rows))
+    summary = (f"People active per Sunday-to-Saturday week, {rows[0]['label']} to {rows[-1]['label']}. " + "; ".join(parts) + "." + band_txt
+               + (" Calendar: " + "; ".join(cal_txt) + "." if cal_txt else ""))
+    inner = (f'<div class="ya" aria-hidden="true">{labels}</div><div class="pa" style="--n:{n}">{lines}{band}<div class="slots" style="--n:{n}">{"".join(slots)}</div>{svg}{"".join(tk)}</div>'
+             f'<div class="xa" style="--n:{n}" aria-hidden="true">{xl}</div>')
+    return chart_img(inner, summary, "plot")
 
 
 def _week_table(a: dict) -> str:
@@ -1864,133 +2543,151 @@ def _week_table(a: dict) -> str:
     for w in a["weeks"]:
         tag = "provisional: data starts mid-week" if w["status"] == "provisional" else "so far, not comparable" if w["status"] == "in_progress" else ""
         cells = "".join(f'<td class="n">{num(w[k]) if w[k] is not None else "-"}</td>' for k in ("new", "continuing", "reactivated", "lapsed"))
-        body.append(f'<tr><th scope="row">{e(w["label"])}' + (f'<div class="cap">{e(tag)}</div>' if tag else "") + f'</th><td class="n">{num(w["active"])}</td>{cells}</tr>')
-    return ('<table class="wk-table"><thead><tr><th scope="col">Week starting (Sunday)</th><th scope="col" class="n">People</th><th scope="col" class="n">New</th><th scope="col" class="n">Continuing</th><th scope="col" class="n">Back after a gap</th>'
+        body.append(f'<tr><th scope="row">{e(w["label"])}' + (f'<div class="cap2">{e(tag)}</div>' if tag else "") + f'</th><td class="n">{num(w["active"])}</td>{cells}</tr>')
+    return ('<table class="wk-table" id="weeks"><thead><tr><th scope="col">Week starting (Sunday)</th><th scope="col" class="n">People</th><th scope="col" class="n">New</th><th scope="col" class="n">Continuing</th><th scope="col" class="n">Back after a gap</th>'
             f'<th scope="col" class="n">Lapsed</th></tr></thead><tbody>{"".join(body)}</tbody></table>')
 
 
-def _hero(a: dict) -> str:
-    c, gv, au = a["compared"], a["growth"], a["audience"]
-    th = a["model"].th
-    if c:
-        fig = num(c["active"])
-        if c["state"] == "ok":
-            where = ("above" if c["above"] else "below" if c["below"] else "inside")
-            ctx = f"{e(c['label'])}. Usual: {e(c['median'])} (normal range {e(c['lo'])} to {e(c['hi'])}, median of the previous {c['n_weeks']} completed weeks). " + ("Inside the usual range." if where == "inside" else f"{where.capitalize()} the usual range.")
+def _chart_days(a: dict) -> str:
+    dv = a["daily"]
+    days = dv["days"]
+    n = len(days)
+    vis = [d["raw"] for d in days if d["users"] != SMALL]
+    top, step = nice_axis(max(vis + [1]))
+    lines, labels = _grid(top, step)
+    mark_by_day = {}
+    for d, label, kind in dv["marks"]:
+        mark_by_day.setdefault(d, []).append((label, kind))
+    slots, mrow, parts = [], [], []
+    for d in days:
+        we = " we" if d["weekend"] else ""
+        state = ("before the data starts" if not d["has_data"] else SMALL if d["users"] == SMALL else str(d["raw"])) + (" (so far today, not comparable)" if d["partial"] else "") + (" (Friday or Saturday)" if d["weekend"] else "")
+        tip = f"{d['day']:%a %d %b}: {state}"
+        parts.append(tip)
+        if not d["has_data"]:
+            slots.append(f'<div class="slot" title="{e(tip)}"></div>')
+        elif d["users"] == SMALL:
+            slots.append(f'<div class="slot" title="{e(tip)}"><i class="stub"></i></div>')
+        elif d["raw"] == 0:
+            slots.append(f'<div class="slot" title="{e(tip)}"><i class="zero"></i></div>')
         else:
-            ctx = f"{e(c['label'])}. Baseline building: {c['n_baseline']} of {th['baseline_min']} comparable completed weeks, so no usual range yet."
-    else:
-        fig = "-"
-        ctx = "No completed week of data yet: the first comparable week ends on a Saturday after the data starts."
-    if au:
-        ctx += (f" {num(au['x'])} of an audience of {au['size']}" + (f" ({au['pct']}%)" if au["pct"] is not None else "") + ": a lower bound, because only people with edit access and an id are recorded." if au["x"] is not None else f" Audience of {au['size']} supplied.")
-        if au["stale"]:
-            ctx += " The audience size looks out of date: more people are in the data than in the audience."
-    else:
-        ctx += " Audience size not supplied, so no adoption percentage is shown."
-    icon = _verdict_icon(gv["state"])
-    return ('<section class="hero" aria-labelledby="h-hero"><div><h2 id="h-hero" class="what">People active in the last completed week</h2>'
-            f'<p class="fig">{fig}</p><p class="ctx">{ctx}</p>'
-            f'<p class="verdict" id="growth"><b>Is adoption growing?</b> {e(gv["text"])}</p></div><div>{_chart_weeks(a)}'
-            f'<details class="vd"><summary>Show weekly data</summary>{_week_table(a)}</details></div></section>')
+            slots.append(f'<div class="slot" title="{e(tip)}"><i class="col{we}{" part" if d["partial"] else ""}" style="height:{max(1.5, 100 * d["raw"] / top):.1f}%"></i></div>')
+        mk = mark_by_day.get(d["day"])
+        mrow.append("<span>&#9650;</span>" if mk else "<span></span>")
+    xl = "".join(f'<span>{d_label(days[i]["day"]) if i in (0, n // 2, n - 1) else ""}</span>' for i in range(n))
+    cal = "; ".join(f"{d_label(d)}: {lb}" for d, lb, _ in dv["marks"])
+    summary = f"People active per day, last 28 days, {d_label(days[0]['day'])} to {d_label(days[-1]['day'])}. " + "; ".join(parts) + "." + (f" Calendar marks: {cal}." if cal else "")
+    inner = (f'<div class="ya" aria-hidden="true">{labels}</div><div class="pa">{lines}<div class="slots" style="--n:{n}">{"".join(slots)}</div></div>'
+             f'<div class="mk" style="--n:{n}" aria-hidden="true">{"".join(mrow)}</div><div class="xa day" style="--n:{n}" aria-hidden="true">{xl}</div>')
+    return chart_img(inner, summary, "plot", "--ph:200px")
 
 
-def _changed(a: dict) -> str:
-    sg, c, th = a["signals"], a["compared"], a["model"].th
-    if c:
-        base = (f"median of the previous {c['n_weeks']} completed weeks, {c['median']}" if c["state"] == "ok" else f"building ({c['n_baseline']} of {th['baseline_min']} comparable weeks)")
-        head = f"Compared week: {c['label']}, the last completed Sunday-to-Saturday week. {fmt_n(c['active'])} people active. Baseline: {base}."
-    else:
-        head = "No completed week of data to compare yet."
-    out = ['<section class="blk" id="changed" aria-labelledby="h-changed"><h2 id="h-changed">What changed since last report</h2>'
-           f'<p class="why">{e(head)} No previous report supplied; every flagged item is shown as new.</p>']
-    if sg["flagged"]:
-        shown = _shown_signals(sg, th)
-        items = []
-        for f in shown:
-            items.append(f'<li class="sig" id="sig-{e(f["id"])}"><div class="sh"><strong>{e(f["headline"])}</strong><span class="tag">{e(f["confidence"])}</span><span class="sid">{e(f["id"])}</span></div>'
-                         f'<p>{e(f["observation"])}</p><p class="small">What it does not show: {e(f["not_show"])}</p><p class="small">{e(f["next"])}</p>'
-                         f'<details class="vd"><summary>Baseline and threshold</summary><p class="cap">Baseline: {e(f["baseline"])} Threshold: {e(f["threshold"])}</p></details></li>')
-        out.append(f'<ol class="sigs">{"".join(items)}</ol>')
-        if len(sg["flagged"]) > len(shown):
-            out.append(f'<p class="cap">{len(sg["flagged"]) - len(shown)} more section or control signals are flagged: see the Checked list.</p>')
-    else:
-        out.append(f'<p class="ok" id="nothing">{ICON_OK}<span>{e(nothing_changed_text(sg))}</span></p>')
-    n_f = sum(1 for r in sg["ledger"] if r["status"] == "flagged")
-    n_w = sum(1 for r in sg["ledger"] if r["status"] == "within")
-    n_n = sum(1 for r in sg["ledger"] if r["status"] in ("not_tested", "unknown"))
-    rows = "".join(f'<tr><th scope="row">{e(r["id"])} {e(r["name"])}</th><td>{e(STATUS_WORD[r["status"]])}</td><td>{e(r["text"])}</td></tr>' for r in sg["ledger"])
-    out.append(f'<details class="vd" id="checked"><summary>Checked: {n_f} flagged, {n_w} within range, {n_n} not tested or unknown</summary>'
-               f'<table><thead><tr><th scope="col">Signal</th><th scope="col">Result</th><th scope="col">Numbers</th></tr></thead><tbody>{rows}</tbody></table>'
-               '<p class="cap">Confidence labels: Confirmed (the same change in 3 consecutive weeks, or a fact about the export), Corroborated (2 consecutive weeks), Single-source (one week), Weak signal (one week with fewer than '
-               f'{th["weak_active_people"]} active people, or a soft measure), Unknown (a figure under 5 people). This is not a statement that usage is healthy. It covers only people with an id and write access.</p></details></section>')
-    return "".join(out)
+def _trend(a: dict) -> str:
+    gv, dv = a["growth"], a["daily"]
+    rows = a["weeks"]
+    cap_w = f"Distinct people with a visit in each Sunday-to-Saturday week, {rows[0]['label']} to {rows[-1]['label']}."
+    leg = _legend([("ln", "Complete week"), ("hb", "Incomplete week")] + ([("hg", SMALL)] if MIN_USERS > 1 else []) + ([("bd", "Usual range")] if a["compared"] and a["compared"].get("raw_hi") is not None else []) + [("tk", "Calendar event")])
+    week = panel("People active per week", cap_w, _chart_weeks(a) + leg + f'<p class="verdict" id="growth"><b>Is adoption growing?</b> {e(gv["text"])}</p>', show_data(_week_table(a)), "p-weeks")
+    cap_d = f"Distinct people per day, {d_label(dv['days'][0]['day'])} to {d_label(dv['days'][-1]['day'])}."
+    leg_d = _legend([("hb", "Today so far"), ("we", "Friday, Saturday")] + ([("hg", SMALL)] if MIN_USERS > 1 else []))
+    mk = "".join(f"<li>{d_label(d)}: {e(label)}</li>" for d, label, _ in dv["marks"])
+    ww = f'<p class="cap2">Sunday to Thursday had {dv["workweek"]["pct"]}% of the {dv["workweek"]["n"]} visits in the last 28 days.</p>' if dv["workweek"] else ""
+    extra = "".join(f'<p class="cap2">{e(x)}</p>' for x in (dv["note"], (dv["events"] or {}).get("text")) if x)
+    tbl = ('<table id="days"><thead><tr><th scope="col">Day</th><th scope="col" class="n">People</th></tr></thead><tbody>'
+           + "".join(f'<tr><td>{d["day"].isoformat()}{" (so far today, not comparable)" if d["partial"] else ""}</td><td class="n">{"before the data starts" if not d["has_data"] else num(d["users"])}</td></tr>' for d in reversed(dv["days"])) + "</tbody></table>"
+           + (f'<ul class="gov" aria-label="Calendar marks">{mk}</ul>' if mk else "") + extra)
+    day = panel("People active per day", cap_d, _chart_days(a) + leg_d + ww, show_data(tbl), "p-days")
+    return f'<section class="blk" id="trend" aria-labelledby="h-trend"><h2 id="h-trend">Trend</h2><div class="row2">{week}{day}</div></section>'
 
 
-def _return_block(a: dict) -> str:
-    th = a["model"].th
-    h, r = a["habit"], a["retention"]
-    rows = []
-    for key, label, when in (("w1", "Week 1", "a visit on a later day within 7 days of the first visit"), ("w4", "Week 4", "a visit in days 22 to 28 after the first visit")):
-        x = r[key]
-        res = "no eligible people yet" if not x["raw_n"] else sh(x["x"], x["raw_n"], th) + (" (indicative)" if x["indicative"] else "")
-        rows.append(f'<tr><th scope="row">{label}: {e(when)}</th><td class="n">{num(x["n"])}</td><td class="n">{res}</td></tr>')
-    hab = ""
-    if h["state"] != "ok":
-        hab = f'<p class="cap" id="habit">Habit: {e(h["text"])}</p>'
-    else:
-        nprint = h["n_print"]
-        bins = h["bins"]
-        mx = max([c for _, _, c in bins] + [1])
-        lab = lambda lo, hi: f"{lo} week{'s' if lo != 1 else ''}" if lo == hi else f"{lo} to {hi} weeks"
-        brow = "".join(f'<tr><th scope="row">{e(lab(lo, hi))}</th>{bar_cell(c / mx, True)}<td class="n">{num(c)}</td></tr>' for lo, hi, c in bins) if nprint != SMALL else ""
-        hab = (f'<h3>Habit</h3><p id="habit">{sh(h["x"], h["n"], th) if nprint != SMALL else e(SMALL)} of {num(nprint)} established people were active in {h["min_weeks"]} or more of the last {h["weeks"]} completed weeks ({e(h["window"])}). '
-               'Established = first seen at least 14 days before the compared week.</p>'
-               + (f'<table><thead><tr><th scope="col">Weeks active</th><th scope="col" class="barh" aria-hidden="true"></th><th scope="col" class="n">People</th></tr></thead><tbody>{brow}</tbody></table><p class="cap">Neighbouring groups are merged until each has at least 5 people.</p>' if brow else ""))
-    return ('<section class="blk" aria-labelledby="h-back"><h2 id="h-back">Do people come back?</h2>'
-            '<p class="why">Retention follows people first seen at least 7 (or 28) days ago; people that arrived later are not in the figure yet, and people first seen before the go-live day or before the 12 weeks kept are not in a cohort. '
-            'Use it to see whether newcomers stay; never to judge a person or a team.</p>'
-            f'<table id="retention"><thead><tr><th scope="col">Retention</th><th scope="col" class="n">Eligible people</th><th scope="col" class="n">Came back</th></tr></thead><tbody>{"".join(rows)}</tbody></table>{hab}</section>')
-
-
-def _read_block(a: dict) -> str:
+# ------------------------------------------------------------------------------------------------------------ the breakdowns
+def _read_block(a: dict) -> tuple:
     th = a["model"].th
     s = a["sections"]
     if not s["n"]:
-        return '<section class="blk" aria-labelledby="h-read"><h2 id="h-read">What people read</h2><p class="why">No completed week to report on yet.</p></section>'
-    mx = max([r["raw"] for r in s["rows"]] + [1])
-    body = []
+        return '<div class="panel"><h3>Section reach</h3><p class="empty-note">Too early: no completed week yet.</p></div>', ""
+    N = s["d"]
+    rows = []
     for r in s["rows"]:
-        draw = not r["under5"] and r["raw"] > 0
+        guard = r["under5"]
+        rows.append({"label": r["name"], "guard": guard, "text": share_text(r["reach"], N, th) if not guard else SMALL, "frac": (r["raw"] / N if (N != SMALL and N) else 0), "tag": r["candidate"]})
+    if N == SMALL:
+        chart, summ = f'<p class="empty-note">Fewer than {MIN_USERS} people were active: reach is not shown.</p>', ""
+        body = chart
+    else:
+        chart, summ = hbars(rows)
+        body = chart_img(chart, f"Section reach, share of the {N} people active in the window: {summ}.", "")
+    body_rows = []
+    for r in s["rows"]:
+        nm = e(r["name"]) + (f" (reach under {MIN_USERS} people: Unknown)" if r["under5"] else "")
         cand = f' <span class="tag">{e(r["candidate"])}</span>' if r["candidate"] else ""
-        nm = e(r["name"]) + (" (reach under 5 people: Unknown)" if r["under5"] else "")
-        body.append(f'<tr><th scope="row">{nm}{cand}</th>{bar_cell(r["raw"] / mx, draw)}<td class="n">{sh(r["reach"], s["d"], th)}</td><td class="n">{num(r["nav"]) if r["nav"] is not None else "-"}</td>'
-                    f'<td class="n">{num(r["links"])}</td><td class="n">{num(r["share"], "%") if r["share"] is not None else "-"}</td></tr>')
+        body_rows.append(f'<tr><th scope="row">{nm}{cand}</th><td class="n">{sh(r["reach"], N, th)}</td><td class="n">{num(r["nav"]) if r["nav"] is not None else "-"}</td><td class="n">{num(r["links"])}</td><td class="n">{num(r["share"], "%") if r["share"] is not None else "-"}</td></tr>')
     ol = ", ".join(f"{DISCLOSURES[k]}: {num(v)}" for k, v in s["disclosures"].items())
-    return (f'<section class="blk" aria-labelledby="h-read"><h2 id="h-read">What people read</h2>'
-            f'<p class="why">Reach: people with 30 seconds or more in a section in a week, of the {num(s["n_g"])} people active in the last {s["weeks"]} completed weeks ({e(a["window"]["label"])}). Sections are in page order, not ranked. '
-            'A section read by few people can be right for them: this is a prompt to look, not a verdict. Scroll position decides which section gets the time, so reading time is a secondary column.</p>'
-            '<table id="reach"><thead><tr><th scope="col">Section</th><th scope="col" class="barh" aria-hidden="true"></th><th scope="col" class="n">Reach</th><th scope="col" class="n">Section Strip</th><th scope="col" class="n">Jira links</th>'
-            f'<th scope="col" class="n">Reading time</th></tr></thead><tbody>{"".join(body)}</tbody></table>'
-            f'<p class="cap">Section Strip and Jira links: people using the strip or the skip links to jump to the section, or following a Jira link from it (a person is counted once). Reading time: each person\'s own split, averaged over the sections shown. '
-            f'A section with fewer than 5 readers shows &lt;5 users and is left out of that share. Simplify candidates: {e(s["candidates"]["status"])}. Details opened (people): {ol}.</p></section>')
+    table = ('<table id="reach"><thead><tr><th scope="col">Section</th><th scope="col" class="n">Reach</th><th scope="col" class="n">Section Strip</th><th scope="col" class="n">Jira links</th><th scope="col" class="n">Reading time</th></tr></thead>'
+             f'<tbody>{"".join(body_rows)}</tbody></table>'
+             f'<p class="cap2">Reach: people with 30 seconds or more in the section in a week, of the {num(s["n_g"])} people active in the last {s["weeks"]} completed weeks. Section Strip and Jira links: people using the strip or the skip links to jump to the section, or following a Jira link from it (a person is counted once). '
+             f'Reading time: each person\'s own split, averaged over the sections shown; scroll position decides which section gets the time. {e(guard_note("A section with fewer than {n} readers shows {g} and is left out of that share."))} Simplify candidates: {e(s["candidates"]["status"])}. Details opened (people): {ol}.</p>')
+    cap = f"Share of the {num(s['n_g'])} people active in {a['window']['label']} with 30 seconds or more in the section. Page order, not ranked."
+    return panel("Section reach", cap, body, show_data(table), "p-sections"), ""
 
 
-def _use_block(a: dict) -> str:
+def _controls_block(a: dict) -> str:
     th = a["model"].th
-    c, u = a["controls"], a["use"]
+    c = a["controls"]
     if not c["n"]:
-        return '<section class="blk" aria-labelledby="h-use"><h2 id="h-use">What people use</h2><p class="why">No completed week to report on yet.</p></section>'
-    mx = max([r["raw"] for f in c["families"] for r in f["rows"]] + [1])
-    body = []
+        return '<div class="panel"><h3>Control reach</h3><p class="empty-note">Too early: no completed week yet.</p></div>'
+    N = c["d"]
+    rows = []
     for f in c["families"]:
-        body.append(f'<tr class="fam"><th scope="colgroup" colspan="3">{e(f["family"])}</th></tr>')
+        rows.append({"group": f["family"]})
         for r in f["rows"]:
-            body.append(f'<tr><th scope="row">{e(r["name"])}</th>{bar_cell(r["raw"] / mx, r["raw"] >= MIN_USERS)}<td class="n">{sh(r["reach"], c["d"], th)}</td></tr>')
+            guard = r["reach"] == SMALL
+            rows.append({"label": r["name"], "guard": guard, "text": share_text(r["reach"], N, th) if not guard else SMALL, "frac": (r["raw"] / N if (N != SMALL and N) else 0)})
+    if N == SMALL:
+        body = f'<p class="empty-note">Fewer than {MIN_USERS} people were active: reach is not shown.</p>'
+    else:
+        chart, summ = hbars(rows)
+        body = chart_img(chart, f"Control reach, share of the {N} people active in the window that changed the control, by family: {summ}.")
+    body_rows = []
+    for f in c["families"]:
+        body_rows.append(f'<tr class="fam"><th scope="colgroup" colspan="2">{e(f["family"])}</th></tr>')
+        for r in f["rows"]:
+            body_rows.append(f'<tr><th scope="row">{e(r["name"])}</th><td class="n">{sh(r["reach"], N, th)}</td></tr>')
     rs = c["reset"]
     reset = ("Not recorded in v1 records." if rs["state"] == "none" else f"{sh(rs['x'], rs['visits_g'], th)} of visits with a control change also pressed Reset Filters in the same visit ({nlabel(rs['visits_g'])})." + (" Flag: 25% or more in 2 consecutive weeks." if rs.get("flag") else ""))
     mv, pj = c["multi_vs_projects"]
-    lk = u["links"]
+    table = (f'<table id="controls"><thead><tr><th scope="col">Control</th><th scope="col" class="n">Reach</th></tr></thead><tbody>{"".join(body_rows)}</tbody></table>'
+             f'<p class="cap2">Reach of each control among the {num(c["n_g"])} people active in the last {c["weeks"]} completed weeks: people that changed it at least once. Any control: {sh(c["any"]["x"], N, th)}. Multi-select toggle: {num(mv)} people; Projects: {num(pj)} people. {e(reset)}</p>')
+    cap = f"Share of the {num(c['n_g'])} people active in {a['window']['label']} that changed the control at least once. Fixed page order, not ranked."
+    return panel("Control reach", cap, body, show_data(table), "p-controls")
+
+
+def _actions_block(a: dict) -> str:
+    """What people do with the page: four shares, each with its own base named in the row (people, or visits)."""
+    th = a["model"].th
+    c, u = a["controls"], a["use"]
+    if not c["n"]:
+        return ""
+    lk, rf, rs = u["links"], u["refresh"], c["reset"]
+
+    def row(label, x, den, pct_txt=None):
+        """x: a count or SMALL; den: the number it is out of (an int)."""
+        if x == SMALL:
+            return {"label": label, "guard": True, "text": SMALL, "frac": 0}
+        txt = share_text(x, den, th) if den else "-"
+        return {"label": label, "guard": False, "text": txt, "frac": (x / den if den else 0), "alt": False}
+    rows = [row("Changed any control (people)", c["any"]["x"], c["d"] if c["d"] != SMALL else 0),
+            row("Pressed Refresh (people)", rf["x"], rf["n"]),
+            row("Visits with a Jira link click (engaged visits)", lk["visits"] if lk["x"] != SMALL else SMALL, lk["of"]),
+            row("Reset Filters after a control change (visits with a change)", ("-" if rs["state"] == "none" else rs["x"]), (rs["visits"] if rs["state"] != "none" else 0))]
+    if rs["state"] == "none":
+        rows[3] = {"label": "Reset Filters after a control change (visits with a change)", "guard": False, "text": "not recorded", "frac": 0}
+    elif rs["x"] != SMALL and rs["visits_g"] == SMALL:
+        rows[3] = {"label": rows[3]["label"], "guard": True, "text": SMALL, "frac": 0}
+    chart, summ = hbars(rows)
+    body = chart_img(chart, f"What people do: {summ}.")
+    # the table behind it keeps every number of the use block
+    mn = u["minutes"]
     fr = u["fresh"]
 
     def fresh_line(k):
@@ -1998,118 +2695,416 @@ def _use_block(a: dict) -> str:
         if not f:
             return "not recorded in v1 records"
         txt = ", ".join(f"{nm}: " + (SMALL if cell == SMALL else (f"{f['shares'][nm]}%" if f["shares"][nm] is not None else str(cell))) for nm, cell in f["cells"].items())
-        return txt + (f" (share of the {fmt_n(f['n_g'])} visits shown; rows under 5 people are left out)" if f["hidden"] else f" ({nlabel(f['n_g'])} visits)")
-    ro = u["refresh"]["outcomes"]
-    refresh_out = ("Outcomes: " + "; ".join(f"{RO[k]} {cnt(v['people'], 'people')}" for k, v in ro.items()) + f"; automatic retries {fmt_n(u['refresh']['retries'])}") if u["refresh"]["has_v2"] else "Outcomes are not recorded in v1 records"
+        return txt + (f" (share of the {fmt_n(f['n_g'])} visits shown; rows under {MIN_USERS} people are left out)" if f["hidden"] else f" ({nlabel(f['n_g'])} visits)")
+    ro = rf["outcomes"]
+    refresh_out = ("Outcomes: " + "; ".join(f"{RO[k]} {cnt(v['people'], 'people')}" for k, v in ro.items()) + f"; automatic retries {fmt_n(rf['retries'])}") if rf["has_v2"] else "Outcomes are not recorded in v1 records"
     link_secs = "; ".join(f"{s['name']}: {s['pct']}% of engaged visits, {s['status']}" for s in lk["sections"] if s["pct"] is not None) or f"no section has {th['link_min_clicks']} clicks from {th['link_min_people']} people yet"
-    mn = u["minutes"]
-    rows = [
+    trs_rows = [
         ("Median active minutes among engaged visits (30 s or more, or with input)", (num(mn["median"]) + " min") if mn["median"] not in (None, SMALL) else (num(mn["median"]) if mn["median"] == SMALL else "-"), f"over {num(mn['visits'])} engaged visits with some active time ({num(mn['people'])} people). Glance visits are reported under Recording health"),
         ("Engaged visits per active person", num(u["per_person"]["value"]), f"in {u['weeks']} weeks, of {num(u['per_person']['n'])} active people: a count of visits, not a measure of value"),
         ("Visits with a Jira link click", (f"{lk['pct']}%" if lk["pct"] is not None else num(lk["visits"])) if lk["x"] != SMALL else e(SMALL), f"of {fmt_n(u['engaged_g'])} engaged visits had a Jira link click, by {num(lk['x'])} people. By section: {e(link_secs)}"),
         ("Small-screen share", sh(u["phone"]["x"], u["phone"]["n_g"], th), f"of {fmt_n(u['phone']['n_g'])} engaged visits with a width recorded"),
-        ("Refresh pressed by", sh(u["refresh"]["x"], u["refresh"]["n_g"], th), f"of {fmt_n(u['refresh']['n_g'])} active people. {e(refresh_out)}"),
+        ("Refresh pressed by", sh(rf["x"], rf["n_g"], th), f"of {fmt_n(rf['n_g'])} active people. {e(refresh_out)}"),
         ("Connection at the visit", "-", e(fresh_line("lv"))),
         ("Age of the data at the start", "-", e(fresh_line("fa"))),
     ]
-    trs = "".join(f'<tr><th scope="row">{e(n)}<div class="cap">{d}</div></th><td class="n">{v}</td></tr>' for n, v, d in rows)
-    return ('<section class="blk" aria-labelledby="h-use"><h2 id="h-use">What people use</h2>'
-            f'<p class="why">Reach of each control among the {num(c["n_g"])} people active in the last {c["weeks"]} completed weeks ({e(a["window"]["label"])}): people that changed it at least once. Fixed page order, grouped by family; not ranked. '
-            f'Any control: {sh(c["any"]["x"], c["d"], th)}. Multi-select toggle: {num(mv)} people; Projects: {num(pj)} people. {e(reset)}</p>'
-            f'<table id="controls"><thead><tr><th scope="col">Control</th><th scope="col" class="barh" aria-hidden="true"></th><th scope="col" class="n">Reach</th></tr></thead><tbody>{"".join(body)}</tbody></table>'
-            f'<h3>How people use it</h3><table id="usage" class="two"><thead><tr><th scope="col">Measure and basis</th><th scope="col" class="n">Result</th></tr></thead><tbody>{trs}</tbody></table>'
-            '<p class="cap">Engaged visits = 30 seconds or more, or with input. A control or link count is a count of people, not of effect. Do not use these figures to compare teams.</p></section>')
+    trs = "".join(f'<tr><th scope="row">{e(n)}<div class="cap2">{d}</div></th><td class="n">{v}</td></tr>' for n, v, d in trs_rows)
+    table = (f'<table id="usage" class="two"><thead><tr><th scope="col">Measure and basis</th><th scope="col" class="n">Result</th></tr></thead><tbody>{trs}</tbody></table>'
+             '<p class="cap2">Engaged visits = 30 seconds or more, or with input. A control or link count is a count of people, not of effect. Do not use these figures to compare teams.</p>')
+    cap = f"Share of people or of visits, as named on each row; {a['window']['label']}."
+    return panel("What people do", cap, body, show_data(table), "p-actions")
 
 
-def _chart_days(a: dict) -> str:
-    dv = a["daily"]
-    days = dv["days"]
-    vis = [d["raw"] for d in days if d["users"] != SMALL]
-    top = max(vis + [1])
-    mark_by_day = {}
-    for d, label, kind in dv["marks"]:
-        mark_by_day.setdefault(d, []).append((label, kind))
-    cols, mrow, parts = [], [], []
-    for d in days:
-        we = " we" if d["weekend"] else ""
-        state = ("before the data starts" if not d["has_data"] else SMALL if d["users"] == SMALL else str(d["raw"])) + (" (so far today, not comparable)" if d["partial"] else "") + (" (Friday or Saturday)" if d["weekend"] else "")
-        tip = f"{d['day']:%a %d %b}: {state}"
-        parts.append(tip)
-        if not d["has_data"]:
-            cols.append(f'<div class="gap{we}" title="{e(tip)}"></div>')
-        elif d["users"] == SMALL:
-            cols.append(f'<div class="gap{we}" title="{e(tip)}"><i class="stub"></i></div>')
-        elif d["raw"] == 0:
-            cols.append(f'<div class="gap{we}" title="{e(tip)}"><i class="dot"></i></div>')
+def device_split(a: dict) -> dict:
+    """Engaged visits of the window by width class (the page records small, medium or large), as a partition protected like every other partition of the report."""
+    m = a["model"]
+    rows = [r for r in _window_rows(m, window_weeks(m)) if not r["glance"] and r["s"].get("d") in DEVICES]
+    groups = {k: ({r["u"] for r in rows if r["s"]["d"] == k}, sum(1 for r in rows if r["s"]["d"] == k)) for k in DEVICES}
+    return {"cells": partition_cells(groups) if rows else {k: 0 for k in DEVICES}, "n": len(rows), "people": len({r["u"] for r in rows})}
+
+
+def version_split(m: Model) -> dict:
+    """S6 as a chart: the people of the last completed week by the newest build day they used: on the newest version (or under 7 days older) or more than 7 days older. Needs 20 people with a recorded build day.
+    The same partition protection as S6: when the older group is under 5 people nothing about the newer group is drawn."""
+    th = m.th
+    L = m.last
+    if not m.usable(L):
+        return {"state": "none"}
+    rows_bt = [x for x in m.visits(L) if is_num(x["s"].get("bt"))]
+    all_bt = [x["s"]["bt"] for x in m.rows if is_num(x["s"].get("bt"))]
+    if not rows_bt:
+        return {"state": "v1"}
+    latest: dict = {}
+    for x in rows_bt:
+        latest[x["u"]] = max(latest.get(x["u"], x["s"]["bt"]), x["s"]["bt"])
+    n6 = len(latest)
+    if n6 < th["min_den"]:
+        return {"state": "few", "n": n6}
+    newest = max(all_bt)
+    stale = sum(1 for v in latest.values() if newest - v > th["s6_age_days"])
+    pc = protect_partition({"old": stale, "new": n6 - stale}, n6)
+    return {"state": "ok", "n": n6, "cells": pc, "days": th["s6_age_days"]}
+
+
+def _stack_panel_parts(a: dict) -> tuple:
+    """(html of the three stacked bars, the tables behind them)."""
+    th, m = a["model"].th, a["model"]
+    parts, tables = [], []
+
+    def add(title, bar, summ, note, table_rows):
+        parts.append(f'<div class="sub"><p class="st">{e(title)}</p>{chart_img(bar, f"{title}: {summ}")}<p class="cap2">{e(note)}</p></div>')
+        tables.append(f'<table><caption class="cap2">{e(title)}</caption><thead><tr><th scope="col">Group</th><th scope="col" class="n">Share</th></tr></thead><tbody>{table_rows}</tbody></table>')
+
+    def rows_of(cells, names, summ_drawn):
+        return "".join(f'<tr><th scope="row">{e(names[k])}</th><td class="n">{e(SMALL) if v == SMALL else num(v)}</td></tr>' for k, v in cells.items())
+    ds = device_split(a)
+    if ds["n"]:
+        bar, summ, _ = stack_bar(ds["cells"], DEVICES, th)
+        add("Screen size, engaged visits", bar, summ, stack_note(ds["cells"], th) + f" ({a['window']['label']}).", rows_of(ds["cells"], DEVICES, None))
+    vs = version_split(m)
+    if vs["state"] == "ok":
+        names = {"new": f"On the newest page version, or under {vs['days']} days older", "old": f"More than {vs['days']} days older"}
+        cells = vs["cells"]
+        bar, summ, _ = stack_bar(cells, names, th, unit="people")
+        add("Page version, people active in the last completed week", bar, summ, (stack_note(cells, th, "people") if SMALL in cells.values() else f"n={vs['n']} people with a recorded build day."), rows_of(cells, names, None))
+    elif vs["state"] in ("v1", "few"):
+        why = "not recorded in v1 records" if vs["state"] == "v1" else f"too few people (n={vs['n']}, needs {th['min_den']})"
+        add("Page version, people active in the last completed week", f'<div class="sb" aria-hidden="true"><span class="stubfull"><b>Not shown</b></span></div>', "not shown: " + why, "Not shown: " + why + ".", f'<tr><td colspan="2">{e(why)}</td></tr>')
+    fr = a["use"]["fresh"]
+    for key, title in (("lv", "Connection at the start of a visit"), ("fa", "Age of the data at the start of a visit")):
+        f = fr.get(key)
+        if not f:
+            add(title, '<div class="sb" aria-hidden="true"><span class="stubfull"><b>Not recorded</b></span></div>', "not recorded in v1 records", "Not recorded in v1 records.", '<tr><td colspan="2">not recorded in v1 records</td></tr>')
+            continue
+        names = {nm: nm[0].upper() + nm[1:] for nm in f["cells"]}
+        bar, summ, _ = stack_bar(f["cells"], names, th)
+        add(title, bar, summ, stack_note(f["cells"], th), rows_of(f["cells"], names, None))
+    return f'<div class="sbgrid">{"".join(parts)}</div>', "".join(tables)
+
+
+def _devices_block(a: dict) -> str:
+    body, tables = _stack_panel_parts(a)
+    return panel("Where and how the page is opened", "Engaged visits by screen size and the freshness of the data; the page version of the people active in the last completed week.", body, show_data(tables), "p-devices")
+
+
+def _breakdowns(a: dict) -> str:
+    sec, _ = _read_block(a)
+    left = f'<div class="stk">{sec}{_actions_block(a)}</div>'
+    return (f'<section class="blk" id="breakdowns" aria-labelledby="h-break"><h2 id="h-break">What people read and use</h2><div class="row2e">{left}{_controls_block(a)}</div>'
+            f'<div class="sub">{_devices_block(a)}</div></section>')
+
+
+# ------------------------------------------------------------------------------------------------------------ day and hour
+def hour_grid(m: Model) -> dict:
+    """Engaged visits by weekday (Israel day of the visit) and hour of the day (Israel time, from the opening time the v2 page records in hours) over the completed weeks. A cell counts its visits and its distinct people; a cell of 1 to 4 people is
+    withheld (hatched, no number). No total is printed next to the cells, so no cell can be reconstructed by subtraction. A visit whose opening time does not fall on its own day is not used (counted)."""
+    done = set(m.weeks)
+    cells: dict = defaultdict(lambda: [0, set()])
+    used = skipped = 0
+    for r in m.rows:
+        if r["glance"] or not r["v2"] or r["ws"] not in done or not is_num(r["s"].get("t")):
+            continue
+        try:
+            t = dt.datetime.fromtimestamp(r["s"]["t"] * 3600, dt.timezone.utc).astimezone(IL)
+        except (OverflowError, OSError, ValueError):
+            skipped += 1
+            continue
+        if t.date() != r["day"]:
+            skipped += 1
+            continue
+        k = ((r["day"].weekday() + 1) % 7, t.hour)                                          # 0 = Sunday
+        cells[k][0] += 1
+        cells[k][1].add(r["u"])
+        used += 1
+    if used < HEATMAP_MIN_VISITS or len({u for c in cells.values() for u in c[1]}) < MIN_USERS:
+        return {"state": "few", "used": used}
+    out = {k: ({"state": "none"} if v[0] == 0 else {"state": "small"} if len(v[1]) < MIN_USERS else {"state": "ok", "visits": v[0], "people": len(v[1])}) for k, v in cells.items()}
+    hours = sorted({h for _, h in out})
+    lo, hi = min(hours), max(hours)
+    vals = sorted(c["visits"] for c in out.values() if c["state"] == "ok")
+    return {"state": "ok", "cells": out, "hours": list(range(lo, hi + 1)), "vals": vals, "used": used, "skipped": skipped}
+
+
+def _bucket(v: int, vals: list) -> int:
+    """1..HM_BUCKETS: the rank of a cell among the printed cells (quantile buckets), so one busy hour does not turn every other cell to the palest tint."""
+    if len(vals) < 2:
+        return HM_BUCKETS
+    rank = sum(1 for x in vals if x <= v) / len(vals)
+    return max(1, min(HM_BUCKETS, math.ceil(rank * HM_BUCKETS)))
+
+
+def _heatmap_block(a: dict) -> str:
+    m = a["model"]
+    hg = hour_grid(m)
+    head = '<section class="blk" id="when" aria-labelledby="h-when"><h2 id="h-when">When people visit</h2>'
+    title = "Engaged visits by weekday and hour"
+    if not any(r["v2"] for r in m.rows):
+        return head + panel(title, "Israel time.", '<p class="empty-note">Not recorded in v1 records: the earlier page did not record the hour of a visit.</p>') + "</section>"
+    if hg["state"] != "ok":
+        return head + panel(title, "Israel time.", f'<p class="empty-note">Too early: needs {HEATMAP_MIN_VISITS} engaged visits with a recorded time, and {MIN_USERS} {"person" if MIN_USERS == 1 else "people"}.</p>') + "</section>"
+    days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+    hours = hg["hours"]
+    cells_html, summ, trs = [], [], []
+    for d in range(7):
+        cells_html.append(f'<span class="d">{days[d]}</span>')
+        cs = []
+        for h in hours:
+            c = hg["cells"].get((d, h), {"state": "none"})
+            name = f"{days[d]} {h:02d}:00"
+            if c["state"] == "ok":
+                b = _bucket(c["visits"], hg["vals"])
+                cells_html.append(f'<i class="c v{b}" title="{e(name)}: {c["visits"]} visits"></i>')
+                cs.append(f'<td class="n">{c["visits"]}</td>')
+                summ.append(f"{name} {c['visits']}")
+            elif c["state"] == "small":
+                cells_html.append(f'<i class="c h" title="{e(name)}: {e(SMALL)}"></i>')
+                cs.append(f'<td class="n">{e(SMALL)}</td>')
+                summ.append(f"{name} {SMALL}")
+            else:
+                cells_html.append(f'<i class="c" title="{e(name)}: none"></i>')
+                cs.append('<td class="n">0</td>')
+        trs.append(f'<tr><th scope="row">{days[d]}</th>{"".join(cs)}</tr>')
+    xh = '<span class="x"></span>' + "".join(f'<span class="x">{h}</span>' for h in hours)
+    busy = max(hg["vals"])
+    inner = f'<div class="hm" style="--cols:{len(hours)}" aria-hidden="true">{xh}{"".join(cells_html)}</div>'
+    ramp = ('<div class="ramp" aria-hidden="true"><span>Fewer visits</span>' + "".join(f'<i class="v{b}"></i>' for b in range(1, HM_BUCKETS + 1)) + f'<span>more (up to {busy} in one hour)</span>'
+            '<span class="sep"></span>' + ('<i class="h"></i><span>' + e(SMALL) + '</span>' if MIN_USERS > 1 else '') + '<i></i><span>none</span></div>')
+    label = f"Engaged visits by weekday and hour of the day, Israel time, all completed weeks. Cells with fewer than {MIN_USERS} people are withheld. " + "; ".join(summ[:400]) + "."
+    table = ('<table id="hours"><thead><tr><th scope="col">Weekday</th>' + "".join(f'<th scope="col" class="n">{h}:00</th>' for h in hours) + f'</tr></thead><tbody>{"".join(trs)}</tbody></table>'
+             f'<p class="cap2">Engaged visits per weekday and hour (Israel time) over the completed weeks; {len(hours)} hours from the first to the last hour with a visit. {e(guard_note("A cell of fewer than {n} people shows {g}. No total is shown: it would reveal a withheld cell."))}'
+             + (f" {hg['skipped']} visit(s) with an opening time outside their own day were left out." if hg["skipped"] else "") + "</p>")
+    cap = "Engaged visits per weekday (rows) and hour of the day (columns, Israel time), all completed weeks. Darker = more visits."
+    return head + panel(title, cap, chart_img(inner, label) + ramp, show_data(table), "p-hours") + "</section>"
+
+
+# ------------------------------------------------------------------------------------------------------------ do people come back
+def cohort_grid(m: Model) -> dict:
+    """Cohort retention: rows = the week people were first seen (a Sunday-start week), columns = weeks since, a cell = the people of the cohort that were active that week. Only people with a known first day (not before the go-live day,
+    not before the 12 weeks kept) are in a cohort, and only completed weeks are columns. A cohort of fewer than 5 people is withheld; a cell is protected as the partition 'returned / not returned' of its cohort, like the week-1 and week-4 figures;
+    a percentage is printed from a cohort of 20 people, below that the count."""
+    th = m.th
+    by_week: dict = defaultdict(list)
+    for u in m.people:
+        if u in m.pre_golive or m.first_real[u] < m.cutoff:
+            continue
+        by_week[week_start(m.first_real[u])].append(u)
+    rows = []
+    for ws in sorted(by_week):
+        k_max = (m.last - ws).days // 7
+        if k_max < 1:
+            continue
+        people = by_week[ws]
+        n = len(people)
+        row = {"ws": ws, "n": n, "n_g": gn(n), "cells": []}
+        for k in range(1, k_max + 1):
+            if n < MIN_USERS:
+                row["cells"].append({"k": k, "state": "small"})
+                continue
+            w = ws + dt.timedelta(days=7 * k)
+            x = sum(1 for u in people if u in m.active(w))
+            pc = protect_partition({"ret": x, "not": n - x}, n)
+            if pc["ret"] == SMALL:
+                row["cells"].append({"k": k, "state": "small"})
+            elif n >= th["min_den"]:
+                row["cells"].append({"k": k, "state": "pct", "x": x, "pct": rnd(100 * x / n)})
+            else:
+                row["cells"].append({"k": k, "state": "count", "x": x})
+        rows.append(row)
+    eligible = [r for r in rows if r["n"] >= MIN_USERS]
+    return {"rows": rows, "eligible": len(eligible), "kmax": max((len(r["cells"]) for r in rows), default=0)}
+
+
+def _cohort_block(a: dict) -> str:
+    m = a["model"]
+    th = m.th
+    cg = cohort_grid(m)
+    r_ = a["retention"]
+    if not cg["eligible"]:
+        body = f'<p class="empty-note">Too early: needs a first-seen week with {MIN_USERS} or more people and one completed week after it.</p>'
+        table = ""
+        summ = ""
+    else:
+        kmax = cg["kmax"]
+        head = '<span class="x"></span>' + "".join(f'<span class="x">+{k}</span>' for k in range(1, kmax + 1))
+        cells, trs, summ_l = [], [], []
+        for r in cg["rows"]:
+            small_row = r["n"] < MIN_USERS
+            lbl = f'{d_label(r["ws"])}, ' + (e(SMALL) if small_row else f"n={r['n']}")
+            cells.append(f'<span class="rl">{lbl}</span>')
+            tds = []
+            for ci, c in enumerate(r["cells"]):
+                nm = f"{week_label(r['ws'])} cohort, week +{c['k']}"
+                if c["state"] == "small":
+                    if small_row:                                                           # a cohort under 5 people: one hatched bar for the whole row
+                        if ci == 0:
+                            cells.append(f'<i class="cc h" style="grid-column:span {len(r["cells"])}" title="{e(week_label(r["ws"]))} cohort: {e(SMALL)}"></i>')
+                    else:
+                        cells.append(f'<i class="cc h" title="{e(nm)}: {e(SMALL)}"></i>')
+                    tds.append(f'<td class="n">{e(SMALL)}</td>')
+                    summ_l.append(f"{nm} {SMALL}")
+                elif c["state"] == "pct":
+                    b = _bucket_pct(c["pct"])
+                    cells.append(f'<i class="cc v{b}{" dk" if b >= 5 else ""}" title="{e(nm)}: {c["pct"]}%">{c["pct"]}%</i>')
+                    tds.append(f'<td class="n">{c["pct"]}%</td>')
+                    summ_l.append(f"{nm} {c['pct']}%")
+                else:
+                    cells.append(f'<i class="cc n" title="{e(nm)}: {c["x"]} of {r["n"]}">{c["x"]}</i>')
+                    tds.append(f'<td class="n">{c["x"]} of {r["n"]}</td>')
+                    summ_l.append(f"{nm} {c['x']} of {r['n']}")
+            for _ in range(kmax - len(r["cells"])):
+                cells.append('<i></i>')
+            trs.append(f'<tr><th scope="row">{e(week_label(r["ws"]))}</th><td class="n">{e(SMALL) if small_row else r["n"]}</td>{"".join(tds)}</tr>')
+        grid = f'<div class="ch" style="--cols:{kmax}" aria-hidden="true">{head}{"".join(cells)}</div>'
+        ramp = ('<div class="ramp" aria-hidden="true"><span>0%</span>' + "".join(f'<i class="v{b}"></i>' for b in range(1, 6)) + '<span>100% back</span><span class="sep"></span><i class="cc n"></i><span>count (cohort under 20)</span>' + ('<i class="h"></i><span>' + e(SMALL) + '</span>' if MIN_USERS > 1 else '') + '</div>')
+        label = "Cohort retention: for each week people were first seen, the people active again N weeks later. " + "; ".join(summ_l[:300]) + "."
+        body = chart_img(grid, label) + ramp
+        table = ('<table id="cohorts"><thead><tr><th scope="col">First seen in the week of</th><th scope="col" class="n">People</th>' + "".join(f'<th scope="col" class="n">+{k} wk</th>' for k in range(1, kmax + 1))
+                 + f'</tr></thead><tbody>{"".join(trs)}</tbody></table><p class="cap2">Rows are the people first seen in a Sunday-to-Saturday week; people first seen before the go-live day or before the 12 weeks kept are not in a cohort. A cell is the people active again that many weeks later; '
+                 f'a percentage needs a cohort of 20 people, a smaller cohort prints counts, {e(guard_note("a cohort or a cell of fewer than {n} people prints {g}."))} Use it to see whether newcomers stay; never to judge a person or a team.</p>')
+    cap = "People active again N weeks after the week they were first seen (completed weeks only)."
+    return panel("Do newcomers come back?", cap, body, show_data(table) if table else "", "p-cohorts")
+
+
+def _bucket_pct(p: int) -> int:
+    return 1 if p < 20 else 2 if p < 40 else 3 if p < 60 else 4 if p < 80 else 5
+
+
+def _return_habit_block(a: dict) -> str:
+    th = a["model"].th
+    h, r = a["habit"], a["retention"]
+    rows = []
+    for key, label in (("w1", "Back within a week of the first visit"), ("w4", "Back in week 4 after the first visit")):
+        x = r[key]
+        if not x["raw_n"]:
+            rows.append({"label": label + " (no eligible people yet)", "guard": False, "text": "none yet", "frac": 0})
+        elif x["x"] == SMALL:
+            rows.append({"label": f"{label} (eligible: {fmt_n(x['n'])})", "guard": True, "text": SMALL, "frac": 0})
         else:
-            cols.append(f'<div class="d{we}{" part" if d["partial"] else ""}" style="height:{max(2.0, 100 * d["raw"] / top):.1f}%" title="{e(tip)}"></div>')
-        mk = mark_by_day.get(d["day"])
-        mrow.append(f'<span class="{mk[0][1]}">&#9650;</span>' if mk else "<span></span>")
-    return (f'<div class="chartwrap"><div class="bars" role="img" aria-label="People per day, last 28 days. {e("; ".join(parts))}">{"".join(cols)}</div></div>'
-            f'<div class="marks" aria-hidden="true">{"".join(mrow)}</div>'
-            f'<div class="axis" aria-hidden="true"><span>{d_label(days[0]["day"])}</span><span>most in one day: {top}</span><span>{d_label(days[-1]["day"])}</span></div>')
+            rows.append({"label": f"{label} (eligible: {x['raw_n']})", "guard": False, "text": share_text(x["x"], x["raw_n"], th), "frac": x["x"] / x["raw_n"]})
+    hab_t = ""
+    if h["state"] != "ok":
+        hab_t = f'<p class="empty-note" id="habit">Habit: {e(h["text"])}</p>'
+    else:
+        nprint = h["n_print"]
+        if nprint == SMALL or h["x"] == SMALL:
+            rows.append({"label": f"Active in {h['min_weeks']} or more of the last {h['weeks']} weeks", "guard": True, "text": SMALL, "frac": 0})
+        else:
+            rows.append({"label": f"Active in {h['min_weeks']} or more of the last {h['weeks']} weeks (established: {nprint})", "guard": False, "text": share_text(h["x"], h["n"], th), "frac": h["x"] / h["n"]})
+    chart, summ = hbars(rows)
+    body = chart_img(chart, f"Return and habit: {summ}.")
+    # the histogram of weeks active
+    hist = ""
+    data = ""
+    if h["state"] == "ok" and h["n_print"] != SMALL and h["bins"]:
+        bins = h["bins"]
+        mx = max(c for _, _, c in bins) or 1
+        lab = lambda lo, hi: f"{lo} week{'s' if lo != 1 else ''}" if lo == hi else f"{lo} to {hi} weeks"
+        hrows = [{"label": lab(lo, hi), "guard": False, "text": str(c), "frac": c / mx, "alt": True} for lo, hi, c in bins]
+        hchart, hsumm = hbars(hrows, axis=("0", "", f"{mx} people"))
+        hlabel = "Weeks active out of the last %d among %s established people: %s." % (h["weeks"], h["n_print"], hsumm)
+        hist = f'<div class="sub"><p class="st">Weeks active out of the last {h["weeks"]}, established people</p>{chart_img(hchart, hlabel)}<p class="cap2">{e(guard_note("Neighbouring groups are merged until each has at least {n} people.") or "Every group is shown as it is.")}</p></div>'
+        brow = "".join(f'<tr><th scope="row">{e(lab(lo, hi))}</th><td class="n">{num(c)}</td></tr>' for lo, hi, c in bins)
+        data = f'<table id="habit-table"><thead><tr><th scope="col">Weeks active</th><th scope="col" class="n">People</th></tr></thead><tbody>{brow}</tbody></table>'
+    rrows = []
+    for key, label, when in (("w1", "Week 1", "a visit on a later day within 7 days of the first visit"), ("w4", "Week 4", "a visit in days 22 to 28 after the first visit")):
+        x = r[key]
+        res = "no eligible people yet" if not x["raw_n"] else sh(x["x"], x["raw_n"], th) + (" (indicative)" if x["indicative"] else "")
+        rrows.append(f'<tr><th scope="row">{label}: {e(when)}</th><td class="n">{num(x["n"])}</td><td class="n">{res}</td></tr>')
+    table = (f'<table id="retention"><thead><tr><th scope="col">Retention</th><th scope="col" class="n">Eligible people</th><th scope="col" class="n">Came back</th></tr></thead><tbody>{"".join(rrows)}</tbody></table>'
+             + (f'<p class="cap2" id="habit">Habit: {sh(h["x"], h["n"], th) if h["n_print"] != SMALL and h["x"] != SMALL else e(SMALL)} of {num(h["n_print"])} established people were active in {h["min_weeks"]} or more of the last {h["weeks"]} completed weeks ({e(h["window"])}). Established = first seen at least 14 days before the compared week.</p>' if h["state"] == "ok" else "")
+             + data + '<p class="cap2">Retention follows people first seen at least 7 (or 28) days ago; people that arrived later are not in the figure yet. Indicative under 30 people.</p>')
+    return panel("Return and habit", "Share of eligible people that came back, and of established people active in 4 or more of the last 8 weeks.", body + hist + hab_t, show_data(table), "p-habit")
 
 
-def _rhythm_block(a: dict) -> str:
-    dv = a["daily"]
-    mk = "".join(f"<li>{d_label(d)}: {e(label)}</li>" for d, label, _ in dv["marks"])
-    ww = f'Sunday to Thursday had {dv["workweek"]["pct"]}% of the {dv["workweek"]["n"]} visits in the last 28 days. ' if dv["workweek"] else ""
-    note = (e(dv["note"]) + " ") if dv["note"] else ""
-    evt = (e(dv["events"]["text"]) + " ") if dv["events"] else ""
-    table = ("<details class=\"vd\"><summary>Show data</summary><table><thead><tr><th scope=\"col\">Day</th><th scope=\"col\" class=\"n\">People</th></tr></thead><tbody>"
-             + "".join(f'<tr><td>{d["day"].isoformat()}{" (so far today, not comparable)" if d["partial"] else ""}</td><td class="n">{"before the data starts" if not d["has_data"] else num(d["users"])}</td></tr>' for d in reversed(dv["days"])) + "</tbody></table></details>")
-    return ('<section class="blk" aria-labelledby="h-daily"><h2 id="h-daily">People per day, last 28 days</h2>'
-            f'<p class="why">{e(ww)}Distinct people with a visit that day. Hatched blue: today so far, not comparable. Grey hatch: under 5 people. Dot: nobody. Blank: before the data starts. Lighter columns: Friday and Saturday, never part of a baseline. {note}{evt}</p>'
-            f'{_chart_days(a)}' + (f'<ul class="gov" aria-label="Calendar marks">{mk}</ul>' if mk else "") + table + "</section>")
+def _back_block(a: dict) -> str:
+    return (f'<section class="blk" id="back" aria-labelledby="h-back"><h2 id="h-back">Do people come back?</h2><div class="row2">{_cohort_block(a)}{_return_habit_block(a)}</div></section>')
 
 
+# ------------------------------------------------------------------------------------------------------------ recording health
 def _health_block(a: dict) -> str:
     th = a["model"].th
+    m = a["model"]
     h = a["health"]
     rows = [("Visits in the data", f"{fmt_n(h['visits_g'])}", f"{fmt_n(h['v2_g'])} from the newer page, {num(h['v1_visits'])} from the earlier page ({num(h['v1_people'])} people)")]
+    bars, stacks = [], ""
     if h["has_v2"]:
         gl = h["glance"]
         rows += [("Glance visits", sh(gl["x"], gl["n_g"], th), f"of {fmt_n(gl['n_g'])} visits; engaged visits {num(gl['engaged'])}. A glance is 5 seconds or more with no input and under 30 seconds. Engaged = 30 seconds or more, or with input."),
                  ("Visible, no active seconds", sh(h["focus"]["x"], h["focus"]["n_g"], th), "visits with visible time but no active seconds: a high share points at a focus problem in the page frame, not at idle readers"),
                  ("Real page errors", sh(h["errors_real"]["x"], h["errors_real"]["n_g"], th), "of visits (v2 pages)"),
                  ("Benign notifications", sh(h["errors_benign"]["x"], h["errors_benign"]["n_g"], th), "counted apart and never flagged")]
+        cells = {"glance": gl["x"], "engaged": gl["engaged"]}
+        sbar, ssum, _ = stack_bar(cells, {"glance": "Glance visits", "engaged": "Engaged visits"}, th)
+        stacks = f'<div class="sub"><p class="st">Glance and engaged visits (newer page)</p>{chart_img(sbar, "Glance and engaged visits: " + ssum)}<p class="cap2">{e(stack_note(cells, th))}</p></div>'
+
+        def share_row(label, d):
+            if d["x"] == SMALL:
+                return {"label": label, "guard": True, "text": SMALL, "frac": 0}
+            return {"label": label, "guard": False, "text": share_text(d["x"], d["n"], th), "frac": (d["x"] / d["n"]) if d["n"] else 0}
+        bars += [share_row("Real page errors (of visits)", h["errors_real"]), share_row("Benign notifications (of visits)", h["errors_benign"]), share_row("Visible but no active seconds (of visits)", h["focus"]), share_row("Visits that dropped keys (of visits)", h["dropped"])]
     else:
         rows.append(("Glance visits, focus, benign errors", "-", "not recorded in v1 records: the data holds only the earlier page's visits, so adoption is probably under-counted"))
+        bars.append({"label": "Visits that dropped keys (of visits)", "guard": h["dropped"]["x"] == SMALL, "text": share_text(h["dropped"]["x"], h["dropped"]["n"], th) if h["dropped"]["x"] != SMALL else SMALL, "frac": (h["dropped"]["x"] / h["dropped"]["n"]) if (h["dropped"]["x"] != SMALL and h["dropped"]["n"]) else 0})
+    if h["attributed"] is not None:
+        bars.append({"label": "Active time attributed to a section", "guard": False, "text": f"{h['attributed']}%", "frac": h["attributed"] / 100, "alt": True})
     rows += [("Visits that dropped keys", sh(h["dropped"]["x"], h["dropped"]["n_g"], th), "at the 40-key cap"),
              ("Active time attributed to a section", num(h["attributed"], "%") if h["attributed"] is not None else "-", "of active seconds"),
              ("Records not opened for over 12 weeks", num(h["stale_records"]), f"their weeks are left out; delete them. {h['stale_sessions']} sessions older than 12 weeks were ignored"),
              ("Records cut by the size cap", num(h["pruned_records"]), "older weeks dropped to keep a record small")]
-    trs = "".join(f'<tr><th scope="row">{e(n)}<div class="cap">{e(d)}</div></th><td class="n">{v}</td></tr>' for n, v, d in rows)
-    return ('<section class="blk" aria-labelledby="h-health"><h2 id="h-health">Recording health</h2><p class="why">Can the measurement itself be trusted? These figures describe how the page recorded visits, not how people use it.</p>'
-            f'<table id="health" class="two"><thead><tr><th scope="col">Check and reading</th><th scope="col" class="n">Result</th></tr></thead><tbody>{trs}</tbody></table></section>')
+    chart, summ = hbars(bars)
+    left = stacks or '<p class="empty-note">Glance and engaged visits: not recorded in v1 records.</p>'
+    body = f'<div class="row2e"><div>{left}</div><div>{chart_img(chart, "Recording health: " + summ + ".")}</div></div>'
+    trs = "".join(f'<tr><th scope="row">{e(n)}<div class="cap2">{e(d)}</div></th><td class="n">{v}</td></tr>' for n, v, d in rows)
+    table = f'<table id="health" class="two"><thead><tr><th scope="col">Check and reading</th><th scope="col" class="n">Result</th></tr></thead><tbody>{trs}</tbody></table>'
+    return ('<section class="blk" id="recording" aria-labelledby="h-health"><h2 id="h-health">Recording health</h2>'
+            + panel("Can the measurement be trusted?", "How the page recorded visits, not how people use it; shares of visits unless named.", body, show_data(table), "p-health") + "</section>")
 
 
-def _measure_block() -> str:
+def _measure_block(a: dict | None = None) -> str:
     return ('<section class="blk" aria-labelledby="h-how"><h2 id="h-how">How this is measured</h2>'
-            f'<ul class="gov" id="governance">{"".join(f"<li>{e(x)}</li>" for x in GOV)}</ul>'
+            f'<ul class="gov" id="governance">{"".join(f"<li>{e(x)}</li>" for x in gov())}</ul>'
             '<details class="vd" id="how"><summary>What is counted and what is not</summary>'
+            f'<p class="cap">{e(coverage_not_counted())}</p>'
             '<p class="cap">The published Delivery Pulse page counts, for each person with an id, which sections they read, which filters and buttons they use, which Jira links they follow (by section only), how long the page is open in front of them and in use, '
-            'their screen size, the page version, how fresh the data was and page errors. It records no names, e-mail addresses, issue keys, project, team or pod names or search text. People that are signed out or hold view-only access, that open an offline copy, '
+            'their screen size, the page version, how fresh the data was, the hour a visit opened and page errors. It records no names, e-mail addresses, issue keys, project, team or pod names or search text. People that are signed out or hold view-only access, that open an offline copy, '
             'or whose browser blocks the page&#39;s storage are not counted, so these are counts of people with an id, not of all visitors. A visit that is only looked at for 5 seconds or more is recorded as a glance; a visit with input or 30 seconds or more is an engaged visit. '
-            f'Weeks run Sunday to Saturday and count as complete once Saturday has passed. Any figure that rests on fewer than {MIN_USERS} people shows "&lt;5 users". Weeks before the first record show "before the data starts", not zero. '
+            f'Weeks run Sunday to Saturday and count as complete once Saturday has passed. {e(guard_note("Any figure that rests on fewer than {n} people shows {g}."))} Weeks before the first record show "before the data starts", not zero. '
             'This page is a snapshot of an export, not a live view.</p></details></section>')
 
 
+def ribbon_text(a: dict) -> str:
+    """The coverage ribbon: two lines at most on a desktop. The longer list of what is not counted is under 'How this is measured'. It says the small-group setting in force."""
+    who = _who(a)
+    span = f", {d_label(a['first_day'])} to {fmt_date(a['last_day'])} (Israel time)" if a["first_day"] else ""
+    aud = f", of an audience of {a['audience']['size']} (a lower bound)" if a["audience"] else ""
+    return (f"Based on {who} with an id{span}{aud}. Pseudonymous, not anonymous. Not counted: signed-out, view-only, offline-copy and storage-blocked visitors. "
+            + small_rule(ribbon=True) + " Never used to rank or assess people or teams.")
+
+
+def _period(a: dict) -> str:
+    m = a["model"]
+    if not m.weeks:
+        return ""
+    return f"Period: {len(m.weeks)} completed week{'s' if len(m.weeks) != 1 else ''}, {d_label(m.weeks[0])} to {d_label(m.weeks[-1] + dt.timedelta(days=6))} (Sunday to Saturday), and the week in progress."
+
+
 def html_report(a: dict, standalone: bool = False) -> str:
-    """The page: an Artifact fragment (own title, inline style, no script). Order: coverage ribbon, the hero (people active in the last completed week and the growth verdict), what changed since last report, the adoption views,
-    what people read and use, the daily rhythm with calendar notes, recording health, how this is measured."""
+    """The page: an Artifact fragment (own title, inline style, no script). Order, as in an analytics report: coverage ribbon, key figures with sparklines, the trend (people per week, per day),
+    the breakdowns (sections, controls, actions, devices), when people visit, whether they come back, recording health, how this is measured."""
+    set_min_group(a["model"].th.get("min_group", 5))
     stamp = il_stamp(a["as_of"]) or f"{a['ref']} (no export time given)"
     out: list = []
     add = out.append
     add('<title>Delivery Pulse Usage</title>\n<meta name="claude:viewport-fit-sides" content="cover">\n<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600&display=swap">')
     add(f"<style>{CSS}</style>")
-    add(f'<header class="top gutter"><h1>Delivery Pulse Usage</h1><span class="stamp" id="asof">Data as of {e(stamp)}</span></header>')
+    per = _period(a) if a["n_sessions"] else ""
+    add(f'<header class="top gutter"><h1>Delivery Pulse Usage</h1><span class="stamp" id="asof">Data as of {e(stamp)}</span>' + (f'<span class="period" id="period">{e(per)}</span>' if per else "") + '</header>')
     add('<main class="gutter">')
     if a["demo"]:
         add('<p class="demo" id="demo-banner" role="note">Demo data: this page shows fictitious people and numbers so the layout can be reviewed. It says nothing about real use.</p>')
     for w in export_warnings(a):
         add(f'<p class="warn" role="status">{ICON_WARN}<span>{e(w)}</span></p>')
-    add(f'<p class="ribbon" id="coverage"><b>Coverage.</b> {e(coverage_text(a))}</p>')
+    add(f'<p class="ribbon" id="coverage"><b>Coverage.</b> {e(ribbon_text(a))}</p>')
     if not a["n_sessions"]:
         add('<section class="empty" id="empty" aria-labelledby="h-empty"><h2 id="h-empty">No usage recorded yet</h2>'
             '<p>The export holds no visit that this report can use, so there is nothing to show. Nothing on this page is an estimate.</p>'
@@ -2120,15 +3115,16 @@ def html_report(a: dict, standalone: bool = False) -> str:
             add('<p class="cap">Some documents were skipped or are older than 12 weeks: see the warning above or the text report.</p>')
     else:
         if a["history_days"] < SHORT_HISTORY_DAYS:
-            add(f'<p class="note" id="caveat">Only {a["history_days"]} days of data so far: trends are not meaningful yet.</p>')
-        add(_hero(a))
-        add(_changed(a))
-        add(_return_block(a))
-        add(_read_block(a))
-        add(_use_block(a))
-        add(_rhythm_block(a))
+            add(f'<p class="note" id="caveat">Only {a["history_days"]} day{"" if a["history_days"] == 1 else "s"} of data so far: trends are not meaningful yet.</p>')
+        if a["audience"] and a["audience"]["stale"]:
+            add('<p class="note" id="audience-note">The audience size looks out of date: more people are in the data than in the audience.</p>')
+        add(_kpis(a))
+        add(_trend(a))
+        add(_breakdowns(a))
+        add(_heatmap_block(a))
+        add(_back_block(a))
         add(_health_block(a))
-    add(_measure_block())
+    add(_measure_block(a))
     add("</main>")
     add('<footer class="gutter">Delivery Pulse Usage. Counts only: this page never contains a user id.</footer>')
     frag = "\n".join(out)
@@ -2156,7 +3152,9 @@ def load_thresholds(path: str | None) -> dict:
                 raise ValueError(f"unknown threshold {k!r}; known: {', '.join(sorted(THRESHOLDS))}")
             if not is_num(v):
                 raise ValueError(f"threshold {k!r} must be a number")
-            th[k] = v
+            if k == "min_group" and (int(v) != v or v < 1):
+                raise ValueError("threshold 'min_group' must be a whole number of 1 or more")
+            th[k] = int(v) if k == "min_group" else v
     return th
 
 
@@ -2172,6 +3170,7 @@ def main(argv=None) -> int:
     ap.add_argument("--thresholds", help="a JSON file overriding THRESHOLDS (unknown keys are an error)")
     ap.add_argument("--calendar", help="usage_calendar.json from `build_dashboard.py --emit-usage-calendar`, optionally with owner `events` (dates) and `quiet_weeks` (dates)")
     ap.add_argument("--demo", action="store_true", help="use a fictitious data set (about 50 people, 11 completed weeks, built to exercise the failure modes) and show a Demo data banner")
+    ap.add_argument("--min-group", type=int, help="the smallest group of people a number is shown for (default 5; 1 shows every number as it is: with few people the numbers describe individual visits, so keep the page private)")
     ap.add_argument("--text", action="store_true", help="also print the text report when --html is given")
     a = ap.parse_args(argv)
     now = dt.datetime.now(IL)
@@ -2179,6 +3178,10 @@ def main(argv=None) -> int:
     today = dt.date.fromisoformat(a.today) if a.today else None
     since = dt.date.fromisoformat(a.since) if a.since else None
     th = load_thresholds(a.thresholds)
+    if a.min_group is not None:
+        if a.min_group < 1:
+            ap.error("--min-group must be 1 or more")
+        th["min_group"] = a.min_group
     cal = parse_calendar(json.loads(Path(a.calendar).read_text(encoding="utf-8"))) if a.calendar else None
     stats = None
     if a.demo:
