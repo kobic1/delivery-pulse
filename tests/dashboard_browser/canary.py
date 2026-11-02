@@ -36,7 +36,7 @@ STATES = [
     ("dependencies all", "dp=all"), ("dependencies overdue", "dp=overdue"), ("dependencies external", "dp=external"), ("dependencies gap", "dp=gap"), ("dependencies blocked by external", "dp=blocking"),
     ("NFR by category", "nt=category"), ("NFR by commitment", "nt=commitment"), ("NFR by capability", "nt=capability"), ("NFR by team", "nt=team"),
     ("CXCROSS committed", "cx=committed"), ("CXCROSS not set", "cx=notset"), ("CXCROSS stretch", "cx=stretch"),
-    ("capitalization by release, count", "cpg=release&cpm=count"), ("cycle 2", "cy=DC2"), ("old release, all projects, hostile team", "r=26.2&TEAM"),
+    ("capitalization by release, count", "cpg=release&cpm=count"), ("old Cycles key (cy=DC2, ignored)", "cy=DC2"), ("old release, all projects, hostile team", "r=26.2&TEAM"),
 ]
 
 CHECK_JS = """(() => ({

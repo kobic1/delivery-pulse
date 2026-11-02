@@ -184,8 +184,8 @@ def test_populations_are_named_where_two_numbers_could_be_confused():
 
 def test_the_pod_tiles_are_defined_as_the_code_counts_them():
     cy = BLOCKS["cy"]
-    assert "no epic planned in the selected cycle" in cy                                     # Idle Pods follows the cycle
-    assert "counted over the whole release, not the selected cycle" in cy                   # the other tile does not
+    assert "no epic planned in the selected Delivery Cycles" in cy                           # Idle Pods follows the selected cycles (one, or both combined)
+    assert "counted over the whole release, not the selected Delivery Cycles" in cy         # the other tile does not
     assert "${CY.podWip}" in cy and "reference chosen by the owner, not a program rule" in cy
     assert "except the Pods tiles" in cy                                                   # their numbers open a list in the page, not Jira
 
@@ -432,9 +432,9 @@ def test_the_two_delivery_tiles_follow_the_delivery_cycle_filter_and_the_others_
 
 def test_the_cycles_section_says_how_the_filter_changes_it():
     cy = BLOCKS["cy"]
-    assert "The Delivery Cycle filter in the filter bar decides which cycles the selector offers" in cy
-    assert "epics in no cycle (no planned date, or planned after the release end) are left out" in cy
-    assert "The Epics in Release column and the pod tiles that count the whole release do not follow it" in cy
+    assert "With one cycle ticked it shows that cycle only and leaves those epics out" in cy
+    assert "the epics in no cycle (no planned date, or planned after the release end) stay listed in the After Release End line, the lists and the Epics with Flags" in cy
+    assert "The Epics in Release column and the pod tiles that count the whole release do not follow the Delivery Cycle filter" in cy
 
 
 def test_the_capabilities_disclosure_names_the_commitment_level_filter_and_what_does_not_apply():
@@ -444,3 +444,33 @@ def test_the_capabilities_disclosure_names_the_commitment_level_filter_and_what_
     assert "Teams in the filter bar do not apply to Capabilities" in cap
     assert "a Capability has neither" not in cap and "Teams and Commitment Type do not apply" not in cap
     assert "Filters the Capabilities in this section only." in TEMPLATE
+
+
+def test_the_cycles_section_follows_the_header_filter_and_says_so():
+    """The section has no selector of its own: one banner says which Delivery Cycles it shows, the definitions say 'the selected Delivery Cycles', and the removed control is gone from the page."""
+    cy = BLOCKS["cy"]
+    for gone in ('id="g-cy"', 'id="f-cy"', 'id="lbl-cy"', "cyCycleSelect", "cyControls", "cyDefaultCycle", "state.cy.cycle", 'h.get("cy")', "selector offers"):
+        assert gone not in TEMPLATE and gone not in cy, gone
+    assert 'id="cy-banner"' in TEMPLATE and 'id="cy-showing" role="status"' in TEMPLATE and 'id="cy-tofilter"' in TEMPLATE
+    assert '"h-cycles": "#cy-banner"' in TEMPLATE                                           # a jump to the section lands on the banner
+    for said in ("The section has no filter of its own", "it follows the Release, Projects, Teams and Delivery Cycle filters", "With both cycles ticked (the default) it shows both combined",
+                 "planned in the selected Delivery Cycles", "the selected Delivery Cycles"):
+        assert said in cy, said
+    assert "Change it with the" in TEMPLATE and "Delivery Cycle filter</button> at the top of the page" in TEMPLATE
+    assert "Both cycles together: an epic planned in either counts once." in TEMPLATE and "Epics planned outside it are not counted." in TEMPLATE      # the plain words for the combined view and for one cycle
+    assert 'const head = `Showing ${c.name}${c.multi ? " combined" : ""}`' in TEMPLATE      # the combined view says so in the line a picture of the banner shows
+    assert 'aria-label="Go to the Delivery Cycle filter"' in TEMPLATE                      # the pointer says what it does; the visible words are inside the name
+    assert "The filter bar shows" not in TEMPLATE                                          # the subtitle no longer says a second time what the banner says
+    assert "cyWrite" in TEMPLATE and 'h.set("cy"' not in TEMPLATE                           # the removed key is never written; an older link that carries it is not read
+
+
+def test_the_cycles_banner_is_the_heading_of_the_headline_tiles_and_the_tiles_do_not_repeat_the_cycle():
+    """One strong statement, not five: the banner sits directly above the five tiles (so a picture of the tiles carries it), the tiles have no kicker, and the cycle is named only where a number
+    could be misread: the Planned caption and the Idle Pods caption (the two tiles that count against the cycle), the table caption, the weekly plan, the carry-over heading."""
+    for tile in ("planned", "done", "overdue", "next", "flagged"):
+        m = re.search(r"\n  " + tile + r": \(\{[^}]*\}\) => \(\{c: \"cy\", v:", TEMPLATE)
+        assert m, tile
+        assert 'c: "cy", k:' not in TEMPLATE
+    assert TEMPLATE.index('id="cy-banner"') < TEMPLATE.index('id="cy-kpis1"') < TEMPLATE.index('id="cy-after"')      # banner, then the tiles it heads, then the After Release End line
+    assert "s: `epics planned in ${c.name}`" in TEMPLATE and "with no epic planned in ${c.name}`" in TEMPLATE
+    assert 'id="cy-podscope"' in TEMPLATE and "Only Idle Pods follows the cycle shown above." in TEMPLATE      # the Pods block says which of its figures does not follow the cycle

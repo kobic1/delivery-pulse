@@ -3,16 +3,20 @@
 The page counts pods with podRegistry / cyPodsOf / cyPodFig. This module counts them again from the BAKED epics, in plain Python, from the definitions the owner decided and nothing else:
 
   * a POD is one pod label per project, compared without regard to case; an epic with several labels counts once under each pod; an epic with no label is in no pod;
-  * Idle Pods: pods that carry at least one epic of the release (under the page's Release, Projects and Teams filters) and have NO epic planned in the selected cycle;
+  * Idle Pods: pods that carry at least one epic of the release (under the page's Release, Projects and Teams filters) and have NO epic planned in the selected Delivery Cycles (the Delivery Cycle filter:
+    one cycle, or both combined = the release start to the release end);
   * Pods With More Than 3 Epics In-Progress: more than POD_LEVEL epics In Progress or Validation among the epics of the release, and the number of those epics, each once;
   * the four proactive tiles (act_oracle below): Not-Started Epics Due Within 7 Days, Waiting Dependents Due Soon, Pods To Level, In-Progress Epics Without a Pod Label, with their lists.
 
-The only things taken from the page are its filters and the planned date of each epic (plannedLater; the Target Sprint calendar is proven by the other kinds of link_cycles.py).
+The window of the selected cycles is spelled here again from the release window and the ticked cycles (window_of), never read from the page, so a section that shows the wrong cycles is caught; the section's
+five headline tiles and the banner are recounted the same way (epic_tiles). The only things taken from the page are its filters, the as-of date and the planned date of each epic (plannedLater; the Target
+Sprint calendar is proven by the other kinds of link_cycles.py).
 `check_pods` compares the printed tiles and the two lists opened in turn; `check_node` compares the facts line and the strip of a detail view.
 """
 from __future__ import annotations
 
 import collections
+import datetime as dt
 import json
 import re
 
@@ -26,8 +30,9 @@ POD_JS = r"""(() => {
   const M = CYM; if (!M || M.none) return null;
   const tile = (box, id) => { const t = document.querySelector(box + ' [data-kpi="' + id + '"]'); return t ? {v: t.querySelector('.v').textContent.trim(), s: t.querySelector('.s').textContent.trim(), btn: !!t.querySelector('.v button')} : null; };
   const ids = box => [...document.querySelectorAll(box + ' [data-kpi]')].map(t => t.dataset.kpi);
-  return {release: state.release, projects: [...state.projects], teams: [...state.teams], cycle: {start: M.c.start, end: M.c.end, name: M.c.name},
-    due: Object.fromEntries(M.epics.map(e => [e.k, e.due])), ids1: ids('#cy-kpis1'), ids2: ids('#cy-kpis2'), asof: CY.asOf, grid: document.getElementById('cy-kpis2').className, tiles: Object.fromEntries(ids('#cy-kpis2').map(id => [id, tile('#cy-kpis2', id)])),
+  return {release: state.release, projects: [...state.projects], teams: [...state.teams], dc: [...state.dc], cycleName: M.c.name, banner: (document.getElementById('cy-showing') || {}).textContent, bannerCycles: (document.getElementById('cy-banner') || {dataset: {}}).dataset.cycles,
+    point: (document.getElementById('cy-point') || {}).textContent, podScope: (document.getElementById('cy-podscope') || {}).textContent,
+    tiles1: Object.fromEntries([...document.querySelectorAll('#cy-kpis1 [data-kpi]')].map(t => [t.dataset.kpi, t.querySelector('.v').textContent.trim()])), due: Object.fromEntries(M.epics.map(e => [e.k, e.due])), ids1: ids('#cy-kpis1'), ids2: ids('#cy-kpis2'), asof: CY.asOf, grid: document.getElementById('cy-kpis2').className, tiles: Object.fromEntries(ids('#cy-kpis2').map(id => [id, tile('#cy-kpis2', id)])),
     texts: [...document.querySelectorAll('#cy-kpis1 .kpi, #cy-kpis2 .kpi')].map(t => t.textContent), shown: document.getElementById('cy-pods').hidden === false,
     heading: document.getElementById('cy-pods-h').textContent};
 })()"""
@@ -45,7 +50,9 @@ LIST_JS = r"""((kind) => {
 NODE_JS = r"""(() => {
   const M = CYM, g = M && cyGroups().find(x => x.id === state.cy.tab); if (!g) return null;
   const f = document.getElementById('cy-gfacts');
-  return {level: g.level, epics: g.epics.map(e => e.k), due: Object.fromEntries(M.epics.map(e => [e.k, e.due])), cycle: {start: M.c.start, end: M.c.end}, facts: f ? f.textContent : null,
+  const rows = [...document.querySelectorAll('#cy-weekly tbody tr')].map(r => [...r.children].map(c => c.textContent.trim()));
+  return {level: g.level, epics: g.epics.map(e => e.k), due: Object.fromEntries(M.epics.map(e => [e.k, e.due])), release: state.release, dc: [...state.dc], asof: CY.asOf, facts: f ? f.textContent : null, weekly: rows,
+    tilesV: Object.fromEntries([...document.querySelectorAll('#cy-gkpis [data-kpi]')].map(t => [t.dataset.kpi, t.querySelector('.v').textContent.trim()])),
     ids: [...document.querySelectorAll('#cy-gkpis [data-kpi]')].map(t => t.dataset.kpi), cls: document.getElementById('cy-gkpis').className, texts: [...document.querySelectorAll('#cy-gkpis .kpi')].map(t => t.textContent)};
 })()"""
 PODS_JS = "CYM.tabGroups.filter(n => n.level === 'pod' && !n.virtual).slice(0, 3).map(n => n.id)"
@@ -64,6 +71,30 @@ def flight(es: list) -> list:
     return [e for e in es if e["s"] in N_FLIGHT]
 
 
+def window_of(data: dict, release: str, dc) -> dict:
+    """The cycles the Delivery Cycle filter leaves in, as one window: Delivery Cycle 1 runs from the release start to the end of W6 (start + 48 days), Delivery Cycle 2 from the next day to the release end; a
+    release that ends by the end of W6 has Delivery Cycle 1 only; nothing ticked, or only a cycle the release does not have, means every cycle the release has. Spelled here on purpose."""
+    start, end = (dt.date.fromisoformat(x) for x in data["windows"][release])
+    w6 = start + dt.timedelta(days=48)
+    cycles = {1: (start, end if w6 >= end else w6)}
+    if w6 < end:
+        cycles[2] = (w6 + dt.timedelta(days=1), end)
+    ticked = [i for i in cycles if str(i) in {str(x) for x in dc}]
+    shown = ticked or list(cycles)
+    lo, hi = cycles[shown[0]][0], cycles[shown[-1]][1]
+    name = f"Delivery Cycles {' and '.join(map(str, shown))}" if len(shown) > 1 else f"Delivery Cycle {shown[0]}"
+    return {"start": lo.isoformat(), "end": hi.isoformat(), "name": name, "shown": shown, "all": len(shown) == len(cycles), "has2": 2 in cycles}
+
+
+def epic_tiles(epics: list, asof: str, win: dict, calendar: dict) -> dict:
+    """The five headline figures of the Cycles section from the baked epics: planned (planned date in the window), Done, Overdue (planned before the as-of day, not Done), due in the next 7 days, Flagged."""
+    pl = [e for e in epics if planned_date(e, calendar) and win["start"] <= planned_date(e, calendar) <= win["end"]]
+    nd = [e for e in pl if e["s"] != "Done"]
+    hi = _days(asof, SOON_DAYS)
+    return {"planned": len(pl), "done": len(pl) - len(nd), "overdue": sum(1 for e in nd if planned_date(e, calendar) < asof),
+            "next": sum(1 for e in nd if asof <= planned_date(e, calendar) <= hi), "flagged": sum(1 for e in nd if e.get("fl"))}
+
+
 def figures(epics: list, due: dict, cycle: dict) -> dict:
     pods = pods_of(epics)
 
@@ -80,7 +111,7 @@ def oracle(data: dict, st: dict) -> dict:
     teams, sel = set(st["teams"]), set(st["projects"])
     scope = [e for e in data["epics"] if e["p"] in sel and st["release"] in e["fv"]
              and (not teams or any(t in teams for t in (e.get("tm") or ["(No Team)"])))]
-    return figures(scope, st["due"], st["cycle"])
+    return figures(scope, st["due"], window_of(data, st["release"], st["dc"]))
 
 
 def nat(s: str) -> list:
@@ -97,8 +128,32 @@ def check_pods(res: dict, data: dict, st, tag: str, ch) -> None:
         bad.append(f"{tag}: the tiles are {st['ids1']} and {st['ids2']}")
     if any(re.search(r"undefined|NaN|\[object", t) for t in st["texts"]):
         bad.append(f"{tag}: a tile prints undefined or NaN")
+    if "Only Idle Pods follows the cycle" not in (st.get("podScope") or ""):
+        bad.append(f"{tag}: the Pods block does not say that only Idle Pods follows the cycle: {st.get('podScope')!r}")
     if not st["shown"] or st["heading"] != f"Pods in {st['release']}":
         bad.append(f"{tag}: the Pods block is hidden or its heading is '{st['heading']}'")
+    win = window_of(data, st["release"], st["dc"])
+    cal = {s["n"]: s["end"] for s in data["sprints"]}
+    want_banner = f"Showing {win['name']}{' combined' if len(win['shown']) > 1 else ''} · {win['start']} to {win['end']}"
+    if st["banner"] != want_banner or st["cycleName"] != win["name"] or st["bannerCycles"] != "+".join(map(str, win["shown"])):
+        bad.append(f"{tag}: the banner says {st['banner']!r} ({st['bannerCycles']}), the recount {want_banner!r}")
+    if win["has2"] and "Delivery Cycle filter" not in (st["point"] or ""):
+        bad.append(f"{tag}: the banner does not point to the Delivery Cycle filter: {st['point']!r}")
+    if win["has2"] and win["all"] and "Both cycles together" not in (st["point"] or ""):
+        bad.append(f"{tag}: both cycles shown, and the banner does not say they are counted together: {st['point']!r}")
+    if win["has2"] and not win["all"] and "planned outside it are not counted" not in (st["point"] or ""):
+        bad.append(f"{tag}: one cycle shown, and the banner does not say what is left out: {st['point']!r}")
+    if not win["has2"] and "no Delivery Cycle 2" not in (st["point"] or ""):
+        bad.append(f"{tag}: a release with one cycle must say it has no Delivery Cycle 2: {st['point']!r}")
+    want_t = epic_tiles(_scope(data, st), st["asof"], win, cal)
+    for k, v in want_t.items():
+        got = st["tiles1"].get(k)
+        if k == "flagged" and got == "–":
+            continue                                               # the Flagged field is not in this build
+        if got is None or got.replace(",", "") != str(v):
+            bad.append(f"{tag}: the {k} tile prints {got}, the recount of {win['name']} ({win['start']} to {win['end']}) is {v}")
+    seen = res["pod_seen"]
+    seen["tiles:" + ("both" if win["all"] and win["has2"] else "one")] += 1
     check_act(res, data, st, tag, ch)
     exp = oracle(data, st)
     n, idle, wip = len(exp["pods"]), len(exp["idle"]), len(exp["wip"])
@@ -153,9 +208,38 @@ def check_pods(res: dict, data: dict, st, tag: str, ch) -> None:
               and re.match(r"\d+ .*pods? .*, (show|hide) the list$", got["label"]) is not None)
         if not ok:
             bad.append(f"{tag}: the {kind} button or list misbehaves: {({k: v for k, v in got.items() if k != 'rows'})}")
-        want_hdr = ["Pod", "Project", "Teams", "Epics in Release", f"Planned in {st['cycle']['name']}"] if kind == "idle" else ["Pod", "Project", "Teams", "Epics In-Progress"]
+        want_hdr = ["Pod", "Project", "Teams", "Epics in Release", f"Planned in {window_of(data, st['release'], st['dc'])['name']}"] if kind == "idle" else ["Pod", "Project", "Teams", "Epics In-Progress"]
         if got["hdr"] != want_hdr:
             bad.append(f"{tag}: the {kind} list header is {got['hdr']}")
+
+
+def check_weekly(res: dict, es: list, nd: dict, win: dict, cal: dict, tag: str) -> None:
+    """The weekly table of a detail view: seven-day weeks from the start of the window (the release start when both cycles are shown), as many rows as the window has weeks, and in each row the Planned,
+    Done and Not Done counts of the epics whose planned date falls in that week; the rows add up to the Planned tile."""
+    bad = res["pod_bad"]
+    start, end = dt.date.fromisoformat(win["start"]), dt.date.fromisoformat(win["end"])
+    planned = [e for e in es if planned_date(e, cal) and win["start"] <= planned_date(e, cal) <= win["end"]]
+    rows = nd["weekly"]
+    if not planned:
+        if rows:
+            bad.append(f"{tag}: a weekly table is shown for a view with nothing planned in {win['name']}")
+        return
+    n_weeks = -(-((end - start).days + 1) // 7)
+    res["pod_seen"]["weekly_rows>7" if n_weeks > 7 else "weekly_rows<=7"] += 1
+    if len(rows) != n_weeks:
+        bad.append(f"{tag}: the weekly table has {len(rows)} rows, {win['name']} has {n_weeks} weeks")
+        return
+    tot = 0
+    for w, r in enumerate(rows):
+        ws, we = start + dt.timedelta(days=7 * w), min(start + dt.timedelta(days=7 * w + 6), end)
+        in_w = [e for e in planned if ws.isoformat() <= planned_date(e, cal) <= we.isoformat()]
+        want = [f"Week {w + 1}", f"{ws.isoformat()} to {we.isoformat()}", str(len(in_w)), str(sum(1 for e in in_w if e["s"] == "Done")), str(sum(1 for e in in_w if e["s"] != "Done"))]
+        got = [r[0], r[1]] + [x.replace(",", "") for x in r[2:5]]
+        if got != want:
+            bad.append(f"{tag}: weekly row {w + 1} is {got}, the recount {want}")
+        tot += len(in_w)
+    if tot != len(planned):
+        bad.append(f"{tag}: the weekly rows add up to {tot}, the recount of planned is {len(planned)}")
 
 
 def check_node(res: dict, data: dict, nd, tag: str) -> None:
@@ -169,7 +253,14 @@ def check_node(res: dict, data: dict, nd, tag: str) -> None:
     if any(re.search(r"undefined|NaN", t) for t in nd["texts"]):
         bad.append(f"{tag}: a detail tile prints undefined or NaN")
     es = [e for e in data["epics"] if e["k"] in set(nd["epics"])]
-    fig = figures(es, nd["due"], nd["cycle"])
+    win = window_of(data, nd["release"], nd["dc"])
+    fig = figures(es, nd["due"], win)
+    cal = {s["n"]: s["end"] for s in data["sprints"]}
+    for k, v in epic_tiles(es, nd["asof"], win, cal).items():
+        got = nd["tilesV"].get(k)
+        if not (k == "flagged" and got == "–") and (got is None or got.replace(",", "") != str(v)):
+            bad.append(f"{tag}: the detail {k} tile prints {got}, the recount of {win['name']} is {v}")
+    check_weekly(res, es, nd, win, cal, tag)
     facts = nd["facts"] or ""
     if "flagged as blocked" in facts:
         bad.append(f"{tag}: the facts line still says 'flagged as blocked': {facts}")
