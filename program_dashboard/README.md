@@ -290,6 +290,18 @@ One write at a time. The first write of a visit reads the record (`get`) and cre
 `unavailable` is retried once after a short random pause; after 3 failed writes in a row, or a refusal that cannot succeed (`invalid_argument` for a view-only viewer, `quota_exceeded`, `revoked`), the visit stops recording and the note disappears. A failure never reaches the page.
 Not verified in a headless file build: how the real `db` and its consent prompt (if any) behave; the tests use a fake store with the documented semantics (`tests/dashboard_browser/usage_oracle.py`).
 
+**Owner report.** Export the documents of the collection `usage` with the ArtifactData tool (`list`) into a JSON file, then:
+
+```bash
+python3 program_dashboard/usage_report.py export.json                                   # text report
+python3 program_dashboard/usage_report.py export.json --html usage.html --as-of 2026-11-02T10:15:00+02:00   # the "Delivery Pulse Usage" page (an Artifact fragment)
+python3 program_dashboard/usage_report.py --demo --html usage_demo.html --standalone     # fictitious data, "Demo data" banner, opens as a file
+```
+
+The input is a list of the bodies or of `{id, data}` rows. The report never reads or prints an id. Every breakdown that rests on fewer than 5 distinct people prints `<5 users` and draws no bar. Active users, returning users (2 or more days), visits per active user, median and 90th percentile
+visit length, reading time per section, control changes, Jira links per section, disclosures, Refresh and Reset Filters, screen size, page version and page errors are shown; with fewer than 14 days of data the page says that trends are not meaningful yet. Because each record keeps 8 weeks, the weekly trend shows at most 8 weeks
+unless earlier exports are kept; weeks before the first record read "before the data starts", not zero.
+
 ## Adding to it
 Projects and releases are the `PROJECTS` / `RELEASES` lists at the top of `build_dashboard.py`;
 `CURRENT_RELEASE` and `PROVISIONAL` set the default release and which releases are marked provisional.
