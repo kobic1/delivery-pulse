@@ -624,7 +624,12 @@ footer.f b { color:var(--ink); }
           <label class="chip"><input type="radio" name="f-cfb" value="yes"> Yes</label>
           <label class="chip"><input type="radio" name="f-cfb" value="no"> No</label>
         </div></div>
-      <label class="toggle" id="g-ax"><input type="checkbox" id="f-ax"> Include Accessibility Bugs</label>
+      <div class="fg" id="g-ax"><span class="lbl" id="lbl-ax">Accessibility Bugs</span>
+        <div class="chips seg" id="f-ax" role="radiogroup" aria-labelledby="lbl-ax">
+          <label class="chip"><input type="radio" name="f-ax" value="all"> All</label>
+          <label class="chip"><input type="radio" name="f-ax" value="yes"> Yes</label>
+          <label class="chip"><input type="radio" name="f-ax" value="no"> No</label>
+        </div></div>
     </div>
     <div class="kpis five" id="bug-kpis"></div>
     <a class="skip" href="#h-bugtable" data-skip="h-bugtable">Skip to the Bug Table</a>
@@ -865,7 +870,7 @@ DATA.epics.forEach(e => (e.tm || []).forEach(t => KNOWN_TEAMS.add(t)));
 DATA.bugs.forEach(b => { if (b.tm) KNOWN_TEAMS.add(b.tm); });
 
 // ---------------------------------------------------------------- state (kept in the URL when opened as a file, in browser storage in the viewer)
-const defaults = () => ({release: DATA.current, projects: new Set(projectsAll), teams: new Set(), commit: new Set(DEFAULT_COMMIT), ax: false, bugPri: new Set(PRI_ALL), cfb: "all", capLvlOff: new Set(), gran: "month", cfbGroup: "version", depFilter: "epics", nfrTab: "project", cx: "all", cap: {by: "quarter", measure: "sp"}, cy: cyDefaults()});
+const defaults = () => ({release: DATA.current, projects: new Set(projectsAll), teams: new Set(), commit: new Set(DEFAULT_COMMIT), ax: "no", bugPri: new Set(PRI_ALL), cfb: "all", capLvlOff: new Set(), gran: "month", cfbGroup: "version", depFilter: "epics", nfrTab: "project", cx: "all", cap: {by: "quarter", measure: "sp"}, cy: cyDefaults()});
 const state = {...defaults()};
 let projMulti = false;                                         // the Multi-Select toggle; the mode is derived: 2 to 5 projects are always in multi-select mode, nothing is stored
 const resetFilters = () => { projMulti = false; cyBugsOpen.clear(); CY_FIND = ""; CY_PODLIST = null; CY_RET = null; return Object.assign(state, defaults()); };
@@ -876,7 +881,7 @@ function readParams(h) {
   { const p = (list("p") || []).filter(x => projectsAll.includes(x)); if (p.length) state.projects = new Set(projectsAll.filter(x => p.includes(x))); }      // p=none (an older link) reads as all projects: no view has an empty selection
   const t = (list("t") || []).filter(x => KNOWN_TEAMS.has(x)); if (t.length) state.teams = new Set(t);
   { const c = (list("c") || []).filter(x => COMMIT.includes(x)); if (c.length) state.commit = new Set(c); }      // c=none reads as all three
-  if (h.get("ax") === "1") state.ax = true;
+  if (["all", "yes"].includes(h.get("ax"))) state.ax = h.get("ax"); else if (h.get("ax") === "1") state.ax = "all";      // ax=1 is an older link: it opened with accessibility bugs included
   if (h.get("bp") === "none") state.bugPri = new Set(); else { const bp = (list("bp") || []).filter(x => PRI_ALL.includes(x)); if (bp.length) state.bugPri = new Set(bp); }
   if (["yes", "no"].includes(h.get("cfb"))) state.cfb = h.get("cfb");
   { const off = (list("clx") || []).map(x => x === CL_NONE_TOKEN ? "" : x).filter(x => CAP_LEVEL_VALUES().has(x)); if (off.length) state.capLvlOff = new Set(off); }      // Capabilities: the Commitment Levels switched off ("~notset" = Not Set); only a level the data holds is accepted
@@ -895,7 +900,7 @@ function serialize() {
   if (state.projects.size !== projectsAll.length && state.projects.size) h.set("p", projectsAll.filter(x => state.projects.has(x)).join("|"));      // canonical project order, whatever order they were clicked in
   if (state.teams.size) h.set("t", [...state.teams].join("|"));
   if ([...state.commit].sort().join() !== [...DEFAULT_COMMIT].sort().join()) if (state.commit.size) h.set("c", COMMIT.filter(x => state.commit.has(x)).join("|"));
-  if (state.ax) h.set("ax", "1");
+  if (state.ax !== "no") h.set("ax", state.ax);
   if (state.bugPri.size !== PRI_ALL.length) h.set("bp", state.bugPri.size ? [...state.bugPri].join("|") : "none");
   if (state.cfb !== "all") h.set("cfb", state.cfb);
   if (state.capLvlOff.size) h.set("clx", [...state.capLvlOff].sort((a, b) => a === "" ? 1 : b === "" ? -1 : a.localeCompare(b)).map(clTok).join("|"));
@@ -937,8 +942,8 @@ const cycleOf = e => e.edct;                                  // cycle time is a
 // bugs carry one team (Team Name)
 const bugTeamOk = b => !state.teams.size || state.teams.has(b.tm || NO_TEAM);
 const bugsBase = () => DATA.bugs.filter(b => state.projects.has(b.p) && bugTeamOk(b));
-// The Bugs Backlog section also honours the accessibility switch, Priority and CFB; the CFB section does not.
-const backlogBugs = () => bugsBase().filter(b => (state.ax || !b.ax) && (state.bugPri.size === PRI_ALL.length || state.bugPri.has(b.pr)) &&
+// The Bugs Backlog section also honours Accessibility Bugs (No = leave them out, Yes = only them, All = both), Priority and CFB; the CFB section does not.
+const backlogBugs = () => bugsBase().filter(b => (state.ax === "all" || (state.ax === "yes") === !!b.ax) && (state.bugPri.size === PRI_ALL.length || state.bugPri.has(b.pr)) &&
   (state.cfb === "all" || (state.cfb === "yes") === !!b.cfb));
 
 // One sentence that names why a section has nothing to show.
@@ -959,7 +964,8 @@ function whyEmpty(kind) {
     if (anyC && !scopeOf(state.release).length) return `No epics on ${rel} have the selected commitment types. ${anyC} ${epicWord(anyC)} have other types; change Commitment Type in the filter bar.`;
     return `No epics on ${rel} match these filters.`;
   }
-  return "No bugs match these filters. Priority, CFB and the accessibility switch also apply to this section.";
+  if (kind === "bugs" && state.ax === "yes" && !bugsBase().some(b => b.ax)) return "No accessibility bugs are recorded in the selected projects and teams. Set Accessibility Bugs to No or All to see the other bugs.";
+  return "No bugs match these filters. Priority, CFB and Accessibility Bugs also apply to this section.";
 }
 
 function percentile(sorted, p) {
@@ -1063,11 +1069,13 @@ function jira(o = {}) {
   return href(jql);
 }
 const AX_EXCLUDE = ` AND summary !~ "\\"[Accessibility]*\\"" AND (labels != DWP_Accessibility_Defect OR labels is EMPTY)`;
+const AX_ONLY = ` AND (summary ~ "\\"[Accessibility]*\\"" OR labels = DWP_Accessibility_Defect)`;
+const AX_WORDS = {no: "excluding accessibility bugs", all: "including accessibility bugs", yes: "only accessibility bugs"};
 function jiraBugs(o = {}) {
   const projects = o.projects || [...state.projects];
   if (!projects.length) return null;
   let jql = `project in (${pkeys(projects)}) AND issuetype = Bug` + bugTeamClause(o.teams === undefined ? state.teams : o.teams);
-  if (!o.keepAx && !state.ax) jql += AX_EXCLUDE;
+  if (!o.keepAx && state.ax !== "all") jql += state.ax === "yes" ? AX_ONLY : AX_EXCLUDE;
   if (state.bugPri.size !== PRI_ALL.length) {
     const named = PRIORITIES.filter(k => state.bugPri.has(k)), parts = [];
     if (named.length) parts.push(`priority in (${named.join(", ")})`);
@@ -1356,7 +1364,7 @@ function renderStatus() {
      x: !TB.win || TB.pre ? "" : `${tipSpan(`${TB.added >= 0 ? "+" : "−"}${Math.abs(TB.added).toLocaleString("en-US")} ${TB.added >= 0 ? "" : "removed "}since W1`, `${Math.abs(TB.added)} target epics ${TB.added >= 0 ? "were added to" : "left"} ${rel} after the first day of W1: ${TB.today} today minus ${TB.N} on ${shortDate(TB.w1)}`)} (${tlink(TB.today, TB.hrefToday, `${TB.today} epics are in the target today (Committed + Not Set)`)} today)`},
     {k: to, c: "e", v: ms.edctN >= MIN_N ? link(Math.round(ms.edctAvg), jiraMonth(mo, aiMonth, "edct")) : "–", l: "EDCT Days",
      s: ms.edctN >= MIN_N ? tipSpan("average of AI-implemented epics", `Average over ${ms.edctN} AI-implemented epics with an EDCT, resolved ${inWin}\nMaintenance epics are left out. The link opens the AI-implemented epics resolved in the same window; Jira cannot search for the EDCT, so an epic that has none yet is listed but not averaged.`) : `only ${ms.edctN} epics, need ${MIN_N}`, x: f.edct && f.edct.t, xc: f.edct && f.edct.c},
-    {k: "Today", c: "q", v: link(open.length, jiraBugs({extra: OPEN_BUG_JQL})), l: "Open Bugs", s: `${state.ax ? "including" : "excluding"} accessibility bugs${filtered ? "; Priority or CFB filter on" : ""}`, x: f.bugs && f.bugs.t, xc: f.bugs && f.bugs.c},
+    {k: "Today", c: "q", v: link(open.length, jiraBugs({extra: OPEN_BUG_JQL})), l: "Open Bugs", s: `${AX_WORDS[state.ax]}${filtered ? "; Priority or CFB filter on" : ""}`, x: f.bugs && f.bugs.t, xc: f.bugs && f.bugs.c},
     {k: to, c: "a", v: ms.done >= MIN_N ? link(pct(ms.ai, ms.done) + "%", jiraMonth(mo, aiMonth)) : "–", l: `Epics by AI${infoMark("ai-excl", "Maintenance and SOW excluded", `Excludes ${AI_EXCL_TEXT} epics: ${ms.excl} resolved ${inWin}.`)}`,
      s: ms.done ? `${tlink(ms.ai, jiraMonth(mo, aiMonth), `${ms.ai} epics implemented by AI, resolved ${inWin}\nEpics with a fix version from ${DATA.releases[0]} to ${DATA.releases[DATA.releases.length - 1]}, ${AI_EXCL_TEXT} excluded.`)} of ${tlink(ms.done, jiraMonth(mo), `${ms.done} epics resolved ${inWin}\nEpics with a fix version from ${DATA.releases[0]} to ${DATA.releases[DATA.releases.length - 1]}, ${AI_EXCL_TEXT} excluded.`)} resolved${ms.done < MIN_N ? ", too few for a share" : ""} · ${ms.done - ms.ai ? tlink(ms.done - ms.ai, jiraMonth(mo, AI_NOT), aiNotTip(ms.done - ms.ai, `resolved ${inWin}`)) : "0"} not AI${f.ai ? ` · ${f.ai}` : ""}` : `no epics resolved in the last ${WINDOW_DAYS} days`,
      },
@@ -1999,7 +2007,6 @@ function bugNoDateNote() {
 function renderBugs() {
   const sub = document.getElementById("bugs-sub"), kpis = document.getElementById("bug-kpis"), el = document.getElementById("bug-chart");
   const legend = document.getElementById("bug-legend"), cap = document.getElementById("bug-cap");
-  document.getElementById("f-ax").checked = state.ax;
   {
     const sr = state.projects.size ? bugSeries() : [], pk = sr.length ? sr.reduce((a, b) => b.open > a.open ? b : a) : null;
     const nOpen = backlogBugs().filter(isOpenBug).length;
@@ -2013,7 +2020,7 @@ function renderBugs() {
       ["Open at a week end", `created before that week end, and either open today or resolved on or after it.`],
       ["Weeks", `the last ${WEEKS}, starting Monday. A dashed bar is the running week.`]
     ],
-    left: `Accessibility bugs are ${state.ax ? "included" : "excluded, as in the weekly email"}. ${bugNoDateNote()}`,
+    left: `${{no: "Accessibility bugs are excluded, as in the weekly email.", all: "Accessibility bugs are included.", yes: "Only accessibility bugs are counted."}[state.ax]} ${bugNoDateNote()}`,
     know: `Follows Projects and Teams. Release and Commitment Type filters do not apply. The Priority and CFB filters below apply here only. Links use Jira's own dates, so a bug at the edge of a day can differ by one.`,
     more: [
       ["The chart", `values are printed on top of each bar and on the line; every bar and point also has its value on hover. A narrow card scrolls the chart sideways.`]
@@ -3904,7 +3911,7 @@ function buildFilters() {
     if (!e.target.checked && state.commit.size === 1) { e.target.checked = true; announce("At least one commitment type must stay selected"); return; }       // the last one cannot be switched off
     e.target.checked ? state.commit.add(e.target.value) : state.commit.delete(e.target.value); update({hold: holdSel(e.target)});
   };
-  document.getElementById("f-ax").onchange = e => { state.ax = e.target.checked; update({hold: holdSel(e.target)}); };
+  document.getElementById("f-ax").onchange = e => { state.ax = e.target.value; update({hold: holdSel(e.target)}); };
   const bp = document.getElementById("f-bpri");
   bp.innerHTML = PRI_ALL.map(k => `<label class="chip"><input type="checkbox" value="${k}"> ${k}</label>`).join("");
   bp.onchange = e => { e.target.checked ? state.bugPri.add(e.target.value) : state.bugPri.delete(e.target.value); update({hold: holdSel(e.target)}); };
@@ -3963,7 +3970,7 @@ function renderTeamList() {
 function filterChanges() {
   const same = (a, b) => a.size === b.length && b.every(x => a.has(x));
   return {release: state.release !== DATA.current, projects: !same(state.projects, projectsAll), teams: state.teams.size > 0, commit: !same(state.commit, DEFAULT_COMMIT),
-    bugpri: state.bugPri.size !== PRI_ALL.length, cfb: state.cfb !== "all", caplevel: capLevelChanged(), ax: state.ax, period: state.gran !== "month", cfbgrp: state.cfbGroup !== "version", depfilter: state.depFilter !== "epics", nfrtab: state.nfrTab !== "project", cx: state.cx !== "all", cap: state.cap.by !== "quarter" || state.cap.measure !== "sp", cycles: cyChanged()};
+    bugpri: state.bugPri.size !== PRI_ALL.length, cfb: state.cfb !== "all", caplevel: capLevelChanged(), ax: state.ax !== "no", period: state.gran !== "month", cfbgrp: state.cfbGroup !== "version", depfilter: state.depFilter !== "epics", nfrtab: state.nfrTab !== "project", cx: state.cx !== "all", cap: state.cap.by !== "quarter" || state.cap.measure !== "sp", cycles: cyChanged()};
 }
 function syncControls() {
   const ch = filterChanges(), nCh = Object.values(ch).filter(Boolean).length;
@@ -3976,6 +3983,7 @@ function syncControls() {
   document.querySelectorAll("#f-cx input").forEach(i => { i.checked = i.value === state.cx; i.parentElement.classList.toggle("on", i.checked); });
   document.querySelectorAll("#f-cfbgrp input").forEach(i => { i.checked = i.value === state.cfbGroup; i.parentElement.classList.toggle("on", i.checked); });
   document.querySelectorAll("#f-cfb input").forEach(i => { i.checked = i.value === state.cfb; i.parentElement.classList.toggle("on", i.checked); });
+  document.querySelectorAll("#f-ax input").forEach(i => { i.checked = i.value === state.ax; i.parentElement.classList.toggle("on", i.checked); });
   document.querySelectorAll("#f-bpri input").forEach(i => { i.checked = state.bugPri.has(i.value); i.parentElement.classList.toggle("on", i.checked); });
   { const pc = document.getElementById("f-projects"), cmp = projMultiOn(), n = state.projects.size, N = projectsAll.length, chips = [...pc.querySelectorAll("button.chip")];
     pc.classList.toggle("seg", !cmp);
