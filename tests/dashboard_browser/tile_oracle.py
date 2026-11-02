@@ -15,6 +15,13 @@ filter states, this suite
   5. the EDCT average has no 5-epic minimum (EDCT_MIN_N = 1): the Efficiency chart, its head line, hover text and table, and the EDCT Days tile are recounted on fictitious teams with 0, 1, 3 and 4
      EDCT epics in a month (`edct_chart_*`); the AI share keeps its 5-epic rule.
 
+  6. Epics Delivered and Forecast Epics follow the header Delivery Cycle filter like the Delivery burnup window (the second half of this file, `delivery_tiles_*`): the numbers are the whole
+     release's in every view (Done: any Commitment Type, cumulative since the release start) and the cycle changes only the target. Both cycles ticked: the tiles as before. Cycle 1 only:
+     "of N" and Forecast Epics are the Committed epics planned by the end of W6 (no release scope), the link a query that finds exactly them. Cycle 2 only: the release scope tile, the window
+     named. Recounted independently per selection and as-of day, links evaluated with jql_eval.py, hover texts held to the tooltip standard; EDCT Days, Epics by AI and Open Bugs must not move with the
+     filter. Seeded defects (the tile ignores the filter, N from the wrong population, Done narrowed to the cycle, a link that does not match N, the release scope in the Cycle 1 view, EDCT / Epics by AI /
+     Open Bugs moving with the filter ...) must be caught.
+
     python3 tile_oracle.py [--live] [--only NAME]
 """
 from __future__ import annotations
@@ -42,7 +49,7 @@ EXCL = ("maintenance", "sow")
 
 # the 1st of a month, a window across a month boundary, the 1st of the next month, across a year boundary, across a leap day, and a day in the middle of a month
 AS_OF_DAYS = [dt.date(2026, 11, 1), dt.date(2026, 11, 12), dt.date(2026, 12, 1), dt.date(2027, 1, 10), dt.date(2028, 3, 1), dt.date(2026, 10, 20)]
-# Release and Delivery Cycle must not move the tiles; Projects and Teams do
+# Release and Delivery Cycle must not move the EDCT Days, Epics by AI and Open Bugs tiles; Projects and Teams do. (Epics Delivered and Forecast Epics follow the Release and the Delivery Cycle: see below.)
 STATES = ["", "p=PMN", "p=PMN|CXCO", "TEAM", "p=CXWFM|WFM", "p=CXSUP", "r=26.2&dc=2"]
 
 TILE_JS = r"""(() => {
@@ -679,6 +686,392 @@ def _(t: T):
         t.check(bool(probs), f"seeded defect caught: {label} ({len(probs)} findings)")
     if not ran:
         raise kit.Skip("none of the seeded defects applies to this template version")
+
+
+# ================================================================ Epics Delivered and Forecast Epics follow the Delivery Cycle filter
+# The numbers are the whole release's in every view (Done: any Commitment Type, cumulative since the release start); the cycle changes only the target the tiles compare with.
+#   both ticked: the tiles as before ("of N target scope"; Forecast Epics N with "+K since W1")
+#   Cycle 1 only: "of P planned by the end of W6" and Forecast Epics P, P = the Committed epics planned by the end of W6 (the burnup's end state); no release scope
+#   Cycle 2 only: the release scope tile as before; the window named ("Delivery Cycle 2: W7 to W12", "starts <date>" before it)
+# This section spells the rules again on purpose; it never imports them from the page.
+DT_JS = r"""(async () => {
+  await document.fonts.ready; updateCore();
+  const txt = n => n ? n.textContent.replace(/\s+/g, ' ').trim() : null;
+  const a2 = a => ({href: a.getAttribute('href'), text: txt(a), tip: a.getAttribute('data-tip')});
+  const tiles = {};
+  document.querySelectorAll('#kpis .kpi').forEach(k => {
+    const l = k.querySelector('.l'); if (!l) return;
+    const name = (l.firstChild ? l.firstChild.textContent : '').trim();
+    tiles[name] = {k: txt(k.querySelector('.k')), v: txt(k.querySelector('.v')), s: txt(k.querySelector('.s')), x: txt(k.querySelector('.x')), html: k.innerHTML,
+      vLinks: [...k.querySelectorAll('.v a')].map(a2), sLinks: [...k.querySelectorAll('.s a')].map(a2), xLinks: [...k.querySelectorAll('.x a')].map(a2),
+      tips: [...k.querySelectorAll('[data-tip]')].map(n => n.getAttribute('data-tip')), all: txt(k)};
+  });
+  return {asOf: iso(asOfDay()), release: state.release, projects: [...state.projects], teams: [...state.teams], dc: [...state.dc], tiles, errors: []};
+})()"""
+
+DT_TILES = ("Epics Delivered", "Forecast Epics")
+DT_OTHERS = ("EDCT Days", "Open Bugs", "Epics by AI")
+NO_TEAM = "(No Team)"
+
+
+def _d(s: str) -> dt.date:
+    return dt.date.fromisoformat(s)
+
+
+def nn(n: int, one: str, many: str) -> str:
+    return f"{n:,} {one if n == 1 else many}"
+
+
+class DeliveryRef:
+    """The two tiles per selection, recounted from the baked epics."""
+
+    def __init__(self, data: dict, rel: str, projects, teams, dc, asof: str):
+        self.rel, self.asof = rel, _d(asof)
+        self.start, self.end = (_d(x) for x in data["windows"][rel])
+        self.w1, self.w6 = self.start + dt.timedelta(days=7), self.start + dt.timedelta(days=48)      # W1 start, and the end of W6 (release start + 48 days = W1 start + 41 days)
+        self.has2 = self.w6 < self.end
+        ids = {1, 2} if self.has2 else {1}
+        shown = ids if not dc or not (set(dc) & ids) else set(dc) & ids
+        self.kind = "all" if shown == ids else "c1" if 1 in shown else "c2"
+        sprint_end = {x["n"]: x["end"] for x in data["sprints"]}
+        teams = set(teams)
+        self.sel = [e for e in data["epics"] if e["p"] in set(projects) and rel in e["fv"] and (not teams or teams & set(e.get("tm") or [NO_TEAM]))]
+
+        def planned(e):
+            ts, dd = sprint_end.get(e.get("ts")), e.get("dd")
+            return max(dd, ts) if dd and ts else (dd or ts)
+        self.done = [e for e in self.sel if e["s"] == "Done"]                                          # any Commitment Type, the whole release
+        self.tgt = [e for e in self.sel if (e.get("c") or "Not Set") in ("Committed", "Not Set")]     # the target scope today
+        self.members = [e for e in self.tgt if _d((e.get("ad") or {}).get(rel) or self.start.isoformat()) <= self.w1]
+        self.N, self.added = len(self.members), len(self.tgt) - len(self.members)
+        self.planned_c1 = [e for e in self.sel if e.get("c") == "Committed" and planned(e) and _d(planned(e)) <= self.w6]       # Committed, planned on or before the end of W6
+        self.P = len(self.planned_c1)
+        self.raw = (self.asof - self.w1).days                                                          # the as-of day counted from W1 start
+        self.pre = self.asof < self.w1
+        self.D = (self.end - self.w1).days
+        self.w6d = (self.w1 + dt.timedelta(days=41)).isoformat()
+
+    # ------------------------------------------------------------------ what the page must print
+    def want(self) -> dict:
+        n, w1, k = self.N, self.w1.isoformat(), 1 if self.kind == "c1" else 2
+        cy = f"Delivery Cycle {k}"
+        kick = f"Release {self.rel}" + ("" if self.kind == "all" else f" · {cy}")
+        since = None if self.pre else f"{'+' if self.added >= 0 else '−'}{abs(self.added):,} {'' if self.added >= 0 else 'removed '}since W1 ({len(self.tgt):,} today)"
+        scope_s = f"Target scope so far; W1 starts {w1}" if self.pre else f"Committed + Not Set on {w1}"
+        if self.kind == "c1":
+            over = self.raw > 41
+            deliv_x = f"{cy} starts {w1}" if self.pre else f"{cy} ended {self.w6d}" if over else f"{cy}: W1 to W6"
+            return {"k": kick,
+                    "Epics Delivered": {"v": f"{len(self.done):,}", "s": f"of {self.P:,} planned by the end of W6" if self.P else "no epics planned by the end of W6", "x": deliv_x},
+                    "Forecast Epics": {"v": f"{self.P:,}", "s": f"{'Planned' if self.P else 'No epics planned'} by the end of W6, {cy} {'ended' if over else 'ends'} {self.w6d}", "x": None}}
+        win = f"{cy}: W7 to W{jround(self.D / 7)}"
+        deliv_x = None if self.kind == "all" else (f"{win}, starts {(self.w1 + dt.timedelta(days=42)).isoformat()}" if self.raw < 42 else win)
+        return {"k": kick,
+                "Epics Delivered": {"v": f"{len(self.done):,}", "s": f"of {n:,} target scope", "x": deliv_x},
+                "Forecast Epics": {"v": f"{n:,}", "s": scope_s, "x": since}}
+
+    def tips(self) -> dict:
+        """The hover texts that are written for the cycle views, and the target-scope ones that must stay as before."""
+        n, w1, k = self.N, self.w1.isoformat(), 1 if self.kind == "c1" else 2
+        cy = f"Delivery Cycle {k}"
+        scope = (f"{nn(n, 'target epic', 'target epics')} so far in {self.rel}; W1 starts {w1}\nCommitted or Not Set." if self.pre
+                 else f"{nn(n, 'target epic', 'target epics')} in {self.rel} on {w1}, the first day of W1\nCommitted or Not Set. {len(self.tgt):,} {'is' if len(self.tgt) == 1 else 'are'} in the target today.")
+        done_first = f"{nn(len(self.done), 'epic', 'epics')} Done in {self.rel}, any Commitment Type"
+        out = {"scope": scope, "done_first": done_first,
+               "added": f"{nn(abs(self.added), 'target epic was', 'target epics were')} {'added to' if self.added >= 0 else 'removed from'} {self.rel} after W1 started\n{len(self.tgt):,} today minus {n:,} on {w1}.",
+               "today": f"{nn(len(self.tgt), 'target epic', 'target epics')} in {self.rel} today (Committed or Not Set)"}
+        if self.kind != "all":
+            out["done"] = f"{done_first}\nWhole release, cumulative since its start; {cy} changes only the target."
+        if self.kind == "c1":
+            out["planned"] = f"{nn(self.P, 'Committed epic', 'Committed epics')} planned by the end of W6\n{cy} {'ended' if self.raw > 41 else 'ends'} {self.w6d}; the release scope is not part of this view."
+        return out
+
+
+def jround(x: float) -> int:
+    import math
+    return math.floor(x + .5)
+
+
+def _strip_was(jql: str) -> str:
+    return re.sub(r'\s+AND\s+fixVersion WAS "[^"]*" ON "[^"]*"', "", jql)       # Jira history, which the evaluator cannot judge: the date is checked apart
+
+
+_parsed: dict = {}
+
+
+def keys_of_link(href: str, universe: list):
+    j = jql_of(href or "")
+    if j is None:
+        return None, None, f"not a Jira issue search: {href[:120]}"
+    try:
+        tree = _parsed.setdefault(j, J.parse(_strip_was(j)))
+        return {x["key"] for x in universe if J.evaluate(tree, x)}, j, None
+    except (J.Malformed, J.Unsupported) as exc:
+        return None, j, f"cannot be evaluated: {exc}"
+
+
+def check_delivery(res: dict, data: dict, universe: list, tag: str, plain: bool = False) -> tuple[list, str]:
+    """The two tiles of one page state against the recount. Returns (problems, a one-line fact). plain: the Cycle 1 query is over the URL budget, so N is plain text."""
+    p: list[str] = []
+    if res.get("__error"):
+        return [f"{tag} the page probe failed: {str(res['__error'])[:200]}"], ""
+    R = DeliveryRef(data, res["release"], res["projects"], res["teams"], [int(x) for x in res["dc"]], res["asOf"])
+    W, T = R.want(), R.tips()
+    tl = res["tiles"]
+    if any(t not in tl for t in DT_TILES + DT_OTHERS):
+        return [f"{tag} a tile is missing: {sorted(tl)}"], ""
+    for name in DT_TILES:
+        t, w = tl[name], W[name]
+        for fld, label in (("k", "kicker"), ("v", "value"), ("s", "sub line"), ("x", "fact line")):
+            got, want = t[fld], (W["k"] if fld == "k" else w[fld])
+            if got != want:
+                p.append(f"{tag} {name}: the {label} is {got!r}, the recount gives {want!r}")
+
+    def verify(what: str, href: str, want: set, text: str | None = None, was: bool = False):
+        got, j, err = keys_of_link(href, universe)
+        if err:
+            p.append(f"{tag} {what}: the link {err}")
+            return
+        if got != want:
+            p.append(f"{tag} {what}: the link query finds {len(got)} epics, the recount {len(want)} (only in query: {sorted(got - want)[:3]}, only in recount: {sorted(want - got)[:3]})")
+        if text is not None and text.replace(",", "") != str(len(want)):
+            p.append(f"{tag} {what}: the link prints {text}, the recount {len(want)}")
+        if len(href) > 6000:
+            p.append(f"{tag} {what}: the link is {len(href)} characters, over the 6,000 budget (it should be plain text)")
+        if was:                                                                      # the target scope of the first day of W1: the history clause names that day
+            m = re.search(r'fixVersion WAS "([^"]*)" ON "([^"]*)"', j)
+            if R.pre:
+                if m:
+                    p.append(f"{tag} {what}: a 'was in the release' clause before W1 starts: {m.group(0)}")
+            elif not m or m.group(2) != R.w1.isoformat() or m.group(1) != R.rel:
+                p.append(f"{tag} {what}: the history clause is {m.group(0) if m else None}, expected the release on {R.w1}")
+
+    done_keys, tgt_keys = {e["k"] for e in R.done}, {e["k"] for e in R.tgt}
+    ed, fc = tl["Epics Delivered"], tl["Forecast Epics"]
+    if len(ed["vLinks"]) != 1:
+        p.append(f"{tag} Epics Delivered: {len(ed['vLinks'])} links on the value")
+    else:
+        verify("Epics Delivered value link", ed["vLinks"][0]["href"], done_keys, ed["vLinks"][0]["text"])
+    if R.kind == "c1":
+        pk = {e["k"] for e in R.planned_c1}
+        for name, t, links in (("Epics Delivered 'of N'", ed, ed["sLinks"]), ("Forecast Epics value", fc, fc["vLinks"])):
+            if R.P == 0 or plain:
+                if links:
+                    p.append(f"{tag} {name}: {'N is 0' if R.P == 0 else 'the query is over the 6,000 character budget'} and it still has a link ({len(links[0]['href'])} characters)")
+            elif len(links) != 1:
+                p.append(f"{tag} {name}: {len(links)} links, expected 1 (N = {R.P})")
+            else:
+                verify(name, links[0]["href"], pk, links[0]["text"])
+                if links[0]["tip"] != T["planned"]:
+                    p.append(f"{tag} {name}: the hover is {links[0]['tip']!r}, expected {T['planned']!r}")
+        if fc["sLinks"] or fc["xLinks"]:
+            p.append(f"{tag} Forecast Epics: links where the Cycle 1 view has none ({len(fc['sLinks'])} in the sub line, {len(fc['xLinks'])} in the fact line)")
+        if ed["vLinks"] and ed["vLinks"][0]["tip"] != T["done"]:
+            p.append(f"{tag} Epics Delivered value hover is {ed['vLinks'][0]['tip']!r}, expected {T['done']!r}")
+        if R.P == 0 and ed["s"] != "no epics planned by the end of W6":
+            p.append(f"{tag} Epics Delivered with N = 0 must say so in words: {ed['s']!r}")
+        for name, t in (("Epics Delivered", ed), ("Forecast Epics", fc)):                       # the release scope is not part of the Cycle 1 view
+            if re.search(r"target scope|Committed \+ Not Set|since W1|today\)", t["all"]):
+                p.append(f"{tag} {name}: the Cycle 1 view shows the release scope: {t['all']!r}")
+    else:
+        if len(ed["sLinks"]) != 1 or len(fc["vLinks"]) != 1:
+            p.append(f"{tag} the target-scope links: {len(ed['sLinks'])} under Epics Delivered, {len(fc['vLinks'])} on Forecast Epics, expected 1 and 1")
+        else:
+            for name, a in (("Epics Delivered 'of N'", ed["sLinks"][0]), ("Forecast Epics value", fc["vLinks"][0])):
+                verify(name, a["href"], tgt_keys, None, was=True)                            # without the history clause the query finds the target scope of today; N is the one of the first day of W1
+                if a["text"].replace(",", "") != str(R.N):
+                    p.append(f"{tag} {name}: the link prints {a['text']}, the recount of the target scope on {R.w1} is {R.N}")
+                if a["tip"] != T["scope"]:
+                    p.append(f"{tag} {name}: the hover is {a['tip']!r}, expected {T['scope']!r}")
+        if R.pre:
+            if fc["xLinks"]:
+                p.append(f"{tag} Forecast Epics: a '+N since W1' line before W1 starts")
+        elif len(fc["xLinks"]) != 1:
+            p.append(f"{tag} Forecast Epics: {len(fc['xLinks'])} links in the fact line, expected the 'today' link")
+        else:
+            verify("Forecast Epics 'today' link", fc["xLinks"][0]["href"], tgt_keys, fc["xLinks"][0]["text"])
+            if fc["xLinks"][0]["tip"] != T["today"]:
+                p.append(f"{tag} Forecast Epics 'today' hover is {fc['xLinks'][0]['tip']!r}, expected {T['today']!r}")
+            if T["added"] not in fc["tips"]:
+                p.append(f"{tag} Forecast Epics 'since W1' hover is not {T['added']!r}: {fc['tips']}")
+        if R.kind == "c2":
+            if ed["vLinks"] and ed["vLinks"][0]["tip"] != T["done"]:
+                p.append(f"{tag} Epics Delivered value hover is {ed['vLinks'][0]['tip']!r}, expected {T['done']!r}")
+        elif ed["vLinks"] and not ed["vLinks"][0]["tip"].startswith(T["done_first"]):
+            p.append(f"{tag} Epics Delivered value hover starts {ed['vLinks'][0]['tip'][:80]!r}, expected {T['done_first']!r}")
+    # ---- the tooltip standard: number and scope first, at most 12 words in the first line
+    for name, t in (("Epics Delivered", ed), ("Forecast Epics", fc)):
+        for tip in t["tips"]:
+            first = tip.split("\n")[0]
+            if not re.match(r"[+−]?\d", first) or len(first.split()) > 12:
+                p.append(f"{tag} {name}: a hover text that does not lead with the number or has a first line over 12 words: {first!r}")
+    fact = f"{R.rel} {R.kind}: delivered {W['Epics Delivered']['v']} {W['Epics Delivered']['s']!r}, forecast {W['Forecast Epics']['v']} ({'P' if R.kind == 'c1' else 'N'}, tgt today {len(R.tgt)})"
+    return p, fact
+
+
+def dt_other_tiles(res: dict) -> str:
+    """The three tiles that never follow the Delivery Cycle filter, as one comparable text (kicker, value, sub line, fact line, hrefs and hovers)."""
+    return json.dumps({n: [res["tiles"][n][k] for k in ("k", "v", "s", "x", "html")] for n in DT_OTHERS if n in res["tiles"]}, sort_keys=True)
+
+
+_dt_cache: dict = {}
+DT_DCS = ["", "dc=1", "dc=2"]
+
+
+def dt_payload(kind: str):
+    if kind not in _dt_cache:
+        d = MS.make(MS.il_today())
+        d = LC.variant(d)
+        LC.seed_pods(d)
+        if kind == "short":                                       # 26.4 ends 40 days after its start: no Delivery Cycle 2
+            s0 = _d(d["windows"]["26.4"][0])
+            d["windows"]["26.4"] = [s0.isoformat(), (s0 + dt.timedelta(days=40)).isoformat()]
+        elif kind == "zero":                                      # no epic of CXSUP has a planned date: Delivery Cycle 1 plans none of them (N = 0 on a running release)
+            for e in d["epics"]:
+                if e["p"] == "CXSUP":
+                    e["dd"] = e["ts"] = None
+        elif kind == "budget":                                    # a calendar of 260 more sprints: the Delivery Cycle 1 query lists the names ending after W6 and is over the 6,000 character budget (plain text, not a link)
+            last = _d(d["sprints"][-1]["end"])
+            d["sprints"] += [{"n": f"SPR.27.9.{200 + i} (01Jan30)", "rel": "27.9", "no": 200 + i, "start": (last + dt.timedelta(days=1 + 21 * i)).isoformat(), "end": (last + dt.timedelta(days=21 * (i + 1))).isoformat()} for i in range(260)]
+        elif kind.startswith("asof_"):                            # the same epics read on another day: a logic vector for the day-dependent texts
+            w1 = _d(d["windows"]["27.1"][0]) + dt.timedelta(days=7)
+            d["generated"] = MS.il_stamp(w1 + dt.timedelta(days=DT_ASOF[kind[5:]]), 8, 30)
+        _dt_cache[kind] = (d, [LC.epic_issue(e) for e in d["epics"]])
+    return _dt_cache[kind]
+
+
+DT_ASOF = {"pre": -3, "w3": 14, "w6end": 41, "w7first": 42, "w7": 45, "after": 90}       # days since W1 start: before W1, inside Delivery Cycle 1, its last day, the first day after it, inside Delivery Cycle 2, after the release end
+
+
+def dt_plan(quick: bool) -> list[tuple[str, str]]:
+    """(payload kind, page hash without the Delivery Cycle part) for every selection compared in the three views."""
+    team = "t=Team%20Alpha"
+    if quick:
+        return [("variant", "r=27.1"), ("variant", "r=27.1&" + team), ("zero", "r=27.1&p=CXSUP"), ("variant", "r=26.4&p=CXSUP"), ("budget", "r=27.1"), ("asof_pre", "r=27.1"), ("asof_w6end", "r=27.1"), ("asof_after", "r=27.1")]
+    plan = [("variant", f"r={r}" + ("&" + s if s else "")) for r in ("27.1", "26.4", "27.2") for s in ("", "p=PMN", "p=PMN|CXCO", team)]
+    plan += [("variant", "r=26.4&p=CXSUP"), ("zero", "r=27.1&p=CXSUP"), ("short", "r=26.4"), ("budget", "r=27.1")]
+    plan += [(f"asof_{k}", f"r=27.1{s}") for k in DT_ASOF for s in ("", "&p=PMN")]
+    return plan
+
+
+def run_delivery(template: Path, label: str, quick: bool = False):
+    """Every selection in the three Delivery Cycle views. Returns (problems, facts). The three other tiles must be identical in the three views."""
+    probs, facts, urls = [], [], {}
+    for kind, sel in dt_plan(quick):
+        data, universe = dt_payload(kind)
+        if kind not in urls:
+            urls[kind] = ctx.write(MS.render_page(data, template), "deliverytiles")
+        views = {}
+        for dc in DT_DCS:
+            ch = ctx.chrome
+            ch.goto(urls[kind] + "#" + "&".join(x for x in (sel, dc) if x))
+            kit.wait_ready(ch)
+            res = ch.js(DT_JS)
+            err = ch.console_errors()
+            tag = f"[{label} {kind} #{sel}{'&' + dc if dc else ''}]"
+            probs += [f"{tag} page error: {e}" for e in err[:2]]
+            if kind.startswith("asof_") and not res.get("__error") and res["asOf"] != (_d(data["windows"]["27.1"][0]) + dt.timedelta(days=7 + DT_ASOF[kind[5:]])).isoformat():
+                probs.append(f"{tag} the page's as-of day is {res['asOf']}, not the one the fixture was built for")
+            pr, fact = check_delivery(res, data, universe, tag, plain=kind == "budget")
+            probs += pr
+            facts.append(f"{kind} #{sel}{'&' + dc if dc else ''}: {fact}")
+            views[dc] = res
+        base = dt_other_tiles(views[""]) if "__error" not in views[""] else None
+        for dc in ("dc=1", "dc=2"):
+            if "__error" not in views[dc] and dt_other_tiles(views[dc]) != base:
+                probs.append(f"[{label} {kind} #{sel}&{dc}] EDCT Days, Epics by AI or Open Bugs moved with the Delivery Cycle filter")
+    return probs, facts
+
+
+@SUITE.test("delivery_tiles_follow_the_cycle_filter_and_equal_an_independent_recount")
+def _(t: T):
+    """Epics Delivered and Forecast Epics in the three views (both cycles, Cycle 1 only, Cycle 2 only), for three releases (running, closed, not started), Projects, a Team, an as-of day before W1, inside
+    Delivery Cycle 1, on its last day, the first day after it, inside Delivery Cycle 2 and after the release end, a release with no Cycle 2 and a selection that plans nothing by the end of W6:
+    value, sub line, fact line, kicker, hover texts and every link (evaluated with jql_eval.py) against the recount. EDCT Days, Epics by AI and Open Bugs are identical in the three views."""
+    probs, facts = run_delivery(ctx.template, "fixture")
+    for x in probs[:25]:
+        t.failures.append(x)
+    t.passed += 0 if probs else 1
+    t.check(len(facts) == len(dt_plan(False)) * len(DT_DCS), f"every selection was compared in the three views: {len(facts)}")
+    t.check({"all", "c1", "c2"} <= {m.group(1) for m in (re.search(r" (all|c1|c2): delivered", f) for f in facts) if m}, "the three views were all seen")
+    for f in facts[:6]:
+        t.note(f)
+
+
+@SUITE.test("delivery_tiles_fixture_is_not_blind")
+def _(t: T):
+    """The matrix must hold the cases the rules are about: N = 0 in the Cycle 1 view, a target scope that grew since W1, Done above and below the planned count, a window not started, one that is over,
+    a release with no Cycle 2, and the thousands separator."""
+    seen = {k: 0 for k in ("Cycle 1 with N = 0", "Cycle 1 with N > 0", "scope grew since W1", "Done below the planned count", "Done above the planned count", "Cycle 2 not started", "Cycle 2 started",
+                           "Cycle 1 over", "before W1", "no Cycle 2 (dc ignored)", "Done over 1,000 or planned over 1,000 (separator)")}
+    for kind, sel in dt_plan(False):
+        data, _u = dt_payload(kind)
+        q = dict(urllib.parse.parse_qsl(sel, keep_blank_values=True))
+        projects = q["p"].split("|") if q.get("p") else list(data["projects"])
+        teams = [urllib.parse.unquote(x) for x in q["t"].split("|")] if q.get("t") else []
+        asof = data["generated"][:10]
+        for dc in ((), (1,), (2,)):
+            R = DeliveryRef(data, q["r"], projects, teams, dc, asof)
+            if R.kind == "c1":
+                seen["Cycle 1 with N = 0"] += R.P == 0
+                seen["Cycle 1 with N > 0"] += R.P > 0
+                seen["Done below the planned count"] += len(R.done) < R.P
+                seen["Done above the planned count"] += len(R.done) > R.P
+                seen["Cycle 1 over"] += R.raw > 41
+            if R.kind == "c2":
+                seen["Cycle 2 not started"] += R.raw < 42
+                seen["Cycle 2 started"] += R.raw >= 42
+            seen["scope grew since W1"] += R.kind == "all" and R.added > 0
+            seen["before W1"] += R.pre
+            seen["no Cycle 2 (dc ignored)"] += (not R.has2) and bool(dc)
+            seen["Done over 1,000 or planned over 1,000 (separator)"] += len(R.done) >= 1000 or R.P >= 1000
+    for k, v in seen.items():
+        if k.startswith("Done over 1,000"):
+            continue                                                                  # the real payload has such numbers; the fixture is small (the separator is covered by `nn` and the real-payload check)
+        t.check(v > 0, f"the matrix has {k} ({v})")
+    t.note("; ".join(f"{k}: {v}" for k, v in seen.items()))
+
+
+DT_MUTATIONS = [
+    ("the tiles ignore the Delivery Cycle filter", 'DM = TB.win && !dc.all ? dcDomain(rel, dc) : null,', "DM = null,"),
+    ("Cycle 1: N counts every Committed epic of the release (planned or not)", "nP = W6.within.length, h = W6.hrefs.within", "nP = W6.list.length, h = W6.hrefs.within"),
+    ("Cycle 1: N counts the Done epics planned by the end of W6", "nP = W6.within.length, h = W6.hrefs.within", "nP = W6.done.length, h = W6.hrefs.within"),
+    ("Cycle 1: Done narrowed to the epics planned by the end of W6", '{k: kk, c: "d", v: tlink(tDone, doneH, doneTip), l: "Epics Delivered", s: nP ?', '{k: kk, c: "d", v: tlink(W6.done.length, doneH, doneTip), l: "Epics Delivered", s: nP ?'),
+    ("Cycle 1: the link opens every Committed epic, not the ones planned by the end of W6", "h = W6.hrefs.within && W6.hrefs.within.length <= CY_URL_MAX ? W6.hrefs.within : null", "h = W6.hrefs.all && W6.hrefs.all.length <= CY_URL_MAX ? W6.hrefs.all : null"),
+    ("Cycle 1: a link over the URL budget still printed as a link", "h = W6.hrefs.within && W6.hrefs.within.length <= CY_URL_MAX ? W6.hrefs.within : null", "h = W6.hrefs.within"),
+    ("Cycle 1: the link dropped although it is within the budget", "h = W6.hrefs.within && W6.hrefs.within.length <= CY_URL_MAX ? W6.hrefs.within : null", "h = W6.hrefs.within && W6.hrefs.within.length <= 10 ? W6.hrefs.within : null"),
+    ("Cycle 1: the release scope shown in Forecast Epics", '{k: kk, c: "d", v: nP ? tlink(nP, h, planTip) : "0", l: "Forecast Epics", s: `${nP ?', '{k: kk, c: "d", v: nP ? tlink(nP, h, planTip) : "0", l: "Forecast Epics", s: `Target scope ${TB.N} · ${nP ?'),
+    ("Cycle 1: the release scope shown under Epics Delivered", 's: nP ? `of ${tlink(nP, h, planTip)} planned by the end of W6` : "no epics planned by the end of W6",', 's: `of ${tlink(TB.N, TB.href, TB.tip)} target scope`,'),
+    ("Cycle 1: no word for N = 0", '"no epics planned by the end of W6"', '""'),
+    ("Cycle 2 shows the Cycle 1 numbers", 'const c1 = DM.kind === "c1",', 'const c1 = DM.kind !== "c1",'),
+    ("the cycle shown by colour only (no kicker text)", "kk = `${kick} · ${cy}`,", "kk = kick,"),
+    ("both cycles ticked: the tiles carry a cycle cue", '{k: kick, c: "d", v: tlink(tDone, doneH, `${nn(tDone, "epic", "epics")} Done in ${rel}, any Commitment Type${paceLine}`)', '{k: `${kick} · both`, c: "d", v: tlink(tDone, doneH, `${nn(tDone, "epic", "epics")} Done in ${rel}, any Commitment Type${paceLine}`)'),
+    ("Cycle 2: the window not named", "x: raw < DM.s ? `${win}, starts ${a}` : win}", 'x: ""}'),
+    ("Cycle 2: no 'starts <date>' before W7", "x: raw < DM.s ? `${win}, starts ${a}` : win}", "x: win}"),
+    ("a hover with a first line over 12 words", '`${nn(tDone, "epic", "epics")} Done in ${rel}, any Commitment Type\\nWhole release,', '`${nn(tDone, "epic", "epics")} Done in ${rel}, any Commitment Type, whole release, cumulative since its start, every Delivery Cycle\\nWhole release,'),
+    ("EDCT Days and Epics by AI moving with the filter (kicker)", "to = `Last ${WINDOW_DAYS} Days`", 'to = `Last ${WINDOW_DAYS} Days${dcState().all ? "" : " " + dcWord(dcState())}`'),
+    ("Open Bugs moving with the filter", 'l: "Open Bugs", s: `${AX_WORDS[state.ax]}', 'l: "Open Bugs", s: `${dcState().all ? "" : dcWord(dcState()) + ": "}${AX_WORDS[state.ax]}'),
+]
+
+
+@SUITE.test("delivery_tiles_oracle_selftest_catches_seeded_defects")
+def _(t: T):
+    """Seeded defects in a copy of the template, each required to fail the same checks: the tile ignores the filter, N from the wrong population, Done narrowed to the cycle, a link that does not match N,
+    a link over the URL budget, the release scope in the Cycle 1 view, no cue of the cycle, no word for N = 0, a hover over 12 words, and EDCT Days / Epics by AI / Open Bugs moving with the filter."""
+    src = ctx.template.read_text(encoding="utf-8")
+    ran = 0
+    for label, old, new in DT_MUTATIONS:
+        if src.count(old) != 1:
+            t.check(False, f"the pattern of the seeded defect '{label}' is not in the template exactly once")
+            continue
+        ran += 1
+        tmp = Path(ctx.dir) / f"delivery_mutant_{ran}.html"
+        tmp.write_text(src.replace(old, new, 1), encoding="utf-8")
+        probs, _ = run_delivery(tmp, "mutant", quick=True)
+        t.check(bool(probs), f"seeded defect caught: {label} ({len(probs)} findings)")
+    if not ran:
+        raise kit.Skip("none of the seeded defects applies to this template version")
+
 
 
 if __name__ == "__main__":

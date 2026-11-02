@@ -107,7 +107,16 @@ def states(data: dict, quick: bool) -> list[str]:
     return [f"r={r}&{p}&{c}".replace("&&", "&").strip("&") for r in rels for p in psets for c in cys]
 
 
+# regexes deleted from BOTH sides: a sentence that exists in the baseline and in the new build and was reworded on purpose (the burnup change reworded the two Delivery Cycle filter entries of the
+# burnup's "How this is calculated": the axis now shows the ticked cycle only). Used with --strip-both; the default run keeps the strict comparison.
+STRIP_BOTH = [r"<li>\s*<b>Delivery Cycle filter</b>.*?</li>", r"<li>\s*<b>Delivery Cycle filter, details</b>.*?</li>"]
+STRIP_ON = False
+
+
 def normalise(html: str, baseline: bool) -> list[str]:
+    if STRIP_ON:
+        for pat in STRIP_BOTH:
+            html = re.sub(pat, "", html, flags=re.S)
     if baseline:
         for old, new in REWORDED:
             html = html.replace(old, new)
@@ -126,8 +135,11 @@ def main() -> int:
     ap.add_argument("--live", action="store_true")
     ap.add_argument("--payload", help="a payload JSON (a real one, on a developer's machine); default: the fictitious fixtures")
     ap.add_argument("--quick", action="store_true")
+    ap.add_argument("--strip-both", action="store_true", help="ignore the two Delivery Cycle filter entries of the burnup's How this is calculated on both sides (reworded by the axis change)")
     ap.add_argument("--show", type=int, default=12, help="differing lines to print per state")
     a = ap.parse_args()
+    global STRIP_ON
+    STRIP_ON = a.strip_both
     tmp = Path(tempfile.mkdtemp(prefix="dp-baseline-"))
     base_t = baseline_file(a.baseline, tmp)
     new_t = Path(kit.LIVE_TEMPLATE if a.live or not a.template else a.template)
