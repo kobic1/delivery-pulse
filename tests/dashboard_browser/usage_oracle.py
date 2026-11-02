@@ -11,9 +11,9 @@ What is asserted, each independently of the page's code (the vocabularies and th
   * after strip clicks, a skip link, a filter change, a Jira link click, disclosures, Refresh and Reset Filters the stored session equals an independent expectation (counters by key); nothing outside the allowlist is stored: no other key or value,
     no issue-key-shaped string, no '@', no team, pod, project or epic name of the fixture, no name or e-mail of the (mock) viewer, only the id `u_...`;
   * an idle, hidden or unfocused page accumulates no seconds; a write happens on `visibilitychange` to hidden and on `pagehide` without waiting for the 30 s window;
-  * the privacy note shows exactly when logging is active (db and user resolved, an id of the documented shape) and the page works, with no console error, when db is null, user is null, the id is null or an e-mail, there is no claude at all;
+  * the privacy note shows only after the first successful write of the visit (never when db is null, user is null, the id is null or malformed, or a refused write) and the page works, with no console error, when db is null, user is null, the id is null or an e-mail, there is no claude at all;
   * every write rejected with invalid_argument (what a view-only viewer gets), resource_exhausted or quota_exceeded, or an `unavailable` that never clears: no more than 3 failed attempts, then silence; `unavailable` once is retried once and succeeds;
-  * retention (8 ISO weeks, at most 30 sessions a day, well below 100 KiB, the only `set` on an existing record), caps of 40 keys a map, two visits of one person do not overwrite each other, a re-sent write changes nothing;
+  * retention (12 ISO weeks, at most 10 sessions a day, below 100 KiB, the only `set` on an existing record), and the note appearing only after the first successful write, caps of 40 keys a map, two visits of one person do not overwrite each other, a re-sent write changes nothing;
   * Israel day and ISO week across a day boundary, a year boundary (2026-W53 into 2027-W01) and a browser in another timezone;
   * the state and the page are the same with and without logging.
 
@@ -102,12 +102,13 @@ def snap(ch) -> dict:
     return ch.js("window.__dpUsageTest ? JSON.parse(JSON.stringify(window.__dpUsageTest.snap())) : null") or {}
 
 
-def settle(ch, timeout: float = 8):
-    """Force the visit's final write (the page goes hidden) and wait for it, then show the page again."""
+def settle(ch, timeout: float = 8, restore: bool = True):
+    """Force the visit's final write (the page goes hidden) and wait for it, then show the page again (restore=False: leave it hidden, so no later tick writes again)."""
     ch.js("window.__vis = 'hidden'; document.dispatchEvent(new Event('visibilitychange'))")
     ch.wait_for("(() => { const s = window.__dpUsageTest.snap(); return !s.inflight && !s.dirty; })()", timeout)
     time.sleep(0.15)
-    ch.js("window.__vis = 'visible'")
+    if restore:
+        ch.js("window.__vis = 'visible'")
 
 
 def session(ch, doc: dict | None = None) -> dict:
@@ -278,7 +279,7 @@ def b_main() -> list[str]:
         bad.append(f"something was written before any input: {log(ch)[:2]}")
     exp, miss = reader(ch)
     bad += [f"the reader could not do: {x}" for x in miss]
-    settle(ch)
+    settle(ch, restore=False)
     bad += compare(ch, exp)
     d = docs(ch)
     bad += allowlist_problems(d.get(PATH), fixture())
@@ -386,10 +387,16 @@ def b_notice() -> list[str]:
         click(ch, '#seclist a[data-jump="h-eff"]'); time.sleep(1.2)
         if log(ch):
             bad.append(f"{name}: calls to the store: {log(ch)[:2]}")
+        if has_note(ch):
+            bad.append(f"{name}: the note is shown after an interaction")
         if not ch.js("document.getElementById('f-release') && document.querySelectorAll('section').length > 5"):
             bad.append(f"{name}: the page does not work")
         bad += [f"{name}: {e}" for e in errors(ch)]
     ch = load(usage={})
+    if has_note(ch):
+        bad.append("the note is shown before anything has been recorded")
+    if not record_first(ch):
+        return bad + ["the first write never happened"]
     note = ch.js("(() => { const n = document.getElementById('usage-note'); if (!n) return null; const b = n.querySelector('button'), l = document.getElementById('usage-what'); return {text: n.querySelector('p').textContent, hidden: n.hidden, inFooter: !!n.closest('footer'), exp: b.getAttribute('aria-expanded'), ctl: b.getAttribute('aria-controls'), listHidden: l.hidden, items: [...l.querySelectorAll('li')].map(x => x.textContent), lastInFooter: document.getElementById('footer').lastElementChild === n}; })()")
     if not note:
         return bad + ["logging is active and no note is shown"]
@@ -401,14 +408,59 @@ def b_notice() -> list[str]:
         bad.append("the toggle starts open or is not wired")
     click(ch, "#usage-note button")
     after = ch.js("({exp: document.querySelector('#usage-note button').getAttribute('aria-expanded'), hidden: document.getElementById('usage-what').hidden, n: document.querySelectorAll('#usage-what li').length, text: document.getElementById('usage-what').textContent})")
-    if after["exp"] != "true" or after["hidden"] or after["n"] != 7 or "8 weeks" not in after["text"] or "Never counted" not in after["text"]:
+    if after["exp"] != "true" or after["hidden"] or after["n"] != 7 or "12 weeks" not in after["text"] or "Never counted" not in after["text"]:
         bad.append(f"the list does not open or lacks the retention and exclusions: {after}")
-    ch.js(NOOPEN)
-    ch = load(usage={"fault": "invalid"})                                                # a refused write: the note goes away (nothing is being recorded)
+    bad += errors(ch)
+    return bad
+
+
+def has_note(ch) -> bool:
+    return bool(ch.js("!!document.getElementById('usage-note')"))
+
+
+def record_first(ch, timeout: float = 4) -> bool:
+    """One strip click, then wait until the first write has succeeded and the page had time to react."""
     click(ch, '#seclist a[data-jump="h-eff"]')
-    ch.wait_for("window.__dbLog.some(e => e.result === 'invalid_argument')", 4); time.sleep(0.3)
-    if ch.js("(() => { const n = document.getElementById('usage-note'); return !!n && !n.hidden; })()"):
-        bad.append("the note stays after the visit stopped recording")
+    ok = ch.wait_for("window.__dbLog.some(e => e.op === 'set' && e.result === 'ok')", timeout)
+    time.sleep(0.2)
+    return bool(ok)
+
+
+def b_note_after_write() -> list[str]:
+    """The note appears only after the first SUCCESSFUL write of the visit: never for a viewer whose write is refused (nothing was recorded for them)."""
+    bad: list[str] = []
+    ch = load(usage={"fault": "invalid", "latency": 60})                                  # a view-only viewer: the write is refused with invalid_argument
+    seen = [has_note(ch)]
+    click(ch, '#seclist a[data-jump="h-eff"]')
+    for _ in range(8):                                                                   # while the first write is under way, when it is refused, and afterwards
+        seen.append(has_note(ch)); time.sleep(0.15)
+    ch.wait_for("window.__dbLog.some(e => e.result === 'invalid_argument')", 4)
+    click(ch, '#seclist a[data-jump="h-bugs"]'); time.sleep(0.8)
+    seen.append(has_note(ch))
+    if any(seen):
+        bad.append("a view-only viewer saw the note")
+    if any(e["result"] == "ok" and e["op"] in ("set", "update") for e in log(ch)):
+        bad.append("something was recorded for a refused viewer")
+    ch = load(usage={"fault": "exhausted", "t": {**FAST, "flush": 300}})                   # every write fails: three attempts, never a note
+    end = time.time() + 3.5
+    seen = []
+    while time.time() < end:
+        click(ch, '#seclist a[data-jump="h-eff"]'); click(ch, '#seclist a[data-jump="h-bugs"]'); seen.append(has_note(ch)); time.sleep(0.12)
+    if any(seen):
+        bad.append("the note was shown although no write ever succeeded")
+    ch = load(usage={"fault": "unavailable_once", "latency": 80})                          # the first write is retried once: the note comes with the success, not before
+    if has_note(ch):
+        bad.append("the note is shown at load")
+    click(ch, '#seclist a[data-jump="h-eff"]')
+    early = []
+    end = time.time() + 3
+    while time.time() < end and not ch.js("window.__dbLog.some(e => e.op === 'set' && e.result === 'ok')"):
+        early.append(has_note(ch)); time.sleep(0.02)
+    if any(early):
+        bad.append("the note appeared before the first successful write")
+    time.sleep(0.2)
+    if not has_note(ch):
+        bad.append("the note did not appear after the first successful write")
     bad += errors(ch)
     return bad
 
@@ -529,9 +581,15 @@ def _(t: T):
     t.check(not bad, "; ".join(bad))
 
 
-@SUITE.test("usage_the_note_shows_exactly_when_logging_is_active_and_the_page_works_without_it")
+@SUITE.test("usage_the_note_shows_after_the_first_successful_write_and_the_page_works_without_logging")
 def _(t: T):
     bad = b_notice()
+    t.check(not bad, "; ".join(bad))
+
+
+@SUITE.test("usage_the_note_appears_only_after_the_first_successful_write_never_for_a_refused_viewer")
+def _(t: T):
+    bad = b_note_after_write()
     t.check(not bad, "; ".join(bad))
 
 
@@ -571,16 +629,15 @@ def _(t: T):
     t.check(not errors(ch), f"console: {errors(ch)[:2]}")
 
 
-@SUITE.test("usage_retention_keeps_8_weeks_30_sessions_a_day_and_a_small_record_with_one_set_on_an_existing_record")
+@SUITE.test("usage_retention_keeps_12_weeks_10_sessions_a_day_and_a_small_record_with_one_set_on_an_existing_record")
 def _(t: T):
     now = dt.datetime(2026, 11, 10, 10, 0, tzinfo=dt.timezone.utc)                      # ISO week 46 of 2026
     weeks = [(dt.date(2026, 11, 9) - dt.timedelta(days=7 * i)) for i in range(0, 16)]
-    seed: dict = {}
-    full = lambda i, w: {"t": 29_000_000 + i + 100 * w, "s": 300, "sec": {k: 12 for k in SEC_KEYS}, "nav": {k: 3 for k in SEC_KEYS}, "f": {k: 2 for k in VOC["f"]}, "l": {k: 1 for k in VOC["l"]}, "d": "l", "b": "abc1234"}
-    for d0 in weeks:
-        y, w, _ = d0.isocalendar()
-        seed[f"{y}-W{w:02d}"] = {(d0 + dt.timedelta(days=j)).isoformat(): {f"s{i:07d}": full(i, w) for i in range(70 if (d0, j) == (dt.date(2026, 11, 9), 0) else 25)} for j in range(3)}
-    seed["2026-W46"]["2026-11-10"] = {f"s{i:07d}": full(i, 99) for i in range(70)}
+    wk = lambda d0: f"{d0.isocalendar()[0]}-W{d0.isocalendar()[1]:02d}"
+    full = lambda i, w: {"t": 29_000_000 + i + 100 * w, "s": 300, "sec": {k: 12 for k in SEC_KEYS}, "nav": {k: 3 for k in SEC_KEYS}, "f": {k: 2 for k in VOC["f"]}, "l": {k: 1 for k in VOC["l"]}, "o": {k: 1 for k in VOC["o"]}, "r": 4, "rs": 3, "np": 7, "d": "l", "b": "abc1234"}
+    real = lambda i, w: {"t": 29_000_000 + i + 100 * w, "s": 240, "sec": {"attn": 60, "burnup": 120, "bugs": 60}, "nav": {"eff": 1, "bugs": 1}, "f": {"release": 2, "teams": 1}, "l": {"attn": 1}, "o": {"how": 1}, "np": 7, "d": "l", "b": "abc1234"}
+    # (a) the worst case: 16 weeks, every day, 10 full sessions a day, one day with 70: far over 100 KiB. Weeks older than 12 go, a day is cut to 10, and the size limit drops the oldest weeks first.
+    seed = {wk(d0): {(d0 + dt.timedelta(days=j)).isoformat(): {f"s{i:07d}": full(i, d0.isocalendar()[1]) for i in range(70 if (d0, j) == (dt.date(2026, 11, 9), 0) else 10)} for j in range(7)} for d0 in weeks}
     body = {"u": UID, "v": 1, "first": "2026-04-01", "last": "2026-11-09", "w": seed}
     ch = load(usage={"seed": {PATH: body}}, shift_to=now)
     t.check(len(json.dumps(body)) > 100 * 1024, f"the seeded record is large ({len(json.dumps(body)) // 1024} KiB)")
@@ -589,10 +646,10 @@ def _(t: T):
     time.sleep(0.3)
     d = docs(ch)[PATH]
     kept = sorted(d["w"])
-    t.check(kept[0] >= "2026-W39" and kept[-1] == "2026-W46" and 1 <= len(kept) <= 8, f"weeks kept: {kept}")
-    t.check(all(len(v) <= 30 for days in d["w"].values() for v in days.values()) and len(d["w"]["2026-W46"]["2026-11-10"]) == 30, "the day with 70 sessions is cut to the 30 newest, the visit's own among them")
-    t.check(all(len(v) <= 30 for days in d["w"].values() for v in days.values()), "at most 30 sessions a day")
-    t.check(len(json.dumps(d).encode()) < 100 * 1024, f"the record is {len(json.dumps(d)) // 1024} KiB, below 100 KiB")
+    t.check(kept[0] >= "2026-W35" and kept[-1] == "2026-W46" and 1 <= len(kept) <= 12, f"weeks kept: {kept}")
+    t.check(all(len(v) <= 10 for days in d["w"].values() for v in days.values()) and len(d["w"]["2026-W46"]["2026-11-10"]) == 10, "a day is cut to the 10 newest sessions, the visit's own among them")
+    t.check(len(json.dumps(d).encode()) < 100 * 1024, f"the record is {len(json.dumps(d)) // 1024} KiB, below 100 KiB (at the worst case {len(kept)} of 12 weeks fit)")
+    t.note(f"absolute worst case (every day, 10 full sessions a day): {len(kept)} of 12 weeks kept, {len(json.dumps(d).encode()) // 1024} KiB")
     sd = snap(ch)
     t.check(sd["S"]["sid"] in d["w"]["2026-W46"]["2026-11-10"], "the visit's own session is kept")
     t.check(d["first"] == "2026-04-01", "first is kept")
@@ -600,11 +657,21 @@ def _(t: T):
     sets = [e for e in log(ch) if e["op"] == "set"]
     t.check(len(sets) == 1 and [e["op"] for e in log(ch)].count("get") == 1, f"one get and one set, then updates only: {[e['op'] for e in log(ch)]}")
     t.check(ch.js("window.__dbOverlap") == 0 and not errors(ch), "no overlap, no console error")
-    # a light record: older than 8 weeks goes, exactly the last 8 weeks stay
-    light = {"u": UID, "v": 1, "first": "2026-04-01", "last": "2026-11-09", "w": {f"{d0.isocalendar()[0]}-W{d0.isocalendar()[1]:02d}": {d0.isoformat(): {"zzzzzzz1": {"t": 1, "s": 5}}} for d0 in weeks}}
+    # (b) a heavy but realistic pattern: 12 weeks, 5 days a week, 3 sessions a day: all 12 weeks stay, nothing is rewritten, the record is far below 100 KiB
+    seed = {wk(d0): {(d0 + dt.timedelta(days=j)).isoformat(): {f"s{i:07d}": real(i, d0.isocalendar()[1]) for i in range(3)} for j in (0, 1, 2, 3, 6)} for d0 in weeks[:12]}
+    body = {"u": UID, "v": 1, "first": "2026-04-01", "last": "2026-11-09", "w": seed}
+    ch = load(usage={"seed": {PATH: body}}, shift_to=now)
+    click(ch, '#seclist a[data-jump="h-eff"]'); ch.wait_for("window.__dbLog.some(e => e.op === 'update' && e.result === 'ok')", 4); time.sleep(0.2)
+    d = docs(ch)[PATH]
+    size = len(json.dumps(d).encode())
+    t.check(sorted(d["w"]) == [f"2026-W{n}" for n in range(35, 47)] and "set" not in [e["op"] for e in log(ch)], f"all 12 weeks stay and nothing is replaced: {sorted(d['w'])} {[e['op'] for e in log(ch)][:3]}")
+    t.check(size < 100 * 1024, f"a heavy realistic record is {size // 1024} KiB, below 100 KiB")
+    t.note(f"a heavy realistic record over 12 weeks: {size // 1024} KiB; the absolute worst case is held to 90 KiB by dropping the oldest weeks")
+    # (c) a light record: older than 12 weeks goes, exactly the last 12 weeks stay
+    light = {"u": UID, "v": 1, "first": "2026-04-01", "last": "2026-11-09", "w": {wk(d0): {d0.isoformat(): {"zzzzzzz1": {"t": 1, "s": 5}}} for d0 in weeks}}
     ch = load(usage={"seed": {PATH: light}}, shift_to=now)
     click(ch, '#seclist a[data-jump="h-eff"]'); ch.wait_for("window.__dbLog.some(e => e.op === 'set' && e.result === 'ok')", 4); time.sleep(0.2)
-    t.check(sorted(docs(ch)[PATH]["w"]) == [f"2026-W{n}" for n in range(39, 47)], f"exactly the last 8 ISO weeks stay: {sorted(docs(ch)[PATH]['w'])}")
+    t.check(sorted(docs(ch)[PATH]["w"]) == [f"2026-W{n}" for n in range(35, 47)], f"exactly the last 12 ISO weeks stay: {sorted(docs(ch)[PATH]['w'])}")
     # a record that is small and current is not rewritten: the first write is an update
     small = {"u": UID, "v": 1, "first": "2026-11-01", "last": "2026-11-09", "w": {"2026-W45": {"2026-11-09": {"zzzzzzz1": {"t": 1, "s": 5}}}}}
     ch = load(usage={"seed": {PATH: small}}, shift_to=now)
@@ -666,6 +733,7 @@ def _(t: T):
 @SUITE.test("usage_the_note_is_in_the_pages_caption_style_and_follows_the_copy_rules")
 def _(t: T):
     ch = load(usage={})
+    t.check(record_first(ch), "the first write happened (the note comes with it)")
     r = ch.js("""(() => { const p = document.querySelector('#usage-note p'), c = document.querySelector('#footer .cap'); const a = getComputedStyle(p), b = getComputedStyle(c);
         return {size: a.fontSize, color: a.color, ref: [b.fontSize, b.color], text: document.getElementById('usage-note').innerText}; })()""")
     t.check(r["size"] == r["ref"][0] and r["color"] == r["ref"][1], f"the note uses the caption size and colour: {r['size']} {r['color']} against {r['ref']}")
@@ -700,11 +768,12 @@ SEEDS = [
     ("issue_key_recorded", [('if (a && isJira(a)) bump("l", secOf(a) || "other");', 'if (a && isJira(a)) { const k = ((a.getAttribute("href") || "").match(/[A-Z][A-Z0-9]+-[0-9]+/) || ["other"])[0]; S.l[k] = (S.l[k] || 0) + 1; dirty = true; }')], b_main),
     ("idle_time_counted", [("Date.now() - lastInput < T.idle", "true")], b_idle),
     ("hidden_time_counted", [("    if (visible()) {\n      vis += T.tick;", "    if (true) {\n      vis += T.tick;")], b_idle),
-    ("write_at_load", [("timer = setInterval(tick, T.tick); note();", "timer = setInterval(tick, T.tick); note(); interacted = true; dirty = true; flush();")], b_load),
+    ("write_at_load", [("timer = setInterval(tick, T.tick);\n", "timer = setInterval(tick, T.tick); interacted = true; dirty = true; flush();\n")], b_load),
     ("counter_by_read_modify_write", [("if (ready) { await retrying(() => ref.update({last: today, w: mine})); return; }", "if (ready) { await retrying(() => ref.get()); await retrying(() => ref.update({last: today, w: mine})); return; }")], b_main),
     ("document_per_session", [('const ref = db.doc("usage/" + uid), today', 'const ref = db.doc("usage/" + uid + "_" + S.sid), today')], b_main),
     ("unbounded_keys", [("const room = (map, key) => key in map || Object.keys(map).length < MAP_CAP;", "const room = (map, key) => true;")], b_cap),
     ("note_shown_when_inactive", [("async function init() {\n    if (!RUNTIME) return;", "async function init() {\n    if (RUNTIME) note();\n    if (!RUNTIME) return;")], b_notice),
+    ("note_shown_before_the_first_write", [("timer = setInterval(tick, T.tick);\n", "timer = setInterval(tick, T.tick); note();\n")], b_note_after_write),
     ("unlimited_retries", [("if (fails >= FAIL_MAX || !e", "if (!e")], b_fail),
     ("the_viewers_day_instead_of_israel", [("const dayOf = ms => ilDate(ms);", "const dayOf = ms => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };")], b_day),
     ("overlapping_writes", [("if (inflight || stopped || !on) return;\n    inflight = true;", "if (stopped || !on) return;\n    inflight = true;"), ("if (inflight) { if (force) again = true; return; }", "")], b_main),

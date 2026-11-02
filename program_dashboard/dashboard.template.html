@@ -4754,17 +4754,17 @@ window.addEventListener("resize", () => {                     // charts are draw
 // ---------------------------------------------------------------- usage statistics (a self-contained block: nothing above it knows about it; it wraps saveState and listens on the document)
 // What it does: when the published page can resolve the `db` and `user` capabilities and the viewer has an id (an opaque token, never a name or an e-mail), it counts, per visit, which sections are read, which controls are used,
 // which Jira links are followed (by section only) and how long the page is in real use, and keeps one small record per person at usage/<id>. Everything recorded comes from the fixed lists in USAGE_VOC; anything else is dropped.
-// Never recorded: names, e-mails, issue keys, team, pod or project names, search text, link addresses, any free text. A local copy, a page without the capabilities and a viewer without an id record nothing and show nothing.
+// Never recorded: names, e-mails, issue keys, team, pod or project names, search text, link addresses, any free text. A local copy, a page without the capabilities and a viewer without an id record nothing and show nothing. The note at the bottom of the page appears only after the first successful write of a visit: a viewer whose write is refused never sees it.
 // Access rules, declared when the page is published (not in the page): {"db": {"rules": [{"path": "", "write": "admin"}, {"path": "usage", "read": "admin", "write": "admin"}, {"path": "usage/{self}", "read": "interact", "write": "interact"}]}, "user": {}}
 // (each person writes and reads only their own record; Editors and the owner read all). `user` is declared without scopes on purpose: no names, no e-mails.
 // Record: {u, v: 1, first, last, w: {"<ISO week>": {"<Israel day>": {"<session id>": {t, s, sec, nav, f, l, o, r, rs, np, d, b, er, x}}}}}. Each visit writes only its own session object with a nested merge of its full cumulative state, so a re-sent write is harmless
-// and several tabs never overwrite each other. Kept 8 ISO weeks, at most 30 sessions per day, every counter map at most 40 keys, the record well below 100 KiB.
+// and several tabs never overwrite each other. Kept 12 ISO weeks, at most 10 sessions per day, every counter map at most 40 keys, the record kept below 90 KiB (at the heaviest use the oldest weeks go first).
 // Timing: the first write happens only after the first real input or after 30 s of visible time, never at load and never inside an event handler; then at most one write every 30 s while the page is visible and changed, plus when the page is hidden or left.
 // One write at a time; after 3 failed writes in a row, or a refusal that cannot succeed (for example a view-only viewer), the visit stops recording and the note disappears. A failure never reaches the page.
 const USAGE_VOC = {"sec":["attn","burnup","eff","ai","bugs","deps","nfr","cx","capview","cycles","analysis"],"nav":["attn","burnup","eff","ai","bugs","deps","nfr","cx","capview","cycles","analysis"],"l":["attn","burnup","eff","ai","bugs","deps","nfr","cx","capview","cycles","analysis","other"],"f":["release","projects","multi","teams","dc","ax","cfb","bugpri","gran","cfbgrp","dp","nfrtab","cx","caplevel","capby","capmeasure","cycle","cytab","cystatus","cypods"],"o":["how","data","attn","other"],"d":["s","m","l"]};
 const USAGE = (() => {
   const VOC = USAGE_VOC;
-  const SEC_PER_TICK = 5, WEEKS_KEPT = 8, DAY_PRUNE = 60, DAY_KEEP = 30, MAP_CAP = 40, DOC_MAX = 90 * 1024, FAIL_MAX = 3, COUNT_MAX = 1000;
+  const SEC_PER_TICK = 5, WEEKS_KEPT = 12, DAY_PRUNE = 20, DAY_KEEP = 10, MAP_CAP = 40, DOC_MAX = 90 * 1024, FAIL_MAX = 3, COUNT_MAX = 1000;
   const T = {tick: 5000, flush: 30000, first: 30000, idle: 60000, retry: [150, 600], ...(window.__dpUsageT || {})};       // the test page shortens these (window.__dpUsageT); the published page never sets it
   const STATE_KEYS = {r: "release", p: "projects", t: "teams", dc: "dc", ax: "ax", bp: "bugpri", cfb: "cfb", clx: "caplevel", g: "gran", cg: "cfbgrp", dp: "dp", nt: "nfrtab", cx: "cx", cpg: "capby", cpm: "capmeasure", cy: "cycle", ct: "cytab", cs: "cystatus"};
   const PERMANENT = new Set(["invalid_argument", "quota_exceeded", "revoked", "not_granted", "capability_disabled", "capability_removed", "transform_error"]);
@@ -4795,7 +4795,7 @@ const USAGE = (() => {
     return o;
   }
   const size = x => JSON.stringify(x).length;
-  // retention, applied once per visit to the record read back: the last 8 ISO weeks, at most 30 sessions per day (60 or more triggers it), the record below DOC_MAX; null when nothing needs to go
+  // retention, applied once per visit to the record read back: the last 12 ISO weeks, at most 10 sessions per day (more than 20 triggers it), the record below DOC_MAX; null when nothing needs to go
   function prune(cur, today) {
     const w0 = cur.w && typeof cur.w === "object" && !Array.isArray(cur.w) ? cur.w : {}, cut = weekOf(dayOf(Date.now() - (WEEKS_KEPT - 1) * 7 * DAY));
     let need = size(cur) > DOC_MAX; const keep = {};
@@ -4824,7 +4824,7 @@ const USAGE = (() => {
   async function flush() {
     if (inflight || stopped || !on) return;
     inflight = true; dirty = false;
-    try { await write(body()); fails = 0; wrote = true; }
+    try { await write(body()); fails = 0; wrote = true; if (!noteEl && on) note(); }      // the note appears only once something has really been recorded
     catch (e) { dirty = true; fails++; if (fails >= FAIL_MAX || !e || !e.code || PERMANENT.has(e.code)) stop(); }
     finally { inflight = false; lastWrite = Date.now(); }
     if (again && dirty && !stopped) { again = false; flush(); }
@@ -4884,7 +4884,7 @@ const USAGE = (() => {
      "Which Jira links you follow, by section only: never the issue or the address.",
      "Which details you open, how often you press Refresh and Reset Filters, your screen size (small, medium or large), the page version and the number of page errors.",
      "Never counted: names, e-mail addresses, issue keys, project, team or pod names, search text.",
-     "Kept for 8 weeks, then removed. Your record can be read by you and by the editors of this page."].forEach(x => { const li = document.createElement("li"); li.textContent = x; ul.append(li); });
+     "Kept for 12 weeks, then removed. Your record can be read by you and by the editors of this page."].forEach(x => { const li = document.createElement("li"); li.textContent = x; ul.append(li); });
     b.onclick = () => { ul.hidden = !ul.hidden; b.setAttribute("aria-expanded", String(!ul.hidden)); };
     p.append(b); el.append(p, ul); (document.getElementById("footer") || document.body).append(el); noteEl = el;
   }
@@ -4902,7 +4902,7 @@ const USAGE = (() => {
     document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") maybeFlush(true); });
     window.addEventListener("pagehide", () => maybeFlush(true));
     const orig = saveState; saveState = function () { const r = orig.apply(this, arguments); try { onState(); } catch (e) { /* counting never breaks the page */ } return r; };
-    timer = setInterval(tick, T.tick); note();
+    timer = setInterval(tick, T.tick);
   }
   if (window.__dpUsageT) window.__dpUsageTest = {room, weekOf, dayOf, snap: () => JSON.parse(JSON.stringify({S, on, stopped, fails, dirty, inflight, wrote, ready, uid, sessDay, sessWeek}))};      // for the test page only
   init().catch(() => {});

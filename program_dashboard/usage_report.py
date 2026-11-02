@@ -293,8 +293,8 @@ def discl_sorted(a: dict):
 
 
 # ------------------------------------------------------------------------------------------------------------ the demo data (fictitious)
-def demo_bodies(today: dt.date, users: int = 40, weeks: int = 8, seed: int = 20261102) -> list[dict]:
-    """About 40 fictitious people over 8 weeks. Ids are u_synthetic_001...; a few controls and sections are used by only a few people so that the small-group guard shows."""
+def demo_bodies(today: dt.date, users: int = 40, weeks: int = 12, seed: int = 20261102) -> list[dict]:
+    """About 40 fictitious people over 12 weeks. Ids are u_synthetic_001...; a few controls and sections are used by only a few people so that the small-group guard shows."""
     r = random.Random(seed)
     out = []
     w_sec = {"attn": 18, "burnup": 24, "eff": 8, "ai": 7, "bugs": 14, "deps": 9, "nfr": 4, "cx": 3, "capview": 5, "cycles": 11, "analysis": 6}
@@ -559,7 +559,7 @@ def html_report(a: dict, standalone: bool = False) -> str:
     add('<section class="blk" aria-labelledby="h-how"><h2 id="h-how">How this is measured</h2><details class="vd" id="how"><summary>What is counted and what is not</summary>'
         '<p class="cap">The published Delivery Pulse page counts, for each person who has an id, which sections they read, which filters and buttons they use, which Jira links they follow (by section only), how long the page is open in front of them and in use, their screen size, the page version and page errors. '
         'It records no names, e-mail addresses, issue keys, project, team or pod names or search text. People who are signed out, who hold view-only access, who open an offline copy, or whose browser blocks the page&#39;s storage are not counted, so these are counts of people with an id, not of all visitors. '
-        f'A visit that only reads is recorded after 30 seconds. Each person&#39;s record keeps 8 weeks. Any figure that rests on fewer than {MIN_USERS} people shows "&lt;5 users", and its bar is not drawn. '
+        f'A visit that only reads is recorded after 30 seconds. Each person&#39;s record keeps 12 weeks. Any figure that rests on fewer than {MIN_USERS} people shows "&lt;5 users", and its bar is not drawn. '
         'Visit length uses visits with some active time; the 90th percentile is interpolated between the two nearest visits. Weeks before the first record show "before the data starts", not zero. This page is a snapshot of an export, not a live view.</p></details></section>')
     add("</main>")
     add('<footer class="gutter">Delivery Pulse Usage. Counts only: this page never contains a user id.</footer>')
@@ -596,7 +596,7 @@ def main(argv=None) -> int:
     ap.add_argument("--standalone", action="store_true", help="wrap the page in a full document so it opens in a browser as a file")
     ap.add_argument("--as-of", help="when the data was exported, ISO (for the 'Data as of' stamp and to decide today)")
     ap.add_argument("--today", help="YYYY-MM-DD, the Israel day the report is about (default: the day of --as-of, else the last day in the data)")
-    ap.add_argument("--demo", action="store_true", help="use a fictitious data set (about 40 people, 8 weeks) and show a Demo data banner")
+    ap.add_argument("--demo", action="store_true", help="use a fictitious data set (about 40 people, 12 weeks) and show a Demo data banner")
     ap.add_argument("--text", action="store_true", help="also print the text report when --html is given")
     a = ap.parse_args(argv)
     as_of = parse_as_of(a.as_of)

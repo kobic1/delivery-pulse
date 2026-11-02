@@ -214,7 +214,7 @@ def test_the_report_knows_exactly_the_keys_the_page_records():
 def test_the_page_shows_a_usage_note_with_the_documented_wording_and_reads_only_the_id():
     block = TEMPLATE[TEMPLATE.index("const USAGE_VOC"):]
     assert "Usage statistics: this page counts, per anonymous user id (no name or e-mail), which sections are opened and which controls are used, to improve the dashboard. " in block
-    assert "What is counted" in block and "Kept for 8 weeks" in block
+    assert "What is counted" in block and "Kept for 12 weeks" in block
     assert re.search(r"user\.id\(\)", block) and not re.search(r"user\.(name|email|me|profiles|search)\b", block)
     assert block.count('window.claude.use("db")') == 1 and block.count('window.claude.use("user")') == 1
     assert "scopes" not in block

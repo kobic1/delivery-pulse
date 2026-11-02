@@ -251,7 +251,7 @@ The published page counts how it is used, so the owner can see how many people u
 
 **Privacy.** Per-user ids are allowed; names and e-mail addresses are not. The page reads only `user.id()` (an opaque `u_...` token) and declares `user` **without scopes**. Never recorded: names, e-mails, issue keys, team, pod or project names (the project chips are
 configuration the viewer chose: only the number of selected projects is kept), search text, the address of a Jira link, free text of any kind. Every recorded key comes from the fixed lists below; anything else is dropped. A visible note at the very bottom of the page says what is
-counted (shown only while recording is active). Records are kept 8 ISO weeks.
+counted. It appears only after the first successful write of a visit, so a viewer whose write is refused (a view-only viewer) never sees it, and it disappears if the visit stops recording. Records are kept 12 ISO weeks.
 
 **Publish with these capabilities** (the access rules are declared at publish time, not in the page; they are also written in the template comment):
 
@@ -286,7 +286,7 @@ Vocabularies (`USAGE_VOC`; `tests/test_usage_report.py` keeps the report equal t
 A control change is counted from the address keys the page writes after every state change (compared with the last state), only when the reader acted in the last 2 seconds, and Reset Filters counts as Reset only. A disclosure counts only when the reader opened it (a click on its summary), not when the page redraws it open.
 
 **When it writes.** Never at page load and never inside an event handler: the first write follows the first real input, or 30 s of visible time for a visit that only reads; then at most one write every 30 s while the page is visible and something changed, and when the page is hidden or left (best effort).
-One write at a time. The first write of a visit reads the record (`get`) and creates it (`set`) or merges into it (`update`); it prunes weeks older than 8, keeps at most 30 visits a day and keeps the record below 90 KiB, rewriting with `set` only when something has to go. After that every write is an `update` of the visit's own object, so a re-sent write is harmless and several tabs do not overwrite each other.
+One write at a time. The first write of a visit reads the record (`get`) and creates it (`set`) or merges into it (`update`); it prunes weeks older than 12, keeps at most 10 visits a day (a day with more than 20 triggers the clean-up) and keeps the record below 90 KiB, rewriting with `set` only when something has to go. Size: a heavy but realistic pattern (5 days a week, 3 visits a day, 12 weeks) is about 60 KiB; at the absolute maximum (every day, 10 full visits a day) the 90 KiB limit drops the oldest weeks first, so fewer than 12 weeks are kept (about one week at that extreme). After that every write is an `update` of the visit's own object, so a re-sent write is harmless and several tabs do not overwrite each other.
 `unavailable` is retried once after a short random pause; after 3 failed writes in a row, or a refusal that cannot succeed (`invalid_argument` for a view-only viewer, `quota_exceeded`, `revoked`), the visit stops recording and the note disappears. A failure never reaches the page.
 Not verified in a headless file build: how the real `db` and its consent prompt (if any) behave; the tests use a fake store with the documented semantics (`tests/dashboard_browser/usage_oracle.py`).
 
@@ -299,7 +299,7 @@ python3 program_dashboard/usage_report.py --demo --html usage_demo.html --standa
 ```
 
 The input is a list of the bodies or of `{id, data}` rows. The report never reads or prints an id. Every breakdown that rests on fewer than 5 distinct people prints `<5 users` and draws no bar. Active users, returning users (2 or more days), visits per active user, median and 90th percentile
-visit length, reading time per section, control changes, Jira links per section, disclosures, Refresh and Reset Filters, screen size, page version and page errors are shown; with fewer than 14 days of data the page says that trends are not meaningful yet. Because each record keeps 8 weeks, the weekly trend shows at most 8 weeks
+visit length, reading time per section, control changes, Jira links per section, disclosures, Refresh and Reset Filters, screen size, page version and page errors are shown; with fewer than 14 days of data the page says that trends are not meaningful yet. Because each record keeps 12 weeks, the weekly trend shows at most 12 weeks
 unless earlier exports are kept; weeks before the first record read "before the data starts", not zero.
 
 ## Adding to it
