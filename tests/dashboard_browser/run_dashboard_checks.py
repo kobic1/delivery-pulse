@@ -87,7 +87,9 @@ def main() -> int:
     ap.add_argument("--strict", action="store_true", help="XFAIL (expected to fail until a fix lands) counts as a failure")
     ap.add_argument("--expect", action="append", default=[], help="turn an expectation flag on (DEADLINE, REAL_ERROR_TEXT, ATOMIC_CAP, CURSOR_GUARD); repeatable")
     ap.add_argument("--skip-pytest", action="store_true")
-    ap.add_argument("--only", help="run only tests whose name contains this text (browser suites)")
+    ap.add_argument("--only", help="run only tests whose name contains this text (browser suites); comma-separated parts, '!text' excludes (e.g. 'selftest' or '!selftest')")
+    ap.add_argument("--suites", help="run only these browser suites (comma-separated labels or script names, e.g. 'harness,canary'); CI runs the suites as parallel jobs")
+    ap.add_argument("--except", dest="except_", help="run every browser suite except these (comma-separated labels or script names); a suite added later runs in the job that uses --except")
     ap.add_argument("--keep", action="store_true", help="keep the generated pages")
     a = ap.parse_args()
     template = Path(kit.LIVE_TEMPLATE if a.live else (a.template or kit.FROZEN / "dashboard.template.html"))
@@ -107,7 +109,12 @@ def main() -> int:
     if not a.skip_pytest:
         steps.append(step_pytest())
     steps.append(step_fixture(template))
+    def named(spec: str | None) -> set[str]:
+        return {x.strip() for x in (spec or "").split(",") if x.strip()}
+    chosen, left_out = named(a.suites), named(a.except_)
     for label, script in SUITES:
+        if (chosen and label not in chosen and script not in chosen) or label in left_out or script in left_out:
+            continue
         res = run_suite(label, script, args, env)
         if res:
             all_results += [dict(r, suite=label) for r in res]
