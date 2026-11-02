@@ -514,6 +514,7 @@ a.cl:hover > rect.hit, a.cl:focus > rect.hit { fill:rgba(2,90,251,.07); }
 .key .sw { width:10px; height:10px; border-radius:2px; flex:none; transform:translateY(0); display:inline-block; }
 footer.f { padding-block:0 96px; color:var(--muted); font-size:var(--t-cap); line-height:1.6; }
 footer.f b { color:var(--ink); }
+#usage-note { margin-top:20px; max-width:80ch; } #usage-note p { margin:0; } #usage-what { margin:4px 0 0; padding-left:18px; }
 @media (prefers-reduced-motion: no-preference) { .teampanel { animation:fade .12s ease-out; } @keyframes fade { from { opacity:0; } to { opacity:1; } } }
 </style>
 
@@ -4750,4 +4751,161 @@ window.addEventListener("resize", () => {                     // charts are draw
     if (w !== lastVW) { lastVW = w; renderBurnup(); renderBugs(); renderCfb(); renderEfficiency(); renderAdoption(); tipPass(); }
   }, 150);
 });
+// ---------------------------------------------------------------- usage statistics (a self-contained block: nothing above it knows about it; it wraps saveState and listens on the document)
+// What it does: when the published page can resolve the `db` and `user` capabilities and the viewer has an id (an opaque token, never a name or an e-mail), it counts, per visit, which sections are read, which controls are used,
+// which Jira links are followed (by section only) and how long the page is in real use, and keeps one small record per person at usage/<id>. Everything recorded comes from the fixed lists in USAGE_VOC; anything else is dropped.
+// Never recorded: names, e-mails, issue keys, team, pod or project names, search text, link addresses, any free text. A local copy, a page without the capabilities and a viewer without an id record nothing and show nothing.
+// Access rules, declared when the page is published (not in the page): {"db": {"rules": [{"path": "", "write": "admin"}, {"path": "usage", "read": "admin", "write": "admin"}, {"path": "usage/{self}", "read": "interact", "write": "interact"}]}, "user": {}}
+// (each person writes and reads only their own record; Editors and the owner read all). `user` is declared without scopes on purpose: no names, no e-mails.
+// Record: {u, v: 1, first, last, w: {"<ISO week>": {"<Israel day>": {"<session id>": {t, s, sec, nav, f, l, o, r, rs, np, d, b, er, x}}}}}. Each visit writes only its own session object with a nested merge of its full cumulative state, so a re-sent write is harmless
+// and several tabs never overwrite each other. Kept 8 ISO weeks, at most 30 sessions per day, every counter map at most 40 keys, the record well below 100 KiB.
+// Timing: the first write happens only after the first real input or after 30 s of visible time, never at load and never inside an event handler; then at most one write every 30 s while the page is visible and changed, plus when the page is hidden or left.
+// One write at a time; after 3 failed writes in a row, or a refusal that cannot succeed (for example a view-only viewer), the visit stops recording and the note disappears. A failure never reaches the page.
+const USAGE_VOC = {"sec":["attn","burnup","eff","ai","bugs","deps","nfr","cx","capview","cycles","analysis"],"nav":["attn","burnup","eff","ai","bugs","deps","nfr","cx","capview","cycles","analysis"],"l":["attn","burnup","eff","ai","bugs","deps","nfr","cx","capview","cycles","analysis","other"],"f":["release","projects","multi","teams","dc","ax","cfb","bugpri","gran","cfbgrp","dp","nfrtab","cx","caplevel","capby","capmeasure","cycle","cytab","cystatus","cypods"],"o":["how","data","attn","other"],"d":["s","m","l"]};
+const USAGE = (() => {
+  const VOC = USAGE_VOC;
+  const SEC_PER_TICK = 5, WEEKS_KEPT = 8, DAY_PRUNE = 60, DAY_KEEP = 30, MAP_CAP = 40, DOC_MAX = 90 * 1024, FAIL_MAX = 3, COUNT_MAX = 1000;
+  const T = {tick: 5000, flush: 30000, first: 30000, idle: 60000, retry: [150, 600], ...(window.__dpUsageT || {})};       // the test page shortens these (window.__dpUsageT); the published page never sets it
+  const STATE_KEYS = {r: "release", p: "projects", t: "teams", dc: "dc", ax: "ax", bp: "bugpri", cfb: "cfb", clx: "caplevel", g: "gran", cg: "cfbgrp", dp: "dp", nt: "nfrtab", cx: "cx", cpg: "capby", cpm: "capmeasure", cy: "cycle", ct: "cytab", cs: "cystatus"};
+  const PERMANENT = new Set(["invalid_argument", "quota_exceeded", "revoked", "not_granted", "capability_disabled", "capability_removed", "transform_error"]);
+  const born = Date.now();
+  const newId = () => { try { const a = new Uint8Array(8); crypto.getRandomValues(a); return [...a].map(x => "abcdefghijklmnopqrstuvwxyz0123456789"[x % 36]).join(""); } catch (e) { return Math.random().toString(36).slice(2, 10).padEnd(8, "0"); } };
+  const dayOf = ms => ilDate(ms);                                                  // the Israel day, never the viewer's local day
+  const weekOf = day => { const [y, m, d] = day.split("-").map(Number), t0 = Date.UTC(y, m - 1, d), dow = (new Date(t0).getUTCDay() + 6) % 7, th = new Date(t0 + (3 - dow) * DAY), y1 = th.getUTCFullYear();
+    return `${y1}-W${String(1 + Math.floor((th - Date.UTC(y1, 0, 1)) / DAY / 7)).padStart(2, "0")}`; };      // the ISO week of the Thursday of that week
+  const room = (map, key) => key in map || Object.keys(map).length < MAP_CAP;
+  const S = {sid: newId(), t: Math.floor(Date.now() / 60000), s: 0, sec: {}, nav: {}, f: {}, l: {}, o: {}, r: 0, rs: 0, er: 0, np: 0, x: 0};
+  const sessDay = dayOf(Date.now()), sessWeek = weekOf(sessDay);
+  let on = false, stopped = false, db = null, uid = "", ready = false, wrote = false, dirty = false, inflight = false, again = false, fails = 0, vis = 0, lastWrite = 0, lastInput = 0, lastAct = 0, resetAt = 0, interacted = false, nudged = false, prev = null, sum = null, timer = null, noteEl = null;
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const bump = (map, key) => { if (!on || !VOC[map].includes(key)) return; if (!room(S[map], key)) { S.x = Math.min(S.x + 1, COUNT_MAX); dirty = true; return; } S[map][key] = Math.min((S[map][key] || 0) + 1, COUNT_MAX); dirty = true; };
+  const count = k => { if (on) { S[k] = Math.min(S[k] + 1, COUNT_MAX); dirty = true; } };
+  const secOf = el => { for (let s = el && el.closest ? el.closest("section") : null; s; s = s.parentElement ? s.parentElement.closest("section") : null) { const id = (s.getAttribute("aria-labelledby") || "").replace(/^h-/, ""); if (VOC.sec.includes(id)) return id; } return null; };
+  const curSec = () => { const a = document.querySelector("#seclist a[aria-current]"), id = a ? (a.dataset.jump || "").replace(/^h-/, "") : ""; return VOC.sec.includes(id) ? id : null; };
+  const width = () => { const w = document.documentElement.clientWidth; return w <= 480 ? "s" : w <= 900 ? "m" : "l"; };
+  const JIRA_HOST = (() => { try { return new URL(DATA.jiraBase).hostname; } catch (e) { return ""; } })();
+  const isJira = a => { try { const h = new URL(a.getAttribute("href") || "", location.href).hostname; return (!!JIRA_HOST && h === JIRA_HOST) || /\.atlassian\.net$/.test(h); } catch (e) { return false; } };
+  const visible = () => document.visibilityState === "visible", focused = () => { try { return document.hasFocus(); } catch (e) { return true; } };
+  // the session object that is written: only what the lists allow, only what is not empty
+  function body() {
+    const o = {t: S.t, s: S.s, d: width()}, sha = String((DATA.build || {}).sha || "");
+    if (/^[0-9a-f]{4,12}$/.test(sha)) o.b = sha;
+    ["sec", "nav", "f", "l", "o"].forEach(k => { if (Object.keys(S[k]).length) o[k] = {...S[k]}; });
+    ["r", "rs", "er", "np", "x"].forEach(k => { if (S[k]) o[k] = S[k]; });
+    return o;
+  }
+  const size = x => JSON.stringify(x).length;
+  // retention, applied once per visit to the record read back: the last 8 ISO weeks, at most 30 sessions per day (60 or more triggers it), the record below DOC_MAX; null when nothing needs to go
+  function prune(cur, today) {
+    const w0 = cur.w && typeof cur.w === "object" && !Array.isArray(cur.w) ? cur.w : {}, cut = weekOf(dayOf(Date.now() - (WEEKS_KEPT - 1) * 7 * DAY));
+    let need = size(cur) > DOC_MAX; const keep = {};
+    Object.keys(w0).forEach(wk => { if (wk < cut) { need = true; return; } keep[wk] = w0[wk]; });
+    Object.keys(keep).forEach(wk => Object.keys(keep[wk] || {}).forEach(day => { const n = Object.keys(keep[wk][day] || {}).length; if (n > DAY_PRUNE || (n >= DAY_KEEP && day === sessDay)) need = true; }));
+    if (!need) return null;
+    Object.keys(keep).forEach(wk => Object.keys(keep[wk] || {}).forEach(day => {
+      const ss = keep[wk][day] || {}, ids = Object.keys(ss).filter(id => id !== S.sid).sort((a, b) => ((ss[b] || {}).t || 0) - ((ss[a] || {}).t || 0)), limit = day === sessDay ? DAY_KEEP - 1 : DAY_KEEP;
+      keep[wk][day] = Object.fromEntries(ids.slice(0, limit).map(id => [id, ss[id]]));
+    }));
+    const out = {u: uid, v: 1, first: typeof cur.first === "string" ? cur.first : today, last: today, w: keep};
+    while (size(out) > DOC_MAX) { const ws = Object.keys(out.w).sort(); if (ws.length > 1) delete out.w[ws[0]]; else { const ds = Object.keys(out.w[ws[0]]).sort(); if (ds.length > 1) delete out.w[ws[0]][ds[0]]; else break; } }
+    return out;
+  }
+  const retrying = async fn => { try { return await fn(); } catch (e) { if (e && !PERMANENT.has(e.code) && e.code !== "resource_exhausted" && e.code) { await sleep(T.retry[0] + Math.random() * (T.retry[1] - T.retry[0])); return await fn(); } throw e; } };      // `unavailable` (and a code nobody knows): once more after a short random pause
+  async function write(b) {
+    const ref = db.doc("usage/" + uid), today = dayOf(Date.now()), mine = {[sessWeek]: {[sessDay]: {[S.sid]: b}}};
+    if (ready) { await retrying(() => ref.update({last: today, w: mine})); return; }
+    const snap = await retrying(() => ref.get()), cur = snap && snap.exists ? snap.data() : null;
+    if (!cur) await retrying(() => ref.set({u: uid, v: 1, first: today, last: today, w: mine}));          // the first write of a visit creates the record
+    else { const p = prune(cur, today);
+      if (p) { (p.w[sessWeek] = p.w[sessWeek] || {})[sessDay] = {...(p.w[sessWeek][sessDay] || {}), [S.sid]: b}; await retrying(() => ref.set(p)); }      // the only `set` on an existing record: the same record without what retention removes
+      else await retrying(() => ref.update({last: today, w: mine, ...(typeof cur.first === "string" ? {} : {first: today})})); }
+    ready = true;
+  }
+  async function flush() {
+    if (inflight || stopped || !on) return;
+    inflight = true; dirty = false;
+    try { await write(body()); fails = 0; wrote = true; }
+    catch (e) { dirty = true; fails++; if (fails >= FAIL_MAX || !e || !e.code || PERMANENT.has(e.code)) stop(); }
+    finally { inflight = false; lastWrite = Date.now(); }
+    if (again && dirty && !stopped) { again = false; flush(); }
+  }
+  const canWrite = () => interacted || nudged;
+  function maybeFlush(force) {
+    if (!dirty || stopped || !on || !canWrite()) return;
+    if (inflight) { if (force) again = true; return; }
+    if (!force && (!visible() || Date.now() - lastWrite < T.flush)) return;
+    flush();
+  }
+  function stop() { stopped = true; on = false; clearInterval(timer); if (noteEl) noteEl.hidden = true; }
+  function tick() {
+    if (!on) return;
+    if (visible()) {
+      vis += T.tick;
+      if (focused() && Date.now() - lastInput < T.idle) { S.s += SEC_PER_TICK; const c = curSec(); if (c && room(S.sec, c)) S.sec[c] = (S.sec[c] || 0) + SEC_PER_TICK; dirty = true; }      // seconds count only while the page is in front, focused and used in the last minute
+      if (!wrote && !interacted && !nudged && vis >= T.first) { nudged = true; dirty = true; }      // a visit that only reads: one write after 30 s of visible time
+    }
+    maybeFlush(false);
+  }
+  function onAct(ev) { const n = Date.now(); lastInput = n; if (ev.type === "pointermove") return; lastAct = n; interacted = true; }
+  function onScroll() { const n = Date.now(); if (n - born < 2000) return; lastInput = n; interacted = true; }      // not the scroll the page itself makes while it loads
+  let lastSummary = null, lastSummaryAt = 0;
+  function onClick(ev) {
+    onAct(ev); const t = ev.target; if (!t || !t.closest) return;
+    const a = t.closest("a"), jump = t.closest("#seclist a");
+    if (jump) bump("nav", (jump.dataset.jump || "").replace(/^h-/, ""));
+    else if (a && a.classList.contains("skip") && a.dataset.skip) bump("nav", secOf(document.getElementById(a.dataset.skip)));
+    if (a && isJira(a)) bump("l", secOf(a) || "other");
+    if (t.closest("#refresh")) count("r");
+    if (t.closest("#f-reset")) { count("rs"); resetAt = Date.now(); }
+    if (t.closest("#f-multi")) bump("f", "multi");
+    if (t.closest('[data-cyact="pods"]')) bump("f", "cypods");
+    const sm = t.closest("summary"); if (sm && sm.parentElement && sm.parentElement.tagName === "DETAILS") { lastSummary = sm.parentElement; lastSummaryAt = Date.now(); }
+  }
+  function onToggle(ev) {
+    const d = ev.target; if (!d || d.tagName !== "DETAILS" || !d.open || d !== lastSummary || Date.now() - lastSummaryAt > 1500) return;      // only a disclosure the reader opened, not one the page redraws open
+    const sm = d.querySelector(":scope > summary"), name = sm ? sm.textContent.trim() : "";
+    bump("o", /^How this is calculated/i.test(name) ? "how" : /^Show data/i.test(name) ? "data" : secOf(d) === "attn" ? "attn" : "other");
+  }
+  function onState() {                                                           // runs after every state change the page writes to its address or storage: compares the keys, counts the controls that changed
+    if (!on) return;
+    const h = new URLSearchParams(serialize()), n = Date.now(), byReader = n - lastAct < 2000 && n - resetAt > 800;      // a change the reader made (Reset Filters counts as Reset, not as ten controls)
+    Object.keys(STATE_KEYS).forEach(k => { if ((h.get(k) || "") !== ((prev && prev.get(k)) || "") && byReader) bump("f", STATE_KEYS[k]); });
+    prev = h; const np = Math.min(state.projects.size, 99); if (np !== S.np) { S.np = np; dirty = true; }
+  }
+  function note() {
+    const el = document.createElement("div"); el.id = "usage-note"; el.className = "usage";
+    const p = document.createElement("p"); p.className = "cap";
+    p.append("Usage statistics: this page counts, per anonymous user id (no name or e-mail), which sections are opened and which controls are used, to improve the dashboard. ");
+    const b = document.createElement("button"); b.type = "button"; b.className = "linkbtn"; b.textContent = "What is counted"; b.setAttribute("aria-expanded", "false"); b.setAttribute("aria-controls", "usage-what");
+    const ul = document.createElement("ul"); ul.id = "usage-what"; ul.className = "cap"; ul.hidden = true;
+    ["How long each visit lasts, counted only while the page is open in front of you and in use.",
+     "Which sections you read, and which section links you click.",
+     "Which filters and buttons you use (the control, never what you chose), and how many projects are selected.",
+     "Which Jira links you follow, by section only: never the issue or the address.",
+     "Which details you open, how often you press Refresh and Reset Filters, your screen size (small, medium or large), the page version and the number of page errors.",
+     "Never counted: names, e-mail addresses, issue keys, project, team or pod names, search text.",
+     "Kept for 8 weeks, then removed. Your record can be read by you and by the editors of this page."].forEach(x => { const li = document.createElement("li"); li.textContent = x; ul.append(li); });
+    b.onclick = () => { ul.hidden = !ul.hidden; b.setAttribute("aria-expanded", String(!ul.hidden)); };
+    p.append(b); el.append(p, ul); (document.getElementById("footer") || document.body).append(el); noteEl = el;
+  }
+  async function init() {
+    if (!RUNTIME) return;
+    let user = null, id = null;
+    try { db = await window.claude.use("db"); user = await window.claude.use("user"); if (!db || !user) return; id = await user.id(); } catch (e) { return; }
+    if (typeof id !== "string" || !/^u_[A-Za-z0-9_-]{1,100}$/.test(id)) return;      // no id, no record: never log from a page that cannot name an opaque viewer id
+    uid = id; on = true; prev = new URLSearchParams(serialize()); S.np = Math.min(state.projects.size, 99);
+    const o = {capture: true, passive: true};
+    document.addEventListener("click", onClick, o);
+    ["pointerdown", "keydown", "touchstart", "wheel", "change", "input", "pointermove"].forEach(ev => document.addEventListener(ev, onAct, o));
+    document.addEventListener("scroll", onScroll, o); document.addEventListener("toggle", onToggle, o);
+    window.addEventListener("error", () => count("er")); window.addEventListener("unhandledrejection", () => count("er"));
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") maybeFlush(true); });
+    window.addEventListener("pagehide", () => maybeFlush(true));
+    const orig = saveState; saveState = function () { const r = orig.apply(this, arguments); try { onState(); } catch (e) { /* counting never breaks the page */ } return r; };
+    timer = setInterval(tick, T.tick); note();
+  }
+  if (window.__dpUsageT) window.__dpUsageTest = {room, weekOf, dayOf, snap: () => JSON.parse(JSON.stringify({S, on, stopped, fails, dirty, inflight, wrote, ready, uid, sessDay, sessWeek}))};      // for the test page only
+  init().catch(() => {});
+  return {};
+})();
 </script>

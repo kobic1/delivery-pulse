@@ -244,6 +244,52 @@ Taken from the Program Intelligence Agent (`.claude/agents/program-intelligence-
 - **No ranking or scoring of any team or person.** Teams and capabilities are listed alphabetically and the views
   report scope and status, not performance (`rules/no-employee-evaluation.md`).
 
+## Usage statistics
+
+The published page counts how it is used, so the owner can see how many people use it, how often they come back, which sections they read and which controls they use. It is a self-contained block at the end of the template script
+(`USAGE_VOC`, `USAGE`); nothing above it knows about it, and it wraps `saveState` to see which controls changed. A local copy, a page without the capabilities and a viewer without an id record nothing and show nothing.
+
+**Privacy.** Per-user ids are allowed; names and e-mail addresses are not. The page reads only `user.id()` (an opaque `u_...` token) and declares `user` **without scopes**. Never recorded: names, e-mails, issue keys, team, pod or project names (the project chips are
+configuration the viewer chose: only the number of selected projects is kept), search text, the address of a Jira link, free text of any kind. Every recorded key comes from the fixed lists below; anything else is dropped. A visible note at the very bottom of the page says what is
+counted (shown only while recording is active). Records are kept 8 ISO weeks.
+
+**Publish with these capabilities** (the access rules are declared at publish time, not in the page; they are also written in the template comment):
+
+```json
+{"db": {"rules": [{"path": "", "write": "admin"}, {"path": "usage", "read": "admin", "write": "admin"}, {"path": "usage/{self}", "read": "interact", "write": "interact"}]}, "user": {}}
+```
+
+Each person writes and reads only their own record `usage/<id>`; Editors and the owner read all. A viewer at the `view` level can never write: their visit records nothing, silently.
+
+**The record**, one document per person (never one per event or per visit; the database holds at most 25,000 documents):
+
+```
+usage/<id> = {u, v: 1, first, last,                      // id, schema, first and last Israel day
+  w: {"<ISO week>": {"<Israel day>": {"<visit id>": {     // a visit id is 8 random characters made at page load
+    t,            // opened at, in minutes since the epoch
+    s,            // active seconds: the page in front, focused, and input in the last 60 s, counted every 5 s
+    sec: {<section>: seconds}, nav: {<section>: clicks on the strip and the skip links},
+    f: {<control>: changes}, l: {<section>: Jira link clicks}, o: {<disclosure>: opens},
+    r: Refresh presses, rs: Reset Filters presses, np: projects selected (a count),
+    d: "s" | "m" | "l",   // width up to 480 px, up to 900 px, larger
+    b: page version (short commit), er: uncaught errors (a count, never the message), x: keys dropped by the 40-key cap }}}}}
+```
+
+Vocabularies (`USAGE_VOC`; `tests/test_usage_report.py` keeps the report equal to it):
+
+| Map | Keys |
+|---|---|
+| section (`sec`, `nav`, `l`) | `attn`, `burnup`, `eff`, `ai`, `bugs`, `deps`, `nfr`, `cx`, `capview`, `cycles`, `analysis` (the ids of the Section Strip without `h-`); `l` also has `other` |
+| control (`f`) | `release`, `projects`, `multi`, `teams`, `dc`, `ax`, `cfb`, `bugpri`, `gran`, `cfbgrp`, `dp`, `nfrtab`, `cx`, `caplevel`, `capby`, `capmeasure`, `cycle`, `cytab`, `cystatus`, `cypods` |
+| disclosure (`o`) | `how` (How this is calculated), `data` (Show data), `attn` (a Needs Attention detail), `other` |
+
+A control change is counted from the address keys the page writes after every state change (compared with the last state), only when the reader acted in the last 2 seconds, and Reset Filters counts as Reset only. A disclosure counts only when the reader opened it (a click on its summary), not when the page redraws it open.
+
+**When it writes.** Never at page load and never inside an event handler: the first write follows the first real input, or 30 s of visible time for a visit that only reads; then at most one write every 30 s while the page is visible and something changed, and when the page is hidden or left (best effort).
+One write at a time. The first write of a visit reads the record (`get`) and creates it (`set`) or merges into it (`update`); it prunes weeks older than 8, keeps at most 30 visits a day and keeps the record below 90 KiB, rewriting with `set` only when something has to go. After that every write is an `update` of the visit's own object, so a re-sent write is harmless and several tabs do not overwrite each other.
+`unavailable` is retried once after a short random pause; after 3 failed writes in a row, or a refusal that cannot succeed (`invalid_argument` for a view-only viewer, `quota_exceeded`, `revoked`), the visit stops recording and the note disappears. A failure never reaches the page.
+Not verified in a headless file build: how the real `db` and its consent prompt (if any) behave; the tests use a fake store with the documented semantics (`tests/dashboard_browser/usage_oracle.py`).
+
 ## Adding to it
 Projects and releases are the `PROJECTS` / `RELEASES` lists at the top of `build_dashboard.py`;
 `CURRENT_RELEASE` and `PROVISIONAL` set the default release and which releases are marked provisional.
