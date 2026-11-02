@@ -99,6 +99,8 @@ def variant(age_minutes: float | None = None, build_at: str | None = ..., now: d
         for k in ("generated", "capPulledAt", "bugsPulledAt", "linksPulledAt"):
             if k == "generated" or k in d:
                 d[k] = stamp
+        if isinstance(d.get("cfbx"), dict):                                   # the Open CFBs block is a live source with its own stamp
+            d["cfbx"]["pulledAt"] = stamp
     if build_at is not ...:
         if build_at is None:
             d["build"].pop("at", None)
