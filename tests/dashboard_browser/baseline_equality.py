@@ -3,7 +3,7 @@
 
 Used when a filter is added or removed (the Delivery Cycle filter replaced the Commitment Type filter): the earlier template is the baseline, both templates
 are rendered with the SAME fictitious payload (or, on a developer's machine, a real one with --payload) and loaded in headless Chrome in several states
-(Release x Projects x Teams x the Cycles section's own cycle); the whole page body outside the filter bar (every number, hover text, link and chart label: the
+(Release x Projects x Teams x the Delivery Cycle filter); the whole page body outside the filter bar (every number, hover text, link and chart label: the
 HTML of <main> without #filters) must be identical. The few sentences that were reworded on purpose are listed in REWORDED, so every deliberate difference of
 the default state is written down here and nothing else may differ.
 
@@ -103,7 +103,7 @@ def states(data: dict, quick: bool) -> list[str]:
     team = next((t for p in ("PMN",) for e in data["epics"] if e["p"] == p and e.get("tm") for t in e["tm"][:1]), None)
     import urllib.parse
     psets = ["", "p=PMN", "p=PMN|CXCO", "p=INT"] + ([f"t={urllib.parse.quote(team)}"] if team else [])
-    cys = ["", "cy=DC1", "cy=DC2"] if not quick else ["", "cy=DC2"]
+    cys = ["", "dc=1", "dc=2"] if not quick else ["", "dc=2"]
     return [f"r={r}&{p}&{c}".replace("&&", "&").strip("&") for r in rels for p in psets for c in cys]
 
 

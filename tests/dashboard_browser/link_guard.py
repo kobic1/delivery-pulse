@@ -73,12 +73,12 @@ NODES_JS = "[...document.querySelectorAll('#cy-ovbody [data-cyact=\"open\"]')].m
 def views(full: bool, data: dict) -> list[str]:
     rels = data["releases"] if full else ["26.4", "27.1"]
     psets = ["", "p=PMN", "p=PMN|CXCO", "p=INT"] + (["p=CXWFM|WFM|CXINT|INT"] if full else [])
-    out = [f"r={r}&{p}&cy={c}".replace("&&", "&") for r in rels for p in psets for c in ("DC1", "DC2")]
-    facets = ["dc=1", "dc=2", "ax=yes", "ax=all", "cfb=yes", "g=week", "g=quarter", "cg=quarter", "dp=all", "dp=overdue", "dp=gap", "dp=blocking", "p=PMN&dp=blocking", "dp=blockedby", "nt=capability", "nt=team", "cx=committed", "cpg=release", "cpm=count", "clx=Stretch|~notset", "clx=Committed|Target", "clx=Committed|Stretch|Target"]
+    out = [f"r={r}&{p}".rstrip("&") for r in rels for p in psets]                     # the Cycles section follows the Delivery Cycle filter: both ticked (the default) shows both cycles combined
+    facets = ["dc=1", "dc=2", "p=PMN&dc=2", "cy=DC2", "ax=yes", "ax=all", "cfb=yes", "g=week", "g=quarter", "cg=quarter", "dp=all", "dp=overdue", "dp=gap", "dp=blocking", "p=PMN&dp=blocking", "dp=blockedby", "nt=capability", "nt=team", "cx=committed", "cpg=release", "cpm=count", "clx=Stretch|~notset", "clx=Committed|Target", "clx=Committed|Stretch|Target"]
     out += [f"r=27.1&{f}" for f in facets]
     teams = sorted({t for e in data["epics"] for t in (e.get("tm") or [])})                   # every team ticked: the longest queries (team clauses and sprint names together)
     allt = "t=" + "|".join(urllib.parse.quote(t) for t in teams)
-    out += [f"r=27.1&{allt}&cy=DC1", f"r=27.1&{allt}&cy=DC2"]
+    out += [f"r=27.1&{allt}", f"r=27.1&{allt}&dc=1", f"r=27.1&{allt}&dc=2"]
     return out
 
 
@@ -110,7 +110,7 @@ def sweep(template: Path | None = None) -> dict:
             time.sleep(0.1)
             errors += [f"{h}: {e}" for e in ch.console_errors()]
             anchors = ch.js(EXPAND_JS)
-            if h.startswith("r=27.1&") and "cy=DC1" in h and h not in seen_nodes and (full or h.count("&") <= 2):      # the detail view behind every project, team and pod tile
+            if re.fullmatch(r"r=27\.1(&(dc=[12]|p=[A-Z|]+))?", h) and h not in seen_nodes:      # the detail view behind every project, team and pod tile
                 seen_nodes.add(h)
                 for nd in (ch.js(NODES_JS) or [])[: (None if full else 12)]:
                     ch.goto(url + "#" + h + "&ct=" + nd)
@@ -243,7 +243,7 @@ def _(t: T):
 TIP_BUDGET_WORDS = 25                           # the first block (the first two lines) of a hover: number, what it counts, scope, and one line
 TIP_BUDGET_LINES = 4                            # at most four lines in all (the page's own "Click to open in Jira" is added after them and is not part of data-tip)
 TIP_JS = r"""(() => [...document.querySelectorAll('[data-tip]')].map(e => ({tip: e.getAttribute('data-tip'), cls: String(e.getAttribute('class') || ''), inAttn: !!e.closest('#attn'), chip: !!e.closest('.achip'), link: e.getAttribute('data-link')})))()"""
-TIP_VIEWS = ["", "r=27.1&cy=DC1", "r=27.1&cy=DC2", "r=26.4", "p=PMN&dp=all", "r=27.1&dp=gap", "g=week", "cg=quarter", "nt=capability", "cx=committed", "cpg=release", "cpm=count", "r=27.1&p=PMN|CXCO&cy=DC1"]
+TIP_VIEWS = ["", "r=27.1&dc=1", "r=27.1&dc=2", "r=26.4", "p=PMN&dp=all", "r=27.1&dp=gap", "g=week", "cg=quarter", "nt=capability", "cx=committed", "cpg=release", "cpm=count", "r=27.1&p=PMN|CXCO&dc=1"]
 
 
 def _words(text: str) -> int:
