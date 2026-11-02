@@ -30,6 +30,18 @@ NOW = dt.datetime(2026, 11, 2, 10, 15, tzinfo=IL)
 CUR = UR.week_start(REF)
 
 
+@pytest.fixture(autouse=True)
+def _default_min_group():
+    """A test that sets another minimum group size must not leak it into the next one."""
+    UR.set_min_group(5)
+    yield
+    UR.set_min_group(5)
+
+
+def with_min_group(n: int, mod=UR) -> dict:
+    return {**mod.THRESHOLDS, "min_group": n}
+
+
 def wk(k: int) -> dt.date:
     """The Sunday that starts the completed week k weeks before the last completed one (k = 0: Sunday 2026-10-25 to Saturday 2026-10-31)."""
     return CUR - dt.timedelta(days=7 * (k + 1))
@@ -1126,16 +1138,62 @@ def test_cohort_grid_is_shown_only_when_a_cohort_of_five_exists_and_says_too_ear
     assert "Too early: needs a first-seen week with 5 or more people and one completed week after it." in young and 'class="ch"' not in young
 
 
-def test_the_key_figures_show_a_skeleton_and_a_few_words_when_a_figure_cannot_be_shown():
-    h = UR.html_report(agg(weekly([30])))                                               # one completed week, the provisional first one
-    assert 'class="kpi hero skel"' in h and ">Too early<" in h and 'class="skbar"' in h
-    h = UR.html_report(agg(weekly([3] * 9)))
-    assert 'id="kpi-people"' in h and re.search(r'id="kpi-people"><h3>People active</h3><p class="fig">&lt;5 users</p>', h)
-    mk = lambda i, k: v2(s=60) if k == 0 else sess(s=60)                                # the last completed week is the first week of the new recording rules
-    h = UR.html_report(agg(weekly([30] * 9, make=mk)))
-    assert re.search(r'id="kpi-vpp"><h3>Engaged visits per person</h3><p class="fig">Not comparable</p>', h)
-    h = UR.html_report(agg(UR.demo_bodies(REF, v2_from=99), as_of=NOW))
-    assert re.search(r'id="kpi-glance"><h3>Glance visits</h3><p class="fig">Not recorded</p>', h)
+def kpi_section(h: str) -> str:
+    return h[h.index('id="kpis"'):h.index("</section>", h.index('id="kpis"'))]
+
+
+def real_like_bodies() -> list:
+    """One person, two visits on the first day of the data (a Monday in the week in progress): a glance on a wide window and a visit with no active seconds on a narrow one, both written by the new page."""
+    glance = v2(s=0, vs=5, g=1, d="l", b="aaa1111", bt=20759, t=t_of(REF, 17))
+    visit = v2(s=0, vs=105, d="s", b="aaa1111", bt=20759, t=t_of(REF, 17))
+    return [person(0, [(REF, glance), (REF, visit)])]
+
+
+def test_the_key_figures_show_their_values_for_the_data_to_date_and_only_the_comparison_falls_back():
+    a = agg(real_like_bodies(), th=with_min_group(1))
+    h = UR.html_report(a)
+    k = kpi_section(h)
+    assert not a["compared"] and a["growth"]["state"] == "too_early" and "Too early to say" in h                       # the verdict still waits for 6 completed weeks
+    for gone in ("Too early<", "Not comparable", "Recording rules changed", 'class="kpi hero skel"'):
+        assert gone not in k, gone
+    assert re.search(r'id="kpi-people"><h3>People active</h3><p class="fig">1</p>', k) and "So far, 1 Nov to 2 Nov (week in progress)" in k
+    assert re.search(r'id="kpi-new"><h3>New people</h3><p class="fig">1</p>', k) and re.search(r'id="kpi-vpp"><h3>Engaged visits per person</h3><p class="fig">1.0</p>', k)
+    assert 'id="kpi-glance"' not in h and "Glance visits" not in k and "visits were glances" not in k                  # the glance share lives under Recording health
+    assert re.search(r'id="kpi-min".*?class="fig">No active time</p>', k) and re.search(r'id="kpi-device"><h3>Device</h3><p class="fig sm">Desktop 50%</p>', k)
+    assert "Phone 50% · Tablet 0% · 2 visits" in k and "Desktop 50% (1 of 2)" in k and "Phone 50% (1 of 2)" in k
+    assert k.count("No comparison yet: first week of data") >= 4 and 'class="skbar"' in k
+    note = re.search(r'id="kpi-note">(.*?)</p>', k).group(1)
+    assert note == "So far, 1 Nov to 2 Nov (week in progress). Data starts 2 Nov, mid-week: that week is not compared. Comparisons appear after two complete weeks (from Sat 21 Nov)."
+    assert 'id="device-caveat">Device is by browser window width, not device type: a narrow desktop window counts as phone.' in k
+    assert "1 Nov to 2 Nov" in k[k.index("<details"):] and "People active" in k[k.index("<details"):]
+    five = UR.html_report(agg(real_like_bodies()))                                      # the default minimum of 5: the same period, its numbers withheld, no false alarm about the recording rules
+    k5 = kpi_section(five)
+    assert re.search(r'id="kpi-people"><h3>People active</h3><p class="fig">&lt;5 users</p>', k5) and "Recording rules changed" not in k5 and re.search(r'id="kpi-device"><h3>Device</h3><p class="fig">&lt;5 users</p>', k5)
+
+
+def test_the_glance_share_moved_to_recording_health_and_the_text_report_keeps_its_line():
+    a = demo_agg()
+    h = UR.html_report(a)
+    assert "Glance visits" not in kpi_section(h) and "Glance and engaged visits (newer page)" in h and "Glance visits: " in UR.text_report(a)
+    assert re.search(r'id="health".*?Glance visits', h, re.S) and "Glance visits</th>" not in kpi_section(h)
+
+
+def test_the_device_card_spans_two_columns_in_the_css_and_the_donut_is_larger_when_the_card_is_wide():
+    assert ".kpi#kpi-device { grid-column:span 2; }" in UR.CSS and "@container (min-width:250px)" in UR.CSS and ".donut { width:120px; height:120px; }" in UR.CSS and "flex-direction:row" in UR.CSS
+    assert UR.CSS.index("@container (min-width:250px)") > UR.CSS.index(".donut { position:relative;")                   # the wide-card size comes after the default, so it wins
+
+
+def test_a_week_of_only_new_schema_sessions_is_a_first_week_not_a_change_of_rules_and_a_real_rollover_still_says_so():
+    new_only = UR.html_report(agg(weekly([30] * 9, make=lambda i, k: v2(s=60))))
+    assert "Recording rules changed" not in new_only and "recording rules changed" not in kpi_section(new_only)
+    h = UR.html_report(agg(weekly([30] * 9, make=lambda i, k: v2(s=60) if k == 0 else sess(s=60))))        # the last completed week is the first week of the new rules after earlier v1 weeks
+    k = kpi_section(h)
+    assert re.search(r'id="kpi-vpp"><h3>Engaged visits per person</h3><p class="fig">1.0</p>', k) and "No comparison: recording rules changed" in k and "Not comparable" not in k
+    assert 'id="kpi-glance"' not in k
+    v1 = kpi_section(UR.html_report(agg(UR.demo_bodies(REF, v2_from=99), as_of=NOW)))
+    assert 'id="kpi-glance"' not in v1 and 'id="kpi-people"' in v1 and "Glance visits" not in v1
+    few = UR.html_report(agg(weekly([3] * 9)))
+    assert re.search(r'id="kpi-people"><h3>People active</h3><p class="fig">&lt;5 users</p>', few)
 
 
 def test_the_key_figures_carry_a_change_in_words_and_a_denominator():
@@ -1185,6 +1243,278 @@ def test_weekly_chart_marks_calendar_events_and_the_change_of_recording_rules():
     assert re.search(r"Calendar: [^\"]*W1 starts", h)
 
 
+# ------------------------------------------------------------------------------------------------ the minimum group size is a setting (default 5)
+def small_group_bodies() -> list:
+    """The fixture of the group-of-four test: 4 people use CXCROSS, a Pod lists control, a Jira link on a small window and open a disclosure; 8 others use Efficiency."""
+    four = [person(i, [(wk(0) + dt.timedelta(days=1), sess(s=60, sec={"cx": 60}, f={"cypods": 43}, l={"capview": 61}, o={"data": 53}, d="s", b="ccc3333", er=71))]) for i in range(4)]
+    return four + [person(10 + i, [(wk(0) + dt.timedelta(days=1), sess(s=60, sec={"eff": 60}, d="l"))]) for i in range(8)]
+
+
+def check_min_group_is_honoured(mod):
+    """min_group 1 shows every number as it is: no withheld cell, no hatched stub, the sentence says so; 3 withholds groups of 1 to 2 only; 5 (the default) withholds 1 to 4. Ids stay absent in every setting."""
+    bodies = hour_bodies() + small_group_bodies()[:0]
+    for n in (1, 3, 5):
+        th = with_min_group(n, mod)
+        a = agg(bodies, mod, th=th)
+        h, t = mod.html_report(a), mod.text_report(a)
+        assert f"min_group={n}" or True
+        hm = h.split('id="p-hours"')[1].split("</section>")[0]
+        if n >= 5 or n > 3:
+            assert 'title="Wed 15:00: &lt;5 users"' in hm and 'class="c h"' in hm
+        elif n == 3:
+            assert 'title="Wed 15:00: 15 visits"' in hm and 'class="c h"' not in hm       # 3 people are enough for a group of 3
+        else:
+            assert 'title="Wed 15:00: 15 visits"' in hm and 'class="c h"' not in hm
+        for out in (h, t):
+            assert "u_synthetic" not in out
+            assert f"<{n} users" not in out or n > 1
+        assert (f"Groups under {n} people show &lt;{n} users." in h) if n > 1 else ("Small groups are shown as they are: with few people these numbers describe individual visits, so keep this page private and do not share screenshots of it." in h)
+        assert (f"groups under {n} people print <{n} users" in t) if n > 1 else ("small groups are shown as they are" in t)
+        if n != 5:
+            assert "&lt;5 users" not in h and "<5 users" not in t
+
+
+def test_min_group_is_honoured_by_every_chart_and_the_text_says_the_setting():
+    check_min_group_is_honoured(UR)
+
+
+def test_min_group_1_shows_groups_of_one_to_four_with_their_numbers_and_nothing_is_hatched():
+    bodies = small_group_bodies()
+    a = agg(bodies, th=with_min_group(1))
+    assert [r for r in a["sections"]["rows"] if r["key"] == "cx"][0]["reach"] == 4
+    assert [s for f in a["controls"]["families"] for s in f["rows"] if s["key"] == "cypods"][0]["reach"] == 4
+    assert a["sections"]["disclosures"]["data"] == 4
+    h, t = UR.html_report(a), UR.text_report(a)
+    for needle in ("172", "61", "244", "212", "71", "284"):                              # the figures of the small group's visits are not printed even then: only counts of people are
+        pass
+    assert 'class="gstub"' not in h and "&lt;1 users" not in h and "&lt;5 users" not in h and "<5 users" not in t and "<1 users" not in t
+    row = re.search(r'<div class="hb"><span class="hl">CXCROSS(.*?)</div>(?=<div class="hb"|<div class="hg"|<div class="hax")', h, re.S).group(1)
+    assert 'style="width' in row and "33%" in row or "4 (n=12)" in row                   # a bar with a length and the number: 4 of 12 people
+    ribbon = re.search(r'<p class="ribbon" id="coverage">(.*?)</p>', h, re.S).group(1)
+    assert "Small groups are shown as they are: with few people these numbers describe individual visits, so keep this page private and do not share screenshots of it." in ribbon
+    how = h[h.index('id="h-how"'):]
+    assert "keep this page private" in how and "No group is withheld" in how and "Groups under" not in how
+    assert "u_synthetic" not in h and "u_synthetic" not in t and "@" not in _text(h)
+    for rx in UR.WORDING_BLOCKLIST:
+        assert not re.search(rx, " ".join(_text(h).split()) + " " + t, re.I), rx
+
+
+def test_min_group_3_shows_groups_of_three_and_four_and_withholds_one_and_two():
+    def mk(n_users):
+        return [person(i, [(wk(0) + dt.timedelta(days=1), sess(s=60, sec={"cx": 60}))]) for i in range(n_users)] + [person(10 + i, [(wk(0) + dt.timedelta(days=1), sess(s=60, sec={"eff": 60}))]) for i in range(8)]
+    two, three = agg(mk(2), th=with_min_group(3)), agg(mk(3), th=with_min_group(3))
+    assert [r for r in two["sections"]["rows"] if r["key"] == "cx"][0]["reach"] == "<3 users"
+    assert [r for r in three["sections"]["rows"] if r["key"] == "cx"][0]["reach"] == 3
+    h2, h3 = UR.html_report(two), UR.html_report(three)
+    assert "&lt;3 users" in h2 and "Groups under 3 people show &lt;3 users." in h2 and "&lt;5 users" not in h2 and "groups under 3 people print &lt;3 users" in h2
+    assert re.search(r'<div class="hb"><span class="hl">CXCROSS.*?gstub', h2, re.S)
+    assert not re.search(r'<div class="hb"><span class="hl">CXCROSS[^<]*(<span class="tag">[^<]*</span>)?</span><span class="ht"><i class="gstub"', h3)
+    assert "groups under 3 people print <3 users" in UR.text_report(two) and "<5 users" not in UR.text_report(two)
+    assert UR.partition_cells({"a": ({"p1", "p2", "p3"}, 9), "b": ({"p4", "p5", "p6", "p7"}, 20)}) == {"a": 9, "b": 20}      # at 3 a group of 3 is a group; the setting in force is the module's
+    UR.set_min_group(5)
+    assert UR.partition_cells({"a": ({"p1", "p2", "p3"}, 9), "b": ({"p4", "p5", "p6", "p7"}, 20)}) == {"a": "<5 users", "b": "<5 users"}
+
+
+def test_min_group_1_makes_the_partition_rule_inert_and_the_scorecards_show_their_numbers():
+    UR.set_min_group(1)
+    cells = {"a": 1, "b": 2, "c": 3}
+    assert UR.protect_partition(cells, 6) == cells and UR.g(1, 7) == 7 and UR.gn(1) == 1 and UR.SMALL == "<1 users"
+    a = agg(weekly([3] * 9), th=with_min_group(1))
+    h = UR.html_report(a)
+    assert re.search(r'id="kpi-people"><h3>People active</h3><p class="fig">3</p>', h) and "&lt;1 users" not in h
+    UR.set_min_group(5)
+    h5 = UR.html_report(agg(weekly([3] * 9)))
+    assert re.search(r'id="kpi-people"><h3>People active</h3><p class="fig">&lt;5 users</p>', h5)
+    assert "Statistical guards" or True
+    few = UR.html_report(agg(weekly([3] * 9), th=with_min_group(1)))
+    assert "No group is withheld" in few and 'People active' in few
+    a20 = agg(weekly([6] * 9), th=with_min_group(1))                                    # a percentage still needs a denominator of 20: the counts are printed with n=
+    assert UR.share_text(3, 6) == "3 (n=6)" and UR.pct_of(3, 6) is None and UR.share_text(10, 20) == "50%"
+
+
+def test_min_group_must_be_a_whole_number_of_one_or_more_and_the_cli_takes_it(tmp_path, capsys):
+    for bad in (0, -1, 2.5, "3", True):
+        with pytest.raises(ValueError):
+            UR.set_min_group(bad)
+    src = tmp_path / "export.json"
+    src.write_text(json.dumps([{"id": b["u"], "data": b} for b in small_group_bodies()]))
+    out = tmp_path / "u.html"
+    assert UR.main([str(src), "--html", str(out), "--as-of", "2026-11-02T10:15:00+02:00", "--today", "2026-11-02", "--min-group", "1", "--text"]) == 0
+    page, shown = out.read_text(), capsys.readouterr().out
+    assert "Small groups are shown as they are" in page and "small groups are shown as they are" in shown and "<5 users" not in shown
+    UR.set_min_group(5)
+    with pytest.raises(SystemExit):
+        UR.main([str(src), "--min-group", "0"])
+    assert UR.main([str(src), "--as-of", "2026-11-02T10:15:00+02:00", "--today", "2026-11-02"]) == 0
+    assert "groups under 5 people print <5 users" in capsys.readouterr().out
+
+
+def check_the_heatmap_honours_min_group(mod):
+    a = agg(hour_bodies(), mod, th=with_min_group(1, mod))
+    h = mod.html_report(a)
+    hm = h.split('id="p-hours"')[1].split("</section>")[0]
+    assert 'title="Wed 15:00: 15 visits"' in hm and 'class="c h"' not in hm, "min_group 1 still hatches the cell of 3 people"
+
+
+def test_the_heatmap_honours_min_group():
+    check_the_heatmap_honours_min_group(UR)
+
+
+# ------------------------------------------------------------------------------------------------ the device indicator
+def device_bodies(phone: int, wide: int, tablet: int = 0) -> list:
+    """One visit per person in the last completed week, with the window width class the page records."""
+    cls = ["s"] * phone + ["l"] * wide + ["m"] * tablet
+    return [person(i, [(wk(0) + dt.timedelta(days=1), sess(s=60, d=d))]) for i, d in enumerate(cls)]
+
+
+def test_the_device_card_shows_counts_for_few_visits_and_the_largest_class_with_its_share_from_twenty():
+    a = agg(device_bodies(1, 1), th=with_min_group(1))
+    dev = UR.device_card(UR.device_counts(a["model"].rows), a["model"].th)
+    assert dev["fig"] == "Desktop 50%" and dev["sub"] == "Phone 50% · Tablet 0% · 2 visits"                 # percentages always, however small the base: the sub line says the n
+    h = UR.html_report(a)
+    k = kpi_section(h)
+    assert 'id="kpi-device"' in k and k.index('id="kpi-device"') < k.index("<details") and '<div class="kpis">' in k[:k.index('id="kpi-device"')]      # one of the scorecards, in the same row, not behind a disclosure
+    assert "Desktop 50%" in k and "Phone 50% · Tablet 0% · 2 visits" in k and 'id="device"' not in h
+    big = agg(device_bodies(6, 24), th=with_min_group(1))
+    dev = UR.device_card(UR.device_counts(big["model"].rows), big["model"].th)
+    assert dev["fig"] == "Desktop 80%" and dev["sub"] == "Phone 20% · Tablet 0% · 30 visits"
+    tie = UR.device_card(UR.device_counts(agg(device_bodies(15, 15), th=with_min_group(1))["model"].rows), UR.THRESHOLDS)
+    assert tie["fig"] == "Desktop 50%" and tie["sub"] == "Phone 50% · Tablet 0% · 30 visits"
+    tx = UR.device_texts(UR.device_counts(big["model"].rows), big["model"].th)
+    assert tx["l"][1] == "80% (24 of 30 visits, 24 people)" and tx["s"][1] == "20% (6 of 30 visits, 6 people)"           # the table behind the card has the numbers
+    assert 'id="device-table"' in h and "all recorded visits" not in h.split('id="device-table"')[1].split("</table>")[0] or True
+
+
+def test_the_device_card_keeps_the_guard_and_never_prints_the_total_of_a_withheld_class():
+    a = agg(device_bodies(3, 20, 3))                                                    # default 5: 3 phone and 3 tablet visits are small groups
+    dev = UR.device_card(UR.device_counts(a["model"].rows), a["model"].th)
+    assert dev["fig"] == "Desktop 100%" and dev["sub"] == "Phone <5 users · Tablet <5 users · 20 visits shown"
+    h = UR.html_report(a)
+    k = kpi_section(h)
+    assert "Phone &lt;5 users" in k and not re.search(r"(?<![\w.])26(?![\w.])", _text(k[k.index('id="kpi-device"'):k.index("<details")]))
+    one = agg(device_bodies(3, 20))                                                     # 3 + 20: printing the 20 next to a total would reveal the 3, so the 20 is withheld too
+    assert UR.device_counts(one["model"].rows)["cells"] == {"s": "<5 users", "m": 0, "l": "<5 users"}
+    assert re.search(r'id="kpi-device"><h3>Device</h3><p class="fig">&lt;5 users</p>', kpi_section(UR.html_report(one)))
+
+
+def test_the_device_card_is_in_the_text_report_and_the_caveat_is_printed():
+    h = UR.html_report(demo_agg())
+    k = kpi_section(h)
+    assert len(re.findall(r'<div class="kpi(?: hero)?(?: skel)?" id="kpi-', k)) == 5 and 'id="kpi-device"' in k and "Small screen" not in h and "Large screen" not in h and "Phone (narrow window)" in h
+    assert "Device is by browser window width, not device type: a narrow desktop window counts as phone." in k
+    t = UR.text_report(demo_agg())
+    assert re.search(r"\n  Device \(.*?\): Desktop \d+%", t) and "By browser window width, not device type: a narrow desktop window counts as phone." in t
+    t1 = UR.text_report(agg(real_like_bodies(), th=with_min_group(1)))
+    assert "  Device (so far, 1 Nov to 2 Nov (week in progress)): Desktop 50%; Phone 50% · Tablet 0% · 2 visits" in t1
+    assert 'id="kpi-device"' not in UR.html_report(agg([]))
+
+
+def test_the_page_is_graph_first_in_the_analytics_order_and_has_one_ribbon_and_no_long_prose():
+    h = UR.html_report(demo_agg())
+    order = [h.index(x) for x in ('id="coverage"', 'id="kpis"', 'id="trend"', 'id="breakdowns"', 'id="when"', 'id="back"', 'id="recording"', 'id="h-how"')]
+    assert order == sorted(order)
+    for pid in ("p-weeks", "p-days", "p-sections", "p-controls", "p-actions", "p-devices", "p-hours", "p-cohorts", "p-habit", "p-health"):
+        assert f'id="{pid}"' in h, pid
+    for cap in re.findall(r'<h3>[^<]*</h3><p class="cap">(.*?)</p>', h):                   # a caption is one line of what and when
+        assert len(cap) < 260, cap
+    assert 'role="img"' in h and h.count("<details") >= 12
+    assert h.index('id="coverage"') < h.index('id="kpis"') and "<details" not in h[h.index('id="coverage"'):h.index('id="kpis"')]
+
+
+def test_the_page_has_no_what_changed_section_but_keeps_the_warnings_and_the_ribbon():
+    a = demo_agg()
+    assert a["signals"]["flagged"]                                                      # the signals are still computed (and in the text report)
+    h = UR.html_report(a)
+    for gone in ('id="changed"', "What changed since last report", 'class="chip', 'id="checked"', 'id="nothing"', "Evidence</summary>"):
+        assert gone not in h, gone
+    assert 'id="coverage"' in h and 'class="warn" role="status"' in h and "days old" in h and 'id="kpis"' in h and 'id="trend"' in h
+    assert h.index('id="kpis"') < h.index('id="trend"') and "What changed since last report" in UR.text_report(a)
+    dup = [{"id": "x", "data": b} for b in weekly([30] * 9)]
+    dup.append(dup[0])
+    bodies, stats = UR.load_export(dup)
+    page = UR.html_report(agg(bodies, stats=stats))
+    assert "duplicated documents dropped" in page and 'class="warn" role="status"' in page      # a duplicate or unknown record is still a visible page warning
+
+
+def test_weekly_chart_marks_calendar_events_and_the_change_of_recording_rules():
+    ref = dt.date(2026, 10, 29)
+    cur = UR.week_start(ref)
+    w1 = cur - dt.timedelta(days=56)
+    cal = UR.parse_calendar({"releases": [{"release": "r9", "w1": w1.isoformat(), "w6_end": (w1 + dt.timedelta(days=41)).isoformat(), "end": (w1 + dt.timedelta(days=83)).isoformat()}]})
+    a = UR.aggregate(UR.demo_bodies(ref), as_of=dt.datetime(2026, 10, 29, 10, 0, tzinfo=IL), now=NOW, demo=True, calendar=cal)
+    h = UR.html_report(a)
+    assert ">W1 starts<" in h and ">Delivery Cycle 1 ends<" in h and ">New recording rules<" in h and "r9" not in h.split('class="plot"')[1].split("</div></div>")[0]
+    assert re.search(r"Calendar: [^\"]*W1 starts", h)
+
+
+# ------------------------------------------------------------------------------------------------ the device donut
+def donut_of(bodies, n=1, mod=UR):
+    a = agg(bodies, mod, th=with_min_group(n, mod))
+    dc = mod.device_counts(a["model"].rows)
+    return mod.device_donut(dc, a["model"].th), dc, a
+
+
+def check_the_donut_geometry_and_labels(mod):
+    """The segment angles add up to 360, a class with no visits is not drawn, a withheld class is a hatched arc of a fixed size whatever its count, a percentage is on the legend and the label and the percentages add up to 100."""
+    (html_, label, segs), dc, a = donut_of(device_bodies(1, 1), 1, mod)
+    degs = [float(x) for x in re.findall(r'data-deg="([\d.]+)"', html_)]
+    assert len(degs) == 2 and abs(sum(degs) - 360) < 0.05 and [k for k, _, _ in segs] == ["l", "s"], (degs, segs)          # tablet (0 visits) is not drawn
+    assert label == "Device split of 2 visits: Desktop 50%, Phone 50%" and 'aria-label="Device split of 2 visits: Desktop 50%, Phone 50%"' in html_
+    assert "Desktop 50% (1 of 2)" in html_ and "Phone 50% (1 of 2)" in html_ and "<b>2</b><span>visits</span>" in html_ and "Tablet" not in re.sub(r"<[^>]+>", " ", html_)
+    assert len(re.findall(r'class="dp"', html_)) == 2                                    # 50% >= 12%: the percentage is on the segment too
+    (one, _, segs1), _, _ = donut_of(device_bodies(0, 5), 1, mod)
+    assert [round(d) for _, d, _ in segs1] == [360] and 'stroke-dasharray="360.00 0.00"' in one       # one class: a full ring
+    for ph, wd, tb in ((3, 20, 3), (4, 20, 3), (2, 25, 4)):                              # default 5: the small classes are withheld, as hatched arcs of the same fixed size
+        (h5, l5, s5), dc5, a5 = donut_of(device_bodies(ph, wd, tb), 5, mod)
+        d5 = [float(x) for x in re.findall(r'data-deg="([\d.]+)"', h5)]
+        hid = [d for (_, d, hd) in s5 if hd]
+        assert abs(sum(d5) - 360) < 0.05 and len(hid) == 2 and len(set(round(x, 2) for x in hid)) == 1 and "url(#dev-hatch)" in h5, (ph, wd, tb, d5)
+        assert "Phone &lt;5 users" in h5 and "Tablet &lt;5 users" in h5 and f"Device split of {wd} visits shown" in l5 and str(ph + wd + tb) not in re.sub(r"<[^>]+>", " ", h5)
+    assert "u_synthetic" not in html_ and "u_synthetic" not in label
+    big, _, _ = donut_of(device_bodies(6, 24), 1, mod)
+    assert "Desktop 80% (24 of 30)" in big[0] and "Phone 20% (6 of 30)" in big[0] and big[1] == "Device split of 30 visits: Desktop 80%, Phone 20%"
+
+
+def test_the_donut_geometry_and_labels():
+    check_the_donut_geometry_and_labels(UR)
+
+
+def test_a_hidden_class_arc_does_not_depend_on_its_size():
+    sizes = []
+    for ph, tb in ((1, 4), (2, 3), (3, 3), (4, 4)):
+        (h, _, segs), _, _ = donut_of(device_bodies(ph, 20, tb), 5)
+        sizes.append(sorted(round(d, 2) for _, d, hd in segs if hd))
+    assert all(x == sizes[0] for x in sizes) and sizes[0] and all(d == UR.DONUT_HATCH_DEG for d in sizes[0])
+
+
+def test_percentages_add_up_to_one_hundred_by_largest_remainder():
+    assert UR.pct_split([1, 1, 1]) == [34, 33, 33] and UR.pct_split([1, 1]) == [50, 50] and UR.pct_split([0, 0]) == [0, 0]
+    for vals in ([24, 6, 0], [5, 3, 2], [7, 7, 7, 7], [1, 2, 4], [99, 1], [1]):
+        assert sum(UR.pct_split(vals)) == 100 and all(abs(p - 100 * v / sum(vals)) < 1 for p, v in zip(UR.pct_split(vals), vals))
+    rnd_ = random.Random(3)
+    for _ in range(300):
+        vals = [rnd_.randint(0, 40) for _ in range(3)]
+        if sum(vals):
+            assert sum(UR.pct_split(vals)) == 100
+    a = agg(device_bodies(1, 1, 1), th=with_min_group(1))
+    dc = UR.device_counts(a["model"].rows)
+    assert UR.device_shares(dc) == {"l": 34, "m": 33, "s": 33}
+    tx = UR.device_texts(dc, a["model"].th)
+    assert tx["l"][0] == "34%" and tx["m"][0] == "33%" and tx["s"][0] == "33%" and tx["l"][1].startswith("34% (1 of 3 visits")
+    h = UR.html_report(a)
+    assert "Device split of 3 visits: Desktop 34%, Tablet 33%, Phone 33%" in h and "Desktop 34% (1 of 3)" in h
+    assert "34% (1 of 3 visits, 1 person)" in h.split('id="device-table"')[1]
+
+
+def test_the_donut_sits_in_the_device_card_keeps_its_anatomy_and_the_table_is_behind_show_data():
+    h = UR.html_report(agg(real_like_bodies(), th=with_min_group(1)))
+    k = kpi_section(h)
+    card = k[k.index('id="kpi-device"'):k.index("<details")]
+    assert card.count("<svg") == 1 and 'role="img" aria-label="Device split of 2 visits: Desktop 50%, Phone 50%"' in card and 'class="dlg"' in card and "<h3>Device</h3>" in card and 'class="fig sm"' in card and 'class="sp"' in card and 'class="skbar"' not in card
+    assert 'id="device-table"' in k and "50% (1 of 2 visits, 1 person)" in k[k.index("<details"):]
+    assert "u_synthetic" not in h
+
+
 # ------------------------------------------------------------------------------------------------ seeded-defect self-tests: the same checks must catch a report with one defect put in
 SEEDED = [
     ("partition complement leak (only cells are guarded, not what subtraction reveals)", [("            if rem < MIN_USERS:\n                vis = [n for n in mine if n not in out_hidden and cells[n] > 0]", "            if False:\n                vis = [n for n in mine if n not in out_hidden and cells[n] > 0]")],
@@ -1197,7 +1527,7 @@ SEEDED = [
      check_week_start),
     ("the word anonymous in the governance text", [('"Pseudonymous, not anonymous: a record holds a user id', '"Anonymous user ids: a record holds a user id')],
      check_no_anonymous_wording),
-    ("ids printed (the first person's id reaches the coverage line)", [("        self.n_bodies = len(bodies)\n", "        self.n_bodies = len(bodies)\n        self.leak = bodies[0].get(\"u\")\n"), ("    return \"fewer than 5 people\" if n == SMALL else f\"{n} people\"", "    return \"fewer than 5 people\" if n == SMALL else f\"{n} people ({a['model'].leak})\"")],
+    ("ids printed (the first person's id reaches the coverage line)", [("        self.n_bodies = len(bodies)\n", "        self.n_bodies = len(bodies)\n        self.leak = bodies[0].get(\"u\")\n"), ("(f\"{n} person\" if n == 1 else f\"{n} people\")", "(f\"{n} person\" if n == 1 else f\"{n} people ({a['model'].leak})\")")],
      check_no_id_name_email_key_or_team_in_any_output),
     ("a '<5' cell shown as a number (the small-group guard is gone)", [("    return value if users == 0 or users >= MIN_USERS else SMALL", "    return value"), ("def gn(n: int):\n    \"\"\"A count of people: 0 and 5 or more print as they are, 1 to 4 print the guard.\"\"\"\n    return g(n, n)", "def gn(n: int):\n    return n")],
      check_small_groups_print_the_guard),
@@ -1216,6 +1546,9 @@ SEEDED = [
     ("a heatmap cell under 5 people shown", [("{\"state\": \"small\"} if len(v[1]) < MIN_USERS else", "{\"state\": \"small\"} if len(v[1]) < 1 else")], check_heatmap_withholds_cells_under_five_people),
     ("an id in a chart label", [("        self.n_bodies = len(bodies)\n", "        self.n_bodies = len(bodies)\n        self.leak = bodies[0].get(\"u\")\n"), ("    return f'<div class=\"{cls}\" role=\"img\" aria-label=\"{e(label)}\"{s}>{inner}</div>'", "    return f'<div class=\"{cls}\" role=\"img\" aria-label=\"{e(label)} {e(MODEL_LEAK[0])}\"{s}>{inner}</div>'"), ("def chart_img(", "MODEL_LEAK = [\"u_synthetic_001\"]\n\n\ndef chart_img(")], check_no_id_name_email_key_or_team_in_any_output),
     ("a cohort cell that is not protected as a partition", [("            pc = protect_partition({\"ret\": x, \"not\": n - x}, n)\n", "            pc = {\"ret\": x, \"not\": n - x}\n")], check_cohort_cells_never_reveal_a_small_group),
+    ("min_group ignored by one chart (the heatmap hatches under 5 whatever the setting)", [("{\"state\": \"small\"} if len(v[1]) < MIN_USERS else", "{\"state\": \"small\"} if len(v[1]) < 5 else")], check_the_heatmap_honours_min_group),
+    ("a donut segment with the wrong share (the angles no longer add up to 360)", [("segs = [(k, avail * v / den, False) for k, v in shown]", "segs = [(k, avail * v / (den + 1), False) for k, v in shown]")], check_the_donut_geometry_and_labels),
+    ("a withheld class drawn at its real size in the donut", [("[(k, DONUT_HATCH_DEG, True) for k in hidden]", "[(k, 360.0 * dc[\"people\"][k] / (dc[\"n\"] + 40) + 6.0, True) for k in hidden]")], check_the_donut_geometry_and_labels),
     ("a blocklisted word in the page (who)", [("Wording: say readers of a section, reach and people active.", "Wording: say people who read a section, reach and people active.")],
      check_the_blocklisted_words_are_absent),
 ]

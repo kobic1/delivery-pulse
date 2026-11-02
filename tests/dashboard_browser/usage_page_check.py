@@ -45,11 +45,23 @@ CONTRAST_JS = r"""(() => {
 _cache: dict = {}
 
 
+def live1_bodies() -> list:
+    """One fictitious person, two visits on the first day of the data (a Monday, the week in progress): a glance on a wide window and a visit on a narrow one."""
+    day = NOW.date()
+    sess = {"vs": 5, "s": 0, "g": 1, "d": "l", "b": "aaa1111", "bt": 20759, "t": 498230, "lv": 0, "fa": 0}
+    sess2 = {"vs": 105, "s": 0, "d": "s", "b": "aaa1111", "bt": 20759, "t": 498230, "lv": 0, "fa": 0}
+    return [{"u": "u_synthetic_001", "v": 2, "first": day.isoformat(), "last": day.isoformat(), "w": {UR.sunday_key(day): {day.isoformat(): {"s0000001": sess, "s0000002": sess2}}}}]
+
+
 def page_url(kind: str = "demo") -> str:
     """The wrapped page of a kind: the demo, an empty export, or v1 records only."""
     if kind not in _cache:
         if kind == "demo":
             agg = UR.aggregate(UR.demo_bodies(REF), as_of=AS_OF, now=NOW, demo=True, calendar=UR.parse_calendar(UR.demo_calendar(REF)))
+        elif kind == "min1":
+            agg = UR.aggregate(UR.demo_bodies(REF), as_of=AS_OF, now=NOW, demo=True, calendar=UR.parse_calendar(UR.demo_calendar(REF)), th={**UR.THRESHOLDS, "min_group": 1})
+        elif kind == "live1":
+            agg = UR.aggregate(live1_bodies(), as_of=NOW, now=NOW, th={**UR.THRESHOLDS, "min_group": 1})
         elif kind == "empty":
             agg = UR.aggregate([], as_of=NOW, now=NOW)
         else:
@@ -108,7 +120,7 @@ def _(t: T):
         t.check(len(charts) >= 18 and all(c["label"] >= 30 and c["table"] for c in charts), f"{w}: every chart has a label with its numbers and a data table ({len(charts)} charts, bad {[c for c in charts if not (c['label'] >= 30 and c['table'])][:3]})")
         svgs = ch.js("[...document.querySelectorAll('svg')].map(s => s.getAttribute('aria-hidden') === 'true' || (s.getAttribute('role') === 'img' && (s.getAttribute('aria-label') || '').length > 10))")
         t.check(bool(svgs) and all(svgs), f"{w}: every svg is named (role=img with a label) or hidden ({len(svgs)})")
-        t.check(ch.js("document.querySelectorAll('.kpis .kpi').length") == 5 and ch.js("document.querySelectorAll('.kpis .sparkwrap svg[role=img]').length") >= 4, f"{w}: five key figures with sparklines")
+        t.check(ch.js("document.querySelectorAll('.kpis .kpi').length") == 5 and ch.js("document.querySelectorAll('.kpis .sparkwrap svg[role=img]').length") >= 3, f"{w}: five key figures with sparklines")
         t.check(ch.js("document.querySelectorAll('.plot').length") >= 2 and ch.js("document.querySelectorAll('.hbar').length") == 2 and ch.js("document.querySelectorAll('.ln2 path.l').length") >= 1, f"{w}: the weekly and daily charts, two hatched incomplete weeks, one line")
         t.check(ch.js("document.querySelectorAll('.hbars').length") >= 6 and ch.js("document.querySelectorAll('.hm .c').length") >= 40 and ch.js("document.querySelectorAll('.ch .cc').length") >= 5 and ch.js("document.querySelectorAll('.sb').length") >= 5, f"{w}: bars, the day-and-hour map, the cohort grid and stacked bars are drawn")
         t.check(ch.js("document.querySelectorAll('details.vd > summary').length") >= 12, f"{w}: the disclosures exist")
@@ -139,7 +151,7 @@ def _(t: T):
     t.check(ch.js("document.getElementById('growth').textContent.includes('Is adoption growing?')"), "the growth verdict sits under the weekly chart")
     ch = open_at(1400, "v1")
     t.check(ch.js("document.body.innerText.includes('not recorded in v1') || document.body.innerText.includes('Not recorded in v1')"), "the v1 page says what is not recorded")
-    t.check(ch.js("!!document.querySelector('#kpi-glance.skel') && document.querySelector('#kpi-glance .fig').textContent === 'Not recorded'") and ch.js("!document.querySelector('.hm')"), "v1: the glance figure is a skeleton and there is no day-and-hour map")
+    t.check(not ch.js("document.getElementById('kpi-glance')") and ch.js("!document.querySelector('.hm')"), "v1: no Glance scorecard and no day-and-hour map")
     ctx.chrome.viewport(1400, 900)
 
 
@@ -155,6 +167,58 @@ def _(t: T):
         t.check("u_synthetic" not in body and "@" not in ch.js("document.body.innerText"), f"{w}: no user id or address on the page")
     t.check(ch.js("document.querySelector('#how summary').textContent") == "What is counted and what is not", "the measurement note is there")
     t.check(ch.js("document.getElementById('governance').textContent.includes('Pseudonymous, not anonymous')"), "the governance text is visible")
+
+
+@SUITE.test("usage_page_device_is_one_of_the_scorecards_in_the_same_row_and_visible_without_a_disclosure")
+def _(t: T):
+    for w in (1400, 390):
+        ch = open_at(w)
+        t.check(ch.js("(() => { const d = document.getElementById('kpi-device'); if (!d) return false; const b = d.getBoundingClientRect(); return b.height > 60 && d.parentElement.classList.contains('kpis') && !d.closest('details') && getComputedStyle(d).display !== 'none'; })()"), f"{w}: Device is a scorecard inside the Key figures row, not inside a disclosure")
+        t.check(ch.js("!document.getElementById('device') && document.querySelectorAll('.device').length") == 0, f"{w}: no separate device widget")
+        t.check(ch.js("(() => { const k = [...document.querySelectorAll('.kpis .kpi')].map(c => ({h: !!c.querySelector('h3'), fig: !!c.querySelector('.fig'), sp: !!c.querySelector('.sp')})); return k.length === 5 && k.every(c => c.h && c.fig && c.sp); })()"), f"{w}: the Device card has the same anatomy as the others (title, value, sparkline area)")
+        if w == 1400:
+            t.check(ch.js("(() => { const r = [...document.querySelectorAll('.kpis .kpi')].map(c => Math.round(c.getBoundingClientRect().top)); return new Set(r).size === 1; })()"), "1400: the five scorecards are in one row")
+        txt = ch.js("document.getElementById('kpi-device').innerText")
+        t.check(("Desktop" in txt or "Phone" in txt) and "visit" in txt and "%" in txt, f"{w}: the card says the classes, shares and visits in words: {txt[:120]!r}")
+        t.check(ch.js("(() => { const c = document.getElementById('kpi-device'); const s = c.querySelector('svg[role=img]'); const b = s.getBoundingClientRect(); return !!s && s.getAttribute('aria-label').startsWith('Device split of ') && b.width >= 72 && b.height >= 72 && c.querySelectorAll('.dlg li').length >= 1 && c.querySelectorAll('circle.dseg').length >= 1; })()"), f"{w}: the Device card holds the donut (an svg role=img with its summary, at least 72 px) and a legend")
+        t.check(ch.js("(() => { const c = document.getElementById('kpi-device'); const d = c.querySelector('.donut').getBoundingClientRect(); return d.right <= c.getBoundingClientRect().right + 0.5 && c.querySelector('.dlg').getBoundingClientRect().right <= c.getBoundingClientRect().right + 0.5; })()"), f"{w}: the donut and its legend stay inside the card")
+        t.check(not ch.js("document.getElementById('kpi-glance')") and "Glance visits" not in ch.js("document.getElementById('kpis').innerText"), f"{w}: the Glance scorecard is gone from Key figures")
+        t.check(ch.js("document.querySelector('#kpi-device svg[role=img]').getBoundingClientRect().width") >= 110, f"{w}: the donut is at least 110 px")
+        if w == 1400:
+            t.check(ch.js("(() => { const h = [...document.querySelectorAll('.kpis .kpi')].map(c => Math.round(c.getBoundingClientRect().height)); return new Set(h).size === 1; })()"), "1400: the Device card is as tall as its neighbours")
+            t.check(ch.js("(() => { const d = document.getElementById('kpi-device').getBoundingClientRect().width, n = document.getElementById('kpi-new').getBoundingClientRect().width; return d > 1.8 * n && d < 2.2 * n; })()"), "1400: the Device card is twice as wide as a neighbour")
+            t.check(ch.js("(() => { const c = document.getElementById('kpi-device'), d = c.querySelector('.donut').getBoundingClientRect(), l = c.querySelector('.dlg').getBoundingClientRect(); return l.left >= d.right - 1 && Math.abs((l.top + l.height / 2) - (d.top + d.height / 2)) < d.height; })()"), "1400: the legend sits beside the donut")
+        t.check("not device type" in ch.js("document.getElementById('device-caveat').innerText"), f"{w}: the caveat is printed under Key figures")
+        t.check(ch.js("document.documentElement.scrollWidth - document.documentElement.clientWidth") <= 0 and ch.js("document.getElementById('kpi-device').getBoundingClientRect().right <= innerWidth + 1"), f"{w}: no sideways scroll")
+        t.check(ch.js("!!document.querySelector('#kpis details table#device-table')"), f"{w}: the table equivalent is behind Show data")
+    ctx.chrome.viewport(1400, 900)
+
+
+@SUITE.test("usage_page_key_figures_show_their_values_when_there_is_only_the_week_in_progress")
+def _(t: T):
+    for w in (1400, 390):
+        ch = open_at(w, "live1")
+        t.check(not ch.console_errors(), f"{w}: console {ch.console_errors()[:2]}")
+        t.check(ch.js("document.documentElement.scrollWidth - document.documentElement.clientWidth") <= 0, f"{w}: sideways scroll")
+        k = ch.js("document.getElementById('kpis').innerText")
+        t.check("Too early" not in k and "Not comparable" not in k and "Recording rules changed" not in k and "<5 users" not in k, f"{w}: no empty scorecard: {k[:200]!r}")
+        t.check(ch.js("document.querySelector('#kpi-people .fig').innerText") == "1" and ch.js("document.querySelector('#kpi-device .fig').innerText").startswith("Desktop 50%") and "Device split of 2 visits: Desktop 50%, Phone 50%" in ch.js("document.querySelector('#kpi-device svg').getAttribute('aria-label')"), f"{w}: the numbers of the data to date")
+        t.check("Data starts" in ch.js("document.getElementById('kpi-note').innerText") and "so far" in ch.js("document.getElementById('kpi-note').innerText").lower(), f"{w}: one line says why there is no comparison")
+    ctx.chrome.viewport(1400, 900)
+
+
+@SUITE.test("usage_page_min_group_1_shows_small_numbers_hatches_nothing_and_says_the_setting")
+def _(t: T):
+    for w in (1400, 390):
+        ch = open_at(w, "min1")
+        t.check(not ch.console_errors(), f"{w}: console {ch.console_errors()[:2]}")
+        t.check(ch.js("document.documentElement.scrollWidth - document.documentElement.clientWidth") <= 0, f"{w}: sideways scroll")
+        t.check(ch.js("document.querySelectorAll('.gstub, .hm .c.h, .ch .cc.h, .sb .stubfull').length") == 0 and "<1 users" not in ch.js("document.body.innerText") and "<5 users" not in ch.js("document.body.innerText"), f"{w}: nothing is hatched or withheld")
+        t.check("Small groups are shown as they are" in ch.js("document.getElementById('coverage').innerText") and "keep this page private" in ch.js("document.getElementById('coverage').innerText"), f"{w}: the ribbon says the setting")
+        ch.js("document.querySelectorAll('details').forEach(d => d.open = true)")
+        bad = ch.js(CONTRAST_JS)
+        t.check(not bad, f"{w}: low contrast {bad[:3]}")
+    ctx.chrome.viewport(1400, 900)
 
 
 @SUITE.test("usage_page_bars_stack_their_label_above_the_bar_in_a_narrow_panel")
