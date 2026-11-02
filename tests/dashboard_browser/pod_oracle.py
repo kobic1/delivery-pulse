@@ -72,7 +72,7 @@ def figures(epics: list, due: dict, cycle: dict) -> dict:
 
     idle = {k for k, es in pods.items() if not any(planned(e) for e in es)}
     wip = {k for k, es in pods.items() if len(flight(es)) > POD_LEVEL}
-    return {"pods": pods, "idle": idle, "wip": wip, "wip_epics": {e["k"] for k in wip for e in-progress(pods[k])}}
+    return {"pods": pods, "idle": idle, "wip": wip, "wip_epics": {e["k"] for k in wip for e in flight(pods[k])}}
 
 
 def oracle(data: dict, st: dict) -> dict:
@@ -270,7 +270,7 @@ def act_oracle(data: dict, st: dict) -> dict:
     in_flight = lambda e: e["s"] in N_FLIGHT                                                                      # noqa: E731
     ns = [e for e in scope if is_ns(e)]
     flight = [e for e in scope if in_flight(e)]
-    nopod = [e for e in-progress if not _pods(e)]
+    nopod = [e for e in flight if not _pods(e)]
     # 2. Pods To Level
     level_rows, flagged, ends, multi = {}, [], set(), 0
     for (p, t), es in by_team.items():
