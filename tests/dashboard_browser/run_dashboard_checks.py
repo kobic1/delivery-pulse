@@ -8,6 +8,7 @@
      tile_oracle.py (the EDCT Days and Epics by AI tiles cover the last 30 days; every tile link finds the epics counted);
      cycle_filter_oracle.py (the Delivery Cycle filter: the burnup and the Cycles section against an independent recount, the header control, seeded defects);
      ax_oracle.py (the Accessibility Bugs All / Yes / No control of the Quality section: recount, links, hash, keyboard, seeded defects);
+     usage_oracle.py (the usage statistics block: what is recorded, when, and what never is; seeded defects) and usage_page_check.py (the Delivery Pulse Usage report page);
   4. leak_check.py (nothing real in this folder, when a real payload is on the machine);
   5. a pass/fail summary. Exit code 1 on any FAIL. Tests that are expected to fail until a fix lands (XFAIL) are listed apart and
      do not fail the run unless --strict.
@@ -36,7 +37,7 @@ sys.path.insert(0, str(HERE))
 import kit                                                                          # noqa: E402
 import make_synthetic as MS                                                         # noqa: E402
 
-SUITES = [("harness", "harness.py"), ("canary", "canary.py"), ("link oracle", "link_oracle.py"), ("link guard", "link_guard.py"), ("cycles links", "link_cycles.py"), ("dependency direction", "dep_oracle.py"), ("capabilities commitment level", "cap_oracle.py"), ("headline tiles", "tile_oracle.py"), ("accessibility control", "ax_oracle.py"), ("delivery cycle filter", "cycle_filter_oracle.py")]
+SUITES = [("harness", "harness.py"), ("canary", "canary.py"), ("link oracle", "link_oracle.py"), ("link guard", "link_guard.py"), ("cycles links", "link_cycles.py"), ("dependency direction", "dep_oracle.py"), ("capabilities commitment level", "cap_oracle.py"), ("headline tiles", "tile_oracle.py"), ("accessibility control", "ax_oracle.py"), ("delivery cycle filter", "cycle_filter_oracle.py"), ("usage statistics", "usage_oracle.py"), ("usage report page", "usage_page_check.py")]
 
 
 def step_pytest() -> dict:
@@ -87,7 +88,9 @@ def main() -> int:
     ap.add_argument("--strict", action="store_true", help="XFAIL (expected to fail until a fix lands) counts as a failure")
     ap.add_argument("--expect", action="append", default=[], help="turn an expectation flag on (DEADLINE, REAL_ERROR_TEXT, ATOMIC_CAP, CURSOR_GUARD); repeatable")
     ap.add_argument("--skip-pytest", action="store_true")
-    ap.add_argument("--only", help="run only tests whose name contains this text (browser suites)")
+    ap.add_argument("--only", help="run only tests whose name contains this text (browser suites); comma-separated parts, '!text' excludes (e.g. 'selftest' or '!selftest')")
+    ap.add_argument("--suites", help="run only these browser suites (comma-separated labels or script names, e.g. 'harness,canary'); CI runs the suites as parallel jobs")
+    ap.add_argument("--except", dest="except_", help="run every browser suite except these (comma-separated labels or script names); a suite added later runs in the job that uses --except")
     ap.add_argument("--keep", action="store_true", help="keep the generated pages")
     a = ap.parse_args()
     template = Path(kit.LIVE_TEMPLATE if a.live else (a.template or kit.FROZEN / "dashboard.template.html"))
@@ -107,7 +110,12 @@ def main() -> int:
     if not a.skip_pytest:
         steps.append(step_pytest())
     steps.append(step_fixture(template))
+    def named(spec: str | None) -> set[str]:
+        return {x.strip() for x in (spec or "").split(",") if x.strip()}
+    chosen, left_out = named(a.suites), named(a.except_)
     for label, script in SUITES:
+        if (chosen and label not in chosen and script not in chosen) or label in left_out or script in left_out:
+            continue
         res = run_suite(label, script, args, env)
         if res:
             all_results += [dict(r, suite=label) for r in res]

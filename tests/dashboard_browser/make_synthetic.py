@@ -573,14 +573,14 @@ class Gen:
         add("ns_yesterday", ns, None, "Ready for Dev", -1)                                    # out: overdue, not due soon
         add("ns_other_release", ns, None, "New", 1, fv=["27.2"])                              # out of 27.1 (in the scope of 27.2)
 
-        def team(name, spec):                                                                  # spec: [(pod label, in progress, validation, other open epics)]
+        def team(name, spec, c="Committed"):                                                   # spec: [(pod label, in progress, validation, other open epics)]; c: the Commitment Type
             for lab, ip, vl, other in spec:
                 for i in range(ip):
-                    add(f"{name}:{lab}:ip{i}", name, [lab], "In Progress")
+                    add(f"{name}:{lab}:ip{i}", name, [lab], "In Progress", c=c)
                 for i in range(vl):
-                    add(f"{name}:{lab}:vl{i}", name, [lab], "Validation")
+                    add(f"{name}:{lab}:vl{i}", name, [lab], "Validation", c=c)
                 for i in range(other):
-                    add(f"{name}:{lab}:new{i}", name, [lab], "New")
+                    add(f"{name}:{lab}:new{i}", name, [lab], "New", c=c)
 
         team("Team Seed Lvl A", [("Pod-Lvl-A1", 2, 0, 0), ("Pod-Lvl-A2", 8, 2, 0), ("Pod-Lvl-A3", 0, 0, 1)])   # 2 vs 10 and a pod with none in-progress: flagged (10 of 12)
         team("Team Seed Lvl B", [("Pod-Lvl-B1", 3, 0, 0), ("Pod-Lvl-B2", 2, 0, 0)])                       # 3 vs 2: total 5, spread 20%: not flagged
@@ -593,6 +593,11 @@ class Gen:
         team("Team Seed Lvl I", [("Pod-Lvl-I1", 5, 0, 0)])                                                # a pod with Done epics only does not take part
         add("lvl_i2_done_a", "Team Seed Lvl I", ["Pod-Lvl-I2"], "Done")
         add("lvl_i2_done_b", "Team Seed Lvl I", ["Pod-Lvl-I2"], "Done")
+
+        # 2b. Pods With More Than 3 Epics In Progress counts the status In Progress only (Validation is not counted). One team of four pods, none with a date, balanced for Pods To Level (4, 4, 5, 4 in-progress: spread 1 of 17, not flagged,
+        # so no other Pods tile moves): exactly 4 In Progress is over the level; 3 In Progress + 1 Validation, 3 + 2 and 4 Validation only are NOT (they were over the level while Validation counted).
+        # Stretch epics are in the Cycles section like any other but outside the target scope, so the burnup, the release bars and the scope arithmetic of the other suites (cycle_filter_oracle's shrunk scope) do not move.
+        team("Team Seed Wip", [("Pod-Wip-Four", 4, 0, 0), ("Pod-Wip-Mix1", 3, 1, 0), ("Pod-Wip-Mix2", 3, 2, 0), ("Pod-Wip-Val", 0, 4, 0)], c="Stretch")
 
         wt = "Team Seed Wt"                                                                    # 3. providers for the waiting items
         add("wt_pod", wt, ["Pod-Wt-A"], "In Progress")                                        # provider with a pod label

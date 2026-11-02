@@ -946,6 +946,38 @@ def drop_people(data: dict) -> None:
         rec.pop("as", None)
 
 
+USAGE_CALENDAR_PATH = HERE / "build" / "usage_calendar.json"
+
+
+def w1_of(win) -> dt.date:
+    """The first day of W1 of a release, by the dashboard's own definition: the Jira version window starts one week (the IP week) before W1, so W1 = window start + 7 days.
+    The page spells it `utc(win[0]) + 7 * DAY` (targetOf, the burnup and w6Model); tests/test_usage_report.py keeps the two equal."""
+    return dt.date.fromisoformat(win[0][:10]) + dt.timedelta(days=7)
+
+
+def usage_calendar(data: dict) -> dict:
+    """The calendar the usage report reads (usage_report.py --calendar): per release the W1 start, the end of W6 (the end of Delivery Cycle 1: W1 + 41 days, as the page's w6Model) and the release end, plus the sprint boundaries.
+    It holds dates and release and sprint numbers only: never an epic, a title, a person or any issue data."""
+    rels = []
+    for rel, win in sorted((data.get("windows") or {}).items()):
+        if not (isinstance(win, (list, tuple)) and len(win) == 2 and win[0] and win[1]):
+            continue
+        w1 = w1_of(win)
+        rels.append({"release": str(rel), "w1": w1.isoformat(), "w6_end": (w1 + dt.timedelta(days=41)).isoformat(), "end": str(win[1])[:10]})
+    sprints = [{"no": int(x["no"]), "rel": str(x.get("rel", "")), "start": str(x["start"])[:10], "end": str(x["end"])[:10]}
+               for x in data.get("sprints") or [] if isinstance(x, dict) and x.get("no") is not None and x.get("start") and x.get("end")]
+    return {"releases": rels, "sprints": sprints}
+
+
+def write_usage_calendar(data: dict) -> Path:
+    """Write build/usage_calendar.json (git-ignored with the rest of build/)."""
+    cal = usage_calendar(data)
+    USAGE_CALENDAR_PATH.parent.mkdir(parents=True, exist_ok=True)
+    USAGE_CALENDAR_PATH.write_text(json.dumps(cal, indent=1) + "\n", encoding="utf-8")
+    print(f"wrote {USAGE_CALENDAR_PATH} ({len(cal['releases'])} releases, {len(cal['sprints'])} sprints)")
+    return USAGE_CALENDAR_PATH
+
+
 def save_data(data: dict) -> None:
     """Write build/program_data.json atomically and keep the previous file as .prev: a crash while writing, or a bad pull, never costs the only snapshot (a full pull is about 3,000 Jira calls)."""
     drop_people(data)
@@ -1031,14 +1063,18 @@ def main() -> int:
     ap.add_argument("--add-cfb-open", action="store_true", help="pull the root cause analysis state of the customer-found bugs (Open CFBs table) into build/program_data.json, then render")
     ap.add_argument("--add-capitalization", action="store_true", help="pull the Done Bugs, Stories and Tasks by Closed date (Capitalization %% chart: capitalize field, story points, fix versions, team; Closed day on or after 2025-10-01, Israel time, resolution date when Closed is empty) into build/program_data.json, then render")
     ap.add_argument("--add-capabilities", action="store_true", help="pull the Capability list and all their child epics (Capabilities section, Done Capabilities per Release) into build/program_data.json, then render")
+    ap.add_argument("--emit-usage-calendar", action="store_true", help="write build/usage_calendar.json (release W1 start, end of W6, release end, sprint boundaries: dates only) for usage_report.py --calendar; reads build/program_data.json, renders nothing")
     ap.add_argument("--add-cycles", action="store_true", help="no longer used (kept so old command lines still run): the Confluence pods pull was removed; Group By is Team or Pod from labels")
     args = ap.parse_args()
-    modes = [a for a in ("reuse", "add_nfr", "add_hier", "add_planning", "add_deps", "add_bugs", "add_pods", "add_cfb_open", "add_capitalization", "add_capabilities", "add_cycles") if getattr(args, a)]
+    modes = [a for a in ("reuse", "add_nfr", "add_hier", "add_planning", "add_deps", "add_bugs", "add_pods", "add_cfb_open", "add_capitalization", "add_capabilities", "add_cycles", "emit_usage_calendar") if getattr(args, a)]
     if len(modes) > 1:      # the branches below are an if/elif chain: a second flag used to be skipped without a word
         ap.error("use one mode flag at a time (got " + ", ".join("--" + m.replace("_", "-") for m in modes) + "); run them one after another")
     global SANDBOX
     SANDBOX = args.sandbox
     DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if args.emit_usage_calendar:
+        write_usage_calendar(json.loads(DATA_PATH.read_text(encoding="utf-8")))
+        return 0
     if args.add_nfr:
         data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
         collect_nfr(E.Jira(), [e for e in data["epics"] if e["p"] in PROJECTS])

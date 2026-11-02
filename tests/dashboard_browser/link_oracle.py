@@ -207,6 +207,81 @@ def _(t: T):
     _counts(t, "cfb", "CFB")
 
 
+# ================================================================ Open CFBs: the tiles and the table against a recount written apart from the page
+OPEN_FINAL = ("Done", "Ready for Deploy", "Closed", "Resolved", "Removed")          # the open-bug rule: any other status is open
+OPEN_CFB_STATES = ["", "p=PMN", "p=PMN|CXCO|CXSUP", "TEAM", "p=CXWFM&TEAM", "p=INT", "p=CXINT|INT", "dc=1"]
+OPEN_CFB_JS = """(() => ({
+  tiles: [...document.querySelectorAll('#ocfb-kpis .kpi')].map(k => [k.querySelector('.l').textContent.trim(), k.querySelector('.v').textContent.trim(), k.querySelector('.s').textContent.trim()]),
+  keys: [...document.querySelectorAll('#ocfb-table tbody tr:not(.cybugrow) th a')].map(a => a.textContent.trim()),
+  rca: [...document.querySelectorAll('#ocfb-table tbody tr:not(.cybugrow)')].map(r => (r.children[5].querySelector('strong') || {textContent: '-'}).textContent.trim()),
+  summary: (document.querySelector('#ocfb-details summary') || {textContent: ''}).textContent.trim()
+}))()"""
+
+
+def open_cfb_expected(data: dict, spec: str, team: str) -> dict:
+    """Every CFB not in a final status in the selected projects (and team), with its age in whole days to the snapshot's Israel day, its SLA (P1 3; a regression 7; P2 14; P3 and P4 30; none outside P1 to P4)
+    and its RCA state from the cfbx block (not read: no record; Not Required: review N; Done: edited text or review Approved; otherwise Not Done)."""
+    import datetime as dt
+    projects = [x for part in spec.split("&") if part.startswith("p=") for x in part[2:].split("|")] or list(data["projects"])
+    teams = [team] if "TEAM" in spec.split("&") else []
+    stamp = dt.datetime.fromisoformat(data.get("refreshedAt") or data["generated"]).astimezone(MS.IL).date()
+    X = data["cfbx"]["bugs"]
+    rows = []
+    for b in data["bugs"]:
+        if not b.get("cfb") or b["s"] in OPEN_FINAL or b["p"] not in projects or (teams and (b.get("tm") or "(No Team)") not in teams):
+            continue
+        age = (stamp - dt.date.fromisoformat(b["cr"])).days
+        days = None if b.get("pr") not in ("P1", "P2", "P3", "P4") else 3 if b["pr"] == "P1" else 7 if b.get("rg") else 14 if b["pr"] == "P2" else 30
+        x = X.get(b["k"])
+        rca = None if x is None else "Not Required" if x.get("rv") == "N" else "RCA Done" if (x.get("rca") or x.get("rv") == "A") else "RCA Not Done"
+        rows.append({"k": b["k"], "p": b["p"], "age": age, "late": days is not None and age > days, "rg": bool(b.get("rg")), "rca": rca})
+    order = {p: i for i, p in enumerate(data["projects"])}
+    rows.sort(key=lambda r: (order[r["p"]], r["k"].split("-")[0], int(r["k"].split("-")[1])))
+    return {"rows": rows, "n": len(rows), "not_done": sum(r["rca"] == "RCA Not Done" for r in rows), "done": sum(r["rca"] == "RCA Done" for r in rows), "na": sum(r["rca"] == "Not Required" for r in rows),
+            "over": sum(r["late"] for r in rows), "reg": sum(r["rg"] for r in rows)}
+
+
+def open_cfb_problems(url: str, data: dict, label: str, t: T) -> tuple:
+    F, ch, seen, sizes = fixture(), ctx.chrome, 0, set()
+    for spec in OPEN_CFB_STATES:
+        ch.goto(url + ("#" + state_hash(spec, F["team"]) if spec else ""))
+        kit.wait_ready(ch)
+        got, exp, name = ch.js(OPEN_CFB_JS), open_cfb_expected(data, spec, F["team"]), f"{label} {spec or '(default)'}"
+        tiles = {k[0]: k for k in got["tiles"]}
+        want = {"Open CFBs": str(exp["n"]), "RCA Not Done": str(exp["not_done"]), "Over SLA": str(exp["over"]), "Regression": str(exp["reg"])}
+        t.check({k: v[1] for k, v in tiles.items()} == want, f"[{name}] tiles {{{', '.join(f'{k}: {v[1]}' for k, v in tiles.items())}}} equal the recount {want}")
+        t.check(tiles.get("RCA Not Done", ["", "", ""])[2] == f"{exp['done']} Done · {exp['na']} Not Required", f"[{name}] RCA Done and Not Required under the RCA tile equal the recount ({exp['done']}, {exp['na']})")
+        t.check(tiles.get("Over SLA", ["", "", ""])[2] == f"of {exp['n']} open {'CFB' if exp['n'] == 1 else 'CFBs'}", f"[{name}] the Over SLA denominator is the open count {exp['n']}")
+        t.check(got["summary"] == f"Show Open CFBs ({exp['n']})", f"[{name}] the disclosure says {got['summary']!r}")
+        t.check(got["keys"] == [r["k"] for r in exp["rows"]], f"[{name}] the table lists the {exp['n']} open CFBs in project and key order")
+        t.check(got["rca"] == [r["rca"] or "-" for r in exp["rows"]], f"[{name}] each row carries its recounted RCA state")
+        seen += exp["n"]
+        sizes.add((exp["n"], exp["over"], exp["reg"]))
+    return seen, sizes
+
+
+@SUITE.test("open_cfbs_tiles_and_table_equal_an_independent_recount")
+def _(t: T):
+    """The four tiles (Open CFBs, RCA Not Done with Done and Not Required, Over SLA, Regression), the 'Show Open CFBs (N)' count, the table's keys in project and key order and each row's RCA state, in eight
+    filter states, against a Python recount over the fictitious payload. The Delivery Cycle filter (dc=1) must change nothing: bugs do not follow it. A second page runs the same states over a payload whose open
+    CFBs sit exactly on and one day past their SLA (P1 3 days; a regression 7 days), with Regression Yes and no priority, because the plain fixture has no open regression and no bug on the boundary."""
+    import copy
+    import datetime as dt
+    F = fixture()
+    seen, sizes = open_cfb_problems(F["url"], F["data"], "fixture", t)
+    t.check(seen >= 20 and len({s[0] for s in sizes}) >= 4, f"the recount was not blind: {seen} open CFBs in eight states, {len({s[0] for s in sizes})} different sizes")
+    d2 = copy.deepcopy(F["data"])
+    stamp = dt.datetime.fromisoformat(d2.get("refreshedAt") or d2["generated"]).astimezone(MS.IL).date()
+    opened = [b for b in d2["bugs"] if b.get("cfb") and b["s"] not in OPEN_FINAL and b["p"] == "PMN"]
+    t.check(len(opened) >= 6, f"the fixture has at least six open PMN CFBs to place on the SLA boundary (found {len(opened)})")
+    for b, (pr, rg, age) in zip(opened, [("P1", 0, 3), ("P1", 0, 4), ("P3", 1, 7), ("P3", 1, 8), (None, 0, 400), ("P2", 1, 6)]):
+        b["pr"], b["rg"], b["cr"] = pr, rg, str(stamp - dt.timedelta(days=age))
+        if pr is None:
+            b.pop("pr")
+    seen2, sizes2 = open_cfb_problems(ctx.write(kit.fragment_for(d2), "open_cfb_sla"), d2, "boundary", t)
+    t.check(any(s[1] > 0 for s in sizes2) and any(s[2] > 0 for s in sizes2), "the boundary payload has bugs over their SLA and with Regression Yes in at least one state, so those tiles are really counted")
+
+
 @SUITE.test("links_capitalization_counts_equal_their_queries")
 def _(t: T):
     _counts(t, "cap", "Capitalization")
