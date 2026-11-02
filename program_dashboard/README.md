@@ -249,7 +249,7 @@ Taken from the Program Intelligence Agent (`.claude/agents/program-intelligence-
 The published page counts how it is used, so the owner can see how many people use it, how often they come back, which sections they read and which controls they use. It is a self-contained block at the end of the template script
 (`USAGE_VOC`, `USAGE`); nothing above it knows about it, and it wraps `saveState` to see which controls changed. A local copy, a page without the capabilities and a viewer without an id record nothing and show nothing.
 
-**Privacy.** Per-user ids are allowed; names and e-mail addresses are not. The page reads only `user.id()` (an opaque `u_...` token) and declares `user` **without scopes**. Never recorded: names, e-mails, issue keys, team, pod or project names (the project chips are
+**Privacy.** Per-user ids are allowed; names and e-mail addresses are not. The id is a pseudonym, not anonymous: the editors of the published page can read it. The page reads only `user.id()` (an opaque `u_...` token) and declares `user` **without scopes**. Never recorded: names, e-mails, issue keys, team, pod or project names (the project chips are
 configuration the viewer chose: only the number of selected projects is kept), search text, the address of a Jira link, free text of any kind. Every recorded key comes from the fixed lists below; anything else is dropped. A visible note at the very bottom of the page says what is
 counted. It appears only after the first successful write of a visit, so a viewer whose write is refused (a view-only viewer) never sees it, and it disappears if the visit stops recording. Records are kept 12 ISO weeks.
 
@@ -293,14 +293,25 @@ Not verified in a headless file build: how the real `db` and its consent prompt 
 **Owner report.** Export the documents of the collection `usage` with the ArtifactData tool (`list`) into a JSON file, then:
 
 ```bash
-python3 program_dashboard/usage_report.py export.json                                   # text report
-python3 program_dashboard/usage_report.py export.json --html usage.html --as-of 2026-11-02T10:15:00+02:00   # the "Delivery Pulse Usage" page (an Artifact fragment)
-python3 program_dashboard/usage_report.py --demo --html usage_demo.html --standalone     # fictitious data, "Demo data" banner, opens as a file
+python3 program_dashboard/build_dashboard.py --emit-usage-calendar                       # build/usage_calendar.json: release W1, end of W6, release end, sprint boundaries (dates only, git-ignored)
+python3 program_dashboard/usage_report.py export.json --as-of 2026-11-02T10:15:00+02:00     # text report
+python3 program_dashboard/usage_report.py export.json --html usage.html --as-of 2026-11-02T10:15:00+02:00 \
+    --since 2026-10-14 --audience 120 --calendar program_dashboard/build/usage_calendar.json   # the "Delivery Pulse Usage" page (an Artifact fragment)
+python3 program_dashboard/usage_report.py --demo --html usage_demo.html --standalone      # fictitious data, "Demo data" banner, opens as a file
 ```
 
-The input is a list of the bodies or of `{id, data}` rows. The report never reads or prints an id. Every breakdown that rests on fewer than 5 distinct people prints `<5 users` and draws no bar. Active users, returning users (2 or more days), visits per active user, median and 90th percentile
-visit length, reading time per section, control changes, Jira links per section, disclosures, Refresh and Reset Filters, screen size, page version and page errors are shown; with fewer than 14 days of data the page says that trends are not meaningful yet. Because each record keeps 12 weeks, the weekly trend shows at most 12 weeks
-unless earlier exports are kept; weeks before the first record read "before the data starts", not zero.
+`--as-of` is when the export was taken (without it the report reads the export as taken today and says no export time was given: the last day in the data is never taken for today; an export older than 3 days is warned about). `--since` is the go-live day (the Sandbox before it is ignored and
+the weeks before it read "before the data starts"). `--audience N` is optional: without it the page says the audience size is not supplied and shows no adoption percentage; with it the page says "x of an audience of N" and that it is a lower bound. `--thresholds file.json` overrides the
+`THRESHOLDS` dict at the top of `usage_report.py` (every threshold has one name there). `--calendar` adds the release milestones, the sprint boundaries and, if the owner adds them, `events` (review days) and `quiet_weeks` (dates inside weeks to leave out of every baseline).
+
+The record this report reads is defined in one place, `RECORD_SHAPE` in `usage_report.py` (schema v2; schema v1 records are read too, and a field a v1 session lacks is Unknown, never 0). The report reads the user id only to drop a duplicated document and never prints it. A record is **pseudonymous, not anonymous**: the id is a code with no name
+or e-mail, but the editors of the published page can read it. The exported JSON file is deleted after the report is built, and a screenshot of the page carries the same rules as the page.
+
+**What the page answers**, in the order a one-minute read needs: a coverage ribbon (who is counted and who is not); the people active in the last completed Sunday-to-Saturday week with the usual range of the weeks before it, and whether adoption is growing ("too early" is a first-class answer: growth needs 6 completed weeks, +20% and +3 people);
+**What changed since last report** (signals S0 to S9 with their observation, baseline, threshold, a confidence label from Confirmed to Unknown, what the signal does not show and what is worth investigating; a collapsed Checked ledger lists every signal as flagged, within range or not tested, and when nothing changed the page says exactly what was checked);
+cohort retention and habit; reach per section and per control in page order (never ranked); how people use it (link follow-through, small-screen share, Refresh, data freshness); the people per day with the calendar marks; and a Recording health block that says whether the measurement itself can be trusted.
+Weeks run Sunday to Saturday and are complete once Saturday has passed; only completed weeks are compared; the first week of data (when the data starts mid-week) is provisional. Every breakdown that rests on fewer than 5 distinct people prints `<5 users`, a figure that would reveal such a group by subtraction is withheld too, and a percentage prints only with a denominator of 20 or more.
+The wording blocklist (who, top users, least active, engaged people, people who read X, a stated reason for a change) is enforced by a test.
 
 ## Adding to it
 Projects and releases are the `PROJECTS` / `RELEASES` lists at the top of `build_dashboard.py`;
