@@ -1364,6 +1364,39 @@ function paceFacts() {                                       // the same numbers
   const D = Math.round((end - w1) / DAY), d = Math.min(D, Math.max(0, Math.round((snap - w1) / DAY)));
   return {N, D, d, w1, pre: snap < w1, doneNow: doneScope(rel).filter(e => cls(e.s) === "done").length, pace: D ? N * d / D : 0, closed: snap > end, targetSize: target.length};
 }
+// The two epic-delivery tiles (Epics Delivered, Forecast Epics) follow the Delivery Cycle filter the way the burnup window does (dcDomain): the numbers are the whole release's in every view (Done is the number the tile has always
+// shown, any Commitment Type, cumulative since the release start) and the cycle changes only the target the tile compares with. Both cycles ticked (or a release with no cycles): the tiles exactly as before.
+//   Cycle 1 only: "of N" and Forecast Epics are the Committed epics planned by the end of W6 (w6Model, the burnup's end state), the number a Jira query that Jira recalculates; no release scope is shown.
+//   Cycle 2 only: the release scope tile as before, with the window named. EDCT Days, Epics by AI and Open Bugs never read the filter.
+function deliveryTiles(rel, TB, tDone, paceLine) {
+  const dc = dcState(rel), DM = TB.win && !dc.all ? dcDomain(rel, dc) : null, kick = `Release ${esc(rel)}`;
+  const doneH = jira({kind: "done", commit: ALLC});
+  if (!DM) return [
+    {k: kick, c: "d", v: tlink(tDone, doneH, `${nn(tDone, "epic", "epics")} Done in ${rel}, any Commitment Type${paceLine}`), l: "Epics Delivered", s: `of ${tlink(TB.N, TB.href, TB.tip)} target scope`},
+    {k: kick, c: "d", v: tlink(TB.N, TB.href, TB.tip), l: "Forecast Epics",
+     s: !TB.win ? "Target scope: Committed + Not Set" : TB.pre ? `Target scope so far; W1 starts ${shortDate(TB.w1)}` : `Committed + Not Set on ${shortDate(TB.w1)}`,
+     x: !TB.win || TB.pre ? "" : `${tipFocus(`${TB.added >= 0 ? "+" : "−"}${Math.abs(TB.added).toLocaleString("en-US")} ${TB.added >= 0 ? "" : "removed "}since W1`, `${nn(Math.abs(TB.added), "target epic was", "target epics were")} ${TB.added >= 0 ? "added to" : "removed from"} ${rel} after W1 started\n${TB.today.toLocaleString("en-US")} today minus ${TB.N.toLocaleString("en-US")} on ${shortDate(TB.w1)}.`)} (${tlink(TB.today, TB.hrefToday, `${nn(TB.today, "target epic", "target epics")} in ${rel} today (Committed or Not Set)`)} today)`},
+  ];
+  const c1 = DM.kind === "c1", cy = DC_NAME(dc.shown[0]), kk = `${kick} · ${cy}`, raw = Math.round((asOfDay() - DM.w1) / DAY);
+  const doneTip = `${nn(tDone, "epic", "epics")} Done in ${rel}, any Commitment Type\nWhole release, cumulative since its start; ${cy} changes only the target.`;
+  if (!c1) {                                                       // Delivery Cycle 2: the release scope as before, the window named
+    const a = shortDate(DM.w1 + DM.s * DAY), win = `${cy}: W${Math.floor(DM.s / 7) + 1} to W${Math.round(DM.D / 7)}`;
+    return [
+      {k: kk, c: "d", v: tlink(tDone, doneH, doneTip), l: "Epics Delivered", s: `of ${tlink(TB.N, TB.href, TB.tip)} target scope`, x: raw < DM.s ? `${win}, starts ${a}` : win},
+      {k: kk, c: "d", v: tlink(TB.N, TB.href, TB.tip), l: "Forecast Epics",
+       s: TB.pre ? `Target scope so far; W1 starts ${shortDate(TB.w1)}` : `Committed + Not Set on ${shortDate(TB.w1)}`,
+       x: TB.pre ? "" : `${tipFocus(`${TB.added >= 0 ? "+" : "−"}${Math.abs(TB.added).toLocaleString("en-US")} ${TB.added >= 0 ? "" : "removed "}since W1`, `${nn(Math.abs(TB.added), "target epic was", "target epics were")} ${TB.added >= 0 ? "added to" : "removed from"} ${rel} after W1 started\n${TB.today.toLocaleString("en-US")} today minus ${TB.N.toLocaleString("en-US")} on ${shortDate(TB.w1)}.`)} (${tlink(TB.today, TB.hrefToday, `${nn(TB.today, "target epic", "target epics")} in ${rel} today (Committed or Not Set)`)} today)`},
+    ];
+  }
+  // Delivery Cycle 1: the target is the Committed epics planned by the end of W6 (the burnup's dotted marker); the link is the query w6Model builds, plain text over the URL budget
+  const W6 = w6Model(rel, DM.w1), nP = W6.within.length, h = W6.hrefs.within && W6.hrefs.within.length <= CY_URL_MAX ? W6.hrefs.within : null, over = raw > DM.e;
+  const planTip = `${nn(nP, "Committed epic", "Committed epics")} planned by the end of W6\nDelivery Cycle 1 ${over ? "ended" : "ends"} ${W6.w6}; the release scope is not part of this view.`;
+  return [
+    {k: kk, c: "d", v: tlink(tDone, doneH, doneTip), l: "Epics Delivered", s: nP ? `of ${tlink(nP, h, planTip)} planned by the end of W6` : "no epics planned by the end of W6",
+     x: TB.pre ? `${cy} starts ${shortDate(TB.w1)}` : over ? `${cy} ended ${W6.w6}` : `${cy}: W1 to W6`},
+    {k: kk, c: "d", v: nP ? tlink(nP, h, planTip) : "0", l: "Forecast Epics", s: `${nP ? "Planned" : "No epics planned"} by the end of W6, ${cy} ${over ? "ended" : "ends"} ${W6.w6}`},
+  ];
+}
 function renderStatus() {
   const rel = state.release, list = scopeOf(rel), c = counts(list), mo = lastDays(), ms = monthStats(mo), inWin = `in the last ${WINDOW_DAYS} days (${windowWords(mo)})`;
   const projLabel = state.projects.size === projectsAll.length ? "All Projects" : [...state.projects].join(", ") || "No project";
@@ -1380,10 +1413,7 @@ function renderStatus() {
   const pf = paceFacts(), showPace = !!(pf && pf.N >= MIN_N && !pf.closed && !pf.pre), paceDiff = showPace ? tDone - Math.round(pf.pace) : 0;
   const paceLine = !showPace ? "" : `\n${paceDiff === 0 ? "On even pace" : `${Math.abs(paceDiff).toLocaleString("en-US")} ${paceDiff > 0 ? "ahead of" : "behind"} even pace`} on day ${pf.d} of ${pf.D}; a reference, not a forecast.`;
   kpiCards(document.getElementById("kpis"), [
-    {k: `Release ${esc(rel)}`, c: "d", v: tlink(tDone, jira({kind: "done", commit: ALLC}), `${nn(tDone, "epic", "epics")} Done in ${rel}, any Commitment Type${paceLine}`), l: "Epics Delivered", s: `of ${tlink(TB.N, TB.href, TB.tip)} target scope`},
-    {k: `Release ${esc(rel)}`, c: "d", v: tlink(TB.N, TB.href, TB.tip), l: "Forecast Epics",
-     s: !TB.win ? "Target scope: Committed + Not Set" : TB.pre ? `Target scope so far; W1 starts ${shortDate(TB.w1)}` : `Committed + Not Set on ${shortDate(TB.w1)}`,
-     x: !TB.win || TB.pre ? "" : `${tipFocus(`${TB.added >= 0 ? "+" : "−"}${Math.abs(TB.added).toLocaleString("en-US")} ${TB.added >= 0 ? "" : "removed "}since W1`, `${nn(Math.abs(TB.added), "target epic was", "target epics were")} ${TB.added >= 0 ? "added to" : "removed from"} ${rel} after W1 started\n${TB.today.toLocaleString("en-US")} today minus ${TB.N.toLocaleString("en-US")} on ${shortDate(TB.w1)}.`)} (${tlink(TB.today, TB.hrefToday, `${nn(TB.today, "target epic", "target epics")} in ${rel} today (Committed or Not Set)`)} today)`},
+    ...deliveryTiles(rel, TB, tDone, paceLine),
     {k: to, c: "e", v: ms.edctN >= EDCT_MIN_N ? tlink(Math.round(ms.edctAvg), jiraMonth(mo, aiMonth, "edct"), `${nn(Math.round(ms.edctAvg), "day", "days")} average EDCT, last ${WINDOW_DAYS} days (${windowWords(mo)})\nAI-implemented epics only.`) : "–", l: "EDCT Days",
      s: ms.edctN >= EDCT_MIN_N ? tipFocus("average of AI-implemented epics", `Average over ${nn(ms.edctN, "AI-implemented epic", "AI-implemented epics")} with an EDCT, resolved ${inWin}\nMaintenance excluded. The link also lists epics with no EDCT yet.`) : "no AI-implemented epics with an EDCT", x: f.edct && f.edct.t, xc: f.edct && f.edct.c},
     {k: "Today", c: "q", v: tlink(open.length, jiraBugs({extra: OPEN_BUG_JQL}), `${nn(open.length, "open bug", "open bugs")} now\nFollows Projects, Teams and the Quality filters.`), l: "Open Bugs", s: `${AX_WORDS[state.ax]}${filtered ? "; Priority or CFB filter on" : ""}`, x: f.bugs && f.bugs.t, xc: f.bugs && f.bugs.c},
@@ -3198,7 +3228,7 @@ function cySpan(sel) {
   return {ids, multi, set: sel, name: multi ? `Delivery Cycles ${ids.join(" and ")}` : sel[0].name, first: sel[0].name, start: sel[0].start, end: sel[sel.length - 1].end,
     from: multi ? "the release start date" : "the cycle start date"};
 }
-// ---- the Delivery Cycle filter (filter bar): the Delivery burnup and this section only; every other section keeps its numbers.
+// ---- the Delivery Cycle filter (filter bar): the Delivery burnup, this section and the Epics Delivered and Forecast Epics tiles (deliveryTiles); every other section and tile keeps its numbers.
 // A cycle holds the epics whose planned date (the later of the due date and the Target Sprint end, plannedLater) falls in it: Delivery Cycle 1 on or before the end of W6 (earlier dates, such as carry-over, included: the rule of the
 // burnup's Delivery Cycle 1 line), Delivery Cycle 2 from W7 to the release end. An epic with no planned date, or planned after the release end (the Cycles section's "in no cycle"), is in neither cycle: it counts only when every cycle is shown.
 // A release shorter than W6 has Delivery Cycle 1 only; a stored choice that names a cycle the release does not have falls back to the cycles it has.
@@ -4002,7 +4032,7 @@ function buildFilters() {
     const id = e.target.value, d = dcState();
     if (!e.target.checked && d.shown.length === 1 && d.shown[0] === id) { e.target.checked = true; announce("At least one delivery cycle must stay selected"); return; }       // the last cycle cannot be switched off
     e.target.checked ? state.dc.add(id) : state.dc.delete(id); update({hold: holdSel(e.target)});
-    const n = dcState(); announce(n.all ? "Showing every delivery cycle in the Delivery chart and the Cycles section" : `Showing ${dcWord(n)} in the Delivery chart and the Cycles section`);
+    const n = dcState(); announce(n.all ? "Showing every delivery cycle in the Delivery chart, the Cycles section and the Epics Delivered and Forecast Epics tiles" : `Showing ${dcWord(n)} in the Delivery chart, the Cycles section and the Epics Delivered and Forecast Epics tiles`);
   };
   document.getElementById("f-ax").onchange = e => { state.ax = e.target.value; update({hold: holdSel(e.target)}); };
   const bp = document.getElementById("f-bpri");
@@ -4089,7 +4119,7 @@ function syncControls() {
   { const d = dcState(), note = document.getElementById("f-dc-note");      // a cycle the release does not have is disabled, with its reason in plain words
     document.querySelectorAll("#f-dc input").forEach(i => { const has = d.ids.includes(i.value); i.disabled = !has; i.checked = d.win ? d.shown.includes(i.value) : state.dc.has(i.value); i.parentElement.classList.toggle("on", i.checked); i.parentElement.classList.toggle("dis", !has);
       i.parentElement.title = has ? "" : d.win ? `${state.release} ends by the end of W6, so it has no ${DC_NAME(i.value)}` : `Jira has no dated version for ${state.release}`; });
-    note.textContent = !d.win ? "No cycle dates for this release" : !d.has2 ? "No Cycle 2: the release ends by W6" : d.all ? "Delivery chart and Cycles only" : `Delivery chart and Cycles: ${d.shown[0] === "1" ? "Cycle 1" : "Cycle 2"} only`; }
+    note.textContent = !d.win ? "No cycle dates for this release" : !d.has2 ? "No Cycle 2: the release ends by W6" : d.all ? "Delivery chart, Cycles and 2 tiles only" : `Delivery chart, Cycles and 2 tiles: ${d.shown[0] === "1" ? "Cycle 1" : "Cycle 2"} only`; }
   const n = state.teams.size;
   document.getElementById("f-teams-btn").textContent = n === 0 ? "All Teams" : n === 1 ? [...state.teams][0] : `${n} Teams`;
   renderTeamList();

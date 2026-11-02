@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Delivery Cycle filter oracle: the header filter (Cycle 1, Cycle 2) and what it changes, recounted independently in Python and compared with the page.
 
-The filter changes the Delivery burnup and the Cycles section only. A cycle holds the epics whose planned date (the later of the due date and the Target Sprint end) falls in it:
+The filter changes the Delivery burnup, the Cycles section and the Epics Delivered and Forecast Epics tiles only. A cycle holds the epics whose planned date (the later of the due date and the Target Sprint end) falls in it:
 Delivery Cycle 1 on or before the end of W6 (release start + 48 days; earlier dates included), Delivery Cycle 2 from the next day to the release end. An epic with no planned date,
 or planned after the release end, is in neither cycle and counts only when every cycle is shown. This file spells the rule again, on purpose, and never imports it from the page.
 
@@ -18,7 +18,7 @@ or planned after the release end, is in neither cycle and counts only when every
      cycle is shown, with their counts. An older link with the removed key (cy=DC1) is ignored without an error.
   3. The header control: present, no Commitment Type control, the hash round trip (dc), an older c= link ignored, the last cycle cannot be unticked, keyboard operation, no sideways scroll at 320 and
      800 px, a release with only Delivery Cycle 1 (Cycle 2 disabled with its reason; a stored dc=2 falls back to Cycle 1).
-  4. Other sections do not read the filter (the page outside the burnup, the Cycles section and the filter bar is identical with Cycle 1 only, Cycle 2 only and both).
+  4. Other sections do not read the filter (the page outside the burnup, the Cycles section, the filter bar and the two epic-delivery tiles Epics Delivered and Forecast Epics, which tile_oracle.py checks, is identical with Cycle 1 only, Cycle 2 only and both).
   5. Seeded defects must be caught: Cycles ignoring the filter, both cycles counted as Cycle 1 only, the banner naming the wrong cycle, the removed selector coming back, the old key read again, After Release End or the undated list shown for one cycle, Cycle 1 ending a day early in the Cycles section; and for the burnup:
      Done or Scope narrowed to the cycle's epics, the domain not narrowed, Done restarting at zero in Cycle 2, the Done line or label drawn before W7, the Cycle 1 pace not through the end state,
      the Cycle 2 pace starting at scope minus N / ignoring the end of W6 / at Done now before W7, the planned-start label missing, the release scope drawn in the Cycle 1 view, the dotted marker
@@ -925,6 +925,7 @@ OTHER_JS = r"""(async () => {
   await document.fonts.ready; updateCore();
   const m = document.querySelector('main').cloneNode(true);
   ['#filters', '#f-live', '#burnup', '#bu-sub', '#bu-plain', '#bu-w6', '#bu-cap', '#bu-data', '#bu-legend', '#cycles', '#cy-body', '#cy-kpis1', '#cy-kpis2', '#cy-pods', '#cy-after', '#cy-sub', '#cy-cap', '#cy-notes', '#cy-banner', '#cy-podlist', '#cy-pods-h'].forEach(s => m.querySelectorAll(s).forEach(n => n.remove()));
+  [...m.querySelectorAll('#kpis .kpi')].filter(k => /^(Epics Delivered|Forecast Epics)$/.test(k.querySelector('.l').textContent.trim())).forEach(n => n.remove());      // the two epic-delivery tiles follow the filter (tile_oracle.py); the three others must not
   return m.innerHTML;
 })()"""
 
@@ -980,7 +981,7 @@ def _(t: T):
     t.check([c["text"] for c in f["chips"]] == ["Cycle 1", "Cycle 2"] and all(c["on"] and not c["off"] for c in f["chips"]), f"two chips, both ticked by default: {f['chips']}")
     t.check(f["noCommit"] and "Commitment Type" not in f["barText"], f"no Commitment Type control, text or state in the header: {f['barText'][:200]!r}")
     t.check(f["groups"].index("g-dc") == f["groups"].index("teamsel") + 1 and f["hideable"], f"the group sits where Commitment Type was, after Teams, and hides on narrow screens: {f['groups']}")
-    t.check(f["note"] == "Delivery chart and Cycles only" and not f["changed"] and f["reset"] == "Reset Filters", f"the note names the sections that follow it, nothing is marked changed: {f['note']!r}")
+    t.check(f["note"] == "Delivery chart, Cycles and 2 tiles only" and not f["changed"] and f["reset"] == "Reset Filters", f"the note names the sections that follow it, nothing is marked changed: {f['note']!r}")
     t.check(not ch.console_errors(), f"no console errors: {ch.console_errors()[:2]}")
 
 
