@@ -418,6 +418,18 @@ def test_no_tile_tooltip_claims_the_burnup_always_equals_a_headline_number():
     assert "The burnup under Epics Delivered counts the same" not in TEMPLATE and "Epics Delivered and the burnup count" not in TEMPLATE
 
 
+def test_the_two_delivery_tiles_follow_the_delivery_cycle_filter_and_the_others_do_not():
+    """Epics Delivered and Forecast Epics read the filter in one place (deliveryTiles); EDCT Days, Epics by AI and Open Bugs are built in renderStatus, which never reads it."""
+    assert "function deliveryTiles(" in TEMPLATE and "...deliveryTiles(rel, TB, tDone, paceLine)," in TEMPLATE
+    for text in ("planned by the end of W6", "changes only the target", "the release scope is not part of this view", "no epics planned by the end of W6", "starts ${a}", "W1 to W6"):
+        assert text in TEMPLATE, text
+    helper = TEMPLATE.split("function deliveryTiles(", 1)[1].split("function renderStatus() {", 1)[0]
+    assert "dcState(" in helper and "dcDomain(" in helper and "w6Model(" in helper and "CY_URL_MAX" in helper        # the burnup's own helpers and the link budget
+    status = TEMPLATE.split("function renderStatus() {", 1)[1].split("// Plain facts shown under the headline numbers", 1)[0]
+    assert "dcState" not in status and "state.dc" not in status and "dcWord" not in status
+    assert "Delivery chart, Cycles and 2 tiles" in TEMPLATE and "Delivery chart and Cycles only" not in TEMPLATE and "Delivery chart and Cycles:" not in TEMPLATE
+
+
 def test_the_cycles_section_says_how_the_filter_changes_it():
     cy = BLOCKS["cy"]
     assert "The Delivery Cycle filter in the filter bar decides which cycles the selector offers" in cy
