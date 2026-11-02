@@ -399,13 +399,18 @@ def test_the_commitment_type_filter_is_gone_from_the_page():
     for stale in ("f-commit", "g-commit", "state.commit", "anyCommit", "DEFAULT_COMMIT", "Commitment Type filter", "Commitment Type checkbox", "Commitment Type, Projects", "selected commitment", "(Selected Types)",
                   "commitment type must stay selected", "Commitment Types selected", "commitment filter", "Stretch unticked", "No commitment type is selected"):
         assert stale not in TEMPLATE, stale
-    assert 'id="g-dc"' in TEMPLATE and 'id="f-dc"' in TEMPLATE and 'h.set("dc"' in TEMPLATE and "At least one delivery cycle must stay selected" in TEMPLATE
+    assert 'id="g-dc"' in TEMPLATE and 'id="f-dc"' in TEMPLATE and 'h.set("dc"' in TEMPLATE
+    # the control is a choice of one (a radio group), never two checkboxes that toggle: the checkbox chips made a click on Cycle 1 show Cycle 2
+    assert 'role="radiogroup" aria-labelledby="lbl-dc"' in TEMPLATE and 'type="radio" name="f-dc"' in TEMPLATE and 'type="checkbox" value="${id}"' not in TEMPLATE
+    assert "At least one delivery cycle must stay selected" not in TEMPLATE and 'DC_OPTS = [["both", "Both cycles"], ["1", "Cycle 1"], ["2", "Cycle 2"]]' in TEMPLATE
+    assert 'state.dc = new Set(e.target.value === "both" ? DC_IDS : [e.target.value])' in TEMPLATE            # one click selects exactly the option it names
+    assert 'id="f-dc-status"' in TEMPLATE and "Showing ${d.all && d.has2 ? \"both cycles\" : `Cycle ${shown[0]}`}: W${lo} to W${hi}" in TEMPLATE
 
 
 def test_the_burnup_says_the_filter_is_a_time_window_of_the_whole_release():
     bu = BLOCKS["bu"]
     assert "Delivery Cycle filter" in bu and "W1 to the end of W6" in bu and "W7 to the release end" in bu
-    assert "the filter chooses weeks, not epics" in bu and "The numbers are the whole release's" in bu       # one cycle ticked cuts the whole-release chart to a window
+    assert "the filter chooses weeks, not epics" in bu and "The numbers are the whole release's" in bu       # one cycle selected cuts the whole-release chart to a window
     assert "measured to the end of that window" in bu                                                         # "vs even pace" in a cycle view is a different definition from the whole-release view
     assert "Done stays cumulative since the release start" in bu and "planned start" in bu and "the end of W6" in bu
     assert "Delivery Cycle 1: no release scope is drawn" in bu and "end state of the window" in bu
@@ -432,7 +437,7 @@ def test_the_two_delivery_tiles_follow_the_delivery_cycle_filter_and_the_others_
 
 def test_the_cycles_section_says_how_the_filter_changes_it():
     cy = BLOCKS["cy"]
-    assert "With one cycle ticked it shows that cycle only and leaves those epics out" in cy
+    assert "With one cycle selected it shows that cycle only and leaves those epics out" in cy
     assert "the epics in no cycle (no planned date, or planned after the release end) stay listed in the After Release End line, the lists and the Epics with Flags" in cy
     assert "The Epics in Release column and the pod tiles that count the whole release do not follow the Delivery Cycle filter" in cy
 
@@ -453,7 +458,7 @@ def test_the_cycles_section_follows_the_header_filter_and_says_so():
         assert gone not in TEMPLATE and gone not in cy, gone
     assert 'id="cy-banner"' in TEMPLATE and 'id="cy-showing" role="status"' in TEMPLATE and 'id="cy-tofilter"' in TEMPLATE
     assert '"h-cycles": "#cy-banner"' in TEMPLATE                                           # a jump to the section lands on the banner
-    for said in ("The section has no filter of its own", "it follows the Release, Projects, Teams and Delivery Cycle filters", "With both cycles ticked (the default) it shows both combined",
+    for said in ("The section has no filter of its own", "it follows the Release, Projects, Teams and Delivery Cycle filters", "With Both cycles selected (the default) it shows both combined",
                  "planned in the selected Delivery Cycles", "the selected Delivery Cycles"):
         assert said in cy, said
     assert "Change it with the" in TEMPLATE and "Delivery Cycle filter</button> at the top of the page" in TEMPLATE

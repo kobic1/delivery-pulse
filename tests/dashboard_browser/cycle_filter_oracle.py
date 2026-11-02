@@ -8,7 +8,7 @@ or planned after the release end, is in neither cycle and counts only when every
   1. Burnup (several releases x Projects x Teams x Cycle 1 only / Cycle 2 only / both): the filter picks a TIME WINDOW of the whole-release chart, not epics. Scope, Done and Remaining of every row of
      the "Show data" table, the Delivery Cycle 1 fact line and its two columns, the title line that names the cycle, and the Jira links (scope, target today, the Done link, the day links, the Delivery
      Cycle 1 links) evaluated with jql_eval.py over the baked epics: each must find exactly the epics the recount counts, and the numbers are the same in the three views.
-  1b. The window, the lines and the labels: both ticked = day 0 to the release end, exactly the chart without the filter; Cycle 1 only = W1 to the end of W6 (day 0 to 41): no release scope, the dotted
+  1b. The window, the lines and the labels: Both cycles = day 0 to the release end, exactly the chart without the filter; Cycle 1 only = W1 to the end of W6 (day 0 to 41): no release scope, the dotted
      "Delivery Cycle 1 . N planned" marker at the end of the window, the even-pace line from 0 through it; Cycle 2 only = W7 to the release end (day 42 to the end): the even-pace line from its start
      (Done at the end of W6 once W6 has ended, N before: "planned start") to the release scope, the Done line only from W7. The week ticks, the last tick and the end marker, every day of the keyboard
      readout, the drawn lines read back from the SVG geometry, the plain-words line, the headline, the labels, the aria-label and the table days, for the as-of day before Delivery Cycle 1, inside it,
@@ -716,7 +716,7 @@ def _(t: T):
 
 @SUITE.test("burnup_with_both_cycles_is_the_chart_without_the_filter_and_a_click_redraws_it")
 def _(t: T):
-    """Both ticked: the whole release (day 0 to the end, W1 to W12, the dotted Delivery Cycle 1 marker, no plain line). Untick and tick again: the very same SVG, table and headline come back; a tooltip
+    """Both cycles: the whole release (day 0 to the end, W1 to W12, the dotted Delivery Cycle 1 marker, no plain line). Pick Cycle 2 and Both cycles again: the very same SVG, table and headline come back; a tooltip
     that is open when the filter changes is gone; the hash round trip for dc=1 and dc=2."""
     data, url, universe = payload("variant")
     ch = ctx.chrome
@@ -728,19 +728,19 @@ def _(t: T):
     ch.js("(async () => { await document.fonts.ready; updateCore(); })()")           # the burnup measures text with the page font: draw once the fonts are in, so the first draw and a later one agree
     time.sleep(0.2)
     before = ch.js(snap)
-    t.check(not before["plain"] and ">W12<" in before["svg"] and ">W13<" not in before["svg"] and "release end" in before["svg"], "both ticked: W1 to W12, no plain-words line")
+    t.check(not before["plain"] and ">W12<" in before["svg"] and ">W13<" not in before["svg"] and "release end" in before["svg"], "Both cycles: W1 to W12, no plain-words line")
     ch.js("document.getElementById('bu-link').dispatchEvent(new FocusEvent('focus'))")
     t.check(ch.js("getComputedStyle(document.getElementById('bu-tip')).display") == "block", "the focus opens the day readout")
-    ch.js("document.querySelector('#f-dc input[value=\"1\"]').click()")
+    ch.js("document.querySelector('#f-dc input[value=\"2\"]').click()")
     time.sleep(0.4)
     mid = ch.js(snap)
-    t.check(mid["plain"] and mid["svg"] != before["svg"] and "Delivery Cycle 2 only" in mid["svg"] and ">W1<" not in mid["svg"], "Cycle 1 unticked: the axis is Cycle 2's and the plain-words line appears")
+    t.check(mid["plain"] and mid["svg"] != before["svg"] and "Delivery Cycle 2 only" in mid["svg"] and ">W1<" not in mid["svg"], "Cycle 2 picked: the axis is Cycle 2's and the plain-words line appears")
     t.check(mid["tip"] in ("none", "gone") and mid["cross"] in ("none", "gone"), f"no stale tooltip or crosshair after the filter changed: {mid['tip']} {mid['cross']}")
     t.check("dc=2" in ch.js("location.hash") and ">W7<" in mid["svg"], "the address names dc=2 and the chart starts at W7")
-    ch.js("document.querySelector('#f-dc input[value=\"1\"]').click()")
+    ch.js("document.querySelector('#f-dc input[value=\"both\"]').click()")
     time.sleep(0.4)
     after = ch.js(snap)
-    t.check(not after["plain"] and after == before, "both ticked again: the SVG, the table, the headline and the fact line are exactly what they were")
+    t.check(not after["plain"] and after == before, "Both cycles picked again: the SVG, the table, the headline and the fact line are exactly what they were")
     for h, first, last in (("r=27.1&dc=1", ">W1<", ">W6 end<"), ("r=27.1&dc=2", ">W7<", ">W12 end<")):
         ch.goto(url + "#" + h)
         kit.wait_ready(ch)
@@ -873,20 +873,20 @@ def _(t: T):
     t.check(not probs, f"{len(probs)} problems")
 
 
-@SUITE.test("the_banner_follows_the_header_filter_when_a_cycle_is_toggled")
+@SUITE.test("the_banner_follows_the_header_filter_when_an_option_is_picked")
 def _(t: T):
     data, url, universe = payload("variant")
     ch = ctx.chrome
     ch.goto(url + "#r=27.1")
     kit.wait_ready(ch)
     ch.js("window.__mut = 0; new MutationObserver(m => { window.__mut += m.length; }).observe(document.getElementById('cy-showing'), {childList: true, characterData: true, subtree: true});")
-    for box, name, hashpart in (("1", "Delivery Cycle 2", "dc=2"), ("1", "Delivery Cycles 1 and 2 combined", ""), ("2", "Delivery Cycle 1", "dc=1"), ("2", "Delivery Cycles 1 and 2 combined", "")):
+    for box, name, hashpart in (("2", "Delivery Cycle 2", "dc=2"), ("both", "Delivery Cycles 1 and 2 combined", ""), ("1", "Delivery Cycle 1", "dc=1"), ("both", "Delivery Cycles 1 and 2 combined", "")):
         before = ch.js("window.__mut")
         ch.js(f"document.querySelector('#f-dc input[value=\"{box}\"]').click()")
         time.sleep(0.4)
         r = ch.js(SEC_JS)
-        t.check(r["banner"].startswith(f"Showing {name} \u00b7 ") and name.replace(" combined", "") in (r["plannedCap"] or ""), f"after toggling Cycle {box}: the banner and the Planned caption say {name}: {r['banner']!r} {r['plannedCap']!r}")
-        t.check(ch.js("window.__mut") > before, f"after toggling Cycle {box}: the banner text changed in place (a polite status is announced)")
+        t.check(r["banner"].startswith(f"Showing {name} \u00b7 ") and name.replace(" combined", "") in (r["plannedCap"] or ""), f"after picking {box}: the banner and the Planned caption say {name}: {r['banner']!r} {r['plannedCap']!r}")
+        t.check(ch.js("window.__mut") > before, f"after picking {box}: the banner text changed in place (a polite status is announced)")
         t.check((hashpart in r["hash"]) if hashpart else "dc=" not in r["hash"], f"the address follows the filter: {r['hash']}")
     t.check(not ch.console_errors(), f"console errors {ch.console_errors()[:2]}")
 
@@ -900,7 +900,7 @@ def _(t: T):
     kit.wait_ready(ch)
     ch.js("document.getElementById('cy-tofilter').click()")
     f = ch.js(focus)
-    t.check(f["inDc"] and f["type"] == "checkbox" and f["vis"], f"the pointer puts the focus on a Delivery Cycle checkbox: {f}")
+    t.check(f["inDc"] and f["type"] == "radio" and f["vis"], f"the pointer puts the focus on a Delivery Cycle option: {f}")
     try:
         ch.viewport(390, 900)                                                           # (the test page is a fragment with no viewport meta: a mobile emulation would lay it out at 980 px)
         ch.goto(url + "#r=27.1")
@@ -911,7 +911,7 @@ def _(t: T):
         t.check("collapsed" in before["bar"], f"the filter bar starts collapsed on a phone: {before}")
         ch.js("document.getElementById('cy-tofilter').click()")
         f = ch.js(focus)
-        t.check(f["inDc"] and f["vis"] and "collapsed" not in f["bar"] and f["exp"] == "true", f"on a phone the pointer opens the filters and focuses the Delivery Cycle checkbox: {f}")
+        t.check(f["inDc"] and f["vis"] and "collapsed" not in f["bar"] and f["exp"] == "true", f"on a phone the pointer opens the filters and focuses the Delivery Cycle option: {f}")
         m = ch.js("({sw: document.documentElement.scrollWidth, w: window.innerWidth})")
         t.check(m["sw"] <= m["w"] + 1, f"390 px: the page scrolls sideways {m}")
         r = ch.js("(() => { const b = document.getElementById('cy-banner').getBoundingClientRect(); return {l: b.left, r: b.right, w: window.innerWidth}; })()")
@@ -950,17 +950,34 @@ def _(t: T):
 
 
 # --------------------------------------------------------------------------------------------- 3: the header control
-JS_FILTERS = r"""(() => ({
+JS_FILTERS = r"""(() => { const opts = [...document.querySelectorAll('#f-dc label')].map(l => { const i = l.querySelector('input'); return {text: l.textContent.trim(), value: i.value, type: i.type, on: i.checked, off: i.disabled, cls: l.className, title: l.title, tab: i.tabIndex}; }); return {
   groups: [...document.querySelectorAll('#filterbar .fg, #filterbar .periodbar')].map(g => g.id),
   barText: document.getElementById('filters').textContent.replace(/\s+/g, ' '),
   dcLabel: document.getElementById('lbl-dc') ? document.getElementById('lbl-dc').textContent : null,
-  chips: [...document.querySelectorAll('#f-dc label')].map(l => ({text: l.textContent.trim(), on: l.querySelector('input').checked, off: l.querySelector('input').disabled, cls: l.className})),
+  role: document.getElementById('f-dc').getAttribute('role'), labelledby: document.getElementById('f-dc').getAttribute('aria-labelledby'), describedby: document.getElementById('f-dc').getAttribute('aria-describedby'),
+  opts, sel: opts.filter(o => o.on).map(o => o.value),
   hideable: document.getElementById('g-dc') ? document.getElementById('g-dc').classList.contains('hideable') : null,
   changed: document.getElementById('g-dc') ? document.getElementById('g-dc').classList.contains('changed') : null,
+  status: document.getElementById('f-dc-status') ? document.getElementById('f-dc-status').textContent : null,
   note: document.getElementById('f-dc-note') ? document.getElementById('f-dc-note').textContent : null,
   reset: document.getElementById('f-reset').textContent, live: document.getElementById('f-live').textContent, hash: location.hash, dc: [...state.dc],
   noCommit: !document.getElementById('f-commit') && !document.getElementById('g-commit') && typeof state.commit === 'undefined'
-}))()"""
+}; })()"""
+OPTS = ["both", "1", "2"]
+LABELS = {"both": "Both cycles", "1": "Cycle 1", "2": "Cycle 2"}
+DC_OF = {"both": ["1", "2"], "1": ["1"], "2": ["2"]}
+HASH_OF = {"both": "", "1": "&dc=1", "2": "&dc=2"}
+
+
+def want_status(window: list, choice: str) -> str:
+    """The line under the control, spelled again from the release window: Cycle 1 is W1 to W6 (shorter when the release ends first), Cycle 2 is W7 to the last delivery week (the frame 'Week n of N' counts in)."""
+    weeks = round(((day(window[1]) - day(window[0])).days - 7) / 7)
+    two = (day(window[1]) - day(window[0])).days > 48
+    if choice == "both" and two:
+        return f"Showing both cycles: W1 to W{weeks}"
+    if choice == "2":
+        return f"Showing Cycle 2: W7 to W{weeks}"
+    return f"Showing Cycle 1: W1 to W{min(6, weeks)}"
 
 
 def space_on(ch, selector: str):
@@ -968,6 +985,115 @@ def space_on(ch, selector: str):
     for ty in ("keyDown", "keyUp"):
         ch.cmd("Input.dispatchKeyEvent", type=ty, key=" ", code="Space", windowsVirtualKeyCode=32, **({"text": " "} if ty == "keyDown" else {}))
     time.sleep(0.3)
+
+
+def arrow_on(ch, selector: str, key: str):
+    ch.js(f"document.querySelector({json.dumps(selector)}).focus()")
+    code = {"ArrowRight": 39, "ArrowLeft": 37, "ArrowDown": 40, "ArrowUp": 38}[key]
+    for ty in ("keyDown", "keyUp"):
+        ch.cmd("Input.dispatchKeyEvent", type=ty, key=key, code=key, windowsVirtualKeyCode=code)
+    time.sleep(0.35)
+
+
+def pick(ch, v: str):
+    ch.js(f"document.querySelector('#f-dc input[value=\"{v}\"]').click()")
+    time.sleep(0.35)
+
+
+def header_probs(ch, url: str, short_url: str, data: dict, short_data: dict, full: bool = True) -> list[str]:
+    """The header control, end to end: what it is, what its default is, and that ONE click on any option selects exactly that option from any starting state (the failure of the earlier checkbox chips:
+    a click on 'Cycle 1' unticked it and showed Cycle 2). Used by the test and by the seeded-defect self-test, which must see every defect here."""
+    p: list[str] = []
+    win = data["windows"]["27.1"]
+    ch.goto(url + "#r=27.1")
+    kit.wait_ready(ch)
+    f = ch.js(JS_FILTERS)
+    if f["role"] != "radiogroup" or any(o["type"] != "radio" for o in f["opts"]):
+        p.append(f"the control is not a radio group: role {f['role']!r}, inputs {[o['type'] for o in f['opts']]}")
+    if [o["text"] for o in f["opts"]] != [LABELS[v] for v in OPTS]:
+        p.append(f"the options are {[o['text'] for o in f['opts']]}, expected Both cycles, Cycle 1, Cycle 2 in that order")
+    if f["sel"] != ["both"] or f["dc"] != ["1", "2"] or "dc=" in f["hash"]:
+        p.append(f"the default is not Both cycles: selected {f['sel']}, state {f['dc']}, address {f['hash']}")
+    if f["status"] != want_status(win, "both"):
+        p.append(f"the default status line says {f['status']!r}, expected {want_status(win, 'both')!r}")
+    if any(o["off"] for o in f["opts"]):
+        p.append(f"an option is disabled on a release with two cycles: {f['opts']}")
+    if f["changed"] or f["reset"] != "Reset Filters":
+        p.append(f"the default state is marked as a changed filter: {f['changed']} {f['reset']!r}")
+    # the failure that was reported: from the default, ONE click on Cycle 1 must show Cycle 1 and nothing else
+    pick(ch, "1")
+    f = ch.js(JS_FILTERS)
+    if f["sel"] != ["1"] or f["dc"] != ["1"] or "dc=1" not in f["hash"]:
+        p.append(f"from the default, one click on Cycle 1 gives selected {f['sel']}, state {f['dc']}, address {f['hash']}: it must show Cycle 1 and nothing else")
+    r = ch.js(SEC_JS)
+    if not (r["banner"] or "").startswith("Showing Delivery Cycle 1 · "):
+        p.append(f"from the default, one click on Cycle 1: the Cycles banner says {r['banner']!r}")
+    # every option from every starting state: one click selects exactly that option
+    for start in OPTS:
+        for to in OPTS:
+            pick(ch, start)
+            if ch.js(JS_FILTERS)["sel"] != [start]:
+                p.append(f"could not select {LABELS[start]} as the starting state")
+                continue
+            pick(ch, to)
+            f = ch.js(JS_FILTERS)
+            tag = f"{LABELS[start]} then one click on {LABELS[to]}"
+            if f["sel"] != [to]:
+                p.append(f"{tag}: selected {f['sel']}, expected only {to}")
+            if sorted(f["dc"]) != DC_OF[to]:
+                p.append(f"{tag}: the page state is {f['dc']}, expected {DC_OF[to]}")
+            if ("dc=" in f["hash"]) != (to != "both") or (to != "both" and f"dc={to}" not in f["hash"]):
+                p.append(f"{tag}: the address is {f['hash']}")
+            if f["status"] != want_status(win, to):
+                p.append(f"{tag}: the status line says {f['status']!r}, expected {want_status(win, to)!r}")
+            if (f["note"] or "") != ("" if to == "both" else "Delivery chart, Cycles and 2 tiles only"):
+                p.append(f"{tag}: the scope note says {f['note']!r}")
+            if f["changed"] != (to != "both") or f["reset"] != ("Reset Filters" if to == "both" else "Reset Filters (1)"):
+                p.append(f"{tag}: the changed-filter marker is {f['changed']} and the button says {f['reset']!r}")
+            if not full and (start, to) not in (("both", "2"), ("2", "both"), ("1", "1")):
+                continue
+            r = ch.js(PROBE)
+            want_banner = {"both": "Showing Delivery Cycles 1 and 2 combined · ", "1": "Showing Delivery Cycle 1 · ", "2": "Showing Delivery Cycle 2 · "}[to]
+            if not (r["banner"] or "").startswith(want_banner):
+                p.append(f"{tag}: the Cycles banner says {r['banner']!r}")
+            only = f"Delivery Cycle {to} only"
+            if (to != "both") != (only in (r["svgText"] or "")) or (to == "both" and "only" in (r["svgAria"] or "").split("Delivery Cycle")[-1][:14]):
+                p.append(f"{tag}: the burnup does not follow ({r['svgAria']!r})")
+            kick = ch.js("(document.querySelector('#kpis .kpi .k') || {textContent: ''}).textContent.replace(/\\s+/g, ' ').trim()")
+            if kick != ("Release 27.1" if to == "both" else f"Release 27.1 · Delivery Cycle {to}"):
+                p.append(f"{tag}: the Epics Delivered tile kicker says {kick!r}")
+    # a cycle that is already selected: a second click changes nothing
+    pick(ch, "2")
+    pick(ch, "2")
+    f = ch.js(JS_FILTERS)
+    if f["sel"] != ["2"] or f["dc"] != ["2"]:
+        p.append(f"a second click on the selected Cycle 2 changed the state: {f['sel']} {f['dc']}")
+    # older links (dc=1, dc=2) open the matching option; the address after loading is the same
+    for h, want in (("r=27.1&dc=1", "1"), ("r=27.1&dc=2", "2"), ("r=27.1&dc=1%7C2", "both"), ("r=27.1&dc=3", "both"), ("r=27.1&dc=", "both")):
+        ch.goto(url + "#" + h)
+        kit.wait_ready(ch)
+        f = ch.js(JS_FILTERS)
+        if f["sel"] != [want] or f["status"] != want_status(win, want) or (("dc=" in f["hash"]) != (want != "both")):
+            p.append(f"#{h}: selected {f['sel']} (expected {want}), status {f['status']!r}, address {f['hash']}")
+    # a release with one cycle: Both cycles and Cycle 2 are disabled with the reason, Cycle 1 is selected, a click on a disabled option does nothing
+    ch.goto(short_url + "#r=26.4")
+    kit.wait_ready(ch)
+    f = ch.js(JS_FILTERS)
+    swin = short_data["windows"]["26.4"]
+    if [o["off"] for o in f["opts"]] != [True, False, True] or f["sel"] != ["1"]:
+        p.append(f"a release with one cycle: disabled {[o['off'] for o in f['opts']]}, selected {f['sel']}; expected Both cycles and Cycle 2 disabled, Cycle 1 selected")
+    if f["status"] != want_status(swin, "both") or "No Cycle 2" not in (f["note"] or ""):
+        p.append(f"a release with one cycle: status {f['status']!r} note {f['note']!r}")
+    if not all(o["title"].startswith("26.4 ends by the end of W6") for o in f["opts"] if o["off"]):
+        p.append(f"a disabled option does not say why: {[o['title'] for o in f['opts']]}")
+    if f["changed"]:
+        p.append("a release with one cycle marks the Delivery Cycle group as a changed filter")
+    ch.js("document.querySelector('#f-dc input[value=\"2\"]').click(); document.querySelector('#f-dc input[value=\"both\"]').click();")
+    time.sleep(0.3)
+    f = ch.js(JS_FILTERS)
+    if f["sel"] != ["1"] or f["dc"] != ["1", "2"] or "dc=" in f["hash"]:
+        p.append(f"a click on a disabled option changed something: selected {f['sel']}, state {f['dc']}, address {f['hash']}")
+    return p
 
 
 @SUITE.test("header_has_the_delivery_cycle_filter_and_no_commitment_type_filter")
@@ -978,45 +1104,85 @@ def _(t: T):
     kit.wait_ready(ch)
     f = ch.js(JS_FILTERS)
     t.check(f["dcLabel"] == "Delivery Cycle", f"the group is labelled Delivery Cycle: {f['dcLabel']!r}")
-    t.check([c["text"] for c in f["chips"]] == ["Cycle 1", "Cycle 2"] and all(c["on"] and not c["off"] for c in f["chips"]), f"two chips, both ticked by default: {f['chips']}")
+    t.check(f["role"] == "radiogroup" and f["labelledby"] == "lbl-dc" and "f-dc-status" in f["describedby"] and "f-dc-note" in f["describedby"], f"a radio group named by its label and described by the status line and the note: {f['role']} {f['labelledby']} {f['describedby']}")
+    t.check([(o["text"], o["value"], o["type"]) for o in f["opts"]] == [("Both cycles", "both", "radio"), ("Cycle 1", "1", "radio"), ("Cycle 2", "2", "radio")] and f["sel"] == ["both"] and not any(o["off"] for o in f["opts"]), f"three options in the order Both cycles, Cycle 1, Cycle 2; Both cycles selected by default: {f['opts']}")
     t.check(f["noCommit"] and "Commitment Type" not in f["barText"], f"no Commitment Type control, text or state in the header: {f['barText'][:200]!r}")
     t.check(f["groups"].index("g-dc") == f["groups"].index("teamsel") + 1 and f["hideable"], f"the group sits where Commitment Type was, after Teams, and hides on narrow screens: {f['groups']}")
-    t.check(f["note"] == "Delivery chart, Cycles and 2 tiles only" and not f["changed"] and f["reset"] == "Reset Filters", f"the note names the sections that follow it, nothing is marked changed: {f['note']!r}")
+    t.check(f["status"] == "Showing both cycles: W1 to W12" and f["note"] == "" and not f["changed"] and f["reset"] == "Reset Filters", f"the status line says what is shown; with both cycles nothing is narrowed, so there is no scope note; nothing is marked changed: {f['status']!r} {f['note']!r}")
+    sib = ch.js("(() => { const g = id => [...document.querySelectorAll('#' + id + ' label')].map(l => l.className.includes('chip')); const bg = id => { const l = document.querySelector('#' + id + ' label.on'); return l ? getComputedStyle(l).backgroundColor : null; }; return {dc: bg('f-dc'), ax: bg('f-ax'), gran: bg('f-gran'), proj: getComputedStyle(document.querySelector('#f-projects .chip.on')).backgroundColor, chips: g('f-dc')}; })()")
+    t.check(all(sib["chips"]) and sib["dc"] == sib["gran"] == sib["proj"] and sib["dc"] not in (None, "rgb(255, 255, 255)"), f"the selected option is filled like the selected option of the other segmented controls: {sib}")
     t.check(not ch.console_errors(), f"no console errors: {ch.console_errors()[:2]}")
 
 
-@SUITE.test("header_hash_round_trip_last_cycle_stays_and_an_old_c_link_is_ignored")
+@SUITE.test("header_one_click_selects_exactly_that_option_from_every_state")
+def _(t: T):
+    """The reported failure: with the two checkbox chips, a click on 'Cycle 1' UNTICKED it and the page showed Cycle 2 only. The control is a choice of one now: from every starting state one click on
+    an option selects exactly that option (state, address, status line, changed marker, Cycles banner, burnup, tile kicker), a second click on it changes nothing, an older dc= link opens the matching option,
+    and on a release with one cycle the options it cannot offer are disabled with their reason."""
+    data, url, universe = payload("variant")
+    sdata, surl, _su = payload("short")
+    probs = header_probs(ctx.chrome, url, surl, data, sdata)
+    for x in probs[:10]:
+        t.check(False, x)
+    t.check(not probs, f"{len(probs)} problems")
+    t.check(not ctx.chrome.console_errors(), f"console errors {ctx.chrome.console_errors()[:2]}")
+
+
+@SUITE.test("header_status_line_per_state_and_the_announcement")
 def _(t: T):
     data, url, universe = payload("variant")
     ch = ctx.chrome
-    for h, want_dc, want_on in (("r=27.1&dc=1", [1], [True, False]), ("r=27.1&dc=2", [2], [False, True]), ("r=27.1&dc=1%7C2", [1, 2], [True, True]), ("r=27.1&dc=3", [1, 2], [True, True]), ("r=27.1&dc=", [1, 2], [True, True])):
+    win = data["windows"]["27.1"]
+    ch.goto(url + "#r=27.1")
+    kit.wait_ready(ch)
+    for v, say in (("1", "Showing Delivery Cycle 1 only"), ("2", "Showing Delivery Cycle 2 only"), ("both", "Showing every delivery cycle")):
+        pick(ch, v)
+        f = ch.js(JS_FILTERS)
+        t.check(f["status"] == want_status(win, v), f"{LABELS[v]}: the status line says {f['status']!r}, expected {want_status(win, v)!r}")
+        t.check(f["live"].startswith(say), f"{LABELS[v]}: a polite announcement for a screen reader: {f['live']!r}")
+        t.check(ch.js("getComputedStyle(document.getElementById('f-dc-status')).display") != "none", f"{LABELS[v]}: the status line is visible")
+        t.check((f["note"] or "") == ("" if v == "both" else "Delivery chart, Cycles and 2 tiles only"), f"{LABELS[v]}: the scope note (what one cycle changes) shows while a single cycle is selected: {f['note']!r}")
+        t.check(ch.js("getComputedStyle(document.getElementById('f-dc-note')).display === 'none'") == (v == "both"), f"{LABELS[v]}: the empty note takes no room")
+    # the status line is what the page shows, so it follows a release change too (this fixture's 27.2 has the same 12 weeks)
+    ch.js("(() => { const s = document.getElementById('f-release'); s.value = '27.2'; s.dispatchEvent(new Event('change', {bubbles: true})); })()")
+    time.sleep(0.4)
+    pick(ch, "2")
+    f = ch.js(JS_FILTERS)
+    t.check(f["status"] == want_status(data["windows"]["27.2"], "2"), f"27.2, Cycle 2: {f['status']!r}")
+
+
+@SUITE.test("header_hash_round_trip_and_an_old_c_link_is_ignored")
+def _(t: T):
+    data, url, universe = payload("variant")
+    ch = ctx.chrome
+    for h, want in (("r=27.1&dc=1", "1"), ("r=27.1&dc=2", "2"), ("r=27.1&dc=1%7C2", "both"), ("r=27.1&dc=3", "both"), ("r=27.1&dc=", "both")):
         ch.goto(url + "#" + h)
         kit.wait_ready(ch)
         f = ch.js(JS_FILTERS)
-        t.check(sorted(int(x) for x in f["dc"]) == want_dc and [c["on"] for c in f["chips"]] == want_on, f"#{h}: state {f['dc']}, chips {[c['on'] for c in f['chips']]}")
-        t.check(("dc=" in f["hash"]) == (want_dc != [1, 2]) or want_dc == [1, 2] and "dc=" not in f["hash"], f"#{h}: the address after loading is {f['hash']}")
-    # clicks: untick Cycle 1 -> dc=2 in the address; the last one cannot go; tick Cycle 1 again -> no dc
+        t.check(f["sel"] == [want] and sorted(f["dc"]) == DC_OF[want], f"#{h}: option {f['sel']}, state {f['dc']}")
+        t.check(("dc=" in f["hash"]) == (want != "both") and (want == "both" or f"dc={want}" in f["hash"]), f"#{h}: the address after loading is {f['hash']}")
+    # clicks write the address: Cycle 1 -> dc=1, Cycle 2 -> dc=2, Both cycles -> no dc; the address opens the same option again
     ch.goto(url + "#r=27.1")
     kit.wait_ready(ch)
-    ch.js("document.querySelector('#f-dc input[value=\"1\"]').click()")
-    time.sleep(0.3)
-    f = ch.js(JS_FILTERS)
-    t.check(f["dc"] == ["2"] and "dc=2" in f["hash"] and f["changed"] and f["reset"] == "Reset Filters (1)" and "Cycle 2 only" in f["note"], f"Cycle 1 unticked: {f['dc']} {f['hash']} {f['reset']} {f['note']!r}")
-    ch.js("document.querySelector('#f-dc input[value=\"2\"]').click()")
-    time.sleep(0.5)
-    f = ch.js(JS_FILTERS)
-    t.check(f["dc"] == ["2"] and [c["on"] for c in f["chips"]] == [False, True] and "At least one delivery cycle must stay selected" in f["live"], f"the last cycle cannot be unticked: {f['dc']} {[c['on'] for c in f['chips']]} {f['live']!r}")
-    ch.js("document.querySelector('#f-dc input[value=\"1\"]').click()")
-    time.sleep(0.3)
-    f = ch.js(JS_FILTERS)
-    t.check(sorted(f["dc"]) == ["1", "2"] and "dc=" not in f["hash"] and f["reset"] == "Reset Filters", f"both ticked again: no dc in the address: {f['hash']} {f['reset']}")
-    # Reset Filters clears it
-    ch.js("document.querySelector('#f-dc input[value=\"2\"]').click()")
-    time.sleep(0.3)
+    for v in ("1", "2", "both"):
+        pick(ch, v)
+        f = ch.js(JS_FILTERS)
+        t.check(f["sel"] == [v] and (("dc=" + v) in f["hash"] if v != "both" else "dc=" not in f["hash"]), f"{LABELS[v]} picked: the address is {f['hash']}")
+        if v != "both":
+            h = f["hash"].lstrip("#")
+            ch.goto(url + "#" + h)
+            kit.wait_ready(ch)
+            t.check(ch.js(JS_FILTERS)["sel"] == [v], f"{LABELS[v]}: the address {h} opens the same option again")
+            ch.goto(url + "#r=27.1")
+            kit.wait_ready(ch)
+            pick(ch, v)
+    # Reset Filters brings Both cycles back
+    pick(ch, "2")
+    t.check(ch.js(JS_FILTERS)["reset"] == "Reset Filters (1)", "Cycle 2 counts as one applied filter")
     ch.js("document.getElementById('f-reset').click()")
     time.sleep(0.4)
     f = ch.js(JS_FILTERS)
-    t.check(sorted(f["dc"]) == ["1", "2"] and "dc=" not in f["hash"], f"Reset Filters ticks both cycles: {f['dc']} {f['hash']}")
+    t.check(f["sel"] == ["both"] and sorted(f["dc"]) == ["1", "2"] and "dc=" not in f["hash"] and not f["changed"] and f["status"] == "Showing both cycles: W1 to W12", f"Reset Filters selects Both cycles again: {f['sel']} {f['hash']} {f['status']!r}")
     # an older link with the removed filter: ignored, no error, the same page as the plain release
     ch.goto(url + "#r=27.1")
     kit.wait_ready(ch)
@@ -1031,75 +1197,105 @@ def _(t: T):
 
 @SUITE.test("header_keyboard_operation")
 def _(t: T):
+    """A radio group like Accessibility Bugs and Group CFB By: one Tab stop (the selected option), the arrow keys move AND select (wrapping), Space selects the focused option, the focus stays in the group."""
     data, url, universe = payload("variant")
     ch = ctx.chrome
     ch.goto(url + "#r=27.1")
     kit.wait_ready(ch)
-    space_on(ch, '#f-dc input[value="2"]')
     f = ch.js(JS_FILTERS)
-    t.check(f["dc"] == ["1"] and "dc=1" in f["hash"], f"Space on the Cycle 2 checkbox unticks it: {f['dc']} {f['hash']}")
-    t.check(ch.js("document.activeElement && document.activeElement.closest('#f-dc') !== null"), "the focus stays in the Delivery Cycle group after the change")
+    t.check(len([o for o in f["opts"] if o["tab"] >= 0]) >= 1 and ch.js("[...document.querySelectorAll('#f-dc input')].every(i => i.tabIndex >= 0)"), "the options are in the tab order (the browser's radio group makes the selected one the single Tab stop)")
+    arrow_on(ch, '#f-dc input[value="both"]', "ArrowRight")
+    f = ch.js(JS_FILTERS)
+    t.check(f["sel"] == ["1"] and f["dc"] == ["1"] and "dc=1" in f["hash"], f"ArrowRight from Both cycles selects Cycle 1: {f['sel']} {f['hash']}")
+    t.check(ch.js("document.activeElement && document.activeElement.closest('#f-dc') !== null && document.activeElement.value") == "1", "the focus moves with the selection and stays in the Delivery Cycle group")
+    arrow_on(ch, '#f-dc input[value="1"]', "ArrowDown")
+    t.check(ch.js(JS_FILTERS)["sel"] == ["2"], "ArrowDown selects the next option, Cycle 2")
+    arrow_on(ch, '#f-dc input[value="2"]', "ArrowRight")
+    t.check(ch.js(JS_FILTERS)["sel"] == ["both"], "ArrowRight on the last option wraps to Both cycles")
+    arrow_on(ch, '#f-dc input[value="both"]', "ArrowLeft")
+    t.check(ch.js(JS_FILTERS)["sel"] == ["2"], "ArrowLeft on the first option wraps to Cycle 2")
     space_on(ch, '#f-dc input[value="1"]')
     f = ch.js(JS_FILTERS)
-    t.check(f["dc"] == ["1"] and "At least one delivery cycle must stay selected" in f["live"], f"Space on the last ticked cycle changes nothing and says so: {f['dc']} {f['live']!r}")
-    t.check(bool(ch.js("[...document.querySelectorAll('#f-dc input')].every(i => i.tabIndex >= 0)")), "both checkboxes are in the tab order")
-    t.check(bool(ch.js("getComputedStyle(document.querySelector('#f-dc input').parentElement).outlineStyle !== undefined")), "the chip is a label around a native checkbox (the shared chip pattern)")
+    t.check(f["sel"] == ["1"] and f["dc"] == ["1"], f"Space on Cycle 1 selects it: {f['sel']}")
+    space_on(ch, '#f-dc input[value="1"]')
+    t.check(ch.js(JS_FILTERS)["sel"] == ["1"], "Space on the selected option keeps it selected (never a toggle)")
+    vis = ch.js("(() => { const l = document.querySelector('#f-dc input[value=\"2\"]').parentElement; l.querySelector('input').focus(); return getComputedStyle(l).outlineStyle; })()")
+    t.check(bool(ch.js("CSS.supports('selector(:has(*))')")), "the browser can draw the focus ring on the label (:has)")
+    t.check(bool(ch.js("[...document.styleSheets].some(s => [...s.cssRules].some(r => r.selectorText && r.selectorText.includes('.chip:has(input:focus-visible)')))")), f"the chip draws a focus ring when its radio has the keyboard focus (outline {vis})")
+    # a release with one cycle: the arrow keys skip the disabled options
+    sdata, surl, _su = payload("short")
+    ch.goto(surl + "#r=26.4")
+    kit.wait_ready(ch)
+    arrow_on(ch, '#f-dc input[value="1"]', "ArrowRight")
+    f = ch.js(JS_FILTERS)
+    t.check(f["sel"] == ["1"] and f["dc"] == ["1", "2"], f"on a release with one cycle the arrow keys stay on Cycle 1: {f['sel']} {f['dc']}")
+    t.check(not ch.console_errors(), f"console errors {ch.console_errors()[:2]}")
 
 
-@SUITE.test("header_no_sideways_scroll_at_320_and_800_px")
+@SUITE.test("header_target_size_and_no_sideways_scroll_at_320_390_800_1100_1400_px")
 def _(t: T):
     data, url, universe = payload("variant")
     ch = ctx.chrome
     try:
-        for w in (320, 800, 1400):
+        for w in (320, 390, 800, 1100, 1400):
             for h in ("r=27.1", "r=27.1&dc=2"):
-                ch.viewport(w, 900, mobile=w < 700)
+                ch.viewport(w, 900)                                                 # (not a mobile emulation: the test page is a fragment with no viewport meta, which a mobile emulation would lay out at 980 px)
                 ch.goto(url + "#" + h)
+                kit.wait_ready(ch)
+                ch.js("location.reload()")                                          # the filter bar decides at load whether it starts collapsed
+                time.sleep(0.4)
                 kit.wait_ready(ch)
                 ch.js("(() => { const b = document.getElementById('f-toggle'); if (b && getComputedStyle(b).display !== 'none' && b.getAttribute('aria-expanded') === 'false') b.click(); })()")
                 time.sleep(0.2)
-                m = ch.js("(() => { const g = document.getElementById('g-dc').getBoundingClientRect(); return {sw: document.documentElement.scrollWidth, w: window.innerWidth, right: Math.round(g.right), left: Math.round(g.left), vis: g.width > 0, bw: document.body.scrollWidth}; })()")
+                m = ch.js("""(() => { const r = x => x.getBoundingClientRect(), g = r(document.getElementById('g-dc')), f = r(document.getElementById('f-dc')), ls = [...document.querySelectorAll('#f-dc label')].map(r);
+                  return {sw: document.documentElement.scrollWidth, w: window.innerWidth, right: Math.round(g.right), left: Math.round(g.left), vis: g.width > 0, bw: document.body.scrollWidth, minH: Math.round(Math.min(...ls.map(x => x.height))), minW: Math.round(Math.min(...ls.map(x => x.width))),
+                    inside: ls.every(x => x.left >= f.left - 1 && x.right <= f.right + 1), tops: new Set(ls.map(x => Math.round(x.top))).size, clipped: [...document.querySelectorAll('#f-dc label')].some(l => l.scrollWidth > l.clientWidth + 1)}; })()""")
                 t.check(m["sw"] <= m["w"] + 1 and m["bw"] <= m["w"] + 1, f"{w} px #{h}: the page scrolls sideways ({m})")
                 t.check(m["vis"] and m["right"] <= m["w"] + 1 and m["left"] >= -1, f"{w} px #{h}: the Delivery Cycle group leaves the viewport ({m})")
+                t.check(m["minH"] >= (44 if w <= 760 else 32) and m["minW"] >= 44 and not m["clipped"], f"{w} px #{h}: every option is at least {44 if w <= 760 else 32} px tall and 44 px wide and none is clipped ({m})")
+                if w >= 390:
+                    t.check(m["tops"] == 1, f"{w} px #{h}: the three options sit in one row ({m})")
                 t.check(not ch.console_errors(), f"{w} px: console errors {ch.console_errors()[:2]}")
     finally:
         ch.viewport(1400, 900)
 
 
-@SUITE.test("a_release_with_only_cycle_1_disables_cycle_2_and_falls_back")
+@SUITE.test("a_release_with_only_cycle_1_disables_both_and_cycle_2_and_falls_back")
 def _(t: T):
     data, url, universe = payload("short")
     ch = ctx.chrome
     ch.goto(url + "#r=26.4")
     kit.wait_ready(ch)
     f = ch.js(JS_FILTERS)
-    t.check([c["off"] for c in f["chips"]] == [False, True] and [c["on"] for c in f["chips"]] == [True, False], f"Cycle 2 is disabled and not ticked, Cycle 1 ticked: {f['chips']}")
+    t.check([o["off"] for o in f["opts"]] == [True, False, True] and f["sel"] == ["1"], f"Both cycles and Cycle 2 are disabled, Cycle 1 is selected: {f['opts']}")
     t.check("No Cycle 2" in f["note"] and ch.js("document.querySelector('#f-dc label.dis').title").startswith("26.4 ends by the end of W6"), f"the reason is in plain words: {f['note']!r}")
-    t.check(not f["changed"] and "Cycle" not in f["note"].replace("No Cycle 2", ""), f"with the only cycle ticked the group is not marked as a filter: {f['changed']} {f['note']!r}")
+    t.check(f["status"] == want_status(data["windows"]["26.4"], "1"), f"the status line shows the one cycle: {f['status']!r}")
+    t.check(not f["changed"] and "Cycle" not in f["note"].replace("No Cycle 2", ""), f"with the only cycle shown the group is not marked as a filter: {f['changed']} {f['note']!r}")
     r_default = load(ch, url, "r=26.4")
     r_stored2 = load(ch, url, "r=26.4&dc=2")                        # a stored dc naming a cycle the release does not have falls back to the cycles it has
     r_stored1 = load(ch, url, "r=26.4&dc=1")
     for k in ("sub", "rows", "w6", "cap", "banner", "tiles"):
         t.check(r_stored2[k] == r_default[k] == r_stored1[k], f"26.4 with dc=2 or dc=1 equals the default on {k}")
-    t.check(r_default["banner"].startswith("Showing Delivery Cycle 1 \u00b7 ") and "no Delivery Cycle 2" in r_default["point"], f"the Cycles banner shows Delivery Cycle 1 and says there is no Cycle 2: {r_default['banner']!r} {r_default['point']!r}")
+    t.check(r_default["banner"].startswith("Showing Delivery Cycle 1 · ") and "no Delivery Cycle 2" in r_default["point"], f"the Cycles banner shows Delivery Cycle 1 and says there is no Cycle 2: {r_default['banner']!r} {r_default['point']!r}")
     probs: list[str] = []
     for h in ("r=26.4", "r=26.4&dc=2", "r=26.4&dc=1", "r=27.1&dc=2"):
         check_view(probs, data, universe, h, load(ch, url, h), "short")
     t.check(not probs, "; ".join(probs[:3]))
     # the same release in the long payload does have two cycles (the fixture changed only the window)
     r_long = load(ch, payload("variant")[1], "r=26.4")
-    t.check([c["off"] for c in r_long["dcChips"]] == [False, False], "the unchanged release has both cycles")
+    t.check([c["off"] for c in r_long["dcChips"]] == [False, False, False], "the unchanged release has every option")
     ch.goto(url + "#r=26.4&dc=2")
     kit.wait_ready(ch)
+    f = ch.js(JS_FILTERS)
+    t.check(f["sel"] == ["1"] and f["dc"] == ["2"], f"a stored dc=2 on a release with one cycle shows Cycle 1 (the cycles it has): {f['sel']} {f['dc']}")
     ch.js("document.querySelector('#f-dc input[value=\"1\"]').click()")
     time.sleep(0.3)
-    f = ch.js(JS_FILTERS)
-    t.check(f["dc"] == ["2"] and [c["on"] for c in f["chips"]] == [True, False] and "At least one delivery cycle" in f["live"], f"the only existing cycle cannot be unticked even when dc names the other: {f['dc']} {f['chips']} {f['live']!r}")
+    t.check(ch.js(JS_FILTERS)["sel"] == ["1"], "a click on the only cycle keeps it selected")
     # moving to a release that has two cycles brings the stored choice back
     ch.js("(() => { const s = document.getElementById('f-release'); s.value = '27.1'; s.dispatchEvent(new Event('change', {bubbles: true})); })()")
     time.sleep(0.4)
     f = ch.js(JS_FILTERS)
-    t.check(f["dc"] == ["2"] and [c["on"] for c in f["chips"]] == [False, True], f"the stored dc=2 applies again on a release with two cycles: {f['dc']} {[c['on'] for c in f['chips']]}")
+    t.check(f["dc"] == ["2"] and f["sel"] == ["2"], f"the stored dc=2 applies again on a release with two cycles: {f['dc']} {f['sel']}")
 
 
 # --------------------------------------------------------------------------------------------- 5: seeded defects
@@ -1181,6 +1377,49 @@ def _(t: T):
         if what in STRUCTURAL:
             probs += structure_probs(ch, pages["variant"])
         t.check(bool(probs), f"the oracle did not notice the seeded defect: {what}")
+
+
+# the header control: every way it could go back to the failure that was reported (a click on an option toggles it, so one click on Cycle 1 shows Cycle 2) or lose what it promises
+HEADER_MUTANTS = [
+    ("a click on an option toggles it instead of selecting it", "state.dc = new Set(e.target.value === \"both\" ? DC_IDS : [e.target.value]);",
+     "{ const v = e.target.value; if (v === \"both\") state.dc = new Set(DC_IDS); else { state.dc.has(v) ? state.dc.delete(v) : state.dc.add(v); if (!state.dc.size) state.dc = new Set(DC_IDS); } }"),
+    ("a click on a cycle adds it to the ones shown instead of replacing them", "state.dc = new Set(e.target.value === \"both\" ? DC_IDS : [e.target.value]);",
+     "state.dc = e.target.value === \"both\" ? new Set(DC_IDS) : new Set([...state.dc, e.target.value]);"),
+    ("Both cycles is not the default", "dc: new Set(DC_IDS), ax:", "dc: new Set([\"1\"]), ax:"),
+    ("the status line ends every cycle at W6", "hi = shown.includes(\"2\") ? W : Math.min(6, W);", "hi = Math.min(6, W);"),
+    ("the status line names the wrong cycle", "`Cycle ${shown[0]}`}: W${lo}", "`Cycle ${3 - shown[0]}`}: W${lo}"),
+    ("the status line is empty", "st.textContent = dcStatus(d);", "st.textContent = \"\";"),
+    ("the address does not carry the cycle", "if (state.dc.size !== DC_IDS.length) h.set(\"dc\"", "if (false) h.set(\"dc\""),
+    ("an older dc= link is not read", "{ const d = (list(\"dc\") || []).filter(x => DC_IDS.includes(x)); if (d.length) state.dc = new Set(d); }", ""),
+    ("a disabled option can be clicked", "i.disabled = !has;", "i.disabled = false;"),
+    ("a disabled option does not say why", "i.parentElement.title = has ? \"\" :", "i.parentElement.title = true ? \"\" :"),
+    ("the options are in the wrong order", "const DC_OPTS = [[\"both\", \"Both cycles\"], [\"1\", \"Cycle 1\"], [\"2\", \"Cycle 2\"]];", "const DC_OPTS = [[\"1\", \"Cycle 1\"], [\"2\", \"Cycle 2\"], [\"both\", \"Both cycles\"]];"),
+    ("the control is a group of checkboxes again", "<input type=\"radio\" name=\"f-dc\" value=\"${v}\">", "<input type=\"checkbox\" name=\"f-dc\" value=\"${v}\">"),
+    ("the group is not a radio group", "role=\"radiogroup\" aria-labelledby=\"lbl-dc\"", "role=\"group\" aria-labelledby=\"lbl-dc\""),
+    ("the selected option does not follow the state", "i.checked = i.value === pick;", "i.checked = i.value === \"both\";"),
+    ("a single cycle is not marked as a changed filter", "dc: !dcState().all,", "dc: false,"),
+    ("the scope note is missing while one cycle is selected", "d.all ? \"\" : \"Delivery chart, Cycles and 2 tiles only\"", "\"\""),
+    ("a release with one cycle keeps Both cycles enabled", "const dcHas = (d, v) => v === \"both\" ? d.has2 : d.ids.includes(v);", "const dcHas = (d, v) => v === \"both\" ? true : d.ids.includes(v);"),
+]
+
+
+@SUITE.test("selftest_header_oracle_catches_seeded_defects")
+def _(t: T):
+    src = ctx.template.read_text(encoding="utf-8")
+    ch = ctx.chrome
+    data, _u, _universe = payload("variant")
+    sdata, _su, _suniverse = payload("short")
+    for i, (what, old, new) in enumerate(HEADER_MUTANTS):
+        if src.count(old) != 1:
+            raise kit.Skip(f"the seeding anchor for '{what}' is not in this template exactly once (found {src.count(old)})")
+        tpl = _write_tmp(src.replace(old, new, 1))
+        urls = {}
+        for kind, d in (("variant", data), ("short", sdata)):
+            f = Path(ctx.dir) / f"dcf_hmutant_{i}_{kind}.html"
+            f.write_text(MS.render_page(d, tpl), encoding="utf-8")
+            urls[kind] = "file://" + str(f)
+        probs = header_probs(ch, urls["variant"], urls["short"], data, sdata, full=False)
+        t.check(bool(probs), f"the header oracle did not notice the seeded defect: {what}")
 
 
 def _write_tmp(text: str) -> Path:

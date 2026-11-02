@@ -135,11 +135,16 @@ input[type=search] { width:200px; }
 .chip.dis { opacity:.55; cursor:not-allowed; }
 button.chip { font-family:inherit; }
 #filterbar #g-projects .chip.on { background:var(--blue-tint); border-color:var(--blue-ink); font-weight:500; }
-#filterbar #g-projects .seg .chip.on { background:var(--blue); font-weight:600; }
-#filterbar #g-projects .seg .chip.on::before { color:var(--ink); }
+#filterbar #g-projects .seg .chip.on, #filterbar #g-dc .seg .chip.on { background:var(--blue); font-weight:600; }
+#filterbar #g-projects .seg .chip.on::before, #filterbar #g-dc .seg .chip.on::before { color:var(--ink); }
+#filterbar #g-dc .seg .chip.on:hover { background:var(--blue-hover); }
+#filterbar .fnote.dcstatus { color:var(--ink); font-weight:500; margin-bottom:-2px; }
 button.btn.multi[aria-pressed="true"] { border-color:var(--blue-ink); background:var(--blue-tint); font-weight:600; }
 button.btn.multi[aria-pressed="true"]::before { content:"\2713\00a0"; color:var(--blue-ink); }
 @media (max-width:760px) { #g-projects { grid-template-columns:minmax(0,1fr); grid-template-areas:"lbl" "chips" "btn" "hint"; } #f-projects, #f-projects.seg { flex-wrap:wrap; gap:6px; } #f-projects .chip, #f-projects .chip:first-child, #f-projects .chip:last-child { margin-left:0; border-radius:var(--radius-s); min-height:44px; } #g-projects button.btn.multi { width:100%; min-height:44px; font-size:var(--t-body); } #f-dc .chip { min-height:44px; } }
+@media (max-width:760px) { #g-dc { flex:1 1 100%; } #f-dc { display:flex; width:100%; } #f-dc .chip { flex:1 1 auto; justify-content:center; } }      /* phone: the three segments share the row, each a 44px target */
+@media (max-width:380px) { #filterbar #g-dc .seg .chip { padding:4px 6px; } }      /* 320 px: the same three joined segments, with tighter padding */
+@media (max-width:300px) { #f-dc { flex-wrap:wrap; gap:6px; } #f-dc .chip, #f-dc .chip:first-child, #f-dc .chip:last-child { margin-left:0; border-radius:var(--radius-s); } }      /* narrower than any phone in use: separate chips, like the Projects chips */
 .teampanel .rowwrap { display:flex; align-items:center; gap:4px; }
 .teampanel .rowwrap .row { flex:1; min-width:0; }
 .teampanel .only { border:none; background:none; color:var(--blue-ink); text-decoration:underline; font:inherit; font-size:var(--t-xs); padding:4px 6px; min-height:28px; cursor:pointer; opacity:0; }
@@ -564,7 +569,7 @@ footer.f b { color:var(--ink); }
           <div id="f-teams-list"></div>
         </div>
       </div>
-      <div class="fg hideable" id="g-dc"><span class="lbl" id="lbl-dc">Delivery Cycle</span><div class="chips seg" id="f-dc" role="group" aria-labelledby="lbl-dc" aria-describedby="f-dc-note"></div><span class="fnote" id="f-dc-note"></span></div>
+      <div class="fg hideable" id="g-dc"><span class="lbl" id="lbl-dc">Delivery Cycle</span><div class="chips seg" id="f-dc" role="radiogroup" aria-labelledby="lbl-dc" aria-describedby="f-dc-status f-dc-note"></div><span class="fnote dcstatus" id="f-dc-status"></span><span class="fnote" id="f-dc-note"></span></div>
       <button class="btn link freset" id="f-reset" type="button" disabled>Reset Filters</button>
     </div>
   </div>
@@ -890,7 +895,8 @@ DATA.epics.forEach(e => (e.tm || []).forEach(t => KNOWN_TEAMS.add(t)));
 DATA.bugs.forEach(b => { if (b.tm) KNOWN_TEAMS.add(b.tm); });
 
 // ---------------------------------------------------------------- state (kept in the URL when opened as a file, in browser storage in the viewer)
-const DC_IDS = ["1", "2"];                                   // the Delivery Cycle filter: the cycles that can be ticked (Delivery Cycle 1 and 2); both are ticked by default
+const DC_IDS = ["1", "2"];                                   // the Delivery Cycle filter: the cycles it can show (Delivery Cycle 1 and 2); state.dc holds the ones shown, both by default
+const DC_OPTS = [["both", "Both cycles"], ["1", "Cycle 1"], ["2", "Cycle 2"]];      // the control is a choice of ONE of these (a radio group): "both" is state.dc = {1, 2}, "1" or "2" is that cycle alone
 const defaults = () => ({release: DATA.current, projects: new Set(projectsAll), teams: new Set(), dc: new Set(DC_IDS), ax: "no", bugPri: new Set(PRI_ALL), cfb: "all", capLvlOff: new Set(), gran: "month", cfbGroup: "version", depFilter: "epics", nfrTab: "project", cx: "all", cap: {by: "quarter", measure: "sp"}, cy: cyDefaults()});
 const state = {...defaults()};
 let projMulti = false;                                         // the Multi-Select toggle; the mode is derived: 2 to 5 projects are always in multi-select mode, nothing is stored
@@ -901,7 +907,7 @@ function readParams(h) {
   if (h.get("r") && DATA.releases.includes(h.get("r"))) state.release = h.get("r");
   { const p = (list("p") || []).filter(x => projectsAll.includes(x)); if (p.length) state.projects = new Set(projectsAll.filter(x => p.includes(x))); }      // p=none (an older link) reads as all projects: no view has an empty selection
   const t = (list("t") || []).filter(x => KNOWN_TEAMS.has(x)); if (t.length) state.teams = new Set(t);
-  { const d = (list("dc") || []).filter(x => DC_IDS.includes(x)); if (d.length) state.dc = new Set(d); }      // dc=1 or dc=2; an empty or unknown value reads as both. An older link with c=... (a removed filter) is not read
+  { const d = (list("dc") || []).filter(x => DC_IDS.includes(x)); if (d.length) state.dc = new Set(d); }      // dc=1 or dc=2; an empty or unknown value reads as both (a link of the older two-checkbox control reads the same way). An older link with c=... (a removed filter) is not read
   if (["all", "yes"].includes(h.get("ax"))) state.ax = h.get("ax"); else if (h.get("ax") === "1") state.ax = "all";      // ax=1 is an older link: it opened with accessibility bugs included
   if (h.get("bp") === "none") state.bugPri = new Set(); else { const bp = (list("bp") || []).filter(x => PRI_ALL.includes(x)); if (bp.length) state.bugPri = new Set(bp); }
   if (["yes", "no"].includes(h.get("cfb"))) state.cfb = h.get("cfb");
@@ -920,7 +926,7 @@ function serialize() {
   h.set("r", state.release);
   if (state.projects.size !== projectsAll.length && state.projects.size) h.set("p", projectsAll.filter(x => state.projects.has(x)).join("|"));      // canonical project order, whatever order they were clicked in
   if (state.teams.size) h.set("t", [...state.teams].join("|"));
-  if (state.dc.size !== DC_IDS.length) h.set("dc", DC_IDS.filter(x => state.dc.has(x)).join("|"));      // omitted when both cycles are ticked
+  if (state.dc.size !== DC_IDS.length) h.set("dc", DC_IDS.filter(x => state.dc.has(x)).join("|"));      // omitted when both cycles are shown
   if (state.ax !== "no") h.set("ax", state.ax);
   if (state.bugPri.size !== PRI_ALL.length) h.set("bp", state.bugPri.size ? [...state.bugPri].join("|") : "none");
   if (state.cfb !== "all") h.set("cfb", state.cfb);
@@ -1365,7 +1371,7 @@ function paceFacts() {                                       // the same numbers
   return {N, D, d, w1, pre: snap < w1, doneNow: doneScope(rel).filter(e => cls(e.s) === "done").length, pace: D ? N * d / D : 0, closed: snap > end, targetSize: target.length};
 }
 // The two epic-delivery tiles (Epics Delivered, Forecast Epics) follow the Delivery Cycle filter the way the burnup window does (dcDomain): the numbers are the whole release's in every view (Done is the number the tile has always
-// shown, any Commitment Type, cumulative since the release start) and the cycle changes only the target the tile compares with. Both cycles ticked (or a release with no cycles): the tiles exactly as before.
+// shown, any Commitment Type, cumulative since the release start) and the cycle changes only the target the tile compares with. Both cycles (or a release with no cycles): the tiles exactly as before.
 //   Cycle 1 only: "of N" and Forecast Epics are the Committed epics planned by the end of W6 (w6Model, the burnup's end state), the number a Jira query that Jira recalculates; no release scope is shown.
 //   Cycle 2 only: the release scope tile as before, with the window named. EDCT Days, Epics by AI and Open Bugs never read the filter.
 function deliveryTiles(rel, TB, tDone, paceLine) {
@@ -1553,7 +1559,7 @@ function w6Model(rel, w1) {
   return {w6, list, within, none, done: within.filter(e => cls(e.s) === "done"), open: within.filter(e => cls(e.s) !== "done"),
     hrefs: {all: J(""), within: J(win), done: J(`${win} AND status = Done`), open: J(`${win} AND status != Done`), none: J(`duedate is EMPTY${all ? ` AND (${CY_TS} is EMPTY OR ${CY_TS} not in (${all}))` : ""}`)}};
 }
-// The X axis of the burnup follows the Delivery Cycle filter (days since the first day of W1): every cycle ticked = day 0 to D (the release end), exactly the chart without the filter;
+// The X axis of the burnup follows the Delivery Cycle filter (days since the first day of W1): every cycle shown = day 0 to D (the release end), exactly the chart without the filter;
 // Delivery Cycle 1 only = day 0 to day 41 (the end of W6, W1 start + 41 days); Delivery Cycle 2 only = day 42 (W7) to D. Pure: the same inputs always give the same window (a test recounts it).
 function dcDomain(rel, dc) {
   const win = DATA.windows && DATA.windows[rel]; if (!win) return null;
@@ -1576,7 +1582,7 @@ function renderBurnup() {
   const target = list, baseScope = TB.N, J = jira;
   const scopeHref = TB.href, todayHref = TB.hrefToday, scopeTip = TB.tip;
   const dlist = doneScope(rel);                                  // Done ignores Commitment Type: the same Done the Epics Delivered tile shows
-  // The window of the X axis, and where the as-of day stands against it (every cycle ticked: the whole release, as before).
+  // The window of the X axis, and where the as-of day stands against it (every cycle shown: the whole release, as before).
   const DM = win ? dcDomain(rel, dc) : null, kind = DM ? DM.kind : "all", ds = DM ? DM.s : 0, de = DM ? DM.e : 0, span = Math.max(1, de - ds);
   const D = win ? DM.D : 0, weeks = Math.round(D / 7);
   const snapRaw = Math.round((snap - w1) / DAY), snapD = Math.min(D, Math.max(0, snapRaw));
@@ -1601,7 +1607,7 @@ function renderBurnup() {
     const dn = dlist.filter(e => cls(e.s) === "done"), last = dn.map(e => e.rd).filter(Boolean).sort().pop(), wk = weekOf(rel);
     const shownDone = closed ? done[de] : dn.length, since = closed ? done[snapD] - done[de] : 0;
     document.getElementById("bu-sub").textContent = list.length ? `${shownDone.toLocaleString("en-US")}${win ? ` of ${baseScope.toLocaleString("en-US")} target scope` : ""} epics delivered${closed ? ` by the end of ${cy1}${since > 0 ? ` · ${since.toLocaleString("en-US")} more Done since` : ""}` : ""}${before ? ` · ${cy1} starts ${shortDate(w1 + ds * DAY)}` : ""}${wk ? " · " + wk.replace(/^Week/, "week") : ""}${last ? ` · last epic closed ${last}` : ""}${nm ? ` · ${nm}` : ""}` : "";
-    // The plain-words line under the title (only when one cycle is ticked, so the chart with both is untouched): which weeks the axis shows and what the Done and even-pace lines mean there.
+    // The plain-words line under the title (only when one cycle is selected, so the chart with both is untouched): which weeks the axis shows and what the Done and even-pace lines mean there.
     let pl0 = document.getElementById("bu-plain");
     if (dc.all || !win) { if (pl0) pl0.remove(); }
     else {
@@ -1730,7 +1736,7 @@ function renderBurnup() {
       ["Even pace", `a straight line from zero to the target scope: a reference, not a forecast.`],
       ["Delivery Cycle 1 (dotted line)", `Committed epics only, planned on or before the end of W6. The dot shows how many.`],
       ["Planned date", `the later of the due date and the Target Sprint end. If only one exists, that one. If neither, the epic is undated.`],
-      ["Delivery Cycle filter", `both cycles ticked: the chart as described here. One cycle ticked: the same chart cut to a time window, W1 to the end of W6 (Delivery Cycle 1) or W7 to the release end (Delivery Cycle 2). The numbers are the whole release's, not those of the cycle's epics. The even-pace line and "vs even pace" are measured to the end of that window (Delivery Cycle 1: zero to the epics Delivery Cycle 1 plans to deliver; Delivery Cycle 2: to the release scope), so they do not compare with the whole-release view.`],
+      ["Delivery Cycle filter", `Both cycles: the chart as described here. One cycle selected: the same chart cut to a time window, W1 to the end of W6 (Delivery Cycle 1) or W7 to the release end (Delivery Cycle 2). The numbers are the whole release's, not those of the cycle's epics. The even-pace line and "vs even pace" are measured to the end of that window (Delivery Cycle 1: zero to the epics Delivery Cycle 1 plans to deliver; Delivery Cycle 2: to the release scope), so they do not compare with the whole-release view.`],
     ],
     left: `Removed epics, and the IP week (the first seven days of the release), which is not drawn.`,
     know: `Epics closed before W1 count at the start; epics closed after the release end count on its last day. The chart follows Projects and Teams.`,
@@ -1740,7 +1746,7 @@ function renderBurnup() {
       ["Planned date on the dependency board", `The dependency board keeps the due date over the Target Sprint.`],
       ["Done against the target", `${tlink(finalDone, J({kind: "done", commit: new Set(TARGET_COMMIT)}), `${nn(finalDone, "epic", "epics")} Done in ${rel}, any Commitment Type\nThe link opens the Done epics that are Committed or Not Set.`)} Done target epics (Committed and Not Set), ${snapD < D ? (DATA.refreshedAt ? "as of the last Refresh" : "as of the snapshot") : "final"}.`],
       ...((early || late) ? [["Counted at the edges", `${early ? `${early} ${epicWord(early)} closed before W1 ${early === 1 ? "is" : "are"} counted at the start. ` : ""}${late ? `${late} ${epicWord(late)} closed after the release end ${late === 1 ? "is" : "are"} counted on its last day.` : ""}`]] : []),
-      ["Delivery Cycle filter, details", `With one cycle ticked the chart shows a window of the whole release, and Scope, Done, Remaining, the day readout, the data table and the Jira links are the whole release's: the filter chooses weeks, not epics (the Cycles section does choose epics, by planned date). The axis shows only that cycle: Delivery Cycle 1 is W1 to the end of W6 (W1 start + 41 days), Delivery Cycle 2 is W7 to the release end. Done stays cumulative since the release start. Delivery Cycle 1: no release scope is drawn; the dotted marker is the end state of the window, the epics Delivery Cycle 1 plans to deliver by the end of W6, and the even-pace line runs from zero through it. Delivery Cycle 2: the even-pace line runs to the release scope at the release end, from the Done count at the end of W6 once W6 has ended; before that it starts at the planned count (labelled planned start) and the Done line and the snapshot marker are not drawn until W7 starts. The snapshot marker is drawn only while the as-of day is inside the window; after Delivery Cycle 1 ends its line stops on its last day, the headline says "by the end of Delivery Cycle 1" and how many more were Done since, and the Done link is bounded at the end of the cycle. The window is a time cut of today's data: Jira keeps no earlier planned dates.`],
+      ["Delivery Cycle filter, details", `With one cycle selected the chart shows a window of the whole release, and Scope, Done, Remaining, the day readout, the data table and the Jira links are the whole release's: the filter chooses weeks, not epics (the Cycles section does choose epics, by planned date). The axis shows only that cycle: Delivery Cycle 1 is W1 to the end of W6 (W1 start + 41 days), Delivery Cycle 2 is W7 to the release end. Done stays cumulative since the release start. Delivery Cycle 1: no release scope is drawn; the dotted marker is the end state of the window, the epics Delivery Cycle 1 plans to deliver by the end of W6, and the even-pace line runs from zero through it. Delivery Cycle 2: the even-pace line runs to the release scope at the release end, from the Done count at the end of W6 once W6 has ended; before that it starts at the planned count (labelled planned start) and the Done line and the snapshot marker are not drawn until W7 starts. The snapshot marker is drawn only while the as-of day is inside the window; after Delivery Cycle 1 ends its line stops on its last day, the headline says "by the end of Delivery Cycle 1" and how many more were Done since, and the Done link is bounded at the end of the cycle. The window is a time cut of today's data: Jira keeps no earlier planned dates.`],
       ["Delivery Cycle 1, other uses", `Delivery Cycle 1 leaves out Not Set and Stretch epics here. The Cycles section counts every Commitment Type.`]
     ]}));
   const w6Cols = W6 && kind !== "c2";                           // the two Delivery Cycle 1 columns: with both cycles and with Delivery Cycle 1 (the row of its end)
@@ -3182,7 +3188,7 @@ function renderNfr() {
 
 // ---------------------------------------------------------------- delivery cycle governance
 // A view of the dashboard's own epics: the selected release under the Release, Projects, Teams and Delivery Cycle filters. The section has no filter of its own: it follows the Delivery Cycle filter and a banner says which cycles it shows
-// (one cycle ticked: that cycle; both ticked, the default: both combined, an epic planned in either counts once). The cycles are derived from the Jira release window,
+// (one cycle selected: that cycle; Both cycles, the default: both combined, an epic planned in either counts once). The cycles are derived from the Jira release window,
 // not configured: Delivery Cycle 1 runs from the release start to the end of W6 (start + 48 days, the boundary of the Epic Delivery marker), Delivery Cycle 2 from the next day to the release end.
 // An epic belongs to the cycle that holds its planned date (the later of its due date and the end of its Target Sprint, otherwise the one it has). Groups are the Epic Teams of the selected epics, in
 // alphabetical order; an optional pod grouping (pods pull, git-ignored configuration) can replace them. Facts only: no verdict, no colour for a group, no ranking, no share under 5 items.
@@ -3222,7 +3228,7 @@ function cyCycles(rel = state.release) {
   return [{id: "DC1", name: "Delivery Cycle 1", start: w[0], end: w6}, {id: "DC2", name: "Delivery Cycle 2", start: cyAdd(w6, 1), end: w[1]}];
 }
 // The cycle SET the section shows (the cycles the Delivery Cycle filter leaves in) as one window: the first start to the last end. The cycles of a release are consecutive (Delivery Cycle 2 starts the day after Delivery Cycle 1 ends), so the
-// planned dates of the set are exactly the dates of that window, and every count and every link is built from the same two dates. One cycle ticked: its own dates, as the section always showed them.
+// planned dates of the set are exactly the dates of that window, and every count and every link is built from the same two dates. One cycle selected: its own dates, as the section always showed them.
 function cySpan(sel) {
   const ids = sel.map(x => x.id.slice(2)), multi = ids.length > 1;
   return {ids, multi, set: sel, name: multi ? `Delivery Cycles ${ids.join(" and ")}` : sel[0].name, first: sel[0].name, start: sel[0].start, end: sel[sel.length - 1].end,
@@ -3239,6 +3245,15 @@ function dcState(rel = state.release) {
   return {ids, shown, all: shown.length === ids.length, win: !!cs, has2: ids.includes("2")};
 }
 const dcWord = d => d.all ? "" : `${DC_NAME(d.shown[0])} only`;
+// The header control is one choice: "both", "1" or "2". The selected one follows what the page shows (dcState): a release with Cycle 1 only shows Cycle 1 (Both cycles and Cycle 2 are then disabled).
+const dcChoice = d => d.win ? (d.all ? (d.has2 ? "both" : "1") : d.shown[0]) : (state.dc.size === DC_IDS.length ? "both" : [...state.dc][0]);
+const dcHas = (d, v) => v === "both" ? d.has2 : d.ids.includes(v);
+function dcWeeks(rel) { const w = DATA.windows && DATA.windows[rel]; return w ? Math.round((utc(w[1]) - utc(w[0]) - 7 * DAY) / DAY / 7) : 0; }      // the delivery weeks of the release (12 for a standard release): the frame weekOf counts in
+function dcStatus(d, rel = state.release) {      // the line under the control: what the page shows now, in weeks
+  if (!d.win) return "No cycle dates for this release";
+  const W = dcWeeks(rel), shown = d.shown, lo = shown[0] === "2" ? 7 : 1, hi = shown.includes("2") ? W : Math.min(6, W);      // Cycle 1 is W1 to W6, Cycle 2 is W7 to the last week
+  return `Showing ${d.all && d.has2 ? "both cycles" : `Cycle ${shown[0]}`}: W${lo} to W${hi}`;
+}
 // ---- pods from labels: the release planning report's rule, with each project's own pattern (DATA.podRx, read at build time). An epic's labels are tested case-insensitively; the matched ones are stored on the epic (pl).
 // Pods are grouped case-insensitively and shown with the first spelling found; an epic with several pod labels counts under each pod once; no pod label means No Pod Label.
 const cyLabelOk = () => !!DATA.podRx;
@@ -3745,7 +3760,7 @@ function cyDefs() {
       ["In-progress epics without a pod label", `epics In Progress or Validation in ${esc(state.release)} with no pod label, out of all in-progress epics. The share shows from ${MIN_N} in-progress epics.`]
     ],
     left: `Removed epics. Epics with no planned date, or planned after the release end, are in no cycle. Stale, Carry-over, No planned date and Open bugs: see More detail.`,
-    know: `The section has no filter of its own: it follows the Release, Projects, Teams and Delivery Cycle filters, and the banner under the heading says which cycles it shows. With both cycles ticked (the default) it shows both combined: an epic planned in either counts once, and the epics in no cycle (no planned date, or planned after the release end) stay listed in the After Release End line, the lists and the Epics with Flags. With one cycle ticked it shows that cycle only and leaves those epics out. The Epics in Release column and the pod tiles that count the whole release do not follow the Delivery Cycle filter. The as-of date is the date of the data, shown at the top of the page. No team or person is ranked or scored. The pod tiles are facts about the plan, not a verdict on people, and are not ranked.`,
+    know: `The section has no filter of its own: it follows the Release, Projects, Teams and Delivery Cycle filters, and the banner under the heading says which cycles it shows. With Both cycles selected (the default) it shows both combined: an epic planned in either counts once, and the epics in no cycle (no planned date, or planned after the release end) stay listed in the After Release End line, the lists and the Epics with Flags. With one cycle selected it shows that cycle only and leaves those epics out. The Epics in Release column and the pod tiles that count the whole release do not follow the Delivery Cycle filter. The as-of date is the date of the data, shown at the top of the page. No team or person is ranked or scored. The pod tiles are facts about the plan, not a verdict on people, and are not ranked.`,
     this: ["This release", `${esc(state.release)}: ${esc(win[0].name)} ${win[0].start} to ${win[0].end}${win[1] ? `; ${esc(win[1].name)} ${win[1].start} to ${win[1].end}` : ""}. Shown now: ${esc(c.name)}, ${c.start} to ${c.end}. As-of date ${esc(CY.asOf)}.`],
     more: [
       ["Stale", `more than ${CY.stale} days overdue, counted over planned and carry-over epics together. The "of them stale" figure under Overdue counts planned epics only.`],
@@ -4027,11 +4042,9 @@ function buildFilters() {
   pc.addEventListener("focusin", e => { const b = e.target.closest && e.target.closest("button.chip"); if (b) projRove = b; });
   document.getElementById("f-multi").onclick = projMultiToggle;
   const dce = document.getElementById("f-dc");
-  dce.innerHTML = DC_IDS.map(id => `<label class="chip"><input type="checkbox" value="${id}"> Cycle ${id}</label>`).join("");
-  dce.onchange = e => {
-    const id = e.target.value, d = dcState();
-    if (!e.target.checked && d.shown.length === 1 && d.shown[0] === id) { e.target.checked = true; announce("At least one delivery cycle must stay selected"); return; }       // the last cycle cannot be switched off
-    e.target.checked ? state.dc.add(id) : state.dc.delete(id); update({hold: holdSel(e.target)});
+  dce.innerHTML = DC_OPTS.map(([v, n]) => `<label class="chip"><input type="radio" name="f-dc" value="${v}"> ${n}</label>`).join("");
+  dce.onchange = e => {                                           // one click selects exactly the option it names: Both cycles, Cycle 1 or Cycle 2 (never a toggle)
+    state.dc = new Set(e.target.value === "both" ? DC_IDS : [e.target.value]); update({hold: holdSel(e.target)});
     const n = dcState(); announce(n.all ? "Showing every delivery cycle in the Delivery chart, the Cycles section and the Epics Delivered and Forecast Epics tiles" : `Showing ${dcWord(n)} in the Delivery chart, the Cycles section and the Epics Delivered and Forecast Epics tiles`);
   };
   document.getElementById("f-ax").onchange = e => { state.ax = e.target.value; update({hold: holdSel(e.target)}); };
@@ -4116,10 +4129,11 @@ function syncControls() {
     chips.forEach(b => { b.tabIndex = b === rove ? 0 : -1; });
     const cb = document.getElementById("f-multi"); cb.setAttribute("aria-pressed", String(cmp)); cb.textContent = cmp && n > 1 && n < N ? `Multi-Select (${n} of ${N})` : "Multi-Select";
     document.getElementById("f-multihint").hidden = !cmp || projHintDone; }
-  { const d = dcState(), note = document.getElementById("f-dc-note");      // a cycle the release does not have is disabled, with its reason in plain words
-    document.querySelectorAll("#f-dc input").forEach(i => { const has = d.ids.includes(i.value); i.disabled = !has; i.checked = d.win ? d.shown.includes(i.value) : state.dc.has(i.value); i.parentElement.classList.toggle("on", i.checked); i.parentElement.classList.toggle("dis", !has);
-      i.parentElement.title = has ? "" : d.win ? `${state.release} ends by the end of W6, so it has no ${DC_NAME(i.value)}` : `Jira has no dated version for ${state.release}`; });
-    note.textContent = !d.win ? "No cycle dates for this release" : !d.has2 ? "No Cycle 2: the release ends by W6" : d.all ? "Delivery chart, Cycles and 2 tiles only" : `Delivery chart, Cycles and 2 tiles: ${d.shown[0] === "1" ? "Cycle 1" : "Cycle 2"} only`; }
+  { const d = dcState(), st = document.getElementById("f-dc-status"), note = document.getElementById("f-dc-note"), pick = dcChoice(d);      // the option that is selected; one a release cannot offer is disabled, with its reason in plain words
+    document.querySelectorAll("#f-dc input").forEach(i => { const has = dcHas(d, i.value); i.disabled = !has; i.checked = i.value === pick; i.parentElement.classList.toggle("on", i.checked); i.parentElement.classList.toggle("dis", !has);
+      i.parentElement.title = has ? "" : !d.win ? `Jira has no dated version for ${state.release}` : i.value === "both" ? `${state.release} ends by the end of W6, so it has only Cycle 1` : `${state.release} ends by the end of W6, so it has no ${DC_NAME(i.value)}`; });
+    st.textContent = dcStatus(d); st.hidden = !st.textContent;
+    note.textContent = !d.win ? "" : !d.has2 ? "No Cycle 2: the release ends by W6" : d.all ? "" : "Delivery chart, Cycles and 2 tiles only"; note.hidden = !note.textContent; }      // what a single cycle changes is said while one is selected; with both shown nothing is narrowed, and the bar stays as tall as it was
   const n = state.teams.size;
   document.getElementById("f-teams-btn").textContent = n === 0 ? "All Teams" : n === 1 ? [...state.teams][0] : `${n} Teams`;
   renderTeamList();
