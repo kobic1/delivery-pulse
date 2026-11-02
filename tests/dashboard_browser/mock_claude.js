@@ -51,6 +51,7 @@
       if (/(?<![\w-])INT(?![\w-])/i.test(String(jql).replace(/"(?:[^"\\]|\\.)*"/g, '""'))) throw {code: "tool_error", message: "Error in the JQL Query: 'INT' is a reserved JQL word. You must surround it in quotation marks."};      // as Jira answers a project key that is a reserved word
       if (window.__hook) { const h = await window.__hook(input, {idx, calls: window.__calls, CFG, ok}); if (h !== undefined) return h; }
       if (MODE === "denied") throw {code: "approval_required", message: "declined"};
+      if (MODE === "boom") throw {code: "tool_error", message: "boom"};          // a read that fails for a reason that is not about access (the usage oracle's "Refresh failed")
       if (jql.includes("issuetype = Capability AND status != Removed AND fixVersion is EMPTY")) return ok([{key: "CXCROSS-90001", fields: {status: {name: "Done"}}}, {key: "CXCROSS-90002", fields: {status: {name: "New"}}}]);
       if (jql.includes("issuetype = Capability AND (updated")) { if (MODE === "capsfail") throw {code: "tool_error", message: "capabilities boom"}; return ok(CFG.capsnodes); }
       if (jql.includes("cf[10329] is not EMPTY") && jql.includes("status not in")) { if (MODE === "cfbfail") throw {code: "tool_error", message: "cfb boom"}; return ok(CFG.opencfb); }
@@ -71,7 +72,9 @@
   // ---- the `db` and `user` capabilities, only when a case sets CFG.usage (every other suite keeps getting null for both): an in-memory fake store with the real semantics of the documented db contract.
   // Switches in CFG.usage: db:null / user:null / uid:null (a viewer with no id) / uid:"..."; fault: "invalid" (every set and update rejects invalid_argument, also what a view-only viewer gets), "exhausted", "quota", "unavailable_once" (the first
   // write rejects `unavailable`, then all succeed), "unavailable_always"; getFault: the same codes for get; latency (ms per call); share:true keeps the store in localStorage (a reload or a second page of the same person sees it, keep:true does not clear it);
-  // seed: {path: body} documents present at start; t: the page's usage timers (window.__dpUsageT); focus/vis: window.__focus and window.__vis, read by document.hasFocus() and document.visibilityState.
+  // seed: {path: body} documents present at start; t: the page's usage timers (window.__dpUsageT); focus/vis: window.__focus and window.__vis, read by document.hasFocus() and document.visibilityState;
+  // mcp:null: no Atlassian connector at all (claude.use("mcp") answers null: Refresh says live refresh is not available). The Jira side of a Refresh is chosen by CFG.mode as in every other suite: "denied" (access not allowed),
+  // "boom" (every call fails with a tool error), "capsfail" (one step fails), anything else (a plain success). window.__vis / window.__focus are the page's visibility and focus; Date is shifted by CFG.shift.
   const U = CFG.usage;
   let dbNs = null, userNs = null;
   if (U) {
@@ -133,5 +136,5 @@
     userNs = Object.freeze({id: async () => uid, name: async () => "Synthetic Person", email: async () => "synthetic.person@example.invalid", isOwner: async () => false, canEdit: async () => false, can: async () => null,
       me: async () => ({id: uid, name: "Synthetic Person", email: "synthetic.person@example.invalid", avatarUrl: "", color: "#000", isOwner: false, canEdit: false}), profiles: async ids => ({})});
   }
-  window.claude = {use: async (name) => name === "mcp" ? self : (U && name === "db") ? (U.db === null ? null : dbNs) : (U && name === "user") ? (U.user === null ? null : userNs) : null};
+  window.claude = {use: async (name) => name === "mcp" ? (U && U.mcp === null ? null : self) : (U && name === "db") ? (U.db === null ? null : dbNs) : (U && name === "user") ? (U.user === null ? null : userNs) : null};
 })();

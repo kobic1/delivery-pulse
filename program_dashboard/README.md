@@ -247,11 +247,13 @@ Taken from the Program Intelligence Agent (`.claude/agents/program-intelligence-
 ## Usage statistics
 
 The published page counts how it is used, so the owner can see how many people use it, how often they come back, which sections they read and which controls they use. It is a self-contained block at the end of the template script
-(`USAGE_VOC`, `USAGE`); nothing above it knows about it, and it wraps `saveState` to see which controls changed. A local copy, a page without the capabilities and a viewer without an id record nothing and show nothing.
+(`USAGE_VOC`, `USAGE`); nothing above it knows about it. It wraps `saveState` to see which controls changed, and two small hooks tell it what the page itself knows: `refresh()` reports how a Refresh run ended (`refresh.result`, read in its `finally`) and the Section Strip says whether the reader is above its first anchor (`SEC.top()`).
+A local copy, a page without the capabilities and a viewer without an id record nothing and show nothing.
 
-**Privacy.** Per-user ids are allowed; names and e-mail addresses are not. The page reads only `user.id()` (an opaque `u_...` token) and declares `user` **without scopes**. Never recorded: names, e-mails, issue keys, team, pod or project names (the project chips are
-configuration the viewer chose: only the number of selected projects is kept), search text, the address of a Jira link, free text of any kind. Every recorded key comes from the fixed lists below; anything else is dropped. A visible note at the very bottom of the page says what is
-counted. It appears only after the first successful write of a visit, so a viewer whose write is refused (a view-only viewer) never sees it, and it disappears if the visit stops recording. Records are kept 12 ISO weeks.
+**Privacy.** The record is **pseudonymous, not anonymous**: it is keyed by an opaque user id (a `u_...` code), the editors of the page can read every record, and an id that is stable for a person is still a way to follow that person over time. Names and e-mail addresses are not recorded: the page reads only `user.id()` and declares `user` **without scopes**.
+Never recorded: names, e-mails, issue keys, team, pod or project names (the project chips are configuration the viewer chose: only the number of selected projects is kept), the release looked at, search text, the address of a Jira link, the browser, language, referrer or address, free text of any kind.
+Every recorded key comes from the fixed lists below; anything else is dropped. A visible note at the very bottom of the page, shown only after the first successful write of a visit, says what is counted (the wording is in the template: "per pseudonymous user id (a code, no name or e-mail; the editors of this page can read these records)")
+and ends with the retention sentence ("Kept for 12 weeks: older weeks are removed from your record when you next open the page, and the owner also deletes records not seen for 12 weeks"). A viewer whose write is refused (a view-only viewer) never sees it, and it disappears if the visit stops recording.
 
 **Publish with these capabilities** (the access rules are declared at publish time, not in the page; they are also written in the template comment):
 
@@ -261,34 +263,56 @@ counted. It appears only after the first successful write of a visit, so a viewe
 
 Each person writes and reads only their own record `usage/<id>`; Editors and the owner read all. A viewer at the `view` level can never write: their visit records nothing, silently.
 
-**The record**, one document per person (never one per event or per visit; the database holds at most 25,000 documents):
+**The record** (schema 2), one document per person (never one per event or per visit; the database holds at most 25,000 documents). A session is one visit; a field a v1 session lacks means *unknown*, never 0:
 
 ```
-usage/<id> = {u, v: 1, first, last,                      // id, schema, first and last Israel day
-  w: {"<ISO week>": {"<Israel day>": {"<visit id>": {     // a visit id is 8 random characters made at page load
-    t,            // opened at, in minutes since the epoch
+usage/<id> = {u, v: 2, first, last, pr?,                  // id, schema, first and last Israel day; pr = 1 when the size cap has dropped weeks
+  w: {"S<date>": {"<Israel day>": {"<visit id>": {          // the work week Sunday to Saturday keyed by the date of its Sunday (a v1 key "2026-W44" is still read); a visit id is 8 random characters
+    t,            // opened at, in HOURS since the epoch (v1: minutes)
     s,            // active seconds: the page in front, focused, and input in the last 60 s, counted every 5 s
+    vs,           // visible seconds: the page in front, focused or not (a frame may report no focus: s can then under-count readers who only scroll)
+    g,            // 1 = a glance: visible 5 s or more, no input, under 30 s visible (written when the page was hidden or left); left out otherwise
     sec: {<section>: seconds}, nav: {<section>: clicks on the strip and the skip links},
-    f: {<control>: changes}, l: {<section>: Jira link clicks}, o: {<disclosure>: opens},
-    r: Refresh presses, rs: Reset Filters presses, np: projects selected (a count),
-    d: "s" | "m" | "l",   // width up to 480 px, up to 900 px, larger
-    b: page version (short commit), er: uncaught errors (a count, never the message), x: keys dropped by the 40-key cap }}}}}
+    f: {<control>: changes}, l: {<section>: Jira link clicks (left or middle button)}, o: {<disclosure>: opens},
+    r: Refresh presses, rs: Reset Filters presses, rr: 1 = Reset Filters pressed after at least one control change in the same visit,
+    ro: {ok, fail, declined: outcomes of Refresh runs the reader started}, rt: presses of the Retry link,
+    lv: 0 live | 1 snapshot only (no connector, or Jira access declined) | 2 live with a failed step (the last Refresh run of the visit; left out until one has ended),
+    fa: age of the data on screen at the start of the visit: 0 under 1 h | 1 under 24 h | 2 under 72 h | 3 older,
+    lf: 1 = the visit started with a filter other than the defaults (loaded from the address or storage; the release is not looked at), else 0,
+    np: projects selected (a count), d: "s" | "m" | "l"   // width up to 480 px, up to 900 px, larger
+    b: page version (short commit), bt: the Israel day number (days since the epoch) of that version's build time,
+    er: uncaught errors (a count, never the message), erb: benign browser notices ("ResizeObserver loop ..."), x: keys dropped by the 40-key cap }}}}}
 ```
 
-Vocabularies (`USAGE_VOC`; `tests/test_usage_report.py` keeps the report equal to it):
+Vocabularies (`USAGE_VOC`, the one place they are defined; `tests/test_usage_report.py` keeps the report equal to it and `tests/dashboard_browser/usage_oracle.py` spells them out again on purpose):
 
 | Map | Keys |
 |---|---|
-| section (`sec`, `nav`, `l`) | `attn`, `burnup`, `eff`, `ai`, `bugs`, `deps`, `nfr`, `cx`, `capview`, `cycles`, `analysis` (the ids of the Section Strip without `h-`); `l` also has `other` |
+| section time (`sec`) | `attn`, `burnup`, `eff`, `ai`, `bugs`, `deps`, `nfr`, `cx`, `capview`, `cycles`, `analysis`, and `top` (the headline tiles above the first section anchor) |
+| section (`nav`, `l`) | the same eleven section ids of the Section Strip without `h-` and without `top`; `l` also has `other` |
 | control (`f`) | `release`, `projects`, `multi`, `teams`, `dc`, `ax`, `cfb`, `bugpri`, `gran`, `cfbgrp`, `dp`, `nfrtab`, `cx`, `caplevel`, `capby`, `capmeasure`, `cycle`, `cytab`, `cystatus`, `cypods` |
 | disclosure (`o`) | `how` (How this is calculated), `data` (Show data), `attn` (a Needs Attention detail), `other` |
+| device (`d`) | `s`, `m`, `l` |
+| Refresh outcome (`ro`) | `ok`, `fail`, `declined` |
 
-A control change is counted from the address keys the page writes after every state change (compared with the last state), only when the reader acted in the last 2 seconds, and Reset Filters counts as Reset only. A disclosure counts only when the reader opened it (a click on its summary), not when the page redraws it open.
+**Rules of counting.**
+- Reading time: every 5 s tick in which the page is visible, focused and was used in the last 60 s adds 5 s to `s` and to **every section of the current row of the Section Strip** (the current item and the ones lit beside it when sections stand side by side, for example Efficiency and AI Adoption), or to `top` before the first anchor has been passed. So the `sec` values of one visit can add up to more than `s`; each one is at most `s`. Seconds with no section in front are not recorded.
+- A control change is counted from the address keys the page writes after every state change (compared with the last state), only when the reader acted in the last 2 seconds, and Reset Filters counts as Reset only. A disclosure counts only when the reader opened it (a click on its summary), not when the page redraws it open. A Jira link counts on a left click and on a middle click (`auxclick`, button 1); a right click is not counted.
+- Errors: an uncaught script error or an unhandled promise rejection is `er`; a browser notice that is not a fault of the page (a message starting "ResizeObserver loop") is `erb`, counted apart and never to be flagged. Neither message is kept.
+- Refresh: `r` counts presses of the Refresh button, `rt` presses of the Retry link of the automatic attempt, `ro` how the runs the reader started ended (`ok` every step succeeded; `fail` a step or the read failed for another reason than access; `declined` the Atlassian connector is missing or Jira access was not allowed). The automatic run on every open is not counted in `ro`; it sets `lv`.
+  `lv` is the outcome of the latest run of the visit: 0 after `ok`, 1 after `declined`, 2 after `fail` (including a total failure that is not an access problem, because the data on screen is then the snapshot with a failed read). `fa` and `lf` are taken when the visit starts (`fa` from the stamp the header shows, the oldest of the live sources, before the automatic Refresh has run).
+- A visit is a run of use. **A new visit (a new session id) starts after 30 minutes without input and at Israel midnight**; the finished visit is written first. A visit that stays open across midnight with a reader still active is split at the next 5 s tick, a visit with no one at the page at the next input.
+- **A glance counts.** A visit that was visible for 5 s or more (one 5 s tick) with no input and under 30 s visible is recorded when the page is hidden or left (`visibilitychange` to hidden, `pagehide`; best effort) with `g: 1`, `s: 0` and no counters. Looking at the page again afterwards is a new visit. A visit visible for 30 s with no input is written after those 30 s as before (no `g`).
+- Not counted: pointer movement as input (it keeps a visit alive but is not a click, key, scroll, touch or change), time while the page is hidden, a visit under 5 s with no input.
 
-**When it writes.** Never at page load and never inside an event handler: the first write follows the first real input, or 30 s of visible time for a visit that only reads; then at most one write every 30 s while the page is visible and something changed, and when the page is hidden or left (best effort).
-One write at a time. The first write of a visit reads the record (`get`) and creates it (`set`) or merges into it (`update`); it prunes weeks older than 12, keeps at most 10 visits a day (a day with more than 20 triggers the clean-up) and keeps the record below 90 KiB, rewriting with `set` only when something has to go. Size: a heavy but realistic pattern (5 days a week, 3 visits a day, 12 weeks) is about 60 KiB; at the absolute maximum (every day, 10 full visits a day) the 90 KiB limit drops the oldest weeks first, so fewer than 12 weeks are kept (about one week at that extreme). After that every write is an `update` of the visit's own object, so a re-sent write is harmless and several tabs do not overwrite each other.
-`unavailable` is retried once after a short random pause; after 3 failed writes in a row, or a refusal that cannot succeed (`invalid_argument` for a view-only viewer, `quota_exceeded`, `revoked`), the visit stops recording and the note disappears. A failure never reaches the page.
-Not verified in a headless file build: how the real `db` and its consent prompt (if any) behave; the tests use a fake store with the documented semantics (`tests/dashboard_browser/usage_oracle.py`).
+**When it writes.** Never at page load: the first write follows the first real input, 30 s of visible time for a visit that only reads, or the end of a glance (page hidden or left); then at most one write every 30 s while the page is visible and something changed, and when the page is hidden or left (best effort). Nothing is written from an event handler except on those hide/leave events.
+One write at a time. The first write of a page load reads the record (`get`) and creates it (`set`) or merges into it (`update`); it prunes weeks older than 12 (the cut is the Sunday 11 weeks before the current one; a week of schema 1 is kept while its Sunday is not before that), keeps at most 10 visits a day (a day with more than 20 triggers the clean-up; a page load never creates more than the 10 the day allows) and keeps the record below 90 KiB, rewriting with `set` only when something has to go; when the size cap drops weeks the record carries `pr: 1`.
+After that every write is an `update` of the visit's own object (with `v: 2` and `last`), so a re-sent write is harmless and several tabs do not overwrite each other. A finished visit (a split) is written before the new one.
+`unavailable` is retried once after a short random pause; after 3 failed writes in a row, or a refusal that cannot succeed (`invalid_argument` for a view-only viewer, `quota_exceeded`, `revoked`), the visit stops recording and the note disappears. A failure never reaches the page: a refused viewer is never asked twice.
+**Retention.** The page removes weeks older than 12 from a person's record the next time that person opens the page and a visit is recorded; for a person who stops coming that never happens, so the owner also deletes records not seen for 12 weeks (the report counts them).
+**Size.** A session costs about 290 bytes in a realistic visit: the heavy but realistic pattern (5 days a week, 3 visits a day, 12 weeks, 181 sessions) is about 51 KiB, under the 90 KiB budget; at the absolute maximum (every day, 10 full visits a day) the 90 KiB limit drops the oldest weeks first, so fewer than 12 weeks are kept (one week at that extreme, about 65 KiB, with `pr: 1`).
+**What is and is not counted.** Only people who open the published page, can write to the database and have an id; the person's own visits, the owner's and testers' included. Signed-out viewers, view-only access, offline copies, browsers that block storage and visits that end before 5 s with no input are not counted.
+Not verified in a headless file build: how the real `db` and its consent prompt (if any) behave, and whether `document.hasFocus()` is true inside the published frame; the tests use a fake store with the documented semantics (`tests/dashboard_browser/usage_oracle.py`). `vs` against `s` shows it: a visit with `vs` > 0, input (`nav`, `f`, `l`, `o` or `r`) and `s` = 0 is a focus problem.
 
 **Owner report.** Export the documents of the collection `usage` with the ArtifactData tool (`list`) into a JSON file, then:
 
