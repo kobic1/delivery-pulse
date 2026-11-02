@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Delivery Cycles links are QUERIES (the owner's rule): for every release x project set x cycle x node x kind, the epics the query finds equal the epics the page counts.
+"""Delivery Cycles links are QUERIES (the owner's rule): for every release x project set x Delivery Cycle selection (Cycle 1, Cycle 2, both combined) x node x kind, the epics the query finds equal the epics the page counts.
 
 The page builds each link with cyQ(kind, node, cycle). This suite asks the page for the query of every number it prints (Planned, Done, Overdue, Stale, Due next 7 days, Flagged,
 Carry-over, No planned date, Epics with Flags, the weekly table, After release end, the pod note, the No Pod Label rows, the epics of every pod, in-progress, and the epics in-progress of the pods over the
@@ -21,6 +21,7 @@ import copy
 import datetime as dt
 import json
 import os
+import re
 import sys
 import time
 import urllib.parse
@@ -189,8 +190,9 @@ def page(kind: str = "stock") -> tuple[dict, str]:
 
 def views(full: bool, data: dict, name: str = "stock") -> list[str]:
     rels = data["releases"] if full else (["26.4", "27.1"] if name == "stock" else ["27.1", "27.2"])
-    psets = ["", "p=PMN", "p=PMN|CXCO", "p=INT", "t=Team%20Alpha", "dc=1"] + (["p=CXWFM|WFM|CXINT|INT", "dc=2"] if full else [])      # dc=1 / dc=2: one Delivery Cycle ticked (the section offers only that cycle; a cy= naming the other falls back to it)
-    return [f"r={r}&{p}&cy={c}".replace("&&", "&") for r in rels for p in psets for c in ("DC1", "DC2")]
+    # the section has no cycle control of its own: it follows the Delivery Cycle filter. "" = both cycles ticked (the section shows both combined), dc=1 / dc=2 = one cycle ticked
+    psets = ["", "p=PMN", "p=PMN|CXCO", "p=INT", "t=Team%20Alpha", "dc=1", "dc=2", "p=PMN&dc=2"] + (["p=CXWFM|WFM|CXINT|INT"] if full else [])
+    return [f"r={r}&{p}".rstrip("&") for r in rels for p in psets]
 
 
 def sweep(template: Path | None = None, only_views: int | None = None, kinds: tuple = ("stock", "variant"), hashes: list | None = None, with_nodes: bool = True) -> dict:
@@ -246,7 +248,7 @@ def sweep(template: Path | None = None, only_views: int | None = None, kinds: tu
                             res["ex"][r["kind"].split(":")[0]].append(f"{tag}: the page counts {len(exp)}, the query finds {len(got)}; differ on {sorted(exp ^ got)[:3]}")
                 # the links the DOM holds: the printed number must equal what its query finds
                 anchors = ch.js(DOM_JS) or []
-                nodes = (ch.js(NODES_JS) or [])[: (None if full else 6)] if (with_nodes and kinds and variant_name == "variant" and h.endswith("cy=DC1")) else []
+                nodes = (ch.js(NODES_JS) or [])[: (None if full else 6)] if (with_nodes and kinds and variant_name == "variant" and re.fullmatch(r"r=\d+\.\d+(&dc=[12])?", h)) else []
                 if nodes:
                     nodes += [x for x in (ch.js(PO.PODS_JS) or []) if x not in nodes]                    # and a few pod leaves
                 for nd in nodes:
@@ -338,7 +340,7 @@ def _(t: T):
     ch = ctx.chrome
     keyre = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
     bad, keylike, exact, waiting = [], 0, [], []
-    for h in ("r=27.1&cy=DC1", "r=27.1&cy=DC2", "r=27.1&p=PMN&cy=DC1"):
+    for h in ("r=27.1", "r=27.1&dc=1", "r=27.1&dc=2", "r=27.1&p=PMN&dc=1"):
         ch.goto(url + "#" + h)
         kit.wait_ready(ch)
         for nd in [None] + (ch.js(NODES_JS) or [])[:6]:
@@ -366,7 +368,7 @@ def _(t: T):
     """The caveat that Jira finds the epics again when a link is opened is said once, in the Links line of the Cycles How this is calculated, not on each of the hundreds of numbers; no tooltip says it opens epics by key."""
     data, url = page()
     ch = ctx.chrome
-    ch.goto(url + "#r=27.1&cy=DC1")
+    ch.goto(url + "#r=27.1")
     kit.wait_ready(ch)
     tips = ch.js("[...document.querySelectorAll('#h-cycles ~ * a[data-tip], section[aria-labelledby=\"h-cycles\"] a[data-tip]')].map(a => a.getAttribute('data-tip'))") or []
     t.check(len(tips) > 20, f"too few Cycles number tooltips were read ({len(tips)}): a blind check")
@@ -389,10 +391,10 @@ def _(t: T):
     ch = ctx.chrome
     probe = ("(() => { const s = document.querySelector('section[aria-labelledby=\"h-cycles\"]'); return {long: [...s.querySelectorAll('a[href*=\"/issues/\"]')].filter(a => a.getAttribute('href').length > LIMIT).length, "
              "links: s.querySelectorAll('a[href*=\"/issues/\"]').length, kpi: [...document.querySelectorAll('#cy-kpis1 .v')].map(v => v.textContent.trim())}; })()")
-    ch.goto(url + "#r=27.1&cy=DC1")
+    ch.goto(url + "#r=27.1")
     kit.wait_ready(ch)
     base = ch.js(probe.replace("LIMIT", "800"))
-    ch.goto("file://" + str(tmp) + "#r=27.1&cy=DC1")
+    ch.goto("file://" + str(tmp) + "#r=27.1")
     kit.wait_ready(ch)
     small = ch.js(probe.replace("LIMIT", "800"))
     t.check(base["long"] > 0, "the control page has no Cycles link longer than 800 characters (the check would be blind)")
@@ -409,7 +411,7 @@ def pod_budget(t: T, src: str, old: str) -> None:
     """The union link of 'Pods With More Than 3 Epics In-Progress' is one URL; with a budget one character below its length it is plain text, the number stays, and the buttons keep working."""
     data, url = page("variant")
     ch = ctx.chrome
-    ch.goto(url + "#r=27.1&cy=DC1")
+    ch.goto(url + "#r=27.1")
     kit.wait_ready(ch)
     base = ch.js(POD_PROBE)
     t.check(base["link"] and base["len"] > 200, f"the control page has no in-progress link to cut ({base})")
@@ -417,7 +419,7 @@ def pod_budget(t: T, src: str, old: str) -> None:
         return
     tmp = Path(ctx.dir) / "cycles_pod_budget.html"
     tmp.write_text(MS.render_page(data, _tmp_template(src.replace(old, f"const CY_URL_MAX = {base['len'] - 1};"))), encoding="utf-8")
-    ch.goto("file://" + str(tmp) + "#r=27.1&cy=DC1")
+    ch.goto("file://" + str(tmp) + "#r=27.1")
     kit.wait_ready(ch)
     small = ch.js(POD_PROBE)
     t.check(not small["link"] and small["s"] == base["s"] and small["v"] == base["v"] and small["btn"] and small["idle"] == base["idle"],
@@ -448,13 +450,13 @@ def _(t: T):
     data, url = page("variant")
     ch = ctx.chrome
     names = {}
-    for cy in ("DC1", "DC2"):
-        ch.goto(url + f"#r=27.1&cy={cy}")
+    for cy, h in (("DC1", "dc=1"), ("DC2", "dc=2"), ("BOTH", "")):                       # the Delivery Cycle filter: Cycle 1 only, Cycle 2 only, both combined
+        ch.goto(url + "#r=27.1" + ("&" + h if h else ""))
         kit.wait_ready(ch)
         for kind in ("idle", "wip"):
             got = ch.js(PO.LIST_JS + f"({json.dumps(kind)})")
             names[cy, kind] = {(r["cells"][0], r["name"].lower()): r["cells"] for r in (got or {"rows": []})["rows"]}
-    wip, idle1, idle2 = names["DC1", "wip"], names["DC2", "wip"], None
+    wip = names["DC1", "wip"]
     over = {"pod-seed-four", "pod-seed-mix", "pod-seed-case", "pod-seed-twoa", "pod-seed-twob", "pod-21", "pod-22", "pod-23", "pod-24"}
     t.check(over <= {n for _, n in wip}, f"pods over the level missing from the list: {sorted(over - {n for _, n in wip})}")
     t.check(("PMN", "pod-seed-shared") in wip and ("CXCO", "pod-seed-shared") not in wip, "a label shared by two projects is over the level in PMN only (4 vs 2 epics)")
@@ -464,7 +466,12 @@ def _(t: T):
     n2 = {n for _, n in names["DC2", "idle"]}
     t.check({"pod-seed-late", "pod-seed-mix", "pod-seed-undated"} <= n1 and not ({"pod-seed-three", "pod-seed-four", "pod-seed-done", "pod-seed-shared", "pod-seed-case"} & n1), f"idle in Delivery Cycle 1: {sorted(n1)[:12]}")
     t.check({"pod-seed-three", "pod-seed-four", "pod-seed-done", "pod-seed-undated"} <= n2 and not ({"pod-seed-late", "pod-seed-mix"} & n2), f"idle in Delivery Cycle 2: {sorted(n2)[:12]}")
-    ch.goto(url + "#r=27.1&cy=DC1")
+    n3 = {n for _, n in names["BOTH", "idle"]}
+    t.check({"pod-seed-undated"} <= n3 and not ({"pod-seed-late", "pod-seed-mix", "pod-seed-three", "pod-seed-four", "pod-seed-done", "pod-seed-shared", "pod-seed-case"} & n3),
+            f"idle with both cycles combined: a pod is idle only when it has no epic planned in either cycle (Late and Mix are planned in Cycle 2, Three and Four in Cycle 1): {sorted(n3)[:12]}")
+    t.check(n3 == (n1 & n2), f"idle in both cycles combined is exactly the pods idle in Cycle 1 AND in Cycle 2: {sorted(n3 ^ (n1 & n2))[:6]}")
+    t.check(set(names["BOTH", "wip"]) == set(names["DC1", "wip"]) == set(names["DC2", "wip"]), "pods over the level count the whole release: the same list in every selection")
+    ch.goto(url + "#r=27.1")
     kit.wait_ready(ch)
     tile = ch.js(PO.POD_JS)["tiles"]["wip"]
     two = {e["k"] for e in data["epics"] if e.get("pl") and e["p"] == "PMN" and "27.1" in e["fv"] and set(e["pl"]) & {"Pod-Seed-TwoA", "Pod-Seed-TwoB"}}
@@ -472,12 +479,35 @@ def _(t: T):
     t.check(tile["btn"], "the tile value is a button")
 
 
+@SUITE.test("cycles_the_fixture_tells_the_combined_view_from_either_cycle")
+def _(t: T):
+    """Both cycles combined must differ from Cycle 1 alone and from Cycle 2 alone on every headline figure it can, or the union tests prove nothing: epics planned in both windows, Done in both,
+    overdue and due soon in Cycle 1, flagged in each, carry-over before the release start, epics planned after the release end and undated ones (in no cycle). Recounted from the baked epics."""
+    data, url = page("variant")
+    cal = {s["n"]: s["end"] for s in data["sprints"]}
+    asof = data["generated"][:10]
+    scope = [e for e in data["epics"] if "27.1" in e["fv"]]
+    w = {k: PO.window_of(data, "27.1", dc) for k, dc in (("1", {"1"}), ("2", {"2"}), ("both", {"1", "2"}))}
+    f = {k: PO.epic_tiles(scope, asof, v, cal) for k, v in w.items()}
+    t.check(w["both"]["start"] == w["1"]["start"] and w["both"]["end"] == w["2"]["end"] and w["both"]["all"], f"the combined window runs from the release start to the release end: {w}")
+    for k in ("planned", "done", "flagged"):
+        t.check(f["1"][k] > 0 and f["2"][k] > 0, f"the fixture has a {k} epic in each cycle: {f}")
+        t.check(f["both"][k] == f["1"][k] + f["2"][k], f"{k}: both cycles combined is the sum of the two (each epic is in one cycle): {f}")
+    t.check(f["1"]["overdue"] > 0 and f["both"]["overdue"] == f["1"]["overdue"] + f["2"]["overdue"], f"overdue: {f}")
+    start = w["both"]["start"]
+    carry = [e for e in scope if e["s"] != "Done" and (d := PO.planned_date(e, cal)) and d < start]
+    after = [e for e in scope if (d := PO.planned_date(e, cal)) and d > w["both"]["end"]]
+    undated = [e for e in scope if not PO.planned_date(e, cal)]
+    t.check(carry and after and undated, f"carry-over {len(carry)}, after the release end {len(after)}, undated {len(undated)}: all must exist, so the epics in no cycle are tested")
+    t.check(len({f["1"]["planned"], f["2"]["planned"], f["both"]["planned"]}) == 3, f"the three selections print three different Planned figures: {f}")
+
+
 @SUITE.test("cycles_the_overview_table_and_tiles_lost_the_removed_columns_and_tiles")
 def _(t: T):
     data, url = page("variant")
     ch = ctx.chrome
     gone_text = ("Due So Far", "Due Epics Done", "Stale (More Than", "Open Bugs", "Carry-Over", "No Planned Date")
-    for h in ("r=27.1&cy=DC1", "r=27.1&p=PMN&cy=DC2"):
+    for h in ("r=27.1", "r=27.1&dc=1", "r=27.1&p=PMN&dc=2"):
         ch.goto(url + "#" + h)
         kit.wait_ready(ch)
         info = ch.js("""(() => { document.querySelector('[data-cyact="expall"]').click(); const th = [...document.querySelectorAll('#cy-ovtable thead th')].map(x => x.textContent.trim());
@@ -502,7 +532,7 @@ def _(t: T):
         kit.wait_ready(ch)
         return {k: (ch.js(PO.LIST2_JS + f"({json.dumps(k)})") or {"rows": []})["rows"] for k in ("nsSoon", "wait", "level", "noPod")}
 
-    allc = lists("r=27.1&cy=DC1")
+    allc = lists("r=27.1")
 
     def ns(rows):
         return {(r["cells"][0] if r["rep"] else "*"): int(r["cells"][2]) for r in rows if r["th"] == "Team Seed Ns"}
@@ -546,6 +576,12 @@ MUTANTS = [
     ("in-progress is In Progress only", "const cyInFlight = e => CLASS.flight.includes(e.s);", 'const cyInFlight = e => e.s === "In Progress";'),
     ("the pod label rule changes: a label shaped like POD-12 is no pod", "noPod = flight.filter(e => !e.pl.length), ns =", "noPod = flight.filter(e => !e.pl.length || e.pl.some(l => /^pod-\\d+$/i.test(l))), ns ="),
     ("a pod is counted per team instead of once", "const k = l.toLowerCase(), id = e.p + \"\\n\" + k; if (seen.has(id)) return; seen.add(id);", "const k = l.toLowerCase(), id = e.p + \"\\n\" + k + \"\\n\" + e.tm.join(); if (seen.has(id)) return; seen.add(id);"),
+    # the Delivery Cycle filter drives the section: one cycle, or both combined (the independent recount of pod_oracle spells the window again)
+    ("both cycles are counted as Cycle 1 only", "end: sel[sel.length - 1].end,", "end: sel[0].end,"),
+    ("the Cycle 2 epics are dropped from the combined view", "e.due >= cc.start && e.due <= cc.end);", "e.due >= cc.start && e.due <= (cc.multi ? cc.set[0].end : cc.end));"),
+    ("the banner shows the wrong cycle", "const head = `Showing ${c.name}", "const head = `Showing ${c.first}"),
+    ("Idle Pods ignores the union (Cycle 1 only)", "fig: (CY_PODFIG = cyPodFig(M.epics, planned))", "fig: (CY_PODFIG = cyPodFig(M.epics, M.planned(M.cycles[0])))"),
+    ("the weekly table covers Cycle 1 only when both are shown", "const c = d.c, len = CY_DAY(c.end) - CY_DAY(c.start) + 1,", "const c = d.c, len = CY_DAY((c.multi ? c.set[0] : c).end) - CY_DAY(c.start) + 1,"),
 ]
 
 
@@ -561,7 +597,7 @@ def _(t: T):
             raise kit.Skip(f"the seeding anchor for '{what}' is not in this template exactly once")
         tmp = Path(ctx.dir) / f"cycles_mutant_{i}.html"
         tmp.write_text(src.replace(old, new, 1), encoding="utf-8")
-        r = sweep(tmp, kinds=("variant",), hashes=["r=27.1&cy=DC1", "r=27.1&dc=1&cy=DC1"], with_nodes=not light)
+        r = sweep(tmp, kinds=("variant",), hashes=["r=27.1", "r=27.1&dc=1"], with_nodes=not light)
         caught = sum(r["bad"].values()) + len(r["dom_bad"]) + len(r["pod_bad"])
         t.check(caught > 0, f"the suite did not notice the seeded defect: {what}")
 
