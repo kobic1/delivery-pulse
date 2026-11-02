@@ -408,6 +408,10 @@ def test_the_burnup_says_which_cycle_rules_the_filter_uses_and_what_history_it_c
     assert "neither cycle" in bu and "counted only when both cycles are ticked" in bu                      # no planned date, or planned after the release end
     assert "uses today's planned dates for every day of the timeline" in bu                                 # history is not stored: said once, here
     assert "Delivery Cycle 1 line is not drawn" in bu
+    assert "the axis shows only that cycle" in bu and "W1 to the end of W6" in bu                           # one cycle ticked narrows the X axis: Cycle 1 W1 to W6, Cycle 2 W7 to the release end
+    assert "measured to the end of that cycle" in bu                                                         # "vs even pace" in a cycle view is a different definition from the whole-release view
+    assert "Done stays cumulative since the release start" in bu and "already Done before W7" in bu
+    assert "the same timeline" not in bu
 
 
 def test_no_tile_tooltip_claims_the_burnup_always_equals_a_headline_number():

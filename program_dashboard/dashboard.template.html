@@ -1507,6 +1507,15 @@ function w6Model(rel, w1) {
   return {w6, list, within, none, done: within.filter(e => cls(e.s) === "done"), open: within.filter(e => cls(e.s) !== "done"),
     hrefs: {all: J(""), within: J(win), done: J(`${win} AND status = Done`), open: J(`${win} AND status != Done`), none: J(`duedate is EMPTY${all ? ` AND (${CY_TS} is EMPTY OR ${CY_TS} not in (${all}))` : ""}`)}};
 }
+// The X axis of the burnup follows the Delivery Cycle filter (days since the first day of W1): every cycle ticked = day 0 to D (the release end), exactly the chart without the filter;
+// Delivery Cycle 1 only = day 0 to day 41 (the end of W6, W1 start + 41 days); Delivery Cycle 2 only = day 42 (W7) to D. Pure: the same inputs always give the same window (a test recounts it).
+function dcDomain(rel, dc) {
+  const win = DATA.windows && DATA.windows[rel]; if (!win) return null;
+  const w1 = utc(win[0]) + 7 * DAY, end = utc(win[1]), D = Math.round((end - w1) / DAY), W6 = 41;
+  if (dc.all) return {s: 0, e: D, D, w1, kind: "all"};
+  if (dc.shown[0] === "1") return {s: 0, e: Math.min(W6, D), D, w1, kind: "c1"};
+  return {s: W6 + 1, e: D, D, w1, kind: "c2"};      // a release with a Delivery Cycle 2 is longer than W6, so the window is never empty
+}
 function renderBurnup() {
   const el = document.getElementById("burnup"), cap = document.getElementById("bu-cap"), dataEl = document.getElementById("bu-data");
   const legend = document.getElementById("bu-legend"), rel = state.release, win = DATA.windows && DATA.windows[rel];
@@ -1524,20 +1533,18 @@ function renderBurnup() {
   const scopeHref = dc.all ? TB.href : J({release: rel, commit: new Set(TARGET_COMMIT), ...(!TB.pre ? {wasOn: {release: rel, date: iso(TB.w1)}} : {})}), todayHref = dc.all ? TB.hrefToday : J({release: rel, commit: new Set(TARGET_COMMIT)});
   const scopeTip = dc.all ? TB.tip : TB.pre ? `${nn(baseScope, "target epic", "target epics")} so far in ${rel}, planned in ${cy1}; W1 starts ${shortDate(TB.w1)}\nCommitted or Not Set.` : `${nn(baseScope, "target epic", "target epics")} in ${rel} on ${shortDate(TB.w1)}, the first day of W1, planned in ${cy1}\nCommitted or Not Set. ${target.length.toLocaleString("en-US")} ${target.length === 1 ? "is" : "are"} in the target today.`;
   const dlist = dc.all ? doneScope(rel) : doneScope(rel).filter(keep);                                  // Done ignores Commitment Type: the same Done the Epics Delivered tile shows; scope and Delivery Cycle 1 stay target / Committed
-  {
-    const dn = dlist.filter(e => cls(e.s) === "done"), last = dn.map(e => e.rd).filter(Boolean).sort().pop(), wk = weekOf(rel);
-    document.getElementById("bu-sub").textContent = list.length ? `${dn.length.toLocaleString("en-US")}${win ? ` of ${baseScope.toLocaleString("en-US")} target scope` : ""} epics delivered${wk ? " · " + wk.replace(/^Week/, "week") : ""}${last ? ` · last epic closed ${last}` : ""}${nm ? ` · ${nm}` : ""}` : "";
-  }
-  if (!win) { el.innerHTML = `<div class="empty">Jira has no dated version for ${esc(rel)}, so there is no timeline to draw.</div>`; return; }
-  if (!list.length) { el.innerHTML = `<div class="empty">${whyEmpty("epics")}</div>`; return; }
-  if (!dc.all && !target.length && !dlist.some(e => cls(e.s) === "done")) { el.innerHTML = `<div class="empty">No target epics of ${esc(rel)} are planned in ${esc(cy1)}, and none of its epics is Done. Tick both cycles in the filter bar to see the whole release.</div>`; return; }
-
+  // The window of the X axis, and where the as-of day stands against it (every cycle ticked: the whole release, as before).
+  const DM = win ? dcDomain(rel, dc) : null, kind = DM ? DM.kind : "all", ds = DM ? DM.s : 0, de = DM ? DM.e : 0, span = Math.max(1, de - ds);
+  const D = win ? DM.D : 0, weeks = Math.round(D / 7);
+  const snapRaw = Math.round((snap - w1) / DAY), snapD = Math.min(D, Math.max(0, snapRaw));
+  const before = kind === "c2" && snapRaw < ds;                  // Delivery Cycle 2 has not started: no Done line, no pace line, no snapshot marker, one sentence instead
+  const inWin = kind === "c2" ? snapRaw >= ds && snapRaw < de : snapD < de;      // the snapshot marker and the pace comparison are drawn only while the as-of day is inside the window
+  const closed = kind === "c1" && snapRaw >= de;                 // Delivery Cycle 1 is over: the line stops on its last day
+  const dEnd = Math.min(snapD, de);                              // the last day the Done line reaches
   const clampWin = t => Math.min(Math.max(t, w1), end);          // earlier closures count at W1, later ones on the last day
   const early = dlist.filter(e => cls(e.s) === "done" && e.rd && utc(e.rd) < w1).length;
   const late = dlist.filter(e => cls(e.s) === "done" && e.rd && utc(e.rd) > end).length;
   const doneT = dlist.filter(e => cls(e.s) === "done" && e.rd).map(e => clampWin(utc(e.rd))).sort((a, b) => a - b);
-  const D = Math.round((end - w1) / DAY), weeks = Math.round(D / 7);
-  const snapD = Math.min(D, Math.max(0, Math.round((snap - w1) / DAY)));
   const done = [];
   let di = 0;
   for (let d = 0; d <= D; d++) {
@@ -1545,41 +1552,77 @@ function renderBurnup() {
     while (di < doneT.length && doneT[di] <= t) di++;
     done.push(di);
   }
-  const finalDone = done[snapD], N = baseScope, added = target.length - N;
+  const N = baseScope, carry = kind === "c2" ? done[ds - 1] : 0;      // Delivery Cycle 2: Done stays cumulative since the release start, so its line starts at the epics already Done before W7
+  {
+    const dn = dlist.filter(e => cls(e.s) === "done"), last = dn.map(e => e.rd).filter(Boolean).sort().pop(), wk = weekOf(rel);
+    const shownDone = closed ? done[de] : dn.length, since = closed ? done[snapD] - done[de] : 0;
+    document.getElementById("bu-sub").textContent = list.length ? `${shownDone.toLocaleString("en-US")}${win ? ` of ${baseScope.toLocaleString("en-US")} target scope` : ""} epics delivered${closed ? ` by the end of ${cy1}${since > 0 ? ` · ${since.toLocaleString("en-US")} more Done since` : ""}` : ""}${before ? ` · ${cy1} starts ${shortDate(w1 + ds * DAY)}` : ""}${wk ? " · " + wk.replace(/^Week/, "week") : ""}${last ? ` · last epic closed ${last}` : ""}${nm ? ` · ${nm}` : ""}` : "";
+    // The plain-words line under the title (only when one cycle is ticked, so the chart with both is untouched): which weeks the axis shows and what the Done and even-pace lines mean there.
+    let pl0 = document.getElementById("bu-plain");
+    if (dc.all || !win) { if (pl0) pl0.remove(); }
+    else {
+      if (!pl0) { pl0 = document.createElement("div"); pl0.className = "sub"; pl0.id = "bu-plain"; document.getElementById("bu-sub").after(pl0); }
+      const a = shortDate(w1 + ds * DAY), z = shortDate(w1 + de * DAY), wa = Math.floor(ds / 7) + 1, wz = kind === "c2" ? weeks : Math.floor(de / 7) + 1;
+      pl0.textContent = before ? `${cy1} starts on ${a}. As of ${shortDate(snap)}, ${dn.length.toLocaleString("en-US")} of ${N.toLocaleString("en-US")} epics planned in it are already Done.`
+        : kind === "c1" ? `${cy1}: W${wa} to W${wz} (${a} to ${z}). Counts only epics planned in this cycle. Done is cumulative since W1. The even-pace line reaches the scope at the end of W${wz}.${closed ? ` Window closed on ${z}.` : ""}`
+        : `${cy1}: W${wa} to W${wz} (${a} to ${z}). Counts only epics planned in this cycle. Done is cumulative since the release start, ${carry ? `so the line starts at the ${nn(carry, "epic", "epics")} already Done before W${wa}. The even-pace line goes from there to the scope at the release end.` : `and none of them was Done before W${wa}, so the line starts at zero. The even-pace line goes from zero to the scope at the release end.`}`;
+    }
+  }
+  if (!win) { el.innerHTML = `<div class="empty">Jira has no dated version for ${esc(rel)}, so there is no timeline to draw.</div>`; return; }
+  if (!list.length) { el.innerHTML = `<div class="empty">${whyEmpty("epics")}</div>`; return; }
+  if (!dc.all && !target.length && !dlist.some(e => cls(e.s) === "done")) { el.innerHTML = `<div class="empty">No target epics of ${esc(rel)} are planned in ${esc(cy1)}, and none of its epics is Done. Tick both cycles in the filter bar to see the whole release.</div>`; return; }
+
+  const finalDone = done[dEnd], added = target.length - N;
+  const p0 = Math.min(carry, N), paceAt = d => kind === "all" ? (D ? N * d / D : 0) : kind === "c1" ? (de ? N * d / de : 0) : p0 + (N - p0) * (de > ds ? (d - ds) / (de - ds) : 1);      // even pace: whole release 0 to Scope at the release end; Cycle 1 0 to its Scope at the end of W6; Cycle 2 from the epics already Done to its Scope at the release end
   const W = chartWidth(el, 300), narrow = W < 520, H = 344, pl = 44, pr = 14, pt = narrow ? 40 : 22, pb = 48, pw = W - pl - pr, ph = H - pt - pb;
-  const sc = niceScale(Math.max(N, ...done) * 1.04);
-  const x = d => pl + pw * d / D, y = v => pt + ph * (1 - v / sc.max);
+  const sc = niceScale(Math.max(N, ...(kind === "all" ? done : done.slice(Math.max(0, ds - 1), de + 1))) * 1.04);
+  const x = d => pl + pw * (d - ds) / span, y = v => pt + ph * (1 - v / sc.max);
   let g = "";
   for (const v of sc.ticks)
     g += `<line x1="${pl}" x2="${W - pr}" y1="${y(v)}" y2="${y(v)}" stroke="#E6E3DC"/>` +
          `<text x="${pl - 7}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="#5A5F6B">${v}</text>`;
-  const tickEvery = Math.max(7, Math.ceil(74 / (pw / D) / 7) * 7);
-  for (let d = 0; d <= D; d += tickEvery)
+  const tickEvery = Math.max(7, Math.ceil(74 / (pw / span) / 7) * 7);
+  const endTick = kind !== "all" && (de - ds) % tickEvery !== 0;      // a narrowed axis also ticks its last day (the end of W6, the release end), unless a week tick sits on it
+  for (let d = ds; d <= de; d += tickEvery) {
+    if (endTick && x(de) - x(d) < 96) continue;                  // a week tick too close to the last day's label is left out
     g += `<line x1="${x(d)}" x2="${x(d)}" y1="${pt + ph}" y2="${pt + ph + 4}" stroke="#8A8F98"/>` +
          `<text x="${x(d)}" y="${pt + ph + 18}" text-anchor="${x(d) + 32 > W ? "end" : "middle"}" font-size="11" fill="#4A4F57">${shortDate(w1 + d * DAY)}</text>` +
          `<text x="${x(d)}" y="${pt + ph + 32}" text-anchor="${x(d) + 32 > W ? "end" : "middle"}" font-size="11" font-weight="600" fill="#5A5F6B">W${d / 7 + 1}</text>`;
-  g += `<line x1="${x(D)}" x2="${x(D)}" y1="${pt}" y2="${pt + ph}" stroke="#8A8F98" stroke-dasharray="4 3"/>` +
-       `<text x="${x(D)}" y="${pt - 7}" text-anchor="${x(D) > W - pr - 70 ? "end" : "middle"}" font-size="11" fill="#4A4F57">release end ${shortDate(end)}</text>`;
-  if (snapD < D) g += `<line x1="${x(snapD)}" x2="${x(snapD)}" y1="${pt}" y2="${pt + ph}" stroke="#5A5F6B" stroke-opacity=".7" stroke-dasharray="2 3"/>` +
+  }
+  if (endTick) g += `<line x1="${x(de)}" x2="${x(de)}" y1="${pt + ph}" y2="${pt + ph + 4}" stroke="#8A8F98"/>` +
+         `<text x="${x(de)}" y="${pt + ph + 18}" text-anchor="end" font-size="11" fill="#4A4F57">${shortDate(w1 + de * DAY)}</text>` +
+         `<text x="${x(de)}" y="${pt + ph + 32}" text-anchor="end" font-size="11" font-weight="600" fill="#5A5F6B">W${Math.floor(Math.min(de, D - 1) / 7) + 1} end</text>`;
+  g += `<line x1="${x(de)}" x2="${x(de)}" y1="${pt}" y2="${pt + ph}" stroke="#8A8F98" stroke-dasharray="4 3"/>` +
+       `<text x="${x(de)}" y="${pt - 7}" text-anchor="${x(de) > W - pr - 70 ? "end" : "middle"}" font-size="11" fill="#4A4F57">${kind === "c1" ? `end of ${cy1} ${shortDate(w1 + de * DAY)}` : `release end ${shortDate(end)}`}</text>`;
+  if (inWin) g += `<line x1="${x(snapD)}" x2="${x(snapD)}" y1="${pt}" y2="${pt + ph}" stroke="#5A5F6B" stroke-opacity=".7" stroke-dasharray="2 3"/>` +
        `<text x="${x(snapD)}" y="${narrow ? pt - 25 : pt - 7}" text-anchor="${x(snapD) > W - pr - 110 ? "end" : x(snapD) - pl < 70 ? "start" : "middle"}" font-size="11" fill="#3B3F4A">${DATA.refreshedAt ? "refreshed" : "snapshot"} ${shortDate(snap)}</text>`;
-  g += `<line x1="${x(0)}" y1="${y(0)}" x2="${x(D)}" y2="${y(N)}" stroke="#6E737C" stroke-width="1.5" stroke-dasharray="6 4"/>`;
-  const doneLine = (() => { let d = `M${x(0)},${y(done[0])}`; for (let i = 1; i <= snapD; i++) if (done[i] !== done[i - 1]) d += ` H${x(i)} V${y(done[i])}`; return d + ` H${x(snapD)}`; })();
-  g += `<path d="${doneLine} V${y(0)} H${x(0)} Z" fill="#3694FC" fill-opacity=".16"/>`;
-  g += `<path d="${doneLine}" fill="none" stroke="#025AFB" stroke-width="2.5"/>`;
-  const yS = y(N), yD = y(finalDone), gap = Math.abs(yS - yD) < 15, pace = D ? N * snapD / D : 0, dv = Math.round(finalDone - pace);
+  if (!before) g += `<line x1="${x(ds)}" y1="${y(p0)}" x2="${x(de)}" y2="${y(N)}" stroke="#6E737C" stroke-width="1.5" stroke-dasharray="6 4"/>`;
+  const doneLine = (() => { let d = `M${x(ds)},${y(done[kind === "c2" ? ds - 1 : 0])}`; for (let i = kind === "c2" ? ds : 1; i <= dEnd; i++) if (done[i] !== done[i - 1]) d += ` H${x(i)} V${y(done[i])}`; return d + ` H${x(dEnd)}`; })();
+  if (!before) {
+    g += `<path d="${doneLine} V${y(0)} H${x(ds)} Z" fill="#3694FC" fill-opacity=".16"/>`;
+    g += `<path d="${doneLine}" fill="none" stroke="#025AFB" stroke-width="2.5"/>`;
+  }
+  const yS = y(N), yD = y(finalDone), gap = Math.abs(yS - yD) < 15, pace = paceAt(dEnd), dv = Math.round(finalDone - pace);
   const sTop = Math.max(pt + 10, yS - 21), addTxt = TB.pre ? "" : `${added >= 0 ? "+" : "−"}${Math.abs(added)} since W1`;      // the Scope label is inside the plot, left of the end dot, so the plot reaches the card edge
-  g += `<circle cx="${x(D)}" cy="${yS}" r="4" fill="#21212B" pointer-events="none"/><text pointer-events="none" x="${x(D) - 9}" y="${sTop}" text-anchor="end" font-size="12" font-weight="600" fill="#21212B" stroke="#fff" stroke-width="3" paint-order="stroke">Scope ${N.toLocaleString("en-US")}</text>`;
-  if (addTxt) g += `<text pointer-events="none" x="${x(D) - 9}" y="${sTop + 13}" text-anchor="end" font-size="11" fill="#3B3F4A" stroke="#fff" stroke-width="3" paint-order="stroke">${addTxt}</text>`;
-  const paceTxt = snap >= w1 && snapD < D && N >= MIN_N ? `${dv >= 0 ? "+" : "−"}${Math.abs(dv)} vs even pace` : "";
+  g += `<circle cx="${x(de)}" cy="${yS}" r="4" fill="#21212B" pointer-events="none"/><text pointer-events="none" x="${x(de) - 9}" y="${sTop}" text-anchor="end" font-size="12" font-weight="600" fill="#21212B" stroke="#fff" stroke-width="3" paint-order="stroke">Scope ${N.toLocaleString("en-US")}</text>`;
+  if (addTxt) g += `<text pointer-events="none" x="${x(de) - 9}" y="${sTop + 13}" text-anchor="end" font-size="11" fill="#3B3F4A" stroke="#fff" stroke-width="3" paint-order="stroke">${addTxt}</text>`;
+  const paceTxt = snap >= w1 && inWin && N >= MIN_N ? `${dv >= 0 ? "+" : "−"}${Math.abs(dv)} vs even pace` : "";
   const doneTxt = `Done ${finalDone.toLocaleString("en-US")}`, est = (narrow ? Math.max(doneTxt.length, paceTxt.length) : (doneTxt + " · " + paceTxt).length) * 6.6;
-  const flip = x(snapD) + 7 + est > W - 4, tx = flip ? x(snapD) - 7 : x(snapD) + 7, ty = yD + 4 + (gap && snapD === D ? 8 : 0), anc = flip ? "end" : "start";
-  g += `<text x="${tx}" text-anchor="${anc}" y="${ty}" font-size="12" font-weight="600" fill="#025AFB" stroke="#fff" stroke-width="3" paint-order="stroke">${doneTxt}${paceTxt && !narrow ? " · " + paceTxt : ""}</text>`;
-  if (paceTxt && narrow) g += `<text x="${tx}" text-anchor="${anc}" y="${ty + 15}" font-size="11" fill="#025AFB" stroke="#fff" stroke-width="3" paint-order="stroke">${paceTxt}</text>`;
-  g += `<text x="${x(D * .64)}" y="${y(N * .64) - 8}" text-anchor="middle" font-size="11" fill="#5A5F6B" stroke="#fff" stroke-width="3" paint-order="stroke">Even pace</text>`;
-  if (nm) g += `<text pointer-events="none" x="${x(D) - 8}" y="${pt + ph - 10}" text-anchor="end" font-size="12" font-weight="600" fill="#3B3F4A" stroke="#fff" stroke-width="3" paint-order="stroke">${esc(nm)}</text>`;      // the chart says which cycles it shows
+  const flip = x(dEnd) + 7 + est > W - 4, tx = flip ? x(dEnd) - 7 : x(dEnd) + 7, ty = yD + 4 + (gap && dEnd === de ? 8 : 0), anc = flip ? "end" : "start";
+  if (!before) {
+    g += `<text x="${tx}" text-anchor="${anc}" y="${ty}" font-size="12" font-weight="600" fill="#025AFB" stroke="#fff" stroke-width="3" paint-order="stroke">${doneTxt}${paceTxt && !narrow ? " · " + paceTxt : ""}</text>`;
+    if (paceTxt && narrow) g += `<text x="${tx}" text-anchor="${anc}" y="${ty + 15}" font-size="11" fill="#025AFB" stroke="#fff" stroke-width="3" paint-order="stroke">${paceTxt}</text>`;
+    const pd = ds + span * .64;
+    g += `<text x="${x(pd)}" y="${y(kind === "all" ? N * .64 : paceAt(pd)) - 8}" text-anchor="middle" font-size="11" fill="#5A5F6B" stroke="#fff" stroke-width="3" paint-order="stroke">Even pace</text>`;
+  }
+  if (before) g += `<text pointer-events="none" x="${x(ds) + 10}" y="${pt + ph * .42}" font-size="12" font-weight="600" fill="#3B3F4A" stroke="#fff" stroke-width="3" paint-order="stroke">Starts ${shortDate(w1 + ds * DAY)}</text>` +
+    `<text pointer-events="none" x="${x(ds) + 10}" y="${pt + ph * .42 + 15}" font-size="11" fill="#3B3F4A" stroke="#fff" stroke-width="3" paint-order="stroke">${finalDone.toLocaleString("en-US")} of ${N.toLocaleString("en-US")} already Done</text>`;
+  else if (kind === "c2" && carry > 0) g += `<text pointer-events="none" x="${x(ds) + 8}" y="${Math.min(y(carry) + 16, pt + ph - 6)}" font-size="11" fill="#3B3F4A" stroke="#fff" stroke-width="3" paint-order="stroke">Already Done before W${Math.floor(ds / 7) + 1}: ${carry.toLocaleString("en-US")}</text>`;
+  if (nm) g += `<text pointer-events="none" x="${x(de) - 8}" y="${pt + ph - 10}" text-anchor="end" font-size="12" font-weight="600" fill="#3B3F4A" stroke="#fff" stroke-width="3" paint-order="stroke">${esc(nm)}</text>`;      // the chart says which cycles it shows
   const W6 = D >= 41 && state.projects.size && (dc.all || dc.shown.includes("1")) ? w6Model(rel, w1) : null;      // Delivery Cycle 2 only: the Cycle 1 line is not drawn (its epics are not in the chart)
+  const w6Mark = W6 && dc.all;                                    // the dotted marker is drawn with both cycles; with Delivery Cycle 1 only its place is the end-of-cycle marker, and the fact line and the two table columns stay
   let w6Dot = "", w6Hit = "";
-  if (W6) {
+  if (w6Mark) {
     // The cycle's count is printed on the chart: "Delivery Cycle 1 · N epics planned" and "N Done" (the same numbers as the fact line under it), left of the dotted line at the top of the plot,
     // where nothing else is drawn. The line wraps by the space left of the marker (two lines, three, five) so it never reaches the axis or the other labels at 1440, 1280, 400 or 320.
     const nP = W6.within.length, nD = W6.done.length, ctx2 = document.createElement("canvas").getContext("2d"), fam = getComputedStyle(el).fontFamily || "sans-serif";
@@ -1599,13 +1642,13 @@ function renderBurnup() {
     w6Hit = `<rect class="hit" x="${lx - lw - 3}" y="${pt}" width="${lw + 16}" height="${lines.length * 15 + 4}" fill="transparent"/>`;
   }
   g += `<line id="bu-cross" x1="0" x2="0" y1="${pt}" y2="${pt + ph}" stroke="#444" stroke-opacity=".45" style="display:none"/>`;
-  g += `<a id="bu-link" href="${J({kind: "done", commit: ALLC}) || ""}" target="_blank" rel="noopener" aria-label="Open the Done epics in Jira"><rect id="bu-hit" x="${pl}" y="${pt}" width="${pw}" height="${ph}" fill="transparent" style="touch-action:pan-y;cursor:pointer"/></a>`;
-  g += ga(`<circle cx="${x(D)}" cy="${yS}" r="9" fill="transparent" stroke="none"/><rect class="hit" x="${x(D) - 92}" y="${sTop - 13}" width="${92 + 12}" height="${addTxt ? 34 : 20}" fill="transparent"/>`, scopeHref, scopeTip);
-  const w6tip = W6 ? (dc.all ? `Delivery Cycle 1 (ends ${W6.w6}): ${W6.within.length.toLocaleString("en-US")} of ${nn(W6.list.length, "Committed epic", "Committed epics")} planned\n${W6.done.length.toLocaleString("en-US")} Done, ${W6.open.length.toLocaleString("en-US")} not Done; ${W6.none.length.toLocaleString("en-US")} with no planned date.` : `Delivery Cycle 1 (ends ${W6.w6}): ${nn(W6.within.length, "Committed epic", "Committed epics")} planned\n${W6.done.length.toLocaleString("en-US")} Done, ${W6.open.length.toLocaleString("en-US")} not Done.`) : "";
-  if (W6) g += ga(w6Hit + w6Dot, W6.hrefs.within, w6tip);
+  g += `<a id="bu-link" href="${J({kind: "done", commit: ALLC, ...(closed ? {extra: `resolutiondate < "${iso(w1 + (de + 1) * DAY)}"`} : {})}) || ""}" target="_blank" rel="noopener" aria-label="Open the Done epics in Jira"><rect id="bu-hit" x="${pl}" y="${pt}" width="${pw}" height="${ph}" fill="transparent" style="touch-action:pan-y;cursor:pointer"/></a>`;
+  g += ga(`<circle cx="${x(de)}" cy="${yS}" r="9" fill="transparent" stroke="none"/><rect class="hit" x="${x(de) - 92}" y="${sTop - 13}" width="${92 + 12}" height="${addTxt ? 34 : 20}" fill="transparent"/>`, scopeHref, scopeTip);
+  const w6tip = w6Mark ? (dc.all ? `Delivery Cycle 1 (ends ${W6.w6}): ${W6.within.length.toLocaleString("en-US")} of ${nn(W6.list.length, "Committed epic", "Committed epics")} planned\n${W6.done.length.toLocaleString("en-US")} Done, ${W6.open.length.toLocaleString("en-US")} not Done; ${W6.none.length.toLocaleString("en-US")} with no planned date.` : `Delivery Cycle 1 (ends ${W6.w6}): ${nn(W6.within.length, "Committed epic", "Committed epics")} planned\n${W6.done.length.toLocaleString("en-US")} Done, ${W6.open.length.toLocaleString("en-US")} not Done.`) : "";
+  if (w6Mark) g += ga(w6Hit + w6Dot, W6.hrefs.within, w6tip);
   const w6n = (list, href, what) => list.length ? tlink(list.length, href, `${nn(list.length, "Committed epic", "Committed epics")} ${what}`) : "0";
   document.getElementById("bu-w6").innerHTML = W6 ? (W6.list.length ? `<b>Delivery Cycle 1</b> (ends ${W6.w6}): ${w6n(W6.within, W6.hrefs.within, "planned by the end of Delivery Cycle 1")}${dc.all ? ` of ${tlink(W6.list.length, W6.hrefs.all, `${nn(W6.list.length, "Committed epic", "Committed epics")} in ${rel}`)} Committed ${epicWord(W6.list.length)}` : ` Committed ${epicWord(W6.within.length)}`} planned; ${w6n(W6.done, W6.hrefs.done, "Done, planned by the end of Delivery Cycle 1")} Done, ${w6n(W6.open, W6.hrefs.open, "not Done, planned by the end of Delivery Cycle 1")} not Done${dc.all ? `, ${w6n(W6.none, W6.hrefs.none, "with no planned date")} undated` : ""}.` : `No Committed epics on ${esc(rel)}.`) : (dc.all ? "" : `<b>Delivery Cycle 1</b> is not drawn: only ${esc(cy1)} is selected in the filter bar.`);
-  el.innerHTML = `<div class="chartscroll"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Burnup for ${esc(rel)}, weeks 1 to ${weeks}: ${finalDone} epics Done against a scope of ${N}${nm ? `, ${esc(nm)}` : ""}. Daily values are in the data table below.">${g}</svg></div><div class="bu-tip" id="bu-tip"></div>`;
+  el.innerHTML = `<div class="chartscroll"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Burnup for ${esc(rel)}, weeks ${Math.floor(ds / 7) + 1} to ${kind === "c1" ? Math.floor(de / 7) + 1 : weeks}: ${finalDone} epics Done against a scope of ${N}${nm ? `, ${esc(nm)}` : ""}${before ? `; ${esc(cy1)} has not started` : ""}. Daily values are in the data table below.">${g}</svg></div><div class="bu-tip" id="bu-tip"></div>`;
 
   const svg = el.querySelector("svg"), tip = document.getElementById("bu-tip"), cross = document.getElementById("bu-cross");
   const hit = document.getElementById("bu-hit");
@@ -1613,24 +1656,24 @@ function renderBurnup() {
   const dayAt = d => {                                          // the same tooltip for the pointer and for the keyboard
     const r = svg.getBoundingClientRect(), wr = el.getBoundingClientRect();
     cross.setAttribute("x1", x(d)); cross.setAttribute("x2", x(d)); cross.style.display = "";
-    lk.setAttribute("href", (d >= D ? J({kind: "done", commit: ALLC}) : J({kind: "done", commit: ALLC, extra: `resolutiondate < "${iso(w1 + (d + 1) * DAY)}"`})) || "");
-    const pace = Math.round(D ? N * d / D : 0);
-    lk.setAttribute("aria-label", `${shortDate(w1 + d * DAY)}, week ${Math.floor(d / 7) + 1}${nm ? ` (${nm})` : ""}: target scope ${N}, even pace ${pace}${d > snapD ? "" : `, done ${done[d]} (any Commitment Type)`}. ${lkLabel}. Left and right arrow keys move the day.`);
-    tip.innerHTML = `<b>${shortDate(w1 + d * DAY)}</b> (W${Math.floor(d / 7) + 1})${nm ? ` · ${esc(nm)}` : ""}<br>Target scope ${N}<br>Even pace ${pace}` + (d > snapD ? "" : `<br>Done ${done[d]} (any Commitment Type)<br><span style="color:var(--muted)">Opens the ${nn(done[d], "Done epic", "Done epics")} up to this day.</span>`);
+    lk.setAttribute("href", (d >= D || before ? J({kind: "done", commit: ALLC}) : J({kind: "done", commit: ALLC, extra: `resolutiondate < "${iso(w1 + (d + 1) * DAY)}"`})) || "");
+    const pace = Math.round(paceAt(d));
+    lk.setAttribute("aria-label", `${shortDate(w1 + d * DAY)}, week ${Math.floor(d / 7) + 1}${nm ? ` (${nm})` : ""}: target scope ${N}${before ? `, ${finalDone} already Done, the cycle has not started` : `, even pace ${pace}`}${d > snapD ? "" : `, done ${done[d]} (any Commitment Type)`}. ${lkLabel}. Left and right arrow keys move the day.`);
+    tip.innerHTML = `<b>${shortDate(w1 + d * DAY)}</b> (W${Math.floor(d / 7) + 1})${nm ? ` · ${esc(nm)}` : ""}<br>Target scope ${N}` + (before ? `<br>${finalDone.toLocaleString("en-US")} already Done; the cycle starts ${shortDate(w1 + ds * DAY)}` : `<br>Even pace ${pace}`) + (d > snapD ? "" : `<br>Done ${done[d]} (any Commitment Type)<br><span style="color:var(--muted)">Opens the ${nn(done[d], "Done epic", "Done epics")} up to this day.</span>`);
     tip.style.display = "block";
     tip.style.left = Math.max(0, Math.min(r.left - wr.left + x(d) * (r.width / W) + 12, wr.width - tip.offsetWidth - 4)) + "px";
     tip.style.top = "8px";
   };
-  const move = ev => { const r = svg.getBoundingClientRect(), px = (ev.clientX - r.left) * (W / r.width); dayAt(Math.max(0, Math.min(D, Math.round((px - pl) / pw * D)))); };
+  const move = ev => { const r = svg.getBoundingClientRect(), px = (ev.clientX - r.left) * (W / r.width); dayAt(Math.max(ds, Math.min(de, Math.round(ds + (px - pl) / pw * span)))); };
   hit.addEventListener("pointermove", move); hit.addEventListener("pointerdown", move);
   const hide = () => { tip.style.display = "none"; cross.style.display = "none"; };
   hit.addEventListener("pointerleave", hide); hit.addEventListener("pointercancel", hide);
-  let kd = snapD;                                               // keyboard: focus shows the latest day, the arrow keys move it, Esc closes (the link still opens the Done epics)
-  lk.addEventListener("focus", () => { kd = snapD; dayAt(kd); });
+  let kd = Math.max(ds, Math.min(de, snapD));                                               // keyboard: focus shows the latest day, the arrow keys move it, Esc closes (the link still opens the Done epics)
+  lk.addEventListener("focus", () => { kd = Math.max(ds, Math.min(de, snapD)); dayAt(kd); });
   lk.addEventListener("blur", hide);
   lk.addEventListener("keydown", ev => {
-    if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") { ev.preventDefault(); kd = Math.max(0, Math.min(D, kd + (ev.key === "ArrowLeft" ? -1 : 1))); dayAt(kd); }
-    else if (ev.key === "Home" || ev.key === "End") { ev.preventDefault(); kd = ev.key === "Home" ? 0 : D; dayAt(kd); }
+    if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") { ev.preventDefault(); kd = Math.max(ds, Math.min(de, kd + (ev.key === "ArrowLeft" ? -1 : 1))); dayAt(kd); }
+    else if (ev.key === "Home" || ev.key === "End") { ev.preventDefault(); kd = ev.key === "Home" ? ds : de; dayAt(kd); }
     else if (ev.key === "Escape") hide();
   });
 
@@ -1644,7 +1687,7 @@ function renderBurnup() {
       ["Even pace", `a straight line from zero to the target scope: a reference, not a forecast.`],
       ["Delivery Cycle 1 (dotted line)", `Committed epics only, planned on or before the end of W6. The dot shows how many.`],
       ["Planned date", `the later of the due date and the Target Sprint end. If only one exists, that one. If neither, the epic is undated.`],
-      ["Delivery Cycle filter", `both cycles ticked: the chart as described here. One cycle ticked: the same timeline, counting only the epics planned in that cycle (Delivery Cycle 1: on or before the end of W6; Delivery Cycle 2: W7 to the release end).`]
+      ["Delivery Cycle filter", `both cycles ticked: the chart as described here. One cycle ticked: the axis shows only that cycle (Delivery Cycle 1: W1 to the end of W6; Delivery Cycle 2: W7 to the release end) and counts only the epics planned in it. The even-pace line and "vs even pace" are then measured to the end of that cycle, so they do not compare with the whole-release view.`]
     ],
     left: `Removed epics, and the IP week (the first seven days of the release), which is not drawn.`,
     know: `Epics closed before W1 count at the start; epics closed after the release end count on its last day. The chart follows Projects and Teams.`,
@@ -1654,15 +1697,15 @@ function renderBurnup() {
       ["Planned date on the dependency board", `The dependency board keeps the due date over the Target Sprint.`],
       ["Done against the target", `${tlink(finalDone, J({kind: "done", commit: new Set(TARGET_COMMIT)}), `${nn(finalDone, "epic", "epics")} Done in ${rel}, any Commitment Type\nThe link opens the Done epics that are Committed or Not Set.`)} Done target epics (Committed and Not Set), ${snapD < D ? (DATA.refreshedAt ? "as of the last Refresh" : "as of the snapshot") : "final"}.`],
       ...((early || late) ? [["Counted at the edges", `${early ? `${early} ${epicWord(early)} closed before W1 ${early === 1 ? "is" : "are"} counted at the start. ` : ""}${late ? `${late} ${epicWord(late)} closed after the release end ${late === 1 ? "is" : "are"} counted on its last day.` : ""}`]] : []),
-      ["Delivery Cycle filter, details", `With one cycle ticked, Scope, Done, Remaining, the even-pace line, the day readout, the data table and their links count only epics in that cycle. A cycle holds the epics whose planned date falls in it: Delivery Cycle 1 is every planned date on or before the end of W6 (earlier dates included, such as carry-over), Delivery Cycle 2 is W7 to the release end. This is the rule of the Delivery Cycle 1 line. An epic with no planned date, or planned after the release end, is in neither cycle and is counted only when both cycles are ticked. With Delivery Cycle 2 only the Delivery Cycle 1 line is not drawn. The cycle of an epic uses today's planned dates for every day of the timeline: Jira does not keep earlier planned dates here, so the history of one cycle is today's view of it, not what it looked like on that day. The Done line starts from the epics Done before W1 that are planned in the cycle.`],
+      ["Delivery Cycle filter, details", `With one cycle ticked, Scope, Done, Remaining, the even-pace line, the day readout, the data table and their links count only epics in that cycle. A cycle holds the epics whose planned date falls in it: Delivery Cycle 1 is every planned date on or before the end of W6 (earlier dates included, such as carry-over), Delivery Cycle 2 is W7 to the release end. This is the rule of the Delivery Cycle 1 line. An epic with no planned date, or planned after the release end, is in neither cycle and is counted only when both cycles are ticked. The cycle of an epic uses today's planned dates for every day of the timeline: Jira does not keep earlier planned dates here, so the history of one cycle is today's view of it, not what it looked like on that day. Done stays cumulative since the release start in both cycles, so the Done number, the headline and the Jira links agree: the Delivery Cycle 2 line starts at the epics planned in it that were already Done before W7. Even pace: Delivery Cycle 1 runs from zero to its scope at the end of W6 (the whole-release line would reach only part of it by then, so "vs even pace" differs from the whole-release view); Delivery Cycle 2 runs from the epics already Done before W7 to its scope at the release end. Before Delivery Cycle 2 starts only its scope and a sentence are drawn. The snapshot marker is drawn only while the as-of day is inside the window; after Delivery Cycle 1 ends its line stops on its last day and the headline says how many more were Done since. With Delivery Cycle 2 only the Delivery Cycle 1 line is not drawn. With Delivery Cycle 1 only the dotted marker is replaced by the end-of-cycle marker (the fact line and the two table columns stay).`],
       ["Delivery Cycle 1, other uses", `Delivery Cycle 1 leaves out Not Set and Stretch epics here. The Cycles section counts every Commitment Type.`]
     ]}));
   const days = [];
-  for (let d = 0; d <= D; d += 7) days.push(d);
-  [snapD, D, ...(W6 ? [41] : [])].forEach(d => { if (!days.includes(d)) days.push(d); });
+  for (let d = ds; d <= de; d += 7) days.push(d);
+  (kind === "all" ? [snapD, D, ...(W6 ? [41] : [])] : [...(!before && snapD >= ds && snapD <= de ? [snapD] : []), de]).forEach(d => { if (!days.includes(d)) days.push(d); });      // a narrowed axis keeps its own last day (the end of W6 is the Delivery Cycle 1 row)
   days.sort((a, b) => a - b);
   // Delivery Cycle 1 columns: on the row of the cycle end (W1 start + 41 days) the Committed epics planned by then and how many of them are Done, linked like the fact line.
-  dataTable("bu-data", `Burnup for ${rel}, weekly, at the latest day${dc.all || W6 ? " and at the end of Delivery Cycle 1" : ""}${nm ? `, ${nm}` : ""}`, ["Date", "Week", "Scope", "Done", "Remaining"].concat(W6 ? ["Delivery Cycle 1 Planned", "Delivery Cycle 1 Done"] : []),
+  dataTable("bu-data", `Burnup for ${rel}, weekly${kind === "all" ? ", at the latest day and at the end of Delivery Cycle 1" : `, W${Math.floor(ds / 7) + 1} to W${kind === "c2" ? weeks : Math.floor(de / 7) + 1}${before ? "" : ", at the latest day"}${kind === "c1" && W6 ? " and at the end of Delivery Cycle 1" : ""}, ${nm}`}`, ["Date", "Week", "Scope", "Done", "Remaining"].concat(W6 ? ["Delivery Cycle 1 Planned", "Delivery Cycle 1 Done"] : []),
     days.map(d => [shortDate(w1 + d * DAY), "W" + (Math.min(d, D - 1) >= 0 ? Math.floor(Math.min(d, D - 1) / 7) + 1 : 1), N, d > snapD ? "–" : done[d], d > snapD ? "–" : Math.max(0, N - done[d])]
       .concat(W6 ? (d === 41 ? [w6n(W6.within, W6.hrefs.within, "planned by the end of Delivery Cycle 1"), w6n(W6.done, W6.hrefs.done, "Done, planned by the end of Delivery Cycle 1")] : ["–", "–"]) : [])));
 }
