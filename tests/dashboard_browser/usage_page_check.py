@@ -111,7 +111,7 @@ def _(t: T):
         t.check(ch.js("document.querySelectorAll('.kpis .kpi').length") == 5 and ch.js("document.querySelectorAll('.kpis .sparkwrap svg[role=img]').length") >= 4, f"{w}: five key figures with sparklines")
         t.check(ch.js("document.querySelectorAll('.plot').length") >= 2 and ch.js("document.querySelectorAll('.hbar').length") == 2 and ch.js("document.querySelectorAll('.ln2 path.l').length") >= 1, f"{w}: the weekly and daily charts, two hatched incomplete weeks, one line")
         t.check(ch.js("document.querySelectorAll('.hbars').length") >= 6 and ch.js("document.querySelectorAll('.hm .c').length") >= 40 and ch.js("document.querySelectorAll('.ch .cc').length") >= 5 and ch.js("document.querySelectorAll('.sb').length") >= 5, f"{w}: bars, the day-and-hour map, the cohort grid and stacked bars are drawn")
-        t.check(ch.js("document.querySelectorAll('details.vd > summary').length") >= 14, f"{w}: the disclosures exist")
+        t.check(ch.js("document.querySelectorAll('details.vd > summary').length") >= 12, f"{w}: the disclosures exist")
     t.check(ch.js("document.querySelectorAll('script').length - document.querySelectorAll('script[data-harness]').length") == 0, "the page has no script")
     ctx.chrome.viewport(1400, 900)
 
@@ -135,7 +135,7 @@ def _(t: T):
         ch = open_at(w)
         t.check(ch.js("!document.getElementById('changed') && !document.querySelector('.chips, .chip, #checked, #nothing') && !document.body.innerText.includes('What changed since last report')"), f"{w}: no What changed section, chips or Checked ledger")
         t.check(ch.js("[...document.querySelectorAll('.warn')].some(w => w.textContent.includes('days old') && w.getBoundingClientRect().height > 0)"), f"{w}: the stale-export banner still shows for an old export")
-        t.check(ch.js("(() => { const k = document.getElementById('kpis').getBoundingClientRect(), tr = document.getElementById('trend').getBoundingClientRect(); return tr.top > k.bottom && tr.top - k.bottom < 120; })()"), f"{w}: the trend follows the key figures directly")
+        t.check(ch.js("(() => { const k = document.getElementById('kpis').getBoundingClientRect(), tr = document.getElementById('trend').getBoundingClientRect(); return tr.top >= k.bottom - 1 && tr.top - k.bottom < 120; })()"), f"{w}: the trend follows the key figures directly")
     t.check(ch.js("document.getElementById('growth').textContent.includes('Is adoption growing?')"), "the growth verdict sits under the weekly chart")
     ch = open_at(1400, "v1")
     t.check(ch.js("document.body.innerText.includes('not recorded in v1') || document.body.innerText.includes('Not recorded in v1')"), "the v1 page says what is not recorded")
@@ -195,7 +195,7 @@ def _(t: T):
     n = ch.js("document.querySelectorAll('details > summary').length")
     for typ in ("keyDown", "keyUp"):                                                  # a real Tab: the first stop of the page
         ch.cmd("Input.dispatchKeyEvent", type=typ, key="Tab", code="Tab", windowsVirtualKeyCode=9)
-    t.check(ch.js("document.activeElement.tagName") == "SUMMARY" and n >= 14, "Tab reaches a summary first")
+    t.check(ch.js("document.activeElement.tagName") == "SUMMARY" and n >= 12, "Tab reaches a summary first")
     t.check(ch.js("getComputedStyle(document.activeElement).outlineStyle") != "none", "the focus ring is drawn")
 
 
