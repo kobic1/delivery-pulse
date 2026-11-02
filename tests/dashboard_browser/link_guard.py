@@ -302,6 +302,38 @@ def _(t: T):
     t.note(f"{len(seen)} distinct hovers in {len(TIP_VIEWS)} views; documented exceptions: " + "; ".join(f"{k} ({v})" for k, v in exempt.items()))
 
 
+WIP_TIPS_JS = r"""(() => {
+  const t = document.querySelector('#cy-kpis2 [data-kpi="wip"]'); if (!t) return null;
+  const lab = t.querySelector('.l .tt'), a = t.querySelector('.s a'), b = t.querySelector('.v button'); let rows = [];
+  if (b) { b.click(); rows = [...document.querySelectorAll('#cy-podlist tbody a[data-tip]')].map(x => x.getAttribute('data-tip')); b.click(); }
+  return {title: t.querySelector('.l').textContent.trim(), hover: lab ? lab.getAttribute('data-tip') : '', sub: t.querySelector('.s').textContent.trim(), link: a ? a.getAttribute('data-tip') : '', rows};
+})()"""
+
+
+@SUITE.test("tooltips_the_wip_tile_says_it_counts_the_status_In_Progress_only")
+def _(t: T):
+    """Two meanings of 'In-Progress' exist on the page (In Progress or Validation, and this tile: the status In Progress only). The tile's title, hover, sub line, link hover and list-row hovers must say so
+    plainly: number and scope first (at most 12 words in the first line), Validation named as not counted, and the wider 'In-Progress' wording never used for this tile."""
+    data = MS.make(MS.il_today())
+    url = ctx.write(kit.fragment_for(data), "wiptips")
+    ch = ctx.chrome
+    for h in ("r=27.1", "r=27.1&dc=1"):
+        ch.goto(url + "#" + h)
+        kit.wait_ready(ch)
+        w = ch.js(WIP_TIPS_JS)
+        t.check(bool(w) and bool(w["link"]) and bool(w["rows"]), f"{h}: the fixture has no pod over the level to read ({w})")
+        if not w:
+            continue
+        t.check(w["title"] == "Pods With More Than 3 Epics In Progress", f"{h}: the title is '{w['title']}'")
+        lines = w["hover"].split("\n")
+        t.check(_words(lines[0]) <= 12 and "status In Progress" in lines[0] and "more than 3" in lines[0], f"{h}: the first line of the hover is '{lines[0]}'")
+        t.check("Validation is not counted" in w["hover"] and _words(" ".join(lines[:2])) <= TIP_BUDGET_WORDS and len(lines) <= TIP_BUDGET_LINES, f"{h}: the hover is '{w['hover']}'")
+        t.check(re.match(r"[\d,]+ epics? in status In Progress in these pods$", w["sub"]) is not None, f"{h}: the sub line is '{w['sub']}'")
+        t.check("Validation is not counted" in w["link"] and _words(w["link"].split("\n")[0]) <= 12, f"{h}: the link hover is '{w['link']}'")
+        t.check(all(_words(r.split("\n")[0]) <= 12 and "status In Progress" in r.split("\n")[0] for r in w["rows"]), f"{h}: a list-row hover is over 12 words or does not name the status: {w['rows'][:2]}")
+        t.check(not re.search(r"In-Progress|in-progress", " ".join([w["title"], w["hover"], w["sub"], w["link"]] + w["rows"])), f"{h}: the wider 'In-Progress' wording is used for this tile")
+
+
 @SUITE.test("selftest_guard_catches_a_seeded_key_list")
 def _(t: T):
     src = ctx.template.read_text(encoding="utf-8")

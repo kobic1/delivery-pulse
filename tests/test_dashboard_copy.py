@@ -190,6 +190,25 @@ def test_the_pod_tiles_are_defined_as_the_code_counts_them():
     assert "except the Pods tiles" in cy                                                   # their numbers open a list in the page, not Jira
 
 
+def test_the_wip_tile_counts_the_status_In_Progress_only_and_says_so():
+    """Owner decision: 'Pods With More Than 3 Epics In Progress' (tile id wip) and its list count epics whose status is In Progress, not Validation. Every other In-Progress figure keeps In Progress or Validation
+    (CLASS.flight), so two meanings exist on the page and the wording of this tile must say which one it uses."""
+    cy = BLOCKS["cy"]
+    assert 'const CY_WIP_STATUS = "In Progress";' in TEMPLATE and "const CY_WIP_CLAUSE = `status = ${q(CY_WIP_STATUS)}`;" in TEMPLATE
+    assert "p.inProg = p.epics.filter(cyWipEpic)" in TEMPLATE and "CLASS.flight" not in re.search(r"function cyPodFig.*?\n}\n", TEMPLATE, re.S).group(0).split("\n", 1)[1]
+    tile = re.search(r"  wip: \(\{c, fig\}\) => \{.*?\n  nsSoon:", TEMPLATE, re.S).group(0)
+    assert "Pods With More Than ${L} Epics In Progress" in tile and "Pods with more than ${L} epics in status In Progress" in tile and "Validation is not counted" in tile
+    assert "in status In Progress in these pods" in tile and "no pod has more than ${L} epics in status In Progress" in tile
+    assert "CLASS.flight" not in tile and "CY_FLIGHT" not in tile and "In-Progress" not in tile and "in-progress" not in tile
+    assert re.search(r'case "podWip": w = .*\$\{CY_WIP_CLAUSE\}', TEMPLATE) and 'case "podWipIn": w = `${cyPodClause(arg)} AND ${CY_WIP_CLAUSE}`' in TEMPLATE
+    assert 'case "podWip": w = ' in TEMPLATE and "CY_FLIGHT" not in re.search(r'case "podWip": w = .*', TEMPLATE).group(0) + re.search(r'case "podWipIn": w = .*', TEMPLATE).group(0)
+    assert "Pods with more than ${CY.podWip} epics In Progress" in cy and "Validation is not counted here, unlike the other In-Progress figures of this section" in cy
+    assert "in status In Progress" in re.search(r"function cyPodTable.*?\n}\n", TEMPLATE, re.S).group(0) and '"Epics In Progress"}</th>' in TEMPLATE
+    assert '"Epics In-Progress"}</th>' not in TEMPLATE                                        # the old column name of this list; the Pods To Level list has its own, in an array
+    assert "const cyInFlight = e => CLASS.flight.includes(e.s);" in TEMPLATE                  # the other in-progress figures are unchanged
+    assert "Pods with more than ${L} In-Progress epics (status In Progress or Validation)" not in TEMPLATE
+
+
 def test_dependencies_have_one_disclosure_and_the_gap_rule_has_its_reason():
     assert 'id="dep-dq"' not in TEMPLATE and 'getElementById("dep-dq")' not in TEMPLATE
     assert len(re.findall(r'getElementById\("dep-cap"\)\.innerHTML = defs\(howBody', TEMPLATE)) == 1

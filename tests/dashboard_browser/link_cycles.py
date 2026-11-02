@@ -2,10 +2,10 @@
 """Delivery Cycles links are QUERIES (the owner's rule): for every release x project set x Delivery Cycle selection (Cycle 1, Cycle 2, both combined) x node x kind, the epics the query finds equal the epics the page counts.
 
 The page builds each link with cyQ(kind, node, cycle). This suite asks the page for the query of every number it prints (Planned, Done, Overdue, Stale, Due next 7 days, Flagged,
-Carry-over, No planned date, Epics with Flags, the weekly table, After release end, the pod note, the No Pod Label rows, the epics of every pod, in-progress, and the epics in-progress of the pods over the
+Carry-over, No planned date, Epics with Flags, the weekly table, After release end, the pod note, the No Pod Label rows, the epics of every pod, in-progress, and the epics with the status In Progress of the pods over the
 level), EVALUATES that query in Python (jql_eval.py over the baked epics, with the sprint-name rules of the real Jira) and compares the SET of keys with the list the page's model holds. A seeded mutant
 must be caught. The payload is the fictitious one, plus a variant that reaches the branches the stock payload leaves empty (carry-over, planned after the release end, a Target Sprint the calendar does not
-know, and a set of seeded pods: exactly 3 and exactly 4 epics in-progress, Validation counted with In Progress, only Done, only outside the cycle, a label shared by two projects, case variants, two labels on
+know, and a set of seeded pods: exactly 3 and exactly 4 epics In Progress, Validation NOT counted by the wip tile (3 In Progress + 1 Validation, 3 + 2, 4 Validation only are not over the level; 4 + 2 is over with 4), only Done, only outside the cycle, a label shared by two projects, case variants, two labels on
 one epic, an in-progress epic with no pod label, labels that look like issue keys).
 
 The Pods tiles are also recounted by an independent Python oracle (pod_oracle) from the baked epics in every view, and compared with the printed tile values, the opened lists and the facts line of the
@@ -65,7 +65,7 @@ MODEL_JS = r"""(() => {
         add("podNoneFlight", M.epics.filter(e => cyInFlight(e) && !e.pl.length)); add("nsSoonRfd", M.epics.filter(e => cyNsSoon(e) && e.s === "Ready for Dev"));
         const fig = cyPodFig(M.epics, M.planned()), addp = (kind, list, arg) => { const u = cyQ(kind, null, c, arg); out.push({tag: "top", kind, jql: dec(u), len: u ? u.length : 0, exp: K(list)}); };
         addp("podWip", fig.wipEpics, fig.wip);
-        fig.pods.forEach(p => { addp("podEpics", p.epics, p); addp("podFlight", p.flight, p); });
+        fig.pods.forEach(p => { addp("podEpics", p.epics, p); addp("podWipIn", p.inProg, p); });
       }
     }
   }
@@ -127,7 +127,8 @@ def variant(data: dict) -> dict:
 
 def seed_pods(d: dict) -> None:
     """Pods for the variant payload (release 27.1, fictitious labels). D1 is inside Delivery Cycle 1, D2 inside Delivery Cycle 2.
-    Pod-Seed-Three: 3 In Progress (not over the level), planned in DC1. Pod-Seed-Four: 4 In Progress, DC1. Pod-Seed-Mix: 3 In Progress + 1 Validation, DC2. Pod-Seed-Done: 2 Done, DC1.
+    Pod-Seed-Three: 3 In Progress (not over the level), planned in DC1. Pod-Seed-Four: 4 In Progress, DC1 (over). Pod-Seed-Mix: 3 In Progress + 1 Validation, DC2 (NOT over: Validation is not counted by the wip tile).
+    Pod-Seed-MixTwo: 3 In Progress + 2 Validation, DC2 (NOT over). Pod-Seed-AllVal: 4 Validation only, DC1 (NOT over). Pod-Seed-FourV: 4 In Progress + 2 Validation, DC1 (over, with 4). Pod-Seed-Done: 2 Done, DC1.
     Pod-Seed-Late: 2 New, DC2 only (idle in DC1). Pod-Seed-Undated: 1 epic with no planned date (idle in both). Pod-Seed-Shared: 4 In Progress in PMN and 2 in CXCO (over the level in one project only).
     Pod-Seed-Case / pod-seed-case / POD-SEED-CASE: 2 + 1 + 1 In Progress (one pod, 4 epics). Pod-Seed-TwoA and TwoB: 3 In Progress each plus ONE epic that carries both labels.
     4 In Progress epics with no pod label. POD-21 .. POD-24: 4 In Progress each, labels that look like issue keys."""
@@ -153,6 +154,12 @@ def seed_pods(d: dict) -> None:
         add("PMN", ["Pod-Seed-Four"], "In Progress", d1)
     for st in ("In Progress", "In Progress", "In Progress", "Validation"):
         add("PMN", ["Pod-Seed-Mix"], st, d2)
+    for st in ("In Progress", "In Progress", "In Progress", "Validation", "Validation"):
+        add("PMN", ["Pod-Seed-MixTwo"], st, d2)
+    for _ in range(4):
+        add("PMN", ["Pod-Seed-AllVal"], "Validation", d1)
+    for st in ("In Progress",) * 4 + ("Validation",) * 2:
+        add("PMN", ["Pod-Seed-FourV"], st, d1)
     for _ in range(2):
         add("PMN", ["Pod-Seed-Done"], "Done", d1)
         add("PMN", ["Pod-Seed-Late"], "New", d2)
@@ -288,7 +295,7 @@ def full_sweep() -> dict:
 
 
 KINDS = ["planned", "done", "over", "stale", "next", "nextNs", "flag", "flagCarry", "carry", "noDue", "scope", "concerns",
-         "week", "weekDone", "weekOpen", "after", "podWith", "podNone", "podWip", "podEpics", "podFlight",
+         "week", "weekDone", "weekOpen", "after", "podWith", "podNone", "podWip", "podEpics", "podWipIn",
          "nsSoon", "nsSoonRfd", "flightIn", "noPodFlight", "podNoneFlight"]            # the last five: the links of the four proactive tiles and their lists
 GONE = ["due", "dueDone", "staleAll", "staleCarry"]                                                  # the kinds of the removed tiles and columns: the page no longer builds them
 
@@ -408,7 +415,7 @@ POD_PROBE = ("(() => { const t = document.querySelector('#cy-kpis2 [data-kpi=\"w
 
 
 def pod_budget(t: T, src: str, old: str) -> None:
-    """The union link of 'Pods With More Than 3 Epics In-Progress' is one URL; with a budget one character below its length it is plain text, the number stays, and the buttons keep working."""
+    """The union link of 'Pods With More Than 3 Epics In Progress' is one URL; with a budget one character below its length it is plain text, the number stays, and the buttons keep working."""
     data, url = page("variant")
     ch = ctx.chrome
     ch.goto(url + "#r=27.1")
@@ -457,11 +464,14 @@ def _(t: T):
             got = ch.js(PO.LIST_JS + f"({json.dumps(kind)})")
             names[cy, kind] = {(r["cells"][0], r["name"].lower()): r["cells"] for r in (got or {"rows": []})["rows"]}
     wip = names["DC1", "wip"]
-    over = {"pod-seed-four", "pod-seed-mix", "pod-seed-case", "pod-seed-twoa", "pod-seed-twob", "pod-21", "pod-22", "pod-23", "pod-24"}
+    over = {"pod-seed-four", "pod-seed-fourv", "pod-seed-case", "pod-seed-twoa", "pod-seed-twob", "pod-21", "pod-22", "pod-23", "pod-24"}
     t.check(over <= {n for _, n in wip}, f"pods over the level missing from the list: {sorted(over - {n for _, n in wip})}")
     t.check(("PMN", "pod-seed-shared") in wip and ("CXCO", "pod-seed-shared") not in wip, "a label shared by two projects is over the level in PMN only (4 vs 2 epics)")
-    t.check(not ({"pod-seed-three", "pod-seed-done", "pod-seed-late", "pod-seed-undated"} & {n for _, n in wip}), "exactly 3 epics in-progress, only Done, outside the cycle and undated are not over the level")
-    t.check(wip[("PMN", "pod-seed-case")][2] == "4" and wip[("PMN", "pod-seed-mix")][2] == "4", "case variants are one pod of 4; 3 In Progress + 1 Validation is 4 in-progress")
+    t.check(not ({"pod-seed-three", "pod-seed-done", "pod-seed-late", "pod-seed-undated"} & {n for _, n in wip}), "exactly 3 epics In Progress, only Done, outside the cycle and undated are not over the level")
+    t.check(not ({"pod-seed-mix", "pod-seed-mixtwo", "pod-seed-allval"} & {n for _, n in wip}),
+            f"Validation is not counted: 3 In Progress + 1 Validation, 3 + 2 and 4 Validation only are NOT over the level: {sorted({'pod-seed-mix', 'pod-seed-mixtwo', 'pod-seed-allval'} & {n for _, n in wip})}")
+    t.check(wip[("PMN", "pod-seed-case")][2] == "4" and wip[("PMN", "pod-seed-fourv")][2] == "4", "case variants are one pod of 4; 4 In Progress + 2 Validation is 4 (the row counts In Progress only)")
+    t.check(wip[("PMN", "pod-seed-four")][2] == "4", "exactly 4 In Progress is over the level")
     n1 = {n for _, n in names["DC1", "idle"]}
     n2 = {n for _, n in names["DC2", "idle"]}
     t.check({"pod-seed-late", "pod-seed-mix", "pod-seed-undated"} <= n1 and not ({"pod-seed-three", "pod-seed-four", "pod-seed-done", "pod-seed-shared", "pod-seed-case"} & n1), f"idle in Delivery Cycle 1: {sorted(n1)[:12]}")
@@ -533,6 +543,9 @@ def _(t: T):
         return {k: (ch.js(PO.LIST2_JS + f"({json.dumps(k)})") or {"rows": []})["rows"] for k in ("nsSoon", "wait", "level", "noPod")}
 
     allc = lists("r=27.1")
+    wipl = {(r["name"], r["cells"][0]): r["cells"] for r in (ch.js(PO.LIST_JS + '("wip")') or {"rows": []})["rows"]}
+    t.check(wipl.get(("Pod-Wip-Four", "PMN"), ["", "", ""])[2] == "4" and not ({"Pod-Wip-Mix1", "Pod-Wip-Mix2", "Pod-Wip-Val"} & {n for n, _ in wipl}),
+            f"Pods With More Than 3 Epics In Progress: 4 In Progress is over; 3 + 1 Validation, 3 + 2 and 4 Validation only are not: {sorted(n for n, _ in wipl if n.startswith('Pod-Wip'))}")
 
     def ns(rows):
         return {(r["cells"][0] if r["rep"] else "*"): int(r["cells"][2]) for r in rows if r["th"] == "Team Seed Ns"}
@@ -561,8 +574,8 @@ def _(t: T):
 MUTANTS = [
     ("a due date on the end day is left out (<= becomes <)", '(duedate is EMPTY OR duedate <= "${hi}")', '(duedate is EMPTY OR duedate < "${hi}")'),
     ("a Target Sprint that ends after the window is no longer excluded", "(${CY_TS} is EMPTY OR ${CY_TS} not in (${after}))", "(${CY_TS} is EMPTY)"),
-    ("'more than 3' becomes '3 or more'", "const wip = pods.filter(p => p.flight.length > CY.podWip);", "const wip = pods.filter(p => p.flight.length >= CY.podWip);"),
-    ("in-progress counted as In Progress only", "p.flight = p.epics.filter(e => CLASS.flight.includes(e.s));", 'p.flight = p.epics.filter(e => e.s === "In Progress");'),
+    ("'more than 3' becomes '3 or more'", "const wip = pods.filter(p => p.inProg.length > CY.podWip);", "const wip = pods.filter(p => p.inProg.length >= CY.podWip);"),
+    ("Validation counted in the wip tile (threshold, list and sub line)", "p.inProg = p.epics.filter(cyWipEpic);", "p.inProg = p.epics.filter(e => CLASS.flight.includes(e.s));"),
     ("Idle Pods ignores the selected cycle", "p.planned = p.epics.filter(e => ps.has(e)).length;", "p.planned = p.epics.filter(e => e.due).length;"),
     ("the in-progress union link drops the project guard", "arg.map(p => `(${cyPodClause(p)})`).join(\" OR \")", "arg.map(p => `(labels in (${p.sp.map(q).join(\", \")}))`).join(\" OR \")"),
     ("Not-started due soon counts 8 days instead of 7", "e.due <= cyAdd(CY.asOf, CY.next);\nconst cyTeamNodes", "e.due <= cyAdd(CY.asOf, CY.next + 1);\nconst cyTeamNodes"),
@@ -585,7 +598,14 @@ MUTANTS = [
 ]
 
 
-LIGHT = range(6, 16)                                                                    # MUTANTS[6:16] are the proactive-tile defects (see their order above)
+MUTANTS += [                                                                           # the owner's rule for the wip tile and its list: status In Progress only, Validation not counted. All show on the Overview tile and its list.
+    ("the wip link still carries the Validation clause", "(${arg.map(p => `(${cyPodClause(p)})`).join(\" OR \")}) AND ${CY_WIP_CLAUSE}", "(${arg.map(p => `(${cyPodClause(p)})`).join(\" OR \")}) AND ${CY_FLIGHT}"),
+    ("a pod's wip list link still carries the Validation clause", "case \"podWipIn\": w = `${cyPodClause(arg)} AND ${CY_WIP_CLAUSE}`", "case \"podWipIn\": w = `${cyPodClause(arg)} AND ${CY_FLIGHT}`"),
+    ("the wip sub line counts Validation", "wipEpics: [...new Set(wip.flatMap(p => p.inProg))]", "wipEpics: [...new Set(wip.flatMap(p => p.epics.filter(cyInFlight)))]"),
+    ("the wip list counts Validation", "const n = idle ? p.epics.length : p.inProg.length;", "const n = idle ? p.epics.length : p.epics.filter(cyInFlight).length;"),
+    ("the wip threshold is applied with Validation", "const wip = pods.filter(p => p.inProg.length > CY.podWip);", "const wip = pods.filter(p => p.epics.filter(cyInFlight).length > CY.podWip);"),
+]
+LIGHT = set(range(6, 16)) | set(range(len(MUTANTS) - 5, len(MUTANTS)))                  # MUTANTS[6:16] are the proactive-tile defects (see their order above); the last five are the wip-tile defects
 
 
 @SUITE.test("selftest_cycles_suite_catches_seeded_defects")
