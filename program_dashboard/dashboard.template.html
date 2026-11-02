@@ -122,7 +122,15 @@ input[type=search] { width:200px; }
 #g-projects { display:grid; grid-template-columns:auto auto minmax(0,1fr); grid-template-areas:"lbl btn hint" "chips chips chips"; gap:4px 10px; align-items:center; }
 #g-projects > .lbl { grid-area:lbl; } #g-projects > .chips { grid-area:chips; } #g-projects > .btn.multi { grid-area:btn; } #g-projects > .multihint { grid-area:hint; } #g-projects > .sr { grid-area:lbl; }
 #g-projects button.btn.multi { min-height:24px; padding:0 9px; font-size:var(--t-xs); }
-#filterbar #g-projects .seg .chip { padding:4px 10px; }
+#filterbar #g-projects .seg .chip, #filterbar #g-dc .seg .chip { padding:4px 10px; }
+/* filter bar row system: groups hang from one top line, each a 24px label row over a 32px control row (the Multi-Select button shares the label row), so labels and controls sit on two common lines. The Delivery Cycle note is helper text below its control; Reset Filters sits on the control line. */
+#filterbar { align-items:flex-start; }
+#filterbar .ftoggle { align-self:flex-end; }
+#filterbar .fg > .lbl, #filterbar .fg > label { line-height:24px; }
+#filterbar #f-teams-btn { height:32px; padding-top:4px; padding-bottom:4px; }
+#filterbar .freset { padding:5px 0; margin-top:28px; }
+@media (min-width:761px) { #filterbar .freset { margin-left:auto; } }      /* Reset Filters sits at the right end of the control line, wrapped or not */
+@media (max-width:760px) { #filterbar .freset { margin-top:0; } #filterbar #f-release, #filterbar #f-teams-btn, #filterbar .ftoggle, #filterbar .freset { height:44px; } }      /* phone: every control is 44px, the height the chips already use */
 .multihint, .fnote { font-size:var(--t-xs); color:var(--muted); }
 .chip.dis { opacity:.55; cursor:not-allowed; }
 button.chip { font-family:inherit; }
@@ -549,7 +557,7 @@ footer.f b { color:var(--ink); }
           <div id="f-teams-list"></div>
         </div>
       </div>
-      <div class="fg hideable" id="g-dc"><span class="lbl" id="lbl-dc">Delivery Cycle</span><div class="chips" id="f-dc" role="group" aria-labelledby="lbl-dc" aria-describedby="f-dc-note"></div><span class="fnote" id="f-dc-note"></span></div>
+      <div class="fg hideable" id="g-dc"><span class="lbl" id="lbl-dc">Delivery Cycle</span><div class="chips seg" id="f-dc" role="group" aria-labelledby="lbl-dc" aria-describedby="f-dc-note"></div><span class="fnote" id="f-dc-note"></span></div>
       <button class="btn link freset" id="f-reset" type="button" disabled>Reset Filters</button>
     </div>
   </div>
