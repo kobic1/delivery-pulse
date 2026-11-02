@@ -430,17 +430,18 @@ def test_the_nothing_changed_text_lists_what_was_checked_and_what_was_not():
         assert name in t
     assert "Not tested: " in t and "Published-version split (field not recorded in v1" in t
     assert t.endswith("This is not a statement that usage is healthy. It covers only people with an id and write access.")
+    txt = UR.text_report(a)                                                             # the text report keeps the "What changed since last report" section; the page does not show it
+    assert "What changed since last report" in txt and "No previous report supplied; every flagged item is shown as new." in txt and "This is not a statement that usage is healthy" in txt and "  Checked:" in txt
     h = UR.html_report(a)
-    assert 'id="nothing"' in h and "This is not a statement that usage is healthy" in h and "No previous report supplied; every flagged item is shown as new." in h
-    assert 'id="checked"' in h and "<details" in h[h.index('id="checked"') - 40:h.index('id="checked"')]
+    assert 'id="changed"' not in h and "What changed since last report" not in h and 'id="checked"' not in h and 'id="nothing"' not in h and 'class="chips"' not in h
 
 
 def test_the_top_block_shows_at_most_three_section_or_control_signals():
     mk = lambda i, k: sess(s=60, f={"multi": 1, "teams": 1, "gran": 1, "dc": 1, "ax": 1}) if (k == 0 and i < 8) else sess(s=60)
     a = agg(weekly([30] * 9, make=mk))
     assert len(flagged(a, "S4")) == 5 and len(UR._shown_signals(a["signals"], UR.THRESHOLDS)) == 3
-    h = UR.html_report(a)
-    assert h.count('class="chip sig') == 3 and "2 more section or control signals are flagged" in h
+    txt = UR.text_report(a)
+    assert txt.count("  [S4]") == 3 and "2 more section or control signals are listed under Checked." in txt
 
 
 def test_thresholds_can_be_overridden_and_unknown_keys_are_refused(tmp_path):
@@ -654,8 +655,8 @@ def test_the_newest_version_is_the_largest_build_day_and_v1_says_order_unknown()
     mk = lambda i, k: v2(s=60, b="old" if i < 6 else "new", bt=20000 if i < 6 else 20020)
     a = agg(weekly([30] * 9, make=mk))
     assert flagged(a, "S6") and "build day 20020" in flagged(a, "S6")[0]["baseline"] and "newest seen" not in UR.html_report(a)
-    v1 = UR.html_report(agg(weekly([30] * 9)))
-    assert "version order unknown; counts only" in v1 and "(newest seen)" not in v1
+    v1 = UR.text_report(agg(weekly([30] * 9)))                                         # the ledger of the signals is in the text report
+    assert "version order unknown; counts only" in v1 and "(newest seen)" not in v1 and "(newest seen)" not in UR.html_report(agg(weekly([30] * 9)))
 
 
 def test_the_stale_records_and_old_sessions_are_ignored_and_counted_not_named():
@@ -1148,7 +1149,7 @@ def test_the_key_figures_carry_a_change_in_words_and_a_denominator():
 
 def test_the_page_is_graph_first_in_the_analytics_order_and_has_one_ribbon_and_no_long_prose():
     h = UR.html_report(demo_agg())
-    order = [h.index(x) for x in ('id="coverage"', 'id="kpis"', 'id="changed"', 'id="trend"', 'id="breakdowns"', 'id="when"', 'id="back"', 'id="recording"', 'id="h-how"')]
+    order = [h.index(x) for x in ('id="coverage"', 'id="kpis"', 'id="trend"', 'id="breakdowns"', 'id="when"', 'id="back"', 'id="recording"', 'id="h-how"')]
     assert order == sorted(order)
     for pid in ("p-weeks", "p-days", "p-sections", "p-controls", "p-actions", "p-devices", "p-hours", "p-cohorts", "p-habit", "p-health"):
         assert f'id="{pid}"' in h, pid
@@ -1158,14 +1159,19 @@ def test_the_page_is_graph_first_in_the_analytics_order_and_has_one_ribbon_and_n
     assert h.index('id="coverage"') < h.index('id="kpis"') and "<details" not in h[h.index('id="coverage"'):h.index('id="kpis"')]
 
 
-def test_the_chips_keep_the_full_wording_behind_evidence():
-    h = UR.html_report(demo_agg())
-    chip = h[h.index('class="chip sig'):h.index("</li>", h.index('class="chip sig'))]
-    for part in ("<summary>Evidence</summary>", "Observation.", "Baseline.", "Threshold.", "What it does not show.", "Worth investigating."):
-        assert part in chip
-    assert 'class="tag">' in chip and 'id="checked"' in h
-    steady = UR.html_report(agg(weekly([30] * 9)))
-    assert 'id="nothing"' in steady and "Nothing changed beyond the usual week-to-week range." in steady and "This is not a statement that usage is healthy" in steady
+def test_the_page_has_no_what_changed_section_but_keeps_the_warnings_and_the_ribbon():
+    a = demo_agg()
+    assert a["signals"]["flagged"]                                                      # the signals are still computed (and in the text report)
+    h = UR.html_report(a)
+    for gone in ('id="changed"', "What changed since last report", 'class="chip', 'id="checked"', 'id="nothing"', "Evidence</summary>"):
+        assert gone not in h, gone
+    assert 'id="coverage"' in h and 'class="warn" role="status"' in h and "days old" in h and 'id="kpis"' in h and 'id="trend"' in h
+    assert h.index('id="kpis"') < h.index('id="trend"') and "What changed since last report" in UR.text_report(a)
+    dup = [{"id": "x", "data": b} for b in weekly([30] * 9)]
+    dup.append(dup[0])
+    bodies, stats = UR.load_export(dup)
+    page = UR.html_report(agg(bodies, stats=stats))
+    assert "duplicated documents dropped" in page and 'class="warn" role="status"' in page      # a duplicate or unknown record is still a visible page warning
 
 
 def test_weekly_chart_marks_calendar_events_and_the_change_of_recording_rules():

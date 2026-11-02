@@ -677,8 +677,8 @@ def detect_signals(m: Model, ctx: dict | None = None) -> dict:
     L = m.last
     out = {"compared": None, "flagged": [], "ledger": [], "tested": [], "not_tested": [], "cap_hidden": 0}
     led = lambda i, name, status, text: out["ledger"].append({"id": i, "name": name, "status": status, "text": text})
-    SIG = lambda i, name, headline, obs, base, thr, conf, nshow, nxt, chip=None: out["flagged"].append(
-        {"id": i, "name": name, "headline": headline, "observation": obs, "baseline": base, "threshold": thr, "confidence": conf, "not_show": nshow, "next": nxt, "chip": chip or headline})
+    SIG = lambda i, name, headline, obs, base, thr, conf, nshow, nxt: out["flagged"].append(
+        {"id": i, "name": name, "headline": headline, "observation": obs, "baseline": base, "threshold": thr, "confidence": conf, "not_show": nshow, "next": nxt})
 
     def untested(i, name, reason):
         led(i, name, "not_tested", reason)
@@ -719,8 +719,7 @@ def detect_signals(m: Model, ctx: dict | None = None) -> dict:
                 f"Median of the {b['n']} comparable completed weeks before: {gm(b['median'])}; normal range {gm(max(0, b['lo']))} to {gm(b['hi'])}.",
                 f"Outside the range and at least {max(th['change_people_abs'], rnd(th['change_people_rel'] * b['median']))} people ({rnd(100 * th['change_people_rel'])}%) from the median.",
                 _confidence(seen, n_act, th), "The reason for the change: the count says nothing about any person or about what lies behind it. Visits are not counted here.",
-                "Worth investigating: whether a message, a review meeting or a release milestone coincides with the change (see the calendar notes), and whether the change is in new or in established people (S1).",
-                chip=f"People active: {ev['cur']} (usual {gm(b['median'])}, range {gm(max(0, b['lo']))} to {gm(b['hi'])})")
+                "Worth investigating: whether a message, a review meeting or a release milestone coincides with the change (see the calendar notes), and whether the change is in new or in established people (S1).")
         else:
             led("S0", name, "within", txt)
 
@@ -740,8 +739,7 @@ def detect_signals(m: Model, ctx: dict | None = None) -> dict:
             SIG("S1", name, "More new people than usual", f"{ev['cur']} people were seen for the first time in {wk}, against a usual {gm(b['median']) if rnd(b['median']) >= MIN_USERS else 'under ' + str(MIN_USERS)}.",
                 f"Median of the {b['n']} comparable completed weeks before: {gm(b['median']) if rnd(b['median']) >= MIN_USERS else 'under ' + str(MIN_USERS)}; upper end of the range {gm(b['hi']) if rnd(b['hi']) >= MIN_USERS else 'under ' + str(MIN_USERS)}.", f"At least {th['s1_min_new']} new people and above the range (increases only).",
                 _confidence(seen, n_act, th), "Whether they come back: new people are reported separately from established people and are not in the reach or control signals.",
-                "Worth investigating: whether an announcement or a change of the audience coincides with the new people; the cohort retention view shows whether they return.",
-                chip=f"New people: {ev['cur']} (usual {gm(b['median']) if rnd(b['median']) >= MIN_USERS else 'under ' + str(MIN_USERS)})")
+                "Worth investigating: whether an announcement or a change of the audience coincides with the new people; the cohort retention view shows whether they return.")
         else:
             led("S1", name, "within", txt)
 
@@ -776,8 +774,7 @@ def detect_signals(m: Model, ctx: dict | None = None) -> dict:
                 f"Regular = active in {th['s2_regular_weeks']} of the 4 completed weeks from {d_label(L - dt.timedelta(days=42))} to {d_label(L - dt.timedelta(days=21) + dt.timedelta(days=6))}; lapsed = regular with no visit in the 3 weeks since.",
                 f"At least {th['s2_min_regulars']} regulars, {th['s2_min_lapsed']} lapsed and {rnd(100 * th['s2_lapsed_share'])}% of the regulars.", _confidence(seen, n_act, th),
                 "Whether they stopped for good, use another source or were away; the count is an aggregate and says nothing about any person.",
-                "Worth investigating: whether a change of the audience, of the page or of a review routine coincides with the drop.",
-                chip=("Lapsed regular people: group size withheld" if pc["lapsed"] == SMALL else f"Lapsed regular people: {r['lapsed']} of {r['regs']}"))
+                "Worth investigating: whether a change of the audience, of the page or of a review routine coincides with the drop.")
         else:
             led("S2", name, "within", txt)
 
@@ -823,8 +820,7 @@ def detect_signals(m: Model, ctx: dict | None = None) -> dict:
             f"Outside the range and at least {th['change_reach_pp']} percentage points from the median; reach = people with {SECTION_MIN_SECONDS} s or more in the section that week, among established people.",
             _confidence(seen, ev["n"], th),
             "Whether the section was useful: reach counts the people with time in it. A section can be read by few people on purpose. Scroll position decides which section gets the time.",
-            "Worth investigating: whether a change of the page, a release milestone or a review routine coincides with the change in reach.",
-            chip=f"{nm}: reach {share_text(ev['x'], ev['n'], th)} (usual {rnd(b['median'])}%)")
+            "Worth investigating: whether a change of the page, a release milestone or a review routine coincides with the change in reach.")
     for n_, key, nm, ev, seen in sorted(s4_flag, key=lambda t: (-t[0], t[1])):
         new = ev["kind"] == "new"
         SIG("S4", f"Control: {nm}", f"{nm} is newly used" if new else f"{nm} is no longer used",
@@ -1721,7 +1717,7 @@ def export_warnings(a: dict) -> list:
 
 
 # ------------------------------------------------------------------------------------------------------------ the dashboard page (graph first)
-# Order, as in an analytics report: key figures (scorecards), what changed (insight chips), the trend, the breakdowns, the detail; every chart has a one-line caption and a "Show data" table behind it.
+# Order, as in an analytics report: key figures (scorecards), the trend, the breakdowns, the detail (the signals S0 to S9 are in the text report, not on the page); every chart has a one-line caption and a "Show data" table behind it.
 # The charts are HTML and CSS with a little inline SVG (lines and sparklines): the text of a chart is real text, so it stays readable at 390 px. A chart is one role="img" with a label that holds its numbers.
 CSS = """
 :root {
@@ -1773,18 +1769,6 @@ section.blk > h2 { font-size:var(--t-sub); margin:0 0 8px; }
 .spark path.a { fill:#3694FC; fill-opacity:.16; stroke:none; }
 .sparkwrap { position:relative; }
 .sparkwrap .ld { position:absolute; width:7px; height:7px; margin:-3.5px 0 0 -3.5px; border-radius:50%; background:var(--blue-ink); }
-/* insight chips */
-.chips { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(auto-fill,minmax(270px,1fr)); gap:10px; align-items:start; }
-.chip { border:1px solid var(--line); border-radius:var(--radius-s); padding:10px 12px; background:var(--bg); }
-.chip.data { background:var(--warn-bg); border-color:var(--warn-line); }
-.chip strong { display:block; font-size:var(--t-body); font-weight:600; line-height:1.3; }
-.chip .meta { display:flex; gap:8px; align-items:center; margin-top:4px; }
-.tag { display:inline-block; padding:0 8px; border:1px solid var(--ctl); border-radius:10px; font-size:var(--t-xs); color:var(--ink); background:var(--bg); }
-.sid { color:var(--muted); font-size:var(--t-xs); }
-.chip p { margin:6px 0 0; font-size:var(--t-cap); }
-.chip p b { font-weight:600; }
-.ok { display:flex; gap:8px; align-items:flex-start; padding:10px 12px; border-radius:var(--radius-s); background:var(--panel); margin:0; }
-.ok svg { flex:none; width:18px; height:18px; margin-top:2px; }
 details.vd { margin:10px 0 0; }
 details.vd > summary { cursor:pointer; color:var(--blue-ink); font-size:var(--t-cap); padding:2px 0; }
 details.vd > summary:focus-visible, a:focus-visible { outline:2px solid var(--blue-ink); outline-offset:2px; }
@@ -2234,40 +2218,6 @@ def _kpis(a: dict) -> str:
              + (f'<p class="cap2">{usable_n - len(run)} earlier completed week(s) are left out: the page recorded visits under other rules, so the figures are not comparable.</p>' if usable_n > len(run) else ""))
     sub = f"Last completed week: {week_label(L)}. Each figure is compared with the week before; the line shows the weeks since the last change of the recording rules." if c else "No completed week of data yet."
     return (f'<section class="blk" id="kpis" aria-labelledby="h-kpi"><h2 id="h-kpi">Key figures</h2><p class="cap">{e(sub)}</p><div class="kpis">{"".join(cells)}</div>{show_data(table)}</section>')
-
-
-# ------------------------------------------------------------------------------------------------------------ what changed: insight chips
-def _changed(a: dict) -> str:
-    sg, c, th = a["signals"], a["compared"], a["model"].th
-    if c:
-        base = (f"the median of the previous {c['n_weeks']} completed weeks, {c['median']}" if c["state"] == "ok" else f"a baseline that is still building ({c['n_baseline']} of {th['baseline_min']} comparable weeks)")
-        head = f"{c['label']} compared with {base}. No previous report supplied; every flagged item is shown as new."
-    else:
-        head = "No completed week of data to compare yet. No previous report supplied; every flagged item is shown as new."
-    out = ['<section class="blk" id="changed" aria-labelledby="h-changed"><h2 id="h-changed">What changed since last report</h2>', f'<p class="cap">{e(head)}</p>']
-    if sg["flagged"]:
-        shown = _shown_signals(sg, th)
-        items = []
-        for f in shown:
-            ev = (f'<p><b>Observation.</b> {e(f["observation"])}</p><p><b>Baseline.</b> {e(f["baseline"])}</p><p><b>Threshold.</b> {e(f["threshold"])}</p>'
-                  f'<p><b>What it does not show.</b> {e(f["not_show"])}</p><p><b>Worth investigating.</b> {e(f["next"].replace("Worth investigating: ", "", 1))}</p>')
-            items.append(f'<li class="chip sig{" data" if f["id"] == "S7" else ""}" id="sig-{e(f["id"])}"><strong>{e(f["chip"])}</strong><div class="meta"><span class="tag">{e(f["confidence"])}</span><span class="sid">{e(f["id"])}</span></div>'
-                         f'<details class="vd"><summary>Evidence</summary>{ev}</details></li>')
-        out.append(f'<ol class="chips">{"".join(items)}</ol>')
-        if len(sg["flagged"]) > len(shown):
-            out.append(f'<p class="cap after">{len(sg["flagged"]) - len(shown)} more section or control signals are flagged: see the Checked list.</p>')
-    else:
-        out.append(f'<p class="ok" id="nothing">{ICON_OK}<span>Nothing changed beyond the usual week-to-week range.</span></p>')
-    n_f = sum(1 for r in sg["ledger"] if r["status"] == "flagged")
-    n_w = sum(1 for r in sg["ledger"] if r["status"] == "within")
-    n_n = sum(1 for r in sg["ledger"] if r["status"] in ("not_tested", "unknown"))
-    rows = "".join(f'<tr><th scope="row">{e(r["id"])} {e(r["name"])}</th><td>{e(STATUS_WORD[r["status"]])}</td><td>{e(r["text"])}</td></tr>' for r in sg["ledger"])
-    full = f'<p class="cap">{e(nothing_changed_text(sg))}</p>' if not sg["flagged"] else ""
-    out.append(f'<details class="vd" id="checked"><summary>Checked: {n_f} flagged, {n_w} within range, {n_n} not tested or unknown</summary>{full}'
-               f'<div class="scroll" tabindex="0" role="region" aria-label="Checked signals"><table><thead><tr><th scope="col">Signal</th><th scope="col">Result</th><th scope="col">Numbers</th></tr></thead><tbody>{rows}</tbody></table></div>'
-               '<p class="cap2">Confidence labels: Confirmed (the same change in 3 consecutive weeks, or a fact about the export), Corroborated (2 consecutive weeks), Single-source (one week), Weak signal (one week with fewer than '
-               f'{th["weak_active_people"]} active people, or a soft measure), Unknown (a figure under 5 people). This is not a statement that usage is healthy. It covers only people with an id and write access.</p></details></section>')
-    return "".join(out)
 
 
 # ------------------------------------------------------------------------------------------------------------ the trend
@@ -2894,7 +2844,7 @@ def _period(a: dict) -> str:
 
 
 def html_report(a: dict, standalone: bool = False) -> str:
-    """The page: an Artifact fragment (own title, inline style, no script). Order, as in an analytics report: coverage ribbon, key figures with sparklines, what changed (insight chips), the trend (people per week, per day),
+    """The page: an Artifact fragment (own title, inline style, no script). Order, as in an analytics report: coverage ribbon, key figures with sparklines, the trend (people per week, per day),
     the breakdowns (sections, controls, actions, devices), when people visit, whether they come back, recording health, how this is measured."""
     stamp = il_stamp(a["as_of"]) or f"{a['ref']} (no export time given)"
     out: list = []
@@ -2923,7 +2873,6 @@ def html_report(a: dict, standalone: bool = False) -> str:
         if a["audience"] and a["audience"]["stale"]:
             add('<p class="note" id="audience-note">The audience size looks out of date: more people are in the data than in the audience.</p>')
         add(_kpis(a))
-        add(_changed(a))
         add(_trend(a))
         add(_breakdowns(a))
         add(_heatmap_block(a))

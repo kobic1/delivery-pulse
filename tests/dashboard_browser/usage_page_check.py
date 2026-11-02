@@ -2,8 +2,7 @@
 
 Asserted: no console error; no sideways scroll (also with every "Show data" open: a wide table scrolls inside its own box); the Demo data banner and the stale-export warning of the demo; the coverage ribbon is visible near the top, short, and not inside a details
 element; the headings in order (one h1, then h2, no level skipped); the page is graph first (key figures with sparklines, a weekly and a daily chart, bars for sections and controls, the day-and-hour map, the cohort grid): every chart is a role=img
-with a label that holds its numbers, every svg is named or hidden, and every chart sits in a unit with a "Show data" disclosure holding a table; a guarded row is a hatched stub that prints '<5 users', draws no length and no number; the insight chips keep their
-evidence collapsed; no user id anywhere; text contrast of at least 4.5:1 (3:1 for large text) with every disclosure open; every details element is a keyboard stop; bars stack their label above the bar at 390 px; the page uses no script; the empty state says
+with a label that holds its numbers, every svg is named or hidden, and every chart sits in a unit with a "Show data" disclosure holding a table; a guarded row is a hatched stub that prints '<5 users', draws no length and no number; the page has no 'What changed' section and no chips while the stale-export banner stays; no user id anywhere; text contrast of at least 4.5:1 (3:1 for large text) with every disclosure open; every details element is a keyboard stop; bars stack their label above the bar at 390 px; the page uses no script; the empty state says
 "No usage recorded yet" and shows no chart. The page is an Artifact fragment; the test wraps it the way kit.wrap does.
 
     python3 usage_page_check.py [--live] [--only NAME]
@@ -120,7 +119,7 @@ def _(t: T):
 @SUITE.test("usage_page_the_page_is_graph_first_and_short_on_prose")
 def _(t: T):
     ch = open_at(1400)
-    order = ch.js("['coverage','kpis','changed','trend','breakdowns','when','back','recording'].map(id => document.getElementById(id).getBoundingClientRect().top + scrollY)")
+    order = ch.js("['coverage','kpis','trend','breakdowns','when','back','recording'].map(id => document.getElementById(id).getBoundingClientRect().top + scrollY)")
     t.check(order == sorted(order), f"the sections are in the analytics order {order}")
     t.check(ch.js("document.querySelector('#kpis').getBoundingClientRect().top < 360"), "the key figures start in the first screen")
     longp = ch.js("[...document.querySelectorAll('main p')].filter(p => !p.closest('details') && p.id !== 'governance' && !p.closest('#h-how') && p.getBoundingClientRect().height > 60 && !p.classList.contains('demo') && !p.classList.contains('warn') && !p.classList.contains('ribbon') && !p.closest('section.empty')).map(p => p.textContent.trim().slice(0, 50))")
@@ -130,14 +129,13 @@ def _(t: T):
     t.note(f"visible text: {text_chars} characters")
 
 
-@SUITE.test("usage_page_what_changed_chips_keep_their_evidence_collapsed_and_the_checked_ledger")
+@SUITE.test("usage_page_has_no_what_changed_section_keeps_the_warning_and_the_growth_verdict")
 def _(t: T):
-    ch = open_at(1400)
-    t.check(ch.js("document.querySelector('#changed h2').textContent") == "What changed since last report", "the block heading")
-    t.check(ch.js("document.querySelectorAll('#changed li.sig').length") >= 2 and ch.js("[...document.querySelectorAll('#changed .tag')].every(g => ['Confirmed','Corroborated','Single-source','Weak signal','Unknown'].includes(g.textContent.trim()))"), "each chip carries a confidence label")
-    t.check(ch.js("[...document.querySelectorAll('#changed li.sig details')].every(d => !d.open && d.querySelector('summary').textContent === 'Evidence' && d.textContent.includes('What it does not show'))"), "the evidence is collapsed and holds the full wording")
-    t.check(ch.js("document.querySelector('#changed').textContent.includes('No previous report supplied; every flagged item is shown as new.')"), "the no-history sentence")
-    t.check(ch.js("(() => { const d = document.getElementById('checked'); return !!d && d.tagName === 'DETAILS' && !d.open && d.querySelectorAll('tbody tr').length >= 10; })()"), "the Checked ledger is collapsed and lists every signal")
+    for w in (1400, 390):
+        ch = open_at(w)
+        t.check(ch.js("!document.getElementById('changed') && !document.querySelector('.chips, .chip, #checked, #nothing') && !document.body.innerText.includes('What changed since last report')"), f"{w}: no What changed section, chips or Checked ledger")
+        t.check(ch.js("[...document.querySelectorAll('.warn')].some(w => w.textContent.includes('days old') && w.getBoundingClientRect().height > 0)"), f"{w}: the stale-export banner still shows for an old export")
+        t.check(ch.js("(() => { const k = document.getElementById('kpis').getBoundingClientRect(), tr = document.getElementById('trend').getBoundingClientRect(); return tr.top > k.bottom && tr.top - k.bottom < 120; })()"), f"{w}: the trend follows the key figures directly")
     t.check(ch.js("document.getElementById('growth').textContent.includes('Is adoption growing?')"), "the growth verdict sits under the weekly chart")
     ch = open_at(1400, "v1")
     t.check(ch.js("document.body.innerText.includes('not recorded in v1') || document.body.innerText.includes('Not recorded in v1')"), "the v1 page says what is not recorded")
