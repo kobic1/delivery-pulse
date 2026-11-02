@@ -559,15 +559,17 @@ def check_view(t_problems: list, data: dict, universe: list, h: str, r: dict, la
                 p.append(f"{tag} the Done link finds {len(got)} epics, the recount {len(want)}")
     # ---- the Cycles section
     lo, hi, cname = R.window()
-    want_banner = f"Showing {cname} \u00b7 {lo.isoformat()} to {hi.isoformat()}"
+    want_banner = f"Showing {cname}{' combined' if len(R.shown) > 1 else ''} \u00b7 {lo.isoformat()} to {hi.isoformat()}"
     if r["banner"] != want_banner:
         p.append(f"{tag} the banner says {r['banner']!r}, expected {want_banner!r}")
     if r["bannerCycles"] != "+".join(str(i) for i in sorted(R.shown)):
         p.append(f"{tag} the banner names the cycles {r['bannerCycles']!r}, expected {sorted(R.shown)}")
     if R.has2 and "Delivery Cycle filter" not in (r["point"] or ""):
         p.append(f"{tag} the banner does not point to the Delivery Cycle filter: {r['point']!r}")
-    if R.has2 and len(R.shown) == 2 and "counted together" not in (r["point"] or ""):
+    if R.has2 and len(R.shown) == 2 and "Both cycles together" not in (r["point"] or ""):
         p.append(f"{tag} both cycles are shown and the banner does not say they are counted together: {r['point']!r}")
+    if R.has2 and len(R.shown) == 1 and "planned outside it are not counted" not in (r["point"] or ""):
+        p.append(f"{tag} one cycle is shown and the banner does not say what is left out: {r['point']!r}")
     if not R.has2 and "no Delivery Cycle 2" not in (r["point"] or ""):
         p.append(f"{tag} a release with one cycle must say it has no Delivery Cycle 2: {r['point']!r}")
     want_t = R.cycles_tiles()
@@ -583,8 +585,8 @@ def check_view(t_problems: list, data: dict, universe: list, h: str, r: dict, la
             p.append(f"{tag} After Release End: the page says {r['after']!r}, the recount {after}")
     elif shown_after:
         p.append(f"{tag} After Release End is shown ({r['after']!r}) but {'there are none' if R.all else 'epics in no cycle are left out while one cycle is shown'}")
-    if not R.all and "left out" not in (r["cySub"] or ""):
-        p.append(f"{tag} the Cycles subtitle does not say that the filter bar narrows the section: {r['cySub']!r}")
+    if (r["cySub"] or "") != "Delivery Cycle 1: release start to the end of W6. Delivery Cycle 2: W7 to the release end.":      # the two definitions only: what the selection shows and leaves out is the banner's job, said once
+        p.append(f"{tag} the Cycles subtitle is not just the two cycle definitions (the banner says what is shown, once): {r['cySub']!r}")
 
 
 @SUITE.test("burnup_and_cycles_equal_an_independent_recount_for_cycle_1_cycle_2_and_both")
@@ -791,7 +793,8 @@ SEC_JS = r"""(() => {
   const bn = document.getElementById('cy-banner'), sh = document.getElementById('cy-showing'), pt = document.getElementById('cy-point'), btn = document.getElementById('cy-tofilter');
   const bg = ink(bn, 'backgroundColor');
   return {removed: ['g-cy', 'f-cy', 'lbl-cy'].filter(id => document.getElementById(id)), radios: sec.querySelectorAll('input[type=radio]').length, groups: sec.querySelectorAll('[role=radiogroup], select, .periodbar').length,
-    ownKey: Object.keys(state.cy), kick: [...document.querySelectorAll('#cy-kpis1 .kpi .k')].map(t), role: sh.getAttribute('role'), banner: t(sh), point: t(pt), hidden: bn.hidden, btn: btn ? {tag: btn.tagName, type: btn.type, tab: btn.tabIndex, text: t(btn), disabled: btn.disabled} : null,
+    ownKey: Object.keys(state.cy), kick: [...document.querySelectorAll('#cy-kpis1 .kpi .k')].map(t), plannedCap: t(document.querySelector('#cy-kpis1 [data-kpi="planned"] .s')), idleCap: t(document.querySelector('#cy-kpis2 [data-kpi="idle"] .s')),
+    headsTiles: bn.nextElementSibling === document.getElementById('cy-kpis1'), podScope: t(document.getElementById('cy-podscope')), sub: t(document.getElementById('cy-sub')), role: sh.getAttribute('role'), banner: t(sh), point: t(pt), hidden: bn.hidden, btn: btn ? {tag: btn.tagName, type: btn.type, tab: btn.tabIndex, text: t(btn), disabled: btn.disabled, label: btn.getAttribute('aria-label')} : null,
     contrast: {show: ratio(ink(sh, 'color'), bg), point: ratio(ink(pt, 'color'), bg), link: btn ? ratio(ink(btn, 'color'), bg) : null, edge: ratio(ink(bn, 'borderLeftColor'), [255, 255, 255])},
     ovMeta: t(document.querySelector('#cy-ovtable') && document.querySelector('#cy-ovtable').closest('.cyblock').querySelector('.cymeta')), hash: location.hash, errors: []};
 })()"""
@@ -800,7 +803,7 @@ SEC_JS = r"""(() => {
 def structure_probs(ch, url) -> list[str]:
     """The structural facts of the section, as problems (empty = fine); the tests below assert it and the self-test runs it against the seeded defects."""
     p: list[str] = []
-    for h, name, kicker in (("r=27.1", "Delivery Cycles 1 and 2", "Delivery Cycles 1 and 2"), ("r=27.1&dc=1", "Delivery Cycle 1", "Delivery Cycle 1"), ("r=27.1&dc=2", "Delivery Cycle 2", "Delivery Cycle 2")):
+    for h, name, said in (("r=27.1", "Delivery Cycles 1 and 2", "Delivery Cycles 1 and 2 combined"), ("r=27.1&dc=1", "Delivery Cycle 1", "Delivery Cycle 1"), ("r=27.1&dc=2", "Delivery Cycle 2", "Delivery Cycle 2")):
         ch.goto(url + "#" + h)
         kit.wait_ready(ch)
         r = ch.js(SEC_JS)
@@ -808,21 +811,29 @@ def structure_probs(ch, url) -> list[str]:
             p.append(f"#{h}: the removed selector is still in the page: {r['removed']} radios {r['radios']} groups {r['groups']}")
         if "cycle" in " ".join(r["ownKey"]).lower():
             p.append(f"#{h}: the Cycles state still has a cycle key: {r['ownKey']}")
-        if not (r["role"] == "status" and not r["hidden"] and r["banner"].startswith(f"Showing {name} \u00b7 ")):
+        if not (r["role"] == "status" and not r["hidden"] and r["banner"].startswith(f"Showing {said} \u00b7 ")):
             p.append(f"#{h}: the banner is not a status that says what is shown: {r['role']} {r['banner']!r}")
-        if r["kick"] != [kicker] * 5:
-            p.append(f"#{h}: each of the five headline tiles must carry the cycle in its kicker: {r['kick']}")
+        if r["kick"]:
+            p.append(f"#{h}: the headline tiles repeat the cycle in a kicker, the banner says it once: {r['kick']}")
+        if not r["headsTiles"]:
+            p.append(f"#{h}: the banner is not directly above the five tiles it heads (a picture of the tiles would not say the cycle)")
+        if name not in (r["plannedCap"] or "") or name not in (r["idleCap"] or ""):
+            p.append(f"#{h}: the Planned and Idle Pods captions (the figures counted against the cycle) must name it: {r['plannedCap']!r} {r['idleCap']!r}")
+        if "The filter bar shows" in (r["sub"] or ""):
+            p.append(f"#{h}: the subtitle says a second time what the banner says: {r['sub']!r}")
+        if "Only Idle Pods follows the cycle" not in (r["podScope"] or ""):
+            p.append(f"#{h}: the Pods block does not say which of its figures ignore the cycle: {r['podScope']!r}")
         if name not in (r["ovMeta"] or ""):
             p.append(f"#{h}: the Projects, Teams and Pods caption does not name the cycle: {r['ovMeta']!r}")
         b = r["btn"]
-        if not (b and b["tag"] == "BUTTON" and b["type"] == "button" and b["tab"] == 0 and not b["disabled"] and b["text"] == "Delivery Cycle filter"):
+        if not (b and b["tag"] == "BUTTON" and b["type"] == "button" and b["tab"] == 0 and not b["disabled"] and b["text"] == "Delivery Cycle filter" and "Delivery Cycle filter" in (b["label"] or "")):
             p.append(f"#{h}: the pointer is not a real, keyboard-reachable button: {b}")
         c = r["contrast"]
         if not (c["show"] >= 4.5 and c["point"] >= 4.5 and (c["link"] or 9) >= 4.5 and c["edge"] >= 3):
             p.append(f"#{h}: the banner contrast is below WCAG AA: {c}")
         if "cy=" in r["hash"]:
             p.append(f"#{h}: the address carries the removed key: {r['hash']}")
-        if h == "r=27.1" and "counted together" not in (r["point"] or ""):
+        if h == "r=27.1" and "Both cycles together" not in (r["point"] or ""):
             p.append(f"#{h}: both cycles are shown and the banner does not say they are counted together: {r['point']!r}")
         if ch.console_errors():
             p.append(f"#{h}: console errors {ch.console_errors()[:2]}")
@@ -869,12 +880,12 @@ def _(t: T):
     ch.goto(url + "#r=27.1")
     kit.wait_ready(ch)
     ch.js("window.__mut = 0; new MutationObserver(m => { window.__mut += m.length; }).observe(document.getElementById('cy-showing'), {childList: true, characterData: true, subtree: true});")
-    for box, name, hashpart in (("1", "Delivery Cycle 2", "dc=2"), ("1", "Delivery Cycles 1 and 2", ""), ("2", "Delivery Cycle 1", "dc=1"), ("2", "Delivery Cycles 1 and 2", "")):
+    for box, name, hashpart in (("1", "Delivery Cycle 2", "dc=2"), ("1", "Delivery Cycles 1 and 2 combined", ""), ("2", "Delivery Cycle 1", "dc=1"), ("2", "Delivery Cycles 1 and 2 combined", "")):
         before = ch.js("window.__mut")
         ch.js(f"document.querySelector('#f-dc input[value=\"{box}\"]').click()")
         time.sleep(0.4)
         r = ch.js(SEC_JS)
-        t.check(r["banner"].startswith(f"Showing {name} \u00b7 ") and r["kick"] == [name] * 5, f"after toggling Cycle {box}: the banner and the tiles say {name}: {r['banner']!r} {r['kick'][:1]}")
+        t.check(r["banner"].startswith(f"Showing {name} \u00b7 ") and name.replace(" combined", "") in (r["plannedCap"] or ""), f"after toggling Cycle {box}: the banner and the Planned caption say {name}: {r['banner']!r} {r['plannedCap']!r}")
         t.check(ch.js("window.__mut") > before, f"after toggling Cycle {box}: the banner text changed in place (a polite status is announced)")
         t.check((hashpart in r["hash"]) if hashpart else "dc=" not in r["hash"], f"the address follows the filter: {r['hash']}")
     t.check(not ch.console_errors(), f"console errors {ch.console_errors()[:2]}")
@@ -1100,8 +1111,15 @@ MUTANTS = [
     ("Delivery Cycle 1 ends a day early in the Cycles section", "const w6 = cyAdd(w[0], 48);", "const w6 = cyAdd(w[0], 47);"),
     ("both cycles are counted as Cycle 1 only", "end: sel[sel.length - 1].end,", "end: sel[0].end,"),
     ("the Cycle 2 epics are dropped from the combined view", "e.due >= cc.start && e.due <= cc.end);", "e.due >= cc.start && e.due <= (cc.multi ? cc.set[0].end : cc.end));"),
-    ("the banner shows the wrong cycle", "host.innerHTML = `${esc(`Showing ${c.name}`)}", "host.innerHTML = `${esc(`Showing ${c.first}`)}"),
-    ("the banner does not say the cycles are counted together", "${c.multi ? \"Both cycles are counted together: an epic planned in either counts once. \" : \"\"}", ""),
+    ("the banner shows the wrong cycle", "const head = `Showing ${c.name}", "const head = `Showing ${c.first}"),
+    ("the banner does not say the cycles are counted together", "${c.multi ? \"Both cycles together: an epic planned in either counts once. \" : \"Epics planned outside it are not counted. \"}", ""),
+    ("the banner line a picture shows does not say 'combined'", "`Showing ${c.name}${c.multi ? \" combined\" : \"\"}`", "`Showing ${c.name}`"),
+    ("the Planned tile repeats the cycle in a kicker", "planned: ({s, c, g}) => ({c: \"cy\", v:", "planned: ({s, c, g}) => ({c: \"cy\", k: esc(c.name), v:"),
+    ("the Planned caption lost the cycle", "l: \"Planned\", s: `epics planned in ${c.name}`})", "l: \"Planned\", s: `epics planned`})"),
+    ("the banner is moved away from the tiles it heads", '<div class="kpis five" id="cy-kpis1"></div>\n    <div class="sub" id="cy-after"></div>', '<div class="sub" id="cy-after"></div>\n    <div class="kpis five" id="cy-kpis1"></div>'),
+    ("the subtitle says a second time what the banner says", "Delivery Cycle 2: W7 to the release end.\";\n  const planned", "Delivery Cycle 2: W7 to the release end. The filter bar shows one cycle.\";\n  const planned"),
+    ("the Pods block does not say which figures ignore the cycle", "These count the whole release in every cycle. Only Idle Pods follows the cycle shown above.", "Pods."),
+    ("the banner pointer has no name of its own", " aria-label=\"Go to the Delivery Cycle filter\"", ""),
     ("the removed selector is back", '<div class="cybanner" id="cy-banner">', '<div class="periodbar" id="g-cy"><div class="chips seg" id="f-cy" role="radiogroup"><input type="radio" name="f-cy"></div></div><div class="cybanner" id="cy-banner">'),
     ("the removed key is read again", "// the section's own cycle (cy=DC1 or DC2, an older link) is not read:", "if (/^DC[12]$/.test(h.get(\"cy\") || \"\")) state.dc = new Set([h.get(\"cy\").slice(2)]); //"),
     ("the banner is rewritten at every redraw", "if (host.textContent !== txt) host.innerHTML", "if (true) host.innerHTML"),
@@ -1132,7 +1150,9 @@ MUTANTS = [
     ("the Cycle 1 end marker says release end", "`end of ${cy1} ${shortDate(w1 + de * DAY)}`", "`release end ${shortDate(end)}`"),
     ("the even-pace readout ignores the window", "const pace = Math.round(paceAt(d));", "const pace = Math.round(D ? N * d / D : 0);"),
 ]
-STRUCTURAL = {"the removed selector is back", "the removed key is read again", "the banner is rewritten at every redraw"}      # caught by structure_probs, not by the numbers
+STRUCTURAL = {"the removed selector is back", "the removed key is read again", "the banner is rewritten at every redraw", "the banner does not say the cycles are counted together", "the banner line a picture shows does not say 'combined'",
+              "the Planned tile repeats the cycle in a kicker", "the Planned caption lost the cycle", "the banner is moved away from the tiles it heads", "the subtitle says a second time what the banner says",
+              "the Pods block does not say which figures ignore the cycle", "the banner pointer has no name of its own"}      # caught by structure_probs, not by the numbers
 MUTANT_VIEWS = [("variant", "r=27.1&dc=1"), ("variant", "r=27.1&dc=2"), ("variant", "r=27.1"), ("asof_pre", "r=27.1&dc=2"), ("asof_w7", "r=27.1&dc=1"), ("asof_w7", "r=27.1&dc=2"), ("asof_w7", "r=27.1")]
 
 

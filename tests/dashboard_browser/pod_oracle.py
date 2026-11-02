@@ -31,7 +31,7 @@ POD_JS = r"""(() => {
   const tile = (box, id) => { const t = document.querySelector(box + ' [data-kpi="' + id + '"]'); return t ? {v: t.querySelector('.v').textContent.trim(), s: t.querySelector('.s').textContent.trim(), btn: !!t.querySelector('.v button')} : null; };
   const ids = box => [...document.querySelectorAll(box + ' [data-kpi]')].map(t => t.dataset.kpi);
   return {release: state.release, projects: [...state.projects], teams: [...state.teams], dc: [...state.dc], cycleName: M.c.name, banner: (document.getElementById('cy-showing') || {}).textContent, bannerCycles: (document.getElementById('cy-banner') || {dataset: {}}).dataset.cycles,
-    point: (document.getElementById('cy-point') || {}).textContent,
+    point: (document.getElementById('cy-point') || {}).textContent, podScope: (document.getElementById('cy-podscope') || {}).textContent,
     tiles1: Object.fromEntries([...document.querySelectorAll('#cy-kpis1 [data-kpi]')].map(t => [t.dataset.kpi, t.querySelector('.v').textContent.trim()])), due: Object.fromEntries(M.epics.map(e => [e.k, e.due])), ids1: ids('#cy-kpis1'), ids2: ids('#cy-kpis2'), asof: CY.asOf, grid: document.getElementById('cy-kpis2').className, tiles: Object.fromEntries(ids('#cy-kpis2').map(id => [id, tile('#cy-kpis2', id)])),
     texts: [...document.querySelectorAll('#cy-kpis1 .kpi, #cy-kpis2 .kpi')].map(t => t.textContent), shown: document.getElementById('cy-pods').hidden === false,
     heading: document.getElementById('cy-pods-h').textContent};
@@ -128,17 +128,21 @@ def check_pods(res: dict, data: dict, st, tag: str, ch) -> None:
         bad.append(f"{tag}: the tiles are {st['ids1']} and {st['ids2']}")
     if any(re.search(r"undefined|NaN|\[object", t) for t in st["texts"]):
         bad.append(f"{tag}: a tile prints undefined or NaN")
+    if "Only Idle Pods follows the cycle" not in (st.get("podScope") or ""):
+        bad.append(f"{tag}: the Pods block does not say that only Idle Pods follows the cycle: {st.get('podScope')!r}")
     if not st["shown"] or st["heading"] != f"Pods in {st['release']}":
         bad.append(f"{tag}: the Pods block is hidden or its heading is '{st['heading']}'")
     win = window_of(data, st["release"], st["dc"])
     cal = {s["n"]: s["end"] for s in data["sprints"]}
-    want_banner = f"Showing {win['name']} · {win['start']} to {win['end']}"
+    want_banner = f"Showing {win['name']}{' combined' if len(win['shown']) > 1 else ''} · {win['start']} to {win['end']}"
     if st["banner"] != want_banner or st["cycleName"] != win["name"] or st["bannerCycles"] != "+".join(map(str, win["shown"])):
         bad.append(f"{tag}: the banner says {st['banner']!r} ({st['bannerCycles']}), the recount {want_banner!r}")
     if win["has2"] and "Delivery Cycle filter" not in (st["point"] or ""):
         bad.append(f"{tag}: the banner does not point to the Delivery Cycle filter: {st['point']!r}")
-    if win["has2"] and win["all"] and "counted together" not in (st["point"] or ""):
+    if win["has2"] and win["all"] and "Both cycles together" not in (st["point"] or ""):
         bad.append(f"{tag}: both cycles shown, and the banner does not say they are counted together: {st['point']!r}")
+    if win["has2"] and not win["all"] and "planned outside it are not counted" not in (st["point"] or ""):
+        bad.append(f"{tag}: one cycle shown, and the banner does not say what is left out: {st['point']!r}")
     if not win["has2"] and "no Delivery Cycle 2" not in (st["point"] or ""):
         bad.append(f"{tag}: a release with one cycle must say it has no Delivery Cycle 2: {st['point']!r}")
     want_t = epic_tiles(_scope(data, st), st["asof"], win, cal)

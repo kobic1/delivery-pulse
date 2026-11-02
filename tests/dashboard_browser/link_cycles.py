@@ -579,7 +579,7 @@ MUTANTS = [
     # the Delivery Cycle filter drives the section: one cycle, or both combined (the independent recount of pod_oracle spells the window again)
     ("both cycles are counted as Cycle 1 only", "end: sel[sel.length - 1].end,", "end: sel[0].end,"),
     ("the Cycle 2 epics are dropped from the combined view", "e.due >= cc.start && e.due <= cc.end);", "e.due >= cc.start && e.due <= (cc.multi ? cc.set[0].end : cc.end));"),
-    ("the banner shows the wrong cycle", "host.innerHTML = `${esc(`Showing ${c.name}`)}", "host.innerHTML = `${esc(`Showing ${c.first}`)}"),
+    ("the banner shows the wrong cycle", "const head = `Showing ${c.name}", "const head = `Showing ${c.first}"),
     ("Idle Pods ignores the union (Cycle 1 only)", "fig: (CY_PODFIG = cyPodFig(M.epics, planned))", "fig: (CY_PODFIG = cyPodFig(M.epics, M.planned(M.cycles[0])))"),
     ("the weekly table covers Cycle 1 only when both are shown", "const c = d.c, len = CY_DAY(c.end) - CY_DAY(c.start) + 1,", "const c = d.c, len = CY_DAY((c.multi ? c.set[0] : c).end) - CY_DAY(c.start) + 1,"),
 ]

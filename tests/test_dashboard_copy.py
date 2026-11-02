@@ -445,11 +445,20 @@ def test_the_cycles_section_follows_the_header_filter_and_says_so():
                  "planned in the selected Delivery Cycles", "the selected Delivery Cycles"):
         assert said in cy, said
     assert "Change it with the" in TEMPLATE and "Delivery Cycle filter</button> at the top of the page" in TEMPLATE
-    assert "Both cycles are counted together: an epic planned in either counts once." in TEMPLATE
+    assert "Both cycles together: an epic planned in either counts once." in TEMPLATE and "Epics planned outside it are not counted." in TEMPLATE      # the plain words for the combined view and for one cycle
+    assert 'const head = `Showing ${c.name}${c.multi ? " combined" : ""}`' in TEMPLATE      # the combined view says so in the line a picture of the banner shows
+    assert 'aria-label="Go to the Delivery Cycle filter"' in TEMPLATE                      # the pointer says what it does; the visible words are inside the name
+    assert "The filter bar shows" not in TEMPLATE                                          # the subtitle no longer says a second time what the banner says
     assert "cyWrite" in TEMPLATE and 'h.set("cy"' not in TEMPLATE                           # the removed key is never written; an older link that carries it is not read
 
 
-def test_the_cycles_headline_tiles_carry_the_cycle_in_their_kicker():
+def test_the_cycles_banner_is_the_heading_of_the_headline_tiles_and_the_tiles_do_not_repeat_the_cycle():
+    """One strong statement, not five: the banner sits directly above the five tiles (so a picture of the tiles carries it), the tiles have no kicker, and the cycle is named only where a number
+    could be misread: the Planned caption and the Idle Pods caption (the two tiles that count against the cycle), the table caption, the weekly plan, the carry-over heading."""
     for tile in ("planned", "done", "overdue", "next", "flagged"):
-        m = re.search(r"\n  " + tile + r": \(\{[^}]*\}\) => \(\{c: \"cy\", k: esc\(c\.name\), v:", TEMPLATE)
+        m = re.search(r"\n  " + tile + r": \(\{[^}]*\}\) => \(\{c: \"cy\", v:", TEMPLATE)
         assert m, tile
+        assert 'c: "cy", k:' not in TEMPLATE
+    assert TEMPLATE.index('id="cy-banner"') < TEMPLATE.index('id="cy-kpis1"') < TEMPLATE.index('id="cy-after"')      # banner, then the tiles it heads, then the After Release End line
+    assert "s: `epics planned in ${c.name}`" in TEMPLATE and "with no epic planned in ${c.name}`" in TEMPLATE
+    assert 'id="cy-podscope"' in TEMPLATE and "Only Idle Pods follows the cycle shown above." in TEMPLATE      # the Pods block says which of its figures does not follow the cycle
