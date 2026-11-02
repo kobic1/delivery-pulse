@@ -88,6 +88,9 @@ DATA_PATH = HERE / "build" / "program_data.json"
 TEMPLATE = HERE / "dashboard.template.html"
 OUT = HERE / "build" / "Delivery Pulse.html"                      # standalone file, open in a browser
 OUT_ARTIFACT = HERE / "build" / "Delivery Pulse (artifact).html"  # body-only page for the Artifact tool
+OUT_SANDBOX = HERE / "build" / "Delivery Pulse (sandbox).html"                    # --sandbox: the same page with a banner; the two live files above are not touched
+OUT_SANDBOX_ARTIFACT = HERE / "build" / "Delivery Pulse (sandbox artifact).html"  # --sandbox: publish this one to the separate Sandbox artifact, never to the live one
+SANDBOX = False                                                                     # set by --sandbox
 
 
 def cloud_id() -> str:
@@ -956,6 +959,24 @@ def save_data(data: dict) -> None:
     os.replace(tmp, DATA_PATH)
 
 
+def sandbox_fragment(fragment: str, build: dict) -> str:
+    """The Sandbox build: a new tab title and a banner above the page naming the branch, the commit and the build time, so nobody
+    mistakes a test build for the live dashboard. The banner is plain markup in the flow (not sticky), so the page's own sticky
+    stack and jump offsets are unchanged."""
+    import html, subprocess
+    try:
+        branch = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=HERE, capture_output=True, text=True, timeout=20).stdout.strip()
+    except Exception:
+        branch = ""
+    what = " · ".join(x for x in (f"branch {branch}" if branch and branch != "HEAD" else "", f"commit {build.get('sha')}" + (" + uncommitted changes" if build.get("dirty") else "") if build.get("sha") else "") if x)
+    banner = ('<div class="sandbox-banner" role="note" style="background:#FFF1CC;color:#4D2E00;border-bottom:2px solid #B26B00;'
+              'padding:8px 16px;font-weight:500;font-size:14px;line-height:1.4;text-align:center">'
+              f'<b>Sandbox build</b> · {html.escape(what)} · built {html.escape(str(build.get("at", "")))} · not the live dashboard: '
+              'it can differ from it and can be reset at any time.</div>\n')
+    assert fragment.count("<title>Delivery Pulse</title>") == 1 and fragment.count('<header class="top gutter">') == 1
+    return fragment.replace("<title>Delivery Pulse</title>", "<title>Delivery Pulse Sandbox</title>").replace('<header class="top gutter">', banner + '<header class="top gutter">', 1)
+
+
 def render(data: dict) -> None:
     """The template is a body-only fragment (title, meta, style, markup, script), which is exactly what the
     Artifact tool wants. The standalone file wraps the same fragment in a document and hoists title and meta."""
@@ -980,23 +1001,27 @@ def render(data: dict) -> None:
     payload = json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
     assert fragment.count("/*__DATA__*/null") == 1
     fragment = fragment.replace("/*__DATA__*/null", payload)
-    OUT_ARTIFACT.write_text(fragment, encoding="utf-8")
+    out, out_artifact = (OUT_SANDBOX, OUT_SANDBOX_ARTIFACT) if SANDBOX else (OUT, OUT_ARTIFACT)
+    if SANDBOX:
+        fragment = sandbox_fragment(fragment, data["build"])
+    out_artifact.write_text(fragment, encoding="utf-8")
 
     head = ""
     for pattern in (r"<title>.*?</title>\s*", r'<meta name="claude:viewport-fit-sides"[^>]*>\s*'):
         m = re.search(pattern, fragment, re.S)
         head += m.group(0)
         fragment = fragment.replace(m.group(0), "", 1)
-    OUT.write_text('<!DOCTYPE html>\n<html lang="en"><head><meta charset="UTF-8">'
+    out.write_text('<!DOCTYPE html>\n<html lang="en"><head><meta charset="UTF-8">'
                    '<meta name="viewport" content="width=device-width, initial-scale=1">'
                    f"{head}</head><body>\n{fragment}\n</body></html>", encoding="utf-8")
-    print(f"wrote {OUT} and {OUT_ARTIFACT.name} ({OUT.stat().st_size // 1024} KB, "
+    print(f"wrote {out} and {out_artifact.name} ({out.stat().st_size // 1024} KB, "
           f"{len(data['epics'])} epics, {len(data['bugs'])} bugs)")
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--reuse", action="store_true", help="render from build/program_data.json")
+    ap.add_argument("--sandbox", action="store_true", help="write the Sandbox build instead of the live files: 'Delivery Pulse (sandbox).html' and '(sandbox artifact).html', with a banner naming the branch and commit; the live files are left alone. Combine it with a mode flag")
     ap.add_argument("--add-nfr", action="store_true", help="flag the epics that carry the NFR label in build/program_data.json, then render")
     ap.add_argument("--add-hier", action="store_true", help="add the CXCROSS Initiative > Capability hierarchy to build/program_data.json, then render")
     ap.add_argument("--add-planning", action="store_true", help="add due dates, target sprints, sprint calendar, status-since and bug updates to build/program_data.json, then render")
@@ -1011,6 +1036,8 @@ def main() -> int:
     modes = [a for a in ("reuse", "add_nfr", "add_hier", "add_planning", "add_deps", "add_bugs", "add_pods", "add_cfb_open", "add_capitalization", "add_capabilities", "add_cycles") if getattr(args, a)]
     if len(modes) > 1:      # the branches below are an if/elif chain: a second flag used to be skipped without a word
         ap.error("use one mode flag at a time (got " + ", ".join("--" + m.replace("_", "-") for m in modes) + "); run them one after another")
+    global SANDBOX
+    SANDBOX = args.sandbox
     DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
     if args.add_nfr:
         data = json.loads(DATA_PATH.read_text(encoding="utf-8"))

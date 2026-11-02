@@ -265,3 +265,17 @@ def test_a_capability_record_carries_its_commitment_level_or_an_empty_string():
     assert {k: v["cl"] for k, v in out["capList"].items()} == {"AAA-1": "Committed", "AAA-2": "", "AAA-3": "", "AAA-4": "Stretch"}
     assert set(out["capList"]["AAA-1"]) == {"t", "s", "p", "fv", "cl"}
     assert all("customfield_10136" in f for j, f in asked if "issuetype = Capability" in j and "fixVersion in" in j)
+
+
+def test_the_sandbox_build_gets_its_own_title_and_a_banner_and_keeps_the_page_otherwise():
+    page = '<title>Delivery Pulse</title>\n<style></style>\n<header class="top gutter"><h1>Delivery Pulse</h1></header>\n<main></main>'
+    out = BD.sandbox_fragment(page, {"sha": "abc1234", "dirty": True, "at": "2026-01-01T00:00+02:00"})
+    assert "<title>Delivery Pulse Sandbox</title>" in out and "<title>Delivery Pulse</title>" not in out
+    assert out.count('class="sandbox-banner"') == 1 and out.index("sandbox-banner") < out.index('<header class="top gutter">')
+    assert "commit abc1234 + uncommitted changes" in out and "not the live dashboard" in out
+    assert out.replace(out[out.index('<div class="sandbox-banner"'):out.index('<header class="top gutter">')], "").replace(" Sandbox</title>", "</title>") == page
+
+
+def test_the_sandbox_build_writes_other_files_than_the_live_ones():
+    assert len({BD.OUT, BD.OUT_ARTIFACT, BD.OUT_SANDBOX, BD.OUT_SANDBOX_ARTIFACT}) == 4
+    assert "sandbox" in BD.OUT_SANDBOX.name and "sandbox" in BD.OUT_SANDBOX_ARTIFACT.name

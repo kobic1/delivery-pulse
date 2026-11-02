@@ -36,6 +36,20 @@ Writes two files to `program_dashboard/build/` (git-ignored, they contain epic t
   capability declared for the Atlassian connector and the single tool `searchJiraIssuesUsingJql`:
   `{"mcp": {"servers": [{"server": "Atlassian", "tools": ["searchJiraIssuesUsingJql"]}]}}`.
 
+## Sandbox (check a change before it reaches the live dashboard)
+The live dashboard is one published Artifact that many people open; the **Sandbox** is a second, separate Artifact ("Delivery Pulse Sandbox",
+private to its owner until shared) that gets every change first.
+
+- `python3 build_dashboard.py --reuse --sandbox` (or any other mode flag with `--sandbox`) writes `Delivery Pulse (sandbox).html` and
+  `Delivery Pulse (sandbox artifact).html` and **leaves the two live files alone**, so a branch build cannot be published to the live page by
+  mistake. The page is identical except for the tab title ("Delivery Pulse Sandbox") and a banner above it naming the branch, the commit
+  (with "+ uncommitted changes" when the tree is dirty) and the build time.
+- The flow: build the branch with `--sandbox`, publish the sandbox artifact file to the Sandbox URL (a new version each time), look at it,
+  then merge the pull request and publish the normal build to the live URL. The Sandbox keeps the same `mcp` capability declaration as the live
+  page, so Refresh from Jira can be tried there too.
+- The Sandbox holds the same real data as the live page (it is built from the same payload), so share it only with people who may see the
+  live dashboard.
+
 ## Time base
 Every timestamp on the page is shown in Israel time (labelled), and the as-of day used for ages, sprints and SLAs is the
 Israel-local date of the snapshot or of the last Refresh, whatever the viewer's timezone.
