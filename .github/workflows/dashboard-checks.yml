@@ -3,7 +3,9 @@ name: Delivery Pulse checks
 # Quality gate for the Delivery Pulse dashboard. It needs NO secrets and publishes NOTHING:
 #  - the collector unit tests and the collector/page contract tests (synthetic data only);
 #  - the leak scan (generic patterns only here: the real data is never in CI);
-#  - the browser harness on a fictitious payload: refresh failure cases, HTML-injection canary, link-versus-count oracle.
+#  - the browser suites on a fictitious payload (refresh failure cases, HTML-injection canary, link-versus-count oracles, tile, cycle,
+#    accessibility and capability oracles), run as PARALLEL jobs (the single job outgrew its time limit); the job named `checks` waits for them
+#    and is the one status check a pull request needs.
 # Never upload program_dashboard/build/ as a workflow artifact: the repository is public and so are its artifacts.
 
 on:
@@ -29,9 +31,41 @@ permissions:
   contents: read
 
 jobs:
-  checks:
+  suites:
+    name: suites (${{ matrix.name }})
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Balanced by measured time. --only '!selftest' / --only selftest split a long suite into its functional tests and its
+          # seeded-defect self-tests. The last entry runs every suite not named above, so a suite added later is never skipped.
+          - {name: "cycles links, functional", args: '--suites "cycles links" --only "!selftest"'}
+          - {name: "cycles links, self-tests", args: '--suites "cycles links" --only selftest'}
+          - {name: "delivery cycle filter, functional", args: '--suites "delivery cycle filter" --only "!selftest"'}
+          - {name: "delivery cycle filter, self-tests", args: '--suites "delivery cycle filter" --only selftest'}
+          - {name: "headline tiles", args: '--suites "headline tiles"'}
+          - {name: "harness, canary, links", args: '--suites "harness,canary,link oracle,link guard"'}
+          - {name: "other suites", args: '--except "cycles links,delivery cycle filter,headline tiles,harness,canary,link oracle,link guard"'}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Browser suites on the synthetic payload
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
+        run: python tests/dashboard_browser/run_dashboard_checks.py --live --strict --skip-pytest ${{ matrix.args }}
+
+  checks:
+    # The one required status check: the unit and contract tests, the leak scan, and a verdict over the parallel suites.
+    needs: suites
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -43,7 +77,7 @@ jobs:
         run: python -m pytest tests/test_program_dashboard.py tests/test_definitions_contract.py tests/test_dashboard_copy.py -q
       - name: Leak scan (generic patterns)
         run: python program_dashboard/leak_scan.py
-      - name: Browser harness on the synthetic payload
-        env:
-          CHROME_BIN: /usr/bin/google-chrome
-        run: python tests/dashboard_browser/run_dashboard_checks.py --live --strict
+      - name: The parallel browser suites all passed
+        run: |
+          echo "suites result: ${{ needs.suites.result }}"
+          test "${{ needs.suites.result }}" = "success"

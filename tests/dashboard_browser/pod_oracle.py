@@ -5,7 +5,8 @@ The page counts pods with podRegistry / cyPodsOf / cyPodFig. This module counts 
   * a POD is one pod label per project, compared without regard to case; an epic with several labels counts once under each pod; an epic with no label is in no pod;
   * Idle Pods: pods that carry at least one epic of the release (under the page's Release, Projects and Teams filters) and have NO epic planned in the selected Delivery Cycles (the Delivery Cycle filter:
     one cycle, or both combined = the release start to the release end);
-  * Pods With More Than 3 Epics In-Progress: more than POD_LEVEL epics In Progress or Validation among the epics of the release, and the number of those epics, each once;
+  * Pods With More Than 3 Epics In Progress: more than POD_LEVEL epics whose status is In Progress (N_WIP, Validation NOT counted: the owner's decision for this tile and its list only) among the epics of the
+    release, and the number of those epics, each once. Every other in-progress figure (Pods To Level, In-Progress Epics Without a Pod Label, the release bars) keeps N_FLIGHT = In Progress or Validation;
   * the four proactive tiles (act_oracle below): Not-Started Epics Due Within 7 Days, Waiting Dependents Due Soon, Pods To Level, In-Progress Epics Without a Pod Label, with their lists.
 
 The window of the selected cycles is spelled here again from the release window and the ticked cycles (window_of), never read from the page, so a section that shows the wrong cycles is caught; the section's
@@ -20,10 +21,11 @@ import datetime as dt
 import json
 import re
 
-N_FLIGHT = ("In Progress", "Validation")
+N_FLIGHT = ("In Progress", "Validation")             # the other in-progress figures of the page (CLASS.flight)
+N_WIP = ("In Progress",)                         # the one tile Pods With More Than 3 Epics In Progress: Validation is not counted
 POD_LEVEL = 3                                    # the page's CY.podWip, the owner's reference level; spelled here on purpose, not read from the page
 EPIC_IDS = ["planned", "done", "overdue", "next", "flagged"]
-ACT_IDS = ["nsSoon", "wait", "level", "noPod", "idle", "wip"]     # the six tiles of #cy-kpis2, in order: the four proactive ones first, then Idle Pods and Pods With More Than 3 Epics In-Progress
+ACT_IDS = ["nsSoon", "wait", "level", "noPod", "idle", "wip"]     # the six tiles of #cy-kpis2, in order: the four proactive ones first, then Idle Pods and Pods With More Than 3 Epics In Progress
 
 # What the strips print, what the page was asked (its own state, not its pod figures), and the pod lists opened in turn (the button is focused and clicked, then clicked again).
 POD_JS = r"""(() => {
@@ -67,8 +69,9 @@ def pods_of(epics: list) -> dict:
     return pods
 
 
-def flight(es: list) -> list:
-    return [e for e in es if e["s"] in N_FLIGHT]
+def wip_epics(es: list) -> list:
+    """The epics the 'more than 3 In Progress' tile counts: status In Progress only (a Validation epic is not in it)."""
+    return [e for e in es if e["s"] in N_WIP]
 
 
 def window_of(data: dict, release: str, dc) -> dict:
@@ -102,8 +105,8 @@ def figures(epics: list, due: dict, cycle: dict) -> dict:
         return bool(due.get(e["k"])) and cycle["start"] <= due[e["k"]] <= cycle["end"]
 
     idle = {k for k, es in pods.items() if not any(planned(e) for e in es)}
-    wip = {k for k, es in pods.items() if len(flight(es)) > POD_LEVEL}
-    return {"pods": pods, "idle": idle, "wip": wip, "wip_epics": {e["k"] for k in wip for e in flight(pods[k])}}
+    wip = {k for k, es in pods.items() if len(wip_epics(es)) > POD_LEVEL}
+    return {"pods": pods, "idle": idle, "wip": wip, "wip_epics": {e["k"] for k in wip for e in wip_epics(pods[k])}}
 
 
 def oracle(data: dict, st: dict) -> dict:
@@ -173,9 +176,9 @@ def check_pods(res: dict, data: dict, st, tag: str, ch) -> None:
         m = re.match(r"of (\d+) pods? in", ti["s"])
         if not m or int(m.group(1)) != n:
             bad.append(f"{tag}: the idle sub-line '{ti['s']}' should name {n} pods")
-        m = re.match(r"([\d,]+) epics? in-progress in these pods", tw["s"])
+        m = re.match(r"([\d,]+) epics? in status In Progress in these pods", tw["s"])
         if wip and (not m or int(m.group(1).replace(",", "")) != len(exp["wip_epics"])):
-            bad.append(f"{tag}: the in-progress sub-line prints '{tw['s']}', the recount is {len(exp['wip_epics'])} epics")
+            bad.append(f"{tag}: the In Progress sub-line prints '{tw['s']}', the recount is {len(exp['wip_epics'])} epics")
         if not wip and "no pod has more than" not in tw["s"]:
             bad.append(f"{tag}: the sub-line of 0 pods over the level is '{tw['s']}'")
         if ti["btn"] != bool(idle) or tw["btn"] != bool(wip):
@@ -197,7 +200,7 @@ def check_pods(res: dict, data: dict, st, tag: str, ch) -> None:
         else:
             for (p, nm), r in rows.items():
                 es = exp["pods"][(p, nm)]
-                want_n = len(es) if kind == "idle" else len(flight(es))
+                want_n = len(es) if kind == "idle" else len(wip_epics(es))
                 if int(r["cells"][2].replace(",", "")) != want_n or (kind == "idle" and r["cells"][3] != "0"):
                     bad.append(f"{tag}: {kind} row {nm} ({p}) prints {r['cells']}, the recount is {want_n}")
         order = [(r["name"], r["cells"][0]) for r in got["rows"]]
@@ -208,7 +211,7 @@ def check_pods(res: dict, data: dict, st, tag: str, ch) -> None:
               and re.match(r"\d+ .*pods? .*, (show|hide) the list$", got["label"]) is not None)
         if not ok:
             bad.append(f"{tag}: the {kind} button or list misbehaves: {({k: v for k, v in got.items() if k != 'rows'})}")
-        want_hdr = ["Pod", "Project", "Teams", "Epics in Release", f"Planned in {window_of(data, st['release'], st['dc'])['name']}"] if kind == "idle" else ["Pod", "Project", "Teams", "Epics In-Progress"]
+        want_hdr = ["Pod", "Project", "Teams", "Epics in Release", f"Planned in {window_of(data, st['release'], st['dc'])['name']}"] if kind == "idle" else ["Pod", "Project", "Teams", "Epics In Progress"]
         if got["hdr"] != want_hdr:
             bad.append(f"{tag}: the {kind} list header is {got['hdr']}")
 
@@ -266,14 +269,14 @@ def check_node(res: dict, data: dict, nd, tag: str) -> None:
         bad.append(f"{tag}: the facts line still says 'flagged as blocked': {facts}")
     idle, wip = len(fig["idle"]), len(fig["wip"])
     if nd["level"] == "pod":
-        if "idle pod" in facts or "epics in-progress" in facts:
+        if "idle pod" in facts or "epics In Progress" in facts:
             bad.append(f"{tag}: a pod leaf shows pod facts: {facts}")
         return
     res["pod_seen"]["node_idle>0"] += idle > 0
     res["pod_seen"]["node_wip>0"] += wip > 0
     want_idle = f"{idle} idle {'pod' if idle == 1 else 'pods'}" if idle else None
-    want_wip = f"{wip} {'pod' if wip == 1 else 'pods'} with more than {POD_LEVEL} epics in-progress" if wip else None
-    for what, w, present in (("idle", want_idle, "idle pod" in facts), ("wip", want_wip, "epics in-progress" in facts)):
+    want_wip = f"{wip} {'pod' if wip == 1 else 'pods'} with more than {POD_LEVEL} epics In Progress" if wip else None
+    for what, w, present in (("idle", want_idle, "idle pod" in facts), ("wip", want_wip, "epics In Progress" in facts)):
         if (w and w not in facts) or (not w and present):
             bad.append(f"{tag}: the facts line '{facts}' should {'say ' + repr(w) if w else 'not mention ' + what + ' pods'}")
 
