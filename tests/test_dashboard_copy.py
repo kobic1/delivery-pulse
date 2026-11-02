@@ -402,12 +402,15 @@ def test_the_commitment_type_filter_is_gone_from_the_page():
     assert 'id="g-dc"' in TEMPLATE and 'id="f-dc"' in TEMPLATE and 'h.set("dc"' in TEMPLATE and "At least one delivery cycle must stay selected" in TEMPLATE
 
 
-def test_the_burnup_says_which_cycle_rules_the_filter_uses_and_what_history_it_can_recompute():
+def test_the_burnup_says_the_filter_is_a_time_window_of_the_whole_release():
     bu = BLOCKS["bu"]
-    assert "Delivery Cycle filter" in bu and "on or before the end of W6" in bu and "W7 to the release end" in bu
-    assert "neither cycle" in bu and "counted only when both cycles are ticked" in bu                      # no planned date, or planned after the release end
-    assert "uses today's planned dates for every day of the timeline" in bu                                 # history is not stored: said once, here
-    assert "Delivery Cycle 1 line is not drawn" in bu
+    assert "Delivery Cycle filter" in bu and "W1 to the end of W6" in bu and "W7 to the release end" in bu
+    assert "the filter chooses weeks, not epics" in bu and "The numbers are the whole release's" in bu       # one cycle ticked cuts the whole-release chart to a window
+    assert "measured to the end of that window" in bu                                                         # "vs even pace" in a cycle view is a different definition from the whole-release view
+    assert "Done stays cumulative since the release start" in bu and "planned start" in bu and "the end of W6" in bu
+    assert "Delivery Cycle 1: no release scope is drawn" in bu and "end state of the window" in bu
+    assert "the same timeline" not in bu and "already Done before W7" not in bu and "only the epics planned in that cycle" not in bu
+    assert "Jira keeps no earlier planned dates" in bu                                                         # the cycles section keeps its planned-date rule; the burnup says it is a time cut of today's data
 
 
 def test_no_tile_tooltip_claims_the_burnup_always_equals_a_headline_number():
