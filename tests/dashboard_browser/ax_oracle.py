@@ -807,7 +807,7 @@ MUTANTS = [
     ("the links ignoring the state (never restricting)", [('if (!o.keepAx && state.ax !== "all") jql += state.ax === "yes" ? AX_ONLY : AX_EXCLUDE;', '')], [numbers_problems]),
     ("the trend ignoring the state", [('const bugs = backlogBugs(), weeks = weekStarts();', 'const bugs = bugsBase().filter(b => !b.ax && (state.bugPri.size === PRI_ALL.length || state.bugPri.has(b.pr)) && (state.cfb === "all" || (state.cfb === "yes") === !!b.cfb)), weeks = weekStarts();')], [numbers_problems]),
     ("the headline wording of Yes", [('yes: "only accessibility bugs"', 'yes: "excluding accessibility bugs"')], [numbers_problems]),
-    ("the default being All", [('commit: new Set(DEFAULT_COMMIT), ax: "no", bugPri', 'commit: new Set(DEFAULT_COMMIT), ax: "all", bugPri')], [numbers_problems, behaviour_problems]),
+    ("the default being All", [('ax: "no", bugPri', 'ax: "all", bugPri')], [numbers_problems, behaviour_problems]),
     ("the hash not written", [('if (state.ax !== "no") h.set("ax", state.ax);', '')], [behaviour_problems]),
     ("the hash not read for Yes", [('if (["all", "yes"].includes(h.get("ax"))) state.ax = h.get("ax");', 'if (["all"].includes(h.get("ax"))) state.ax = h.get("ax");')], [behaviour_problems]),
     ("the old ax=1 link no longer opening as All", [('else if (h.get("ax") === "1") state.ax = "all";', '')], [behaviour_problems]),

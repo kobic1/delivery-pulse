@@ -42,8 +42,8 @@ EXCL = ("maintenance", "sow")
 
 # the 1st of a month, a window across a month boundary, the 1st of the next month, across a year boundary, across a leap day, and a day in the middle of a month
 AS_OF_DAYS = [dt.date(2026, 11, 1), dt.date(2026, 11, 12), dt.date(2026, 12, 1), dt.date(2027, 1, 10), dt.date(2028, 3, 1), dt.date(2026, 10, 20)]
-# Release and Commitment Type must not move the tiles; Projects and Teams do
-STATES = ["", "p=PMN", "p=PMN|CXCO", "TEAM", "p=CXWFM|WFM", "p=CXSUP", "r=26.2&c=Stretch"]
+# Release and Delivery Cycle must not move the tiles; Projects and Teams do
+STATES = ["", "p=PMN", "p=PMN|CXCO", "TEAM", "p=CXWFM|WFM", "p=CXSUP", "r=26.2&dc=2"]
 
 TILE_JS = r"""(() => {
   const txt = n => n ? n.textContent.replace(/\s+/g, ' ').trim() : null;
@@ -117,9 +117,9 @@ def tip_kind(tip: str) -> str:
         return "prev"
     if "not marked as AI, resolved" in t:
         return "notai"
-    if "epics implemented by AI, resolved" in t:
+    if re.search(r"epics? implemented by AI, resolved", t):
         return "ai"
-    if re.match(r"\d+ epics resolved in", t):
+    if re.match(r"\d+ epics? resolved in", t):
         return "done"
     return "other"
 
@@ -432,14 +432,15 @@ def check_charts(res: dict, data: dict, tag: str, universe: list) -> list[str]:
     else:
         for i, ((label, _, _, running), c) in enumerate(zip(per, rc)):
             g, n, avg = eff["groups"][i], len(c["edct"]), c["avg"]
+            ptip = f"{label.rstrip('*')} (running)" if running else label       # the hover names the running period in words, the axis label keeps the asterisk
             if eff["ns"][i] != f"n={n}":
                 p.append(f"{tag} Efficiency {label}: the label under the bar is {eff['ns'][i]!r}, the recount has n={n}")
             if n >= EDCT_MIN_N:
-                want_tip = f"{label}\nAverage EDCT {rnd(avg)} days\n{n} AI-implemented {_epic_word(n)}"
+                want_tip = f"{ptip}\nAverage EDCT {rnd(avg)} days\n{n} AI-implemented {_epic_word(n)} with an EDCT"
                 if g["bars"] != 1 or str(rnd(avg)) not in g["texts"]:
                     p.append(f"{tag} Efficiency {label}: n={n} should show a bar labelled {rnd(avg)}, the mark has {g['bars']} bars and texts {g['texts']}")
             else:
-                want_tip = f"{label}\nNo AI-implemented epics with an EDCT, so no average is shown"
+                want_tip = f"{ptip}\nNo AI-implemented epics with an EDCT, so no average is shown"
                 if g["bars"] != 0 or g["texts"] != ["–"]:
                     p.append(f"{tag} Efficiency {label}: n=0 should show no bar and '–', the mark has {g['bars']} bars and texts {g['texts']}")
             if g["tip"] != want_tip:
@@ -483,17 +484,18 @@ def check_charts(res: dict, data: dict, tag: str, universe: list) -> list[str]:
     elif len(ai["groups"]) != len(per) or len(ai["rows"]) != len(per):
         p.append(f"{tag} AI Adoption: {len(ai['groups'])} marks, {len(ai['rows'])} table rows for {len(per)} periods")
     else:
-        for i, ((label, _, _, _), c) in enumerate(zip(per, rc)):
+        for i, ((label, _, _, running), c) in enumerate(zip(per, rc)):
             g, d, a = ai["groups"][i], len(c["kept"]), len(c["ai"])
+            ptip = f"{label.rstrip('*')} (running)" if running else label       # the hover names the running period in words
             if d >= MIN_N:
                 if g["bars"] != 1 or f"{pct(a, d)}%" not in g["texts"]:
                     p.append(f"{tag} AI Adoption {label}: {d} epics should show a bar labelled {pct(a, d)}%, the mark has {g['bars']} bars and texts {g['texts']}")
-                if not (g["tip"] or "").startswith(f"{label}: {pct(a, d)}% marked as AI ({a} of {d})"):
+                if not (g["tip"] or "").startswith(f"{ptip}: {pct(a, d)}% marked as AI ({a} of {d})"):
                     p.append(f"{tag} AI Adoption {label}: the hover text is {g['tip']!r}")
             else:
                 if g["bars"] != 0 or g["texts"] != ["n<5"]:
                     p.append(f"{tag} AI Adoption {label}: {d} epics (under {MIN_N}) should show 'n<5' and no bar, the mark has {g['bars']} bars and texts {g['texts']}")
-                if not (g["tip"] or "").startswith(f"{label}\nFewer than {MIN_N} epics resolved, so no share is shown"):
+                if not (g["tip"] or "").startswith(f"{ptip}\nFewer than {MIN_N} epics resolved, so no share is shown"):
                     p.append(f"{tag} AI Adoption {label}: the hover text of an under-5 period is {g['tip']!r}")
             row = ai["rows"][i]
             if [row[0]["text"], row[1]["text"], row[2]["text"]] != [per[i][0], str(d), f"{pct(a, d)}%" if d >= MIN_N else "–"]:
@@ -619,13 +621,13 @@ def _(t: T):
 
 CHART_MUTATIONS = [
     ("the 5-epic minimum still applied to the Efficiency chart", "avg: m.edctN >= EDCT_MIN_N ? m.edctAvg : null}; });", "avg: m.edctN >= MIN_N ? m.edctAvg : null}; });"),
-    ("the 5-epic minimum still applied to the EDCT Days tile", 'v: ms.edctN >= EDCT_MIN_N ? link(', 'v: ms.edctN >= MIN_N ? link('),
+    ("the 5-epic minimum still applied to the EDCT Days tile", 'v: ms.edctN >= EDCT_MIN_N ? tlink(', 'v: ms.edctN >= MIN_N ? tlink('),
     ("the 5-epic minimum still applied to the tile's target line", "if (ms.edctN >= EDCT_MIN_N) { const a = Math.round(ms.edctAvg)", "if (ms.edctN >= MIN_N) { const a = Math.round(ms.edctAvg)"),
     ("the 5-epic minimum still applied to the head line of the chart", "head.innerHTML = a == null ? `– <small>", "head.innerHTML = a == null || cur.n < MIN_N ? `– <small>"),
     ("the 5-epic minimum removed from the AI Adoption chart", "share: m.done >= MIN_N ? pct(m.ai, m.done) : null}", "share: m.done >= 1 ? pct(m.ai, m.done) : null}"),
     ("the average over Maintenance epics too", 'withEdct = pop.filter(e => e.cat !== "Maintenance" && e.ai && e.edct != null)', "withEdct = pop.filter(e => e.ai && e.edct != null)"),
     ("the average over epics that AI did not implement too", 'withEdct = pop.filter(e => e.cat !== "Maintenance" && e.ai && e.edct != null)', 'withEdct = pop.filter(e => e.cat !== "Maintenance" && e.edct != null)'),
-    ("a hover text that says 'epics' for one epic", "${r.n} AI-implemented ${epicWord(r.n)}`", "${r.n} AI-implemented epics`"),
+    ("a hover text that says 'epics' for one epic", '${nn(r.n, "AI-implemented epic", "AI-implemented epics")} with an EDCT`', '${r.n} AI-implemented epics with an EDCT`'),
     ("a placeholder 'n<5' on a period with no epic", 'text-anchor="middle" font-size="11" fill="#5A5F6B">${(o.min == null ? MIN_N : o.min) > 1', 'text-anchor="middle" font-size="11" fill="#5A5F6B">${5 > 1'),
 ]
 

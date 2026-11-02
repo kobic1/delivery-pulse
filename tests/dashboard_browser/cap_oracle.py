@@ -406,8 +406,8 @@ def _(t: T):
     t.check("Bogus" not in ch.js("location.hash"), "and it is dropped from the address")
     page = load(F["url"], "r=27.1&clx=Bogus")
     t.check(all(c["checked"] for c in page["chips"]) and "clx" not in page["hash"], "only unknown levels: the default view")
-    page = load(F["url"], "r=27.1&clx=Stretch&p=PMN|CXCO&c=Committed")
-    t.check(page["hash"].count("clx=Stretch") == 1 and "c=Committed" in page["hash"], f"it lives with the other filters in one address: {page['hash']}")
+    page = load(F["url"], "r=27.1&clx=Stretch&p=PMN|CXCO&dc=1")
+    t.check(page["hash"].count("clx=Stretch") == 1 and "dc=1" in page["hash"], f"it lives with the other filters in one address: {page['hash']}")
 
 
 @SUITE.test("capcl_the_chips_work_from_the_keyboard_and_focus_stays_on_the_chip")
@@ -467,7 +467,7 @@ def _(t: T):
     page = load(F["url"], "r=27.1")
     d = page["defs"]
     t.check("Commitment Level: the Jira field of that name on a Capability" in d and "Not Set means the field is empty" in d, f"definition missing: {d[:300]}")
-    t.check("Teams and the Commitment Type in the filter bar do not apply to Capabilities" in d, "the Teams / Commitment Type sentence is missing")
+    t.check("Teams in the filter bar do not apply to Capabilities" in d, "the Teams sentence is missing")
     t.check("the Commitment Level filter above them" in d and "Child Epics follow it" in d, "the filter is not named in the Know line")
     t.check("a Capability has neither" not in d and "Teams and Commitment Type do not apply" not in d, "the old sentence is still there")
     t.check("ignores Commitment Level, because it counts epics" in d, "the missing-parent line sentence is missing")
