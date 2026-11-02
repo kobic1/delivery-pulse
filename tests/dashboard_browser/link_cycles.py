@@ -2,11 +2,11 @@
 """Delivery Cycles links are QUERIES (the owner's rule): for every release x project set x cycle x node x kind, the epics the query finds equal the epics the page counts.
 
 The page builds each link with cyQ(kind, node, cycle). This suite asks the page for the query of every number it prints (Planned, Done, Overdue, Stale, Due next 7 days, Flagged,
-Carry-over, No planned date, Epics with Flags, the weekly table, After release end, the pod note, the No Pod Label rows, the epics of every pod, in flight, and the epics in flight of the pods over the
+Carry-over, No planned date, Epics with Flags, the weekly table, After release end, the pod note, the No Pod Label rows, the epics of every pod, in-progress, and the epics in-progress of the pods over the
 level), EVALUATES that query in Python (jql_eval.py over the baked epics, with the sprint-name rules of the real Jira) and compares the SET of keys with the list the page's model holds. A seeded mutant
 must be caught. The payload is the fictitious one, plus a variant that reaches the branches the stock payload leaves empty (carry-over, planned after the release end, a Target Sprint the calendar does not
-know, and a set of seeded pods: exactly 3 and exactly 4 epics in flight, Validation counted with In Progress, only Done, only outside the cycle, a label shared by two projects, case variants, two labels on
-one epic, an in-flight epic with no pod label, labels that look like issue keys).
+know, and a set of seeded pods: exactly 3 and exactly 4 epics in-progress, Validation counted with In Progress, only Done, only outside the cycle, a label shared by two projects, case variants, two labels on
+one epic, an in-progress epic with no pod label, labels that look like issue keys).
 
 The Pods tiles are also recounted by an independent Python oracle (pod_oracle) from the baked epics in every view, and compared with the printed tile values, the opened lists and the facts line of the
 detail views.
@@ -406,13 +406,13 @@ POD_PROBE = ("(() => { const t = document.querySelector('#cy-kpis2 [data-kpi=\"w
 
 
 def pod_budget(t: T, src: str, old: str) -> None:
-    """The union link of 'Pods With More Than 3 Epics in Flight' is one URL; with a budget one character below its length it is plain text, the number stays, and the buttons keep working."""
+    """The union link of 'Pods With More Than 3 Epics In-Progress' is one URL; with a budget one character below its length it is plain text, the number stays, and the buttons keep working."""
     data, url = page("variant")
     ch = ctx.chrome
     ch.goto(url + "#r=27.1&cy=DC1")
     kit.wait_ready(ch)
     base = ch.js(POD_PROBE)
-    t.check(base["link"] and base["len"] > 200, f"the control page has no in-flight link to cut ({base})")
+    t.check(base["link"] and base["len"] > 200, f"the control page has no in-progress link to cut ({base})")
     if not base["link"]:
         return
     tmp = Path(ctx.dir) / "cycles_pod_budget.html"
@@ -421,7 +421,7 @@ def pod_budget(t: T, src: str, old: str) -> None:
     kit.wait_ready(ch)
     small = ch.js(POD_PROBE)
     t.check(not small["link"] and small["s"] == base["s"] and small["v"] == base["v"] and small["btn"] and small["idle"] == base["idle"],
-            f"over the budget the in-flight link must be plain text with the same number and the buttons kept: {base} -> {small}")
+            f"over the budget the in-progress link must be plain text with the same number and the buttons kept: {base} -> {small}")
 
 
 def _tmp_template(text: str) -> Path:
@@ -458,8 +458,8 @@ def _(t: T):
     over = {"pod-seed-four", "pod-seed-mix", "pod-seed-case", "pod-seed-twoa", "pod-seed-twob", "pod-21", "pod-22", "pod-23", "pod-24"}
     t.check(over <= {n for _, n in wip}, f"pods over the level missing from the list: {sorted(over - {n for _, n in wip})}")
     t.check(("PMN", "pod-seed-shared") in wip and ("CXCO", "pod-seed-shared") not in wip, "a label shared by two projects is over the level in PMN only (4 vs 2 epics)")
-    t.check(not ({"pod-seed-three", "pod-seed-done", "pod-seed-late", "pod-seed-undated"} & {n for _, n in wip}), "exactly 3 epics in flight, only Done, outside the cycle and undated are not over the level")
-    t.check(wip[("PMN", "pod-seed-case")][2] == "4" and wip[("PMN", "pod-seed-mix")][2] == "4", "case variants are one pod of 4; 3 In Progress + 1 Validation is 4 in flight")
+    t.check(not ({"pod-seed-three", "pod-seed-done", "pod-seed-late", "pod-seed-undated"} & {n for _, n in wip}), "exactly 3 epics in-progress, only Done, outside the cycle and undated are not over the level")
+    t.check(wip[("PMN", "pod-seed-case")][2] == "4" and wip[("PMN", "pod-seed-mix")][2] == "4", "case variants are one pod of 4; 3 In Progress + 1 Validation is 4 in-progress")
     n1 = {n for _, n in names["DC1", "idle"]}
     n2 = {n for _, n in names["DC2", "idle"]}
     t.check({"pod-seed-late", "pod-seed-mix", "pod-seed-undated"} <= n1 and not ({"pod-seed-three", "pod-seed-four", "pod-seed-done", "pod-seed-shared", "pod-seed-case"} & n1), f"idle in Delivery Cycle 1: {sorted(n1)[:12]}")
@@ -493,7 +493,7 @@ def _(t: T):
 @SUITE.test("cycles_the_fixed_proactive_cases_land_where_the_brief_puts_them")
 def _(t: T):
     """The named FIXED cases of make_synthetic (as-of + 0, 7 and 8 days, the later date, Stretch; 2 vs 10, 3 vs 2, 1 vs 4, 2 vs 2, 4 only, a single pod, 3-1-1 = exactly 40%, 4 vs 2; providers with and
-    without a pod; Done pairs; in-flight with and without pod labels, labels shaped like issue keys). The general recount above checks every view; this pins the owner's examples."""
+    without a pod; Done pairs; in-progress with and without pod labels, labels shaped like issue keys). The general recount above checks every view; this pins the owner's examples."""
     data, url = page()
     ch = ctx.chrome
 
@@ -524,7 +524,7 @@ def _(t: T):
     both = [r for r in allc["wait"] if not r["grp"] and r["cells"][0].startswith("EXB-96104")]
     t.check(len(both) == 2, "a waiting item that waits on two providers appears under each")
     np_ = {(r["th"]): tuple(r["cells"]) for r in allc["noPod"] if r["th"].startswith("Team Seed Np")}
-    t.check(np_.get("Team Seed Np") == ("PMN", "5", "8", "63%") and np_.get("Team Seed Np Small") == ("PMN", "2", "2", "–"), f"in flight without a pod label: {np_} (POD-31 and POD-32 are pods, NFR is not; a share needs 5 in flight)")
+    t.check(np_.get("Team Seed Np") == ("PMN", "5", "8", "63%") and np_.get("Team Seed Np Small") == ("PMN", "2", "2", "–"), f"in-progress without a pod label: {np_} (POD-31 and POD-32 are pods, NFR is not; a share needs 5 in-progress)")
 
 
 # --------------------------------------------------------------------------------------------- the suite must fail on a seeded defect
@@ -532,18 +532,18 @@ MUTANTS = [
     ("a due date on the end day is left out (<= becomes <)", '(duedate is EMPTY OR duedate <= "${hi}")', '(duedate is EMPTY OR duedate < "${hi}")'),
     ("a Target Sprint that ends after the window is no longer excluded", "(${CY_TS} is EMPTY OR ${CY_TS} not in (${after}))", "(${CY_TS} is EMPTY)"),
     ("'more than 3' becomes '3 or more'", "const wip = pods.filter(p => p.flight.length > CY.podWip);", "const wip = pods.filter(p => p.flight.length >= CY.podWip);"),
-    ("in flight counted as In Progress only", "p.flight = p.epics.filter(e => CLASS.flight.includes(e.s));", 'p.flight = p.epics.filter(e => e.s === "In Progress");'),
+    ("in-progress counted as In Progress only", "p.flight = p.epics.filter(e => CLASS.flight.includes(e.s));", 'p.flight = p.epics.filter(e => e.s === "In Progress");'),
     ("Idle Pods ignores the selected cycle", "p.planned = p.epics.filter(e => ps.has(e)).length;", "p.planned = p.epics.filter(e => e.due).length;"),
-    ("the in-flight union link drops the project guard", "arg.map(p => `(${cyPodClause(p)})`).join(\" OR \")", "arg.map(p => `(labels in (${p.sp.map(q).join(\", \")}))`).join(\" OR \")"),
+    ("the in-progress union link drops the project guard", "arg.map(p => `(${cyPodClause(p)})`).join(\" OR \")", "arg.map(p => `(labels in (${p.sp.map(q).join(\", \")}))`).join(\" OR \")"),
     ("Not-started due soon counts 8 days instead of 7", "e.due <= cyAdd(CY.asOf, CY.next);\nconst cyTeamNodes", "e.due <= cyAdd(CY.asOf, CY.next + 1);\nconst cyTeamNodes"),
     ("Not-started due soon uses the due date instead of the later date", "cls(e.s) === \"notStarted\" && !!e.due && e.due >= CY.asOf && e.due <= cyAdd(CY.asOf, CY.next);", "cls(e.s) === \"notStarted\" && !!e.dd && e.dd >= CY.asOf && e.dd <= cyAdd(CY.asOf, CY.next);"),
         ("Pods To Level flags from 30% instead of 40%", "levelSpread: 0.40,", "levelSpread: 0.30,"),
     ("Pods To Level flags from 50% instead of 40%", "levelSpread: 0.40,", "levelSpread: 0.50,"),
-    ("Pods To Level ignores the minimum of 5 in flight", "const flagged = total >= MIN_N && spread >= CY.levelSpread - 1e-9;", "const flagged = spread >= CY.levelSpread - 1e-9;"),
+    ("Pods To Level ignores the minimum of 5 in-progress", "const flagged = total >= MIN_N && spread >= CY.levelSpread - 1e-9;", "const flagged = spread >= CY.levelSpread - 1e-9;"),
     ("Pods To Level divides by the busiest pod instead of the team total", "spread = total ? (hi - lo) / total : 0;", "spread = hi ? (hi - lo) / hi : 0;"),
     ("Waiting Dependents counts Done dependencies", "depModel().openAll.forEach(x => {", "depModel().inView.forEach(x => {"),
     ("Waiting Dependents counts a provider without a pod as a pod", "withPod: !!(items.get(x.d.k) || {}).withPod || prov.pl.length > 0}", "withPod: !!(items.get(x.d.k) || {}).withPod || true}"),
-    ("in flight is In Progress only", "const cyInFlight = e => CLASS.flight.includes(e.s);", 'const cyInFlight = e => e.s === "In Progress";'),
+    ("in-progress is In Progress only", "const cyInFlight = e => CLASS.flight.includes(e.s);", 'const cyInFlight = e => e.s === "In Progress";'),
     ("the pod label rule changes: a label shaped like POD-12 is no pod", "noPod = flight.filter(e => !e.pl.length), ns =", "noPod = flight.filter(e => !e.pl.length || e.pl.some(l => /^pod-\\d+$/i.test(l))), ns ="),
     ("a pod is counted per team instead of once", "const k = l.toLowerCase(), id = e.p + \"\\n\" + k; if (seen.has(id)) return; seen.add(id);", "const k = l.toLowerCase(), id = e.p + \"\\n\" + k + \"\\n\" + e.tm.join(); if (seen.has(id)) return; seen.add(id);"),
 ]

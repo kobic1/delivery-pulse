@@ -324,9 +324,9 @@ def test_blocking_external_scope_is_the_only_outside_scope_chip_and_says_what_it
     assert "project not in (${pkeys([...projectsAll.filter(p => state.projects.has(p)), DEP_CX])})" in TEMPLATE and "h.length <= CY_URL_MAX" in TEMPLATE
 
 
-# ---- the four proactive tiles of the Cycles Pods block (Not-Started Epics Due Within 7 Days, Waiting Dependents Due Soon, Pods To Level, In-Flight Epics Without a Pod Label)
+# ---- the four proactive tiles of the Cycles Pods block (Not-Started Epics Due Within 7 Days, Waiting Dependents Due Soon, Pods To Level, In-Progress Epics Without a Pod Label)
 PROACTIVE_TILES = ["nsSoon", "wait", "level", "noPod"]
-PROACTIVE_TITLES = ["Not-Started Epics Due Within ${CY.next} Days", "Waiting Dependents Due Soon", "Pods To Level", "In-Flight Epics Without a Pod Label"]
+PROACTIVE_TITLES = ["Not-Started Epics Due Within ${CY.next} Days", "Waiting Dependents Due Soon", "Pods To Level", "In-Progress Epics Without a Pod Label"]
 TIP_MAX_WORDS = 25                # the first line of a tile tooltip is the point, in about 25 words
 DEF_MAX_WORDS = 70                # one short definition line per tile in How this is calculated
 
@@ -358,15 +358,15 @@ def test_each_proactive_tile_tooltip_is_the_point_in_about_25_words_then_where_i
 
 def test_the_proactive_tiles_are_defined_in_the_cycles_disclosure_with_their_thresholds():
     cy = BLOCKS["cy"]
-    for name in ("Not-started epics due within ${CY.next} days", "Waiting dependents due soon", "Pods to level", "In-flight epics without a pod label"):
+    for name in ("Not-started epics due within ${CY.next} days", "Waiting dependents due soon", "Pods to level", "In-progress epics without a pod label"):
         assert name in cy, name
     # the numbers come from the named constants, not from literals typed twice
-    assert "${Math.round(CY.levelSpread * 100)}%" in cy and "at least ${MIN_N} in flight" in cy and "${CY.next} days later" in cy
+    assert "${Math.round(CY.levelSpread * 100)}%" in cy and "at least ${MIN_N} in-progress" in cy and "${CY.next} days later" in cy
     assert "the later date counts (the later of the due date and the Target Sprint end)" in cy              # the owner confirmed: the later date counts
     assert "the due date first, else the Target Sprint end" in cy                                          # the dependency rule for the waiting item
-    assert "A team is flagged when its busiest and lightest pods differ by" in cy and "of the team's in-flight epics" in cy
+    assert "A team is flagged when its busiest and lightest pods differ by" in cy and "of the team's in-progress epics" in cy
     assert "A pod takes part when it has an epic in ${esc(state.release)} that is not Done" in cy
-    for m in re.finditer(r"\n\s+\[(?:`|\")(Not-started epics due within|Waiting dependents due soon|Pods to level|In-flight epics without a pod label)[^\n]*", cy):
+    for m in re.finditer(r"\n\s+\[(?:`|\")(Not-started epics due within|Waiting dependents due soon|Pods to level|In-progress epics without a pod label)[^\n]*", cy):
         words = len(strip_expressions(m.group(0)).split())
         assert words <= DEF_MAX_WORDS, (m.group(1), words)
 
