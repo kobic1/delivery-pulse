@@ -93,6 +93,9 @@ THRESHOLDS = {
     # privacy: the smallest group of distinct people the report shows a number for. 5 is the safe default; 1 shows every number as it is (a page for its owner alone: with few people the numbers describe individual visits).
     # The statistical guards (a percentage needs 20 in the denominator, a baseline 5 completed weeks, a weak signal under 30 active people, a growth verdict 6 weeks) are separate and do not move with it.
     "min_group": 5,
+    # --show-all: what the views are drawn from and when they are drawn at all
+    "show_partial_week": 0,             # 1: the views (section and control reach, devices, freshness, the day-and-hour map, the page version) include the week in progress, to date, besides the completed weeks
+    "heatmap_min_visits": 50,           # engaged visits with a recorded opening time needed before the day-and-hour map is drawn
 }
 
 
@@ -598,7 +601,19 @@ def partition_cells(groups: dict) -> dict:
 def window_weeks(m: Model) -> list:
     """The analysis window of the views: the last window_weeks completed weeks (fewer while the data is young), a provisional first week included."""
     k = m.th["window_weeks"]
-    return m.weeks[-k:] if m.weeks else []
+    wk = m.weeks[-k:] if m.weeks else []
+    if m.th["show_partial_week"] and m.cur in m.by_week and m.cur not in wk:
+        wk = wk + [m.cur]                                                           # the week in progress, to date
+    return wk
+
+
+def _weeks_phrase(m: Model, n: int) -> str:
+    """'the last 4 completed weeks', or with --show-all 'the last 3 completed weeks and the week so far'; with no completed week 'the week so far'."""
+    partial = bool(m.th["show_partial_week"] and m.cur in m.by_week)
+    done = n - 1 if partial else n
+    if not done:
+        return "the week so far"
+    return f"the last {done} completed week{'' if done == 1 else 's'}" + (" and the week so far" if partial else "")
 
 
 def _confidence(weeks_seen: int, active: int, th: dict, soft: bool = False) -> str:
@@ -1464,7 +1479,7 @@ def aggregate(bodies: list, today: dt.date | None = None, as_of: dt.datetime | N
         "n_docs": len(bodies), "n_sessions": len(m.rows), "n_people": {"raw": n_people, "n": gn(n_people)}, "first_day": m.first_day, "last_day": m.last_day,
         "history_days": (ref - m.first_day).days + 1 if m.first_day else 0, "data_start": m.data_start, "provisional_first": m.provisional_first, "first_week": m.first_week,
         "compared": comp, "signals": sig, "weeks": growth_accounting(m), "growth": growth_verdict(m), "habit": habit_view(m), "retention": retention_view(m),
-        "window": {"weeks": len(wk), "lo": wk[0] if wk else None, "hi": (wk[-1] + dt.timedelta(days=6)) if wk else None, "label": f"{d_label(wk[0])} to {d_label(wk[-1] + dt.timedelta(days=6))}" if wk else ""},
+        "window": {"weeks": len(wk), "lo": wk[0] if wk else None, "hi": min(wk[-1] + dt.timedelta(days=6), ref) if wk else None, "label": f"{d_label(wk[0])} to {d_label(min(wk[-1] + dt.timedelta(days=6), ref))}" if wk else ""},
         "sections": sections_view(m, wk), "controls": controls_view(m, wk), "use": use_view(m, wk), "health": health_view(m), "daily": daily_view(m), "audience": aud,
         "stats": stats or {}, "counts": m.counts, "model": m,
     }
@@ -1674,7 +1689,7 @@ def text_report(a: dict) -> str:
         add(f"  Retention {label}: " + (f"{share_text(r['x'], r['raw_n'], a['model'].th)} of {fmt_n(r['n'])} eligible people" if r["raw_n"] else "no eligible people yet") + (" (indicative, under 30 people)" if r["indicative"] and r["raw_n"] else ""))
     add("  Habit: " + (h["text"] if h["state"] != "ok" else f"{share_text(h['x'], h['n'], a['model'].th) if h['n_print'] != SMALL else SMALL} of {fmt_n(h['n_print'])} established people were active in {h['min_weeks']} or more of the last {h['weeks']} completed weeks ({h['window']})"))
     sv = a["sections"]
-    add(f"\nWhat people read: reach in the last {sv['weeks']} completed weeks, {fmt_n(sv['n_g'])} active people (in page order, not ranked)")
+    add(f"\nWhat people read: reach in {_weeks_phrase(a['model'], sv['weeks'])}, {fmt_n(sv['n_g'])} active people (in page order, not ranked)")
     for r in sv["rows"]:
         add(f"  {r['name']:<18} reach {share_text(r['reach'], sv['d'], a['model'].th):>12}   strip {fmt_n(r['nav']) if r['nav'] is not None else '-':>9}   Jira links {fmt_n(r['links']):>9}" + (f"   {r['candidate']}" if r["candidate"] else ""))
     add(f"  {sv['candidates']['status']}")
@@ -1963,7 +1978,6 @@ def gov() -> list:
             ((f"A group of 0 people prints as 0; a group of {'1' if MIN_USERS == 2 else '1 to ' + str(MIN_USERS - 1)} prints as {SMALL} and its neighbours are withheld when a subtraction would reveal it. " if MIN_USERS > 1 else "No group is withheld (the minimum group size is 1), so there is no group to protect by subtraction. ")
              + "A percentage prints only when its denominator is 20 or more; below that the counts are printed with n=." + ("" if MIN_USERS > 1 else " " + small_rule(cap=True))),
             "Wording: say readers of a section, reach and people active. Never rank, name or evaluate people or teams, and never state a reason for a change: a change coincides with, or is associated with, something worth investigating."]
-HEATMAP_MIN_VISITS = 50                                                              # engaged visits with a recorded opening time needed before the day-and-hour map is drawn
 HM_BUCKETS = 5
 
 
@@ -2625,7 +2639,7 @@ def _read_block(a: dict) -> tuple:
     ol = ", ".join(f"{DISCLOSURES[k]}: {num(v)}" for k, v in s["disclosures"].items())
     table = ('<table id="reach"><thead><tr><th scope="col">Section</th><th scope="col" class="n">Reach</th><th scope="col" class="n">Section Strip</th><th scope="col" class="n">Jira links</th><th scope="col" class="n">Reading time</th></tr></thead>'
              f'<tbody>{"".join(body_rows)}</tbody></table>'
-             f'<p class="cap2">Reach: people with 30 seconds or more in the section in a week, of the {num(s["n_g"])} people active in the last {s["weeks"]} completed weeks. Section Strip and Jira links: people using the strip or the skip links to jump to the section, or following a Jira link from it (a person is counted once). '
+             f'<p class="cap2">Reach: people with 30 seconds or more in the section in a week, of the {num(s["n_g"])} people active in {_weeks_phrase(a["model"], s["weeks"])}. Section Strip and Jira links: people using the strip or the skip links to jump to the section, or following a Jira link from it (a person is counted once). '
              f'Reading time: each person\'s own split, averaged over the sections shown; scroll position decides which section gets the time. {e(guard_note("A section with fewer than {n} readers shows {g} and is left out of that share."))} Simplify candidates: {e(s["candidates"]["status"])}. Details opened (people): {ol}.</p>')
     cap = f"Share of the {num(s['n_g'])} people active in {a['window']['label']} with 30 seconds or more in the section. Page order, not ranked."
     return panel("Section reach", cap, body, show_data(table), "p-sections"), ""
@@ -2657,7 +2671,7 @@ def _controls_block(a: dict) -> str:
     reset = ("Not recorded in v1 records." if rs["state"] == "none" else f"{sh(rs['x'], rs['visits_g'], th)} of visits with a control change also pressed Reset Filters in the same visit ({nlabel(rs['visits_g'])})." + (" Flag: 25% or more in 2 consecutive weeks." if rs.get("flag") else ""))
     mv, pj = c["multi_vs_projects"]
     table = (f'<table id="controls"><thead><tr><th scope="col">Control</th><th scope="col" class="n">Reach</th></tr></thead><tbody>{"".join(body_rows)}</tbody></table>'
-             f'<p class="cap2">Reach of each control among the {num(c["n_g"])} people active in the last {c["weeks"]} completed weeks: people that changed it at least once. Any control: {sh(c["any"]["x"], N, th)}. Multi-select toggle: {num(mv)} people; Projects: {num(pj)} people. {e(reset)}</p>')
+             f'<p class="cap2">Reach of each control among the {num(c["n_g"])} people active in {_weeks_phrase(a["model"], c["weeks"])}: people that changed it at least once. Any control: {sh(c["any"]["x"], N, th)}. Multi-select toggle: {num(mv)} people; Projects: {num(pj)} people. {e(reset)}</p>')
     cap = f"Share of the {num(c['n_g'])} people active in {a['window']['label']} that changed the control at least once. Fixed page order, not ranked."
     return panel("Control reach", cap, body, show_data(table), "p-controls")
 
@@ -2728,7 +2742,9 @@ def version_split(m: Model) -> dict:
     The same partition protection as S6: when the older group is under 5 people nothing about the newer group is drawn."""
     th = m.th
     L = m.last
-    if not m.usable(L):
+    if not m.usable(L) and th["show_partial_week"] and m.cur in m.by_week:
+        L = m.cur                                                                 # no completed week to read: the week in progress, to date
+    elif not m.usable(L):
         return {"state": "none"}
     rows_bt = [x for x in m.visits(L) if is_num(x["s"].get("bt"))]
     all_bt = [x["s"]["bt"] for x in m.rows if is_num(x["s"].get("bt"))]
@@ -2743,7 +2759,7 @@ def version_split(m: Model) -> dict:
     newest = max(all_bt)
     stale = sum(1 for v in latest.values() if newest - v > th["s6_age_days"])
     pc = protect_partition({"old": stale, "new": n6 - stale}, n6)
-    return {"state": "ok", "n": n6, "cells": pc, "days": th["s6_age_days"]}
+    return {"state": "ok", "n": n6, "cells": pc, "days": th["s6_age_days"], "partial": L == m.cur}
 
 
 def _stack_panel_parts(a: dict) -> tuple:
@@ -2766,10 +2782,10 @@ def _stack_panel_parts(a: dict) -> tuple:
         names = {"new": f"On the newest page version, or under {vs['days']} days older", "old": f"More than {vs['days']} days older"}
         cells = vs["cells"]
         bar, summ, _ = stack_bar(cells, names, th, unit="people")
-        add("Page version, people active in the last completed week", bar, summ, (stack_note(cells, th, "people") if SMALL in cells.values() else f"n={vs['n']} people with a recorded build day."), rows_of(cells, names, None))
+        add("Page version, people active in the " + ("week so far" if vs.get("partial") else "last completed week"), bar, summ, (stack_note(cells, th, "people") if SMALL in cells.values() else f"n={vs['n']} people with a recorded build day."), rows_of(cells, names, None))
     elif vs["state"] in ("v1", "few"):
         why = "not recorded in v1 records" if vs["state"] == "v1" else f"too few people (n={vs['n']}, needs {th['min_den']})"
-        add("Page version, people active in the last completed week", f'<div class="sb" aria-hidden="true"><span class="stubfull"><b>Not shown</b></span></div>', "not shown: " + why, "Not shown: " + why + ".", f'<tr><td colspan="2">{e(why)}</td></tr>')
+        add("Page version, people active in the " + ("week so far" if vs.get("partial") else "last completed week"), f'<div class="sb" aria-hidden="true"><span class="stubfull"><b>Not shown</b></span></div>', "not shown: " + why, "Not shown: " + why + ".", f'<tr><td colspan="2">{e(why)}</td></tr>')
     fr = a["use"]["fresh"]
     for key, title in (("lv", "Connection at the start of a visit"), ("fa", "Age of the data at the start of a visit")):
         f = fr.get(key)
@@ -2798,7 +2814,7 @@ def _breakdowns(a: dict) -> str:
 def hour_grid(m: Model) -> dict:
     """Engaged visits by weekday (Israel day of the visit) and hour of the day (Israel time, from the opening time the v2 page records in hours) over the completed weeks. A cell counts its visits and its distinct people; a cell of 1 to 4 people is
     withheld (hatched, no number). No total is printed next to the cells, so no cell can be reconstructed by subtraction. A visit whose opening time does not fall on its own day is not used (counted)."""
-    done = set(m.weeks)
+    done = set(m.weeks) | ({m.cur} if m.th["show_partial_week"] else set())
     cells: dict = defaultdict(lambda: [0, set()])
     used = skipped = 0
     for r in m.rows:
@@ -2816,7 +2832,7 @@ def hour_grid(m: Model) -> dict:
         cells[k][0] += 1
         cells[k][1].add(r["u"])
         used += 1
-    if used < HEATMAP_MIN_VISITS or len({u for c in cells.values() for u in c[1]}) < MIN_USERS:
+    if used < m.th["heatmap_min_visits"] or used < 1 or len({u for c in cells.values() for u in c[1]}) < MIN_USERS:
         return {"state": "few", "used": used}
     out = {k: ({"state": "none"} if v[0] == 0 else {"state": "small"} if len(v[1]) < MIN_USERS else {"state": "ok", "visits": v[0], "people": len(v[1])}) for k, v in cells.items()}
     hours = sorted({h for _, h in out})
@@ -2841,7 +2857,7 @@ def _heatmap_block(a: dict) -> str:
     if not any(r["v2"] for r in m.rows):
         return head + panel(title, "Israel time.", '<p class="empty-note">Not recorded in v1 records: the earlier page did not record the hour of a visit.</p>') + "</section>"
     if hg["state"] != "ok":
-        return head + panel(title, "Israel time.", f'<p class="empty-note">Too early: needs {HEATMAP_MIN_VISITS} engaged visits with a recorded time, and {MIN_USERS} {"person" if MIN_USERS == 1 else "people"}.</p>') + "</section>"
+        return head + panel(title, "Israel time.", f'<p class="empty-note">Too early: needs {max(1, int(m.th["heatmap_min_visits"]))} engaged visit{"" if m.th["heatmap_min_visits"] <= 1 else "s"} with a recorded time{"" if MIN_USERS <= 1 else f", and {MIN_USERS} people"}.</p>') + "</section>"
     days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
     hours = hg["hours"]
     cells_html, summ, trs = [], [], []
@@ -2920,7 +2936,7 @@ def _cohort_block(a: dict) -> str:
     cg = cohort_grid(m)
     r_ = a["retention"]
     if not cg["eligible"]:
-        body = f'<p class="empty-note">Too early: needs a first-seen week with {MIN_USERS} or more people and one completed week after it.</p>'
+        body = f'<p class="empty-note">Too early: needs a first-seen week with {MIN_USERS if MIN_USERS > 1 else 1} {"or more people" if MIN_USERS > 1 else "person"} and one completed week after it.</p>'
         table = ""
         summ = ""
     else:
@@ -3141,8 +3157,11 @@ def parse_as_of(s: str | None) -> dt.datetime | None:
     return t if t.tzinfo else t.replace(tzinfo=IL)
 
 
-def load_thresholds(path: str | None) -> dict:
-    th = dict(THRESHOLDS)
+SHOW_ALL = {"min_group": 1, "min_den": 1, "heatmap_min_visits": 1, "show_partial_week": 1}      # --show-all: the minimums on what is drawn, off
+
+
+def load_thresholds(path: str | None, base: dict | None = None) -> dict:
+    th = {**THRESHOLDS, **(base or {})}
     if path:
         over = json.loads(Path(path).read_text(encoding="utf-8"))
         if not isinstance(over, dict):
@@ -3171,13 +3190,14 @@ def main(argv=None) -> int:
     ap.add_argument("--calendar", help="usage_calendar.json from `build_dashboard.py --emit-usage-calendar`, optionally with owner `events` (dates) and `quiet_weeks` (dates)")
     ap.add_argument("--demo", action="store_true", help="use a fictitious data set (about 50 people, 11 completed weeks, built to exercise the failure modes) and show a Demo data banner")
     ap.add_argument("--min-group", type=int, help="the smallest group of people a number is shown for (default 5; 1 shows every number as it is: with few people the numbers describe individual visits, so keep the page private)")
+    ap.add_argument("--show-all", action="store_true", help="remove the minimums on what is drawn: every number for any group size (min group 1), percentages for any denominator, the day-and-hour map from one visit, and the week in progress (to date) in the views that need a completed week. The statistical verdicts (growth, change signals, simplify candidates, habit) keep their own rules because they compare weeks; a thresholds file still overrides this")
     ap.add_argument("--text", action="store_true", help="also print the text report when --html is given")
     a = ap.parse_args(argv)
     now = dt.datetime.now(IL)
     as_of = parse_as_of(a.as_of)
     today = dt.date.fromisoformat(a.today) if a.today else None
     since = dt.date.fromisoformat(a.since) if a.since else None
-    th = load_thresholds(a.thresholds)
+    th = load_thresholds(a.thresholds, base=SHOW_ALL if a.show_all else None)
     if a.min_group is not None:
         if a.min_group < 1:
             ap.error("--min-group must be 1 or more")
