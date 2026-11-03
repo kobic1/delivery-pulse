@@ -1568,3 +1568,35 @@ def test_there_are_at_least_eight_seeded_defects():
 
 def test_there_are_at_least_six_seeded_defects_of_the_chart_rendering():
     assert len([s for s in SEEDED if s[2].__name__ in ("check_guarded_rows_draw_no_bar_and_carry_no_number", "check_stack_bars_never_reveal_a_hidden_group", "check_every_chart_has_its_table", "check_incomplete_weeks_are_hatched", "check_heatmap_withholds_cells_under_five_people", "check_no_id_name_email_key_or_team_in_any_output", "check_cohort_cells_never_reveal_a_small_group")]) >= 7
+
+
+# ------------------------------------------------------------------------------------------------ --show-all: the minimums on what is drawn are off
+def _first_week_bodies():
+    """Two people, one visit each on the day the data starts: no week is completed yet."""
+    day = CUR + dt.timedelta(days=1)                                                         # Monday 2026-11-02, inside the week in progress
+    t = int(dt.datetime(2026, 11, 2, 9, 0, tzinfo=dt.timezone.utc).timestamp() // 3600)
+    return [person(i, [(day, v2(s=90, t=t, d="l", sec={"cx": 60, "top": 30}, f={"dc": 1}))]) for i in range(2)]
+
+
+def test_default_thresholds_hide_what_show_all_draws_in_the_first_week():
+    default = UR.html_report(agg(_first_week_bodies(), th=UR.load_thresholds(None)))
+    shown = UR.html_report(agg(_first_week_bodies(), th=UR.load_thresholds(None, base=UR.SHOW_ALL)))
+    assert default.count("Too early: no completed week yet.") == 2 and "Not recorded in v1 records" in default
+    assert "Too early: no completed week yet." not in shown
+    assert re.search(r'<div class="hb"><span class="hl">CXCROSS', shown)                         # the section appears with its reach
+    when = re.search(r'<section class="blk" id="when".*?</section>', shown, re.S).group(0)
+    assert "Too early" not in when and "Engaged visits per weekday and hour" in when
+    assert "Too early: needs 50" in re.search(r'<section class="blk" id="when".*?</section>', default, re.S).group(0)
+    assert "the week so far" in shown                                                           # the window says what it is made of
+
+
+def test_show_all_leaves_the_statistical_verdicts_alone_and_the_default_unchanged():
+    th = UR.load_thresholds(None, base=UR.SHOW_ALL)
+    assert th["min_group"] == 1 and th["min_den"] == 1 and th["heatmap_min_visits"] == 1 and th["show_partial_week"] == 1
+    assert UR.THRESHOLDS["min_group"] == 5 and UR.THRESHOLDS["min_den"] == 20 and UR.THRESHOLDS["heatmap_min_visits"] == 50 and UR.THRESHOLDS["show_partial_week"] == 0
+    a = agg(_first_week_bodies(), th=th)
+    assert a["growth"]["state"] == "too_early"                                                  # a growth verdict still needs weeks to compare
+    assert a["habit"]["state"] != "ok"
+    assert a["window"]["hi"] <= a["ref"]                                                        # the window of the week in progress ends on the day of the data, not on Saturday
+    UR.set_min_group(5)
+    assert UR.load_thresholds(None)["min_group"] == 5
