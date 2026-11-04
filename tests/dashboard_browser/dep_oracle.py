@@ -43,7 +43,7 @@ KEYRE = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
 URL_BUDGET = 6000
 NO_TEAM = "(No Team)"
 DIR_TEXT = {"ext": "Waits on external scope", "in": "Waits on outside scope", "out": "Needed by outside scope", "within": "Within scope"}
-FILTER_NAME = {"blocking": "Blocked by external", "external": "Blocking external", "cx": "CXCROSS", "epics": "Internal"}
+FILTER_NAME = {"blocking": "Blocked by External", "external": "Blocking External", "cx": "CXCROSS", "epics": "Internal"}
 EXT_PHRASE = "where an item in the selected projects waits on an external provider (not selected, not CXCROSS)"
 
 
@@ -349,7 +349,7 @@ def _(t: T):
     t.check(page["group"] == "radiogroup", "the chips are in a radiogroup")
     t.check(all(r["type"] == "radio" and r["name"] == "f-dp" and r["tab"] is None for r in page["radios"]) and len(page["radios"]) == 5 and len(page["boxes"]) == 3 and all(b["type"] == "checkbox" and b["tab"] is None for b in page["boxes"]), f"five native radios and three native checkboxes, no tabindex: {page['radios']} {page['boxes']}")
     t.check(page["chips"]["blocking"]["on"], "dp=blocking selects Blocked by External")
-    t.check("Blocked by external" in page["chips"]["blocking"]["label"], f"sentence case label: {page['chips']['blocking']['label']}")
+    t.check("Blocked by External" in page["chips"]["blocking"]["label"], f"sentence case label: {page['chips']['blocking']['label']}")
     ch = ctx.chrome
     click = "(() => { const i = document.querySelector('#f-dp input[value=\"%s\"]'); i.click(); return location.hash; })()"
     ch.js(click % "epics")
@@ -362,7 +362,7 @@ def _(t: T):
     time.sleep(0.2)
     h = ch.js("location.hash")
     t.check("dp=blocking" in h, f"selecting Blocked by External writes dp=blocking: {h}")
-    t.check(ch.js("document.querySelector('#f-dp input[value=\"blocking\"]').checked && document.getElementById('dep-showing').textContent.includes('Blocked by external')") is True, "and the board follows")
+    t.check(ch.js("document.querySelector('#f-dp input[value=\"blocking\"]').checked && document.getElementById('dep-showing').textContent.includes('Blocked by External')") is True, "and the board follows")
     page = load(F["url"], "r=27.1&dp=blocking")
     t.check(page["chips"]["blocking"]["on"], "dp=blocking round trips")
     page = load(F["url"], "r=27.1&dp=nonsense")
@@ -387,10 +387,10 @@ def _(t: T):
 
 @SUITE.test("direction_two_rows_attention_flags_combine_with_a_relationship_and_every_count_is_what_choosing_it_shows")
 def _(t: T):
-    """The quick filter is a Relationship (one of All, Internal, Blocking external, Blocked by external, CXCROSS) and Needs attention flags (any of Overdue, Not planned, Schedule gaps).
+    """The quick filter is a Relationship (one of All, Internal, Blocking External, Blocked by External, CXCROSS) and Needs Attention flags (any of Overdue, Not Planned, Schedule Gaps).
     A pair is shown when it matches the relationship AND at least one chosen flag (flags OR each other). Checked on the rows the page shows, against the recount of the relationship
     and against the same flag chosen alone: the AND, the OR, each attention count (the flag alone under the held relationship), each relationship count (with the held flags),
-    the Showing wording, the address, an old single-value link and Clear filters."""
+    the Showing wording, the address, an old single-value link and Clear Filters."""
     F = fixture()
     O = recount(F["data"], View("r=27.1"))
     base = "r=27.1&"
@@ -415,9 +415,9 @@ def _(t: T):
     held = load(F["url"], base + "dp=blocking|overdue|unplanned")
     t.check(int(rel_only["chips"]["overdue"]["n"]) + 0 <= int(rel_only["chips"]["blocking"]["n"]), "a flag count under a relationship never exceeds that relationship's count")
     if held["rows"]:
-        want = f"Showing {len(held['rows'])} of {len(O['all'])} open: Blocked by external and (Overdue or Not planned)."
+        want = f"Showing {len(held['rows'])} of {len(O['all'])} open: Blocked by External and (Overdue or Not Planned)."
         t.check(held["showing"] == want, f"the Showing line names the choice: '{held['showing']}' (expected '{want}')")
-    t.check(held["clearBtns"] == 1, "a Clear filters button is on the board when something is applied")
+    t.check(held["clearBtns"] == 1, "a Clear Filters button is on the board when something is applied")
     t.check("dp=blocking%7Coverdue%7Cunplanned" in held["hash"] or "dp=blocking|overdue|unplanned" in held["hash"], f"the address lists the relationship first, then the flags: {held['hash']}")
     ch = ctx.chrome
     load(F["url"], base)
@@ -429,12 +429,12 @@ def _(t: T):
     t.check(ch.js("decodeURIComponent(location.hash)").endswith("dp=blocking|overdue") or "dp=blocking|overdue" in ch.js("decodeURIComponent(location.hash)"), "the relationship is written first")
     ch.js("document.querySelector('#dep-body [data-dpclear]').click()")
     time.sleep(0.2)
-    t.check("dp=" not in ch.js("location.hash") and ch.js("document.querySelector('#f-dp input[value=\"all\"]').checked && !document.querySelector('#f-da input:checked')") is True, "Clear filters returns to All with no flag")
+    t.check("dp=" not in ch.js("location.hash") and ch.js("document.querySelector('#f-dp input[value=\"all\"]').checked && !document.querySelector('#f-da input:checked')") is True, "Clear Filters returns to All with no flag")
 
 
 @SUITE.test("direction_internal_blocking_and_blocked_by_external_split_all_and_cxcross_is_the_only_overlap")
 def _(t: T):
-    """Every open pair in view is Internal (both ends in selected projects), Blocking external (the provider is ours, the dependent's project is outside) or Blocked by external (our item waits on an outside
+    """Every open pair in view is Internal (both ends in selected projects), Blocking External (the provider is ours, the dependent's project is outside) or Blocked by External (our item waits on an outside
     provider), unless it involves CXCROSS, which the CXCROSS chip shows. So the three plus CXCROSS cover All, and a pair outside CXCROSS is in exactly one of the three (a PMN-only view, a Task or Story
     end inside the selected projects included: it is Internal, not left under All alone). Checked on the recount, and on the chip counts the page prints for the same views."""
     F = fixture()
@@ -443,7 +443,7 @@ def _(t: T):
         allp = {(a, b) for a, b, _ in O["all"]}
         internal, bext, ext, cx = ({(a, b) for a, b, _ in O[k]} for k in ("internal", "bext", "ext", "cx"))
         t.check(bool(allp), f"{v.hash}: the view has open pairs")
-        t.check(internal | bext | ext | cx == allp, f"{v.hash}: a pair is in none of Internal, Blocking external, Blocked by external, CXCROSS: {sorted(allp - (internal | bext | ext | cx))[:3]}")
+        t.check(internal | bext | ext | cx == allp, f"{v.hash}: a pair is in none of Internal, Blocking External, Blocked by External, CXCROSS: {sorted(allp - (internal | bext | ext | cx))[:3]}")
         t.check(all(((a, b) in internal) + ((a, b) in bext) + ((a, b) in ext) == 1 for a, b in allp - cx), f"{v.hash}: a pair outside CXCROSS is in more or fewer than one relationship")
         page = load(F["url"], v.hash)
         n = lambda k: int(page["chips"][k]["n"])
@@ -508,7 +508,7 @@ def _(t: T):
         page = load(url, "r=27.1&dp=blocking")
         bad = check_view(page, O2, v, "blocking")
         t.check(not bad, f"{name} dp=blocking: {bad[:2]}")
-        t.check(page["empty"] and "blocks an item in the selected projects" in page["empty"] and "Clear filters" in (page["empty"] or "") or page["clearBtns"] == 1, f"{name} dp=blocking: empty text '{page['empty']}'")
+        t.check(page["empty"] and "blocks an item in the selected projects" in page["empty"] and "Clear Filters" in (page["empty"] or "") or page["clearBtns"] == 1, f"{name} dp=blocking: empty text '{page['empty']}'")
         t.check(page["chips"]["blocking"]["n"] == "0" and page["chips"]["blocking"]["title"] == f"0 open dependencies of {len(O2['all'])}", f"{name} dp=blocking: chip {page['chips']['blocking']}")
 
 
