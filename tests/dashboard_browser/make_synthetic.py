@@ -449,7 +449,7 @@ class Gen:
         # outside the release below). A held epic of CXCO outside the release is a provider in an UNSELECTED tracked project when only PMN is selected (counts) and in a selected project when CXCO is selected
         # (does not). Two Done pairs must not count: an external provider that is Done, and a Done dependent. Fixed keys and fixed picks (the first matching epic), no random draw.
         more = {"CXCROSS-97010": ("Task", "In Progress"), "CXCROSS-97015": ("Epic", "New"), "OLDCXCROSS-97014": ("Task", "New"), "EXE-97013": ("Epic", "In Progress"), "EXA-97016": ("Bug", "New"),
-                "EXE-97017": ("Task", "Done"), "EXE-97018": ("Task", "In Progress")}
+                "EXE-97017": ("Task", "Done"), "EXE-97018": ("Task", "In Progress"), "PMN-97019": ("Story", "In Progress")}
         for k, (ty, st) in more.items():
             assert k not in ext and not any(e["k"] == k for e in epics), k
             ext[k] = {"p": k.split("-")[0], "t": f"Far-end {ty} {k[-4:]}", "s": st, "fv": [], "tm": [], "ud": self.d(self.today - dt.timedelta(days=3)), "ty": ty}
@@ -460,6 +460,10 @@ class Gen:
         add += [[live[1]["k"], "CXCROSS-97010", "D"], [live[2]["k"], "CXCROSS-97015", "B"], [live[3]["k"], "OLDCXCROSS-97014", "D"], [live[0]["k"], "EXE-97013", "D"], [live[4]["k"], "EXA-97016", "D"],
                 [live[5]["k"], sel_pmn["k"], "D"], [live[6]["k"], sel_cxco["k"], "D"], [live[2]["k"], sel_cxco["k"], "B"],
                 [live[7]["k"], "EXE-97017", "D"], [done_dep["k"], "EXE-97018", "D"]]
+        # ---- Internal at any issue type: a Story of PMN (a selected project) blocks, and waits on, PMN epics of the release that deliver no CXCROSS capability: neither pair is epic-to-epic, neither involves CXCROSS,
+        # so both are Internal (a PMN-only view keeps them under Internal, not under All alone)
+        pmn_plain = [e["k"] for e in scope if e["p"] == "PMN" and not (e.get("cp") or "").startswith("CXCROSS-") and e["s"] != "Done"]
+        add += [[pmn_plain[0], "PMN-97019", "D"], ["PMN-97019", pmn_plain[1], "B"]]
         have = {(d[0], d[1]) for d in deps}
         deps += [x for x in add if (x[0], x[1]) not in have]
         deps.sort(key=lambda d: (d[0], d[1]))

@@ -43,7 +43,7 @@ KEYRE = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
 URL_BUDGET = 6000
 NO_TEAM = "(No Team)"
 DIR_TEXT = {"ext": "Waits on external scope", "in": "Waits on outside scope", "out": "Needed by outside scope", "within": "Within scope"}
-FILTER_NAME = {"blocking": "Blocked by external", "external": "Blocking external", "cx": "CXCROSS", "epics": "Internal (between epics)"}
+FILTER_NAME = {"blocking": "Blocked by external", "external": "Blocking external", "cx": "CXCROSS", "epics": "Internal"}
 EXT_PHRASE = "where an item in the selected projects waits on an external provider (not selected, not CXCROSS)"
 
 
@@ -96,8 +96,8 @@ def recount(data: dict, v: View) -> dict:
         out["all"].append((a, b, direction))
         if ra["ty"] == "Epic" and rb["ty"] == "Epic":
             out["epics"].append((a, b, direction))
-            if ra["p"] in projects and rb["p"] in projects and not is_cx(ra) and not is_cx(rb):
-                out["internal"].append((a, b, direction))               # Internal: epic-to-epic, both ends in selected projects, neither in CXCROSS
+        if ra["p"] in projects and rb["p"] in projects and not is_cx(ra) and not is_cx(rb):
+            out["internal"].append((a, b, direction))                   # Internal: both ends in selected projects, neither in CXCROSS, any issue type
         if is_cx(ra) or is_cx(rb):
             out["cx"].append((a, b, direction))                         # CXCROSS: either end is a CXCROSS item
         if b in scope and ra["p"] not in projects and ra["p"] != "CXCROSS":
@@ -430,6 +430,24 @@ def _(t: T):
     ch.js("document.querySelector('#dep-body [data-dpclear]').click()")
     time.sleep(0.2)
     t.check("dp=" not in ch.js("location.hash") and ch.js("document.querySelector('#f-dp input[value=\"all\"]').checked && !document.querySelector('#f-da input:checked')") is True, "Clear filters returns to All with no flag")
+
+
+@SUITE.test("direction_internal_blocking_and_blocked_by_external_split_all_and_cxcross_is_the_only_overlap")
+def _(t: T):
+    """Every open pair in view is Internal (both ends in selected projects), Blocking external (the provider is ours, the dependent's project is outside) or Blocked by external (our item waits on an outside
+    provider), unless it involves CXCROSS, which the CXCROSS chip shows. So the three plus CXCROSS cover All, and a pair outside CXCROSS is in exactly one of the three (a PMN-only view, a Task or Story
+    end inside the selected projects included: it is Internal, not left under All alone). Checked on the recount, and on the chip counts the page prints for the same views."""
+    F = fixture()
+    for v in (View("r=27.1"), View("r=27.1&p=PMN", projects={"PMN"}), View("r=27.1&p=PMN|CXCO", projects={"PMN", "CXCO"})):
+        O = recount(F["data"], v)
+        allp = {(a, b) for a, b, _ in O["all"]}
+        internal, bext, ext, cx = ({(a, b) for a, b, _ in O[k]} for k in ("internal", "bext", "ext", "cx"))
+        t.check(bool(allp), f"{v.hash}: the view has open pairs")
+        t.check(internal | bext | ext | cx == allp, f"{v.hash}: a pair is in none of Internal, Blocking external, Blocked by external, CXCROSS: {sorted(allp - (internal | bext | ext | cx))[:3]}")
+        t.check(all(((a, b) in internal) + ((a, b) in bext) + ((a, b) in ext) == 1 for a, b in allp - cx), f"{v.hash}: a pair outside CXCROSS is in more or fewer than one relationship")
+        page = load(F["url"], v.hash)
+        n = lambda k: int(page["chips"][k]["n"])
+        t.check((n("epics"), n("external"), n("blocking"), n("cx"), n("all")) == (len(internal), len(bext), len(ext), len(cx), len(allp)), f"{v.hash}: the chips print {(n('epics'), n('external'), n('blocking'), n('cx'), n('all'))}, the recount is {(len(internal), len(bext), len(ext), len(cx), len(allp))}")
 
 
 @SUITE.test("direction_blocked_by_outside_scope_is_gone_and_an_old_link_opens_the_default_view")
