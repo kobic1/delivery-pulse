@@ -43,7 +43,7 @@ KEYRE = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
 URL_BUDGET = 6000
 NO_TEAM = "(No Team)"
 DIR_TEXT = {"ext": "Waits on external scope", "in": "Waits on outside scope", "out": "Needed by outside scope", "within": "Within scope"}
-FILTER_NAME = {"blocking": "Blocked by External"}
+FILTER_NAME = {"blocking": "Blocked by external", "external": "Blocking external", "cx": "CXCROSS", "epics": "Internal (between epics)"}
 EXT_PHRASE = "where an item in the selected projects waits on an external provider (not selected, not CXCROSS)"
 
 
@@ -51,6 +51,11 @@ EXT_PHRASE = "where an item in the selected projects waits on an external provid
 class View:
     def __init__(self, hash_: str, rel: str = "27.1", projects=None, teams=()):
         self.hash, self.rel, self.projects, self.teams = hash_, rel, projects, set(teams)
+
+
+def is_cx(r: dict) -> bool:
+    """A CXCROSS item: the project CXCROSS (a whole key), or an epic that delivers a CXCROSS capability (cp starts with CXCROSS-)."""
+    return r["p"] == "CXCROSS" or (r.get("cp") or "").startswith("CXCROSS-")
 
 
 def recount(data: dict, v: View) -> dict:
@@ -63,16 +68,16 @@ def recount(data: dict, v: View) -> dict:
     def rec(k: str) -> dict:
         e = epics.get(k)
         if e:
-            return {"ty": "Epic", "s": e["s"], "held": True, "dd": e.get("dd"), "ts": e.get("ts"), "p": e["p"]}
+            return {"ty": "Epic", "s": e["s"], "held": True, "dd": e.get("dd"), "ts": e.get("ts"), "p": e["p"], "cp": e.get("cp")}
         x = ext.get(k)
         if x:
-            return {"ty": x.get("ty") or "Epic", "s": x["s"], "held": False, "dd": x.get("dd"), "ts": x.get("ts"), "p": x.get("p") or k.split("-")[0]}
-        return {"ty": "", "s": "", "held": False, "dd": None, "ts": None, "p": k.split("-")[0]}
+            return {"ty": x.get("ty") or "Epic", "s": x["s"], "held": False, "dd": x.get("dd"), "ts": x.get("ts"), "p": x.get("p") or k.split("-")[0], "cp": x.get("cp")}
+        return {"ty": "", "s": "", "held": False, "dd": None, "ts": None, "p": k.split("-")[0], "cp": None}
 
     pairs = {}
     for a, b, _ty in data["deps"]:
         pairs[(a, b)] = True                                           # the same pair as Dependency and as Blocks counts once
-    out = {"ext": [], "inbound": [], "outbound": [], "within": [], "epics": [], "all": [], "done_ext_provider": 0, "done_ext_dependent": 0, "done_out": 0, "scope": scope, "rec": rec, "projects": projects,
+    out = {"ext": [], "inbound": [], "outbound": [], "within": [], "epics": [], "internal": [], "cx": [], "bext": [], "all": [], "done_ext_provider": 0, "done_ext_dependent": 0, "done_out": 0, "scope": scope, "rec": rec, "projects": projects,
            "issues": [{"key": k, "project": rec(k)["p"]} for k in sorted({k for a, b, _ in data["deps"] for k in (a, b)} | set(epics) | set(ext))]}
     for (a, b) in sorted(pairs):
         if a not in scope and b not in scope:
@@ -91,6 +96,12 @@ def recount(data: dict, v: View) -> dict:
         out["all"].append((a, b, direction))
         if ra["ty"] == "Epic" and rb["ty"] == "Epic":
             out["epics"].append((a, b, direction))
+            if ra["p"] in projects and rb["p"] in projects and not is_cx(ra) and not is_cx(rb):
+                out["internal"].append((a, b, direction))               # Internal: epic-to-epic, both ends in selected projects, neither in CXCROSS
+        if is_cx(ra) or is_cx(rb):
+            out["cx"].append((a, b, direction))                         # CXCROSS: either end is a CXCROSS item
+        if b in scope and ra["p"] not in projects and ra["p"] != "CXCROSS":
+            out["bext"].append((a, b, direction))                       # Blocking External: the provider is in scope, the dependent's project is neither selected nor CXCROSS
         out[{"ext": "ext", "in": "inbound", "out": "outbound", "within": "within"}[direction]].append((a, b, direction))
     return out
 
@@ -98,7 +109,7 @@ def recount(data: dict, v: View) -> dict:
 # --------------------------------------------------------------------------------------------- what the page prints
 READ_JS = r"""(() => {
   const txt = e => (e ? e.textContent : '').replace(/\s+/g, ' ').trim();
-  const chips = {}; document.querySelectorAll('#f-dp .chip').forEach(c => { const i = c.querySelector('input'); chips[i.value] = {n: txt(c.querySelector('.cnt')), title: c.title, on: i.checked, label: txt(c)}; });
+  const chips = {}; document.querySelectorAll('#f-dp .chip, #f-da .chip').forEach(c => { const i = c.querySelector('input'); chips[i.value] = {n: txt(c.querySelector('.cnt')), title: c.title, on: i.checked, label: txt(c)}; });
   const link = a => ({text: txt(a), href: a.getAttribute('href'), tip: a.getAttribute('data-tip') || '', aria: a.getAttribute('aria-label') || ''});
   const sub = document.getElementById('dep-sub');
   const cards = [...document.querySelectorAll('#dep-body .bcard')].map(c => ({key: txt(c.querySelector('.bk a.cl')), aria: c.querySelector('.bk a.cl').getAttribute('aria-label'), meta: txt(c.querySelector('.bm')),
@@ -106,9 +117,11 @@ READ_JS = r"""(() => {
   const heads = [...document.querySelectorAll('#dep-body table.deptable thead th')].map(txt), di = heads.indexOf('Direction');
   const rows = [...document.querySelectorAll('#dep-body table.deptable tbody tr')].map(r => { const td = r.querySelectorAll('td'); return {d: txt(td[0].querySelector('.k')), p: txt(td[2].querySelector('.k')), dir: di < 0 ? null : txt(td[di]),
     planned: txt(td[5]), cells: td.length}; });
+  const noBtn = e => { if (!e) return null; const c = e.cloneNode(true); c.querySelectorAll('button').forEach(b => b.remove()); return txt(c); };
   const sh = document.getElementById('dep-showing'), empty = document.querySelector('#dep-body .empty'), group = document.getElementById('f-dp');
-  return {chips, sub: txt(sub), subLinks: [...sub.querySelectorAll('a')].map(link), cards, heads, rows, showing: sh ? txt(sh) : null, empty: empty ? txt(empty) : null,
+  return {chips, sub: txt(sub), subLinks: [...sub.querySelectorAll('a')].map(link), cards, heads, rows, showing: noBtn(sh), empty: noBtn(empty), clearBtns: document.querySelectorAll('#dep-body [data-dpclear]').length,
     radios: [...document.querySelectorAll('#f-dp input')].map(i => ({type: i.type, name: i.name, value: i.value, tab: i.getAttribute('tabindex')})), group: group ? group.getAttribute('role') : null,
+    boxes: [...document.querySelectorAll('#f-da input')].map(i => ({type: i.type, value: i.value, on: i.checked, tab: i.getAttribute('tabindex')})),
     hash: location.hash, errors: 0};
 })()"""
 
@@ -135,7 +148,7 @@ def load(url: str, hash_: str) -> dict:
 
 
 def expected_shown(O: dict, dp: str) -> list:
-    return {"epics": O["epics"], "all": O["all"], "blocking": O["ext"]}[dp]
+    return {"epics": O["internal"], "all": O["all"], "blocking": O["ext"], "external": O["bext"], "cx": O["cx"]}[dp]
 
 
 def check_ext_query(tag: str, href: str, O: dict, pairs) -> list[str]:
@@ -167,13 +180,13 @@ def check_view(page: dict, O: dict, v: View, dp: str) -> list[str]:
         bad.append(f"{tag} console errors {page['console'][:2]}")
         return bad
     chips = page["chips"]
-    want = {"epics": len(O["epics"]), "all": len(O["all"]), "blocking": len(O["ext"])}
+    want = {"epics": len(O["internal"]), "all": len(O["all"]), "blocking": len(O["ext"]), "external": len(O["bext"]), "cx": len(O["cx"])}
     for k, n in want.items():
         if chips.get(k, {}).get("n") != str(n):
             bad.append(f"{tag} chip {k} prints {chips.get(k, {}).get('n')}, the recount is {n}")
     if "blockedby" in chips:
         bad.append(f"{tag} the removed chip Blocked by Outside Scope is back")
-    for k in ("blocking",):
+    for k in ("blocking", "external", "cx", "epics", "all"):
         denom = len(O["all"])
         exp = f"{want[k]} open {'dependency' if want[k] == 1 else 'dependencies'} of {denom}"
         if chips.get(k, {}).get("title") != exp:
@@ -181,8 +194,7 @@ def check_view(page: dict, O: dict, v: View, dp: str) -> list[str]:
     if not chips.get(dp, {}).get("on"):
         bad.append(f"{tag} the {dp} radio is not checked")
     shown = expected_shown(O, dp)
-    any_type = dp in ("all", "blocking")
-    denom = len(O["all"] if any_type else O["epics"])
+    denom = len(O["all"])
     # ---- the headline clause: pair counts at any issue type, whatever the quick filter
     sub, links = page["sub"], page["subLinks"]
     pairs = O["ext"]
@@ -229,7 +241,7 @@ def check_view(page: dict, O: dict, v: View, dp: str) -> list[str]:
     got_rows = [(r["d"], r["p"], r["dir"]) for r in page["rows"]]
     if sorted(got_rows) != sorted((a, b, DIR_TEXT[d]) for a, b, d in shown):
         bad.append(f"{tag} the table rows differ from the recount (or a Direction cell is wrong): page {len(got_rows)} rows, recount {len(shown)}; first differences {sorted(set(got_rows) ^ {(a, b, DIR_TEXT[d]) for a, b, d in shown})[:3]}")
-    suffix = {"epics": "", "all": " (all issue types)"}.get(dp, f" (quick filter: {FILTER_NAME.get(dp)}, all issue types)")
+    suffix = " (all issue types)" if dp == "all" else f": {FILTER_NAME.get(dp)}"
     if page["showing"] != f"Showing {len(shown)} of {denom} open{suffix}.":
         bad.append(f"{tag} the Showing line says '{page['showing']}', expected 'Showing {len(shown)} of {denom} open{suffix}.'")
     if page["showing"] and "one card per provider" in page["showing"]:
@@ -287,7 +299,7 @@ def views(data: dict, team: str) -> list[View]:
             View("r=27.1&c=Stretch"), View("r=27.1&dc=1"), View(f"r=27.1&t={tq}", teams={team})]      # c=Stretch is an older link (the removed Commitment Type filter): ignored; the Delivery Cycle filter does not touch the dependencies
 
 
-def run_views(url: str, data: dict, vs: list[View], dps=("epics", "all", "blocking")) -> list[str]:
+def run_views(url: str, data: dict, vs: list[View], dps=("all", "epics", "blocking", "external", "cx")) -> list[str]:
     bad: list[str] = []
     for v in vs:
         O = recount(data, v)
@@ -335,23 +347,89 @@ def _(t: T):
     F = fixture()
     page = load(F["url"], "r=27.1&dp=blocking")
     t.check(page["group"] == "radiogroup", "the chips are in a radiogroup")
-    t.check(all(r["type"] == "radio" and r["name"] == "f-dp" and r["tab"] is None for r in page["radios"]) and len(page["radios"]) == 7, f"seven native radios, no tabindex: {page['radios']}")
+    t.check(all(r["type"] == "radio" and r["name"] == "f-dp" and r["tab"] is None for r in page["radios"]) and len(page["radios"]) == 5 and len(page["boxes"]) == 3 and all(b["type"] == "checkbox" and b["tab"] is None for b in page["boxes"]), f"five native radios and three native checkboxes, no tabindex: {page['radios']} {page['boxes']}")
     t.check(page["chips"]["blocking"]["on"], "dp=blocking selects Blocked by External")
-    t.check("Blocked by External" in page["chips"]["blocking"]["label"], f"Title Case label: {page['chips']['blocking']['label']}")
+    t.check("Blocked by external" in page["chips"]["blocking"]["label"], f"sentence case label: {page['chips']['blocking']['label']}")
     ch = ctx.chrome
     click = "(() => { const i = document.querySelector('#f-dp input[value=\"%s\"]'); i.click(); return location.hash; })()"
     ch.js(click % "epics")
     time.sleep(0.2)
-    t.check("dp=" not in ch.js("location.hash"), "Epics Only (the default) writes no dp")
+    t.check("dp=epics" in ch.js("location.hash"), "Internal writes dp=epics")
+    ch.js(click % "all")
+    time.sleep(0.2)
+    t.check("dp=" not in ch.js("location.hash"), "All (the default) writes no dp")
     ch.js(click % "blocking")
     time.sleep(0.2)
     h = ch.js("location.hash")
     t.check("dp=blocking" in h, f"selecting Blocked by External writes dp=blocking: {h}")
-    t.check(ch.js("document.querySelector('#f-dp input[value=\"blocking\"]').checked && document.getElementById('dep-showing').textContent.includes('Blocked by External')") is True, "and the board follows")
+    t.check(ch.js("document.querySelector('#f-dp input[value=\"blocking\"]').checked && document.getElementById('dep-showing').textContent.includes('Blocked by external')") is True, "and the board follows")
     page = load(F["url"], "r=27.1&dp=blocking")
     t.check(page["chips"]["blocking"]["on"], "dp=blocking round trips")
     page = load(F["url"], "r=27.1&dp=nonsense")
-    t.check(page["chips"]["epics"]["on"], "an unknown dp value falls back to Epics Only")
+    t.check(page["chips"]["all"]["on"] and not any(b["on"] for b in page["boxes"]), "an unknown dp value falls back to All")
+
+
+@SUITE.test("direction_not_planned_chip_counts_what_the_board_shows_at_any_issue_type")
+def _(t: T):
+    """The Not Planned chip and its filter read every open pair, not only the epic-to-epic ones: in the All view the Not Planned column holds exactly as many pairs as the chip says,
+    and choosing the chip shows that same number (a Task or Capability provider with no due date or Target Sprint is not hidden)."""
+    F = fixture()
+    page = load(F["url"], "r=27.1&dp=all")
+    ch = ctx.chrome
+    col = ch.js("(() => { const c = [...document.querySelectorAll('.bcol')].find(c => /^Not Planned/.test(c.querySelector('.bn1').textContent.trim())); return c ? parseInt(c.querySelector('.bc').textContent, 10) : -1; })()")
+    chip = int(page["chips"]["unplanned"]["n"])
+    t.check(col == chip, f"the Not Planned column holds {col} pairs, the chip says {chip}")
+    t.check(chip > 0, "the fixture has pairs with no planned sprint at any issue type")
+    page2 = load(F["url"], "r=27.1&dp=unplanned")
+    t.check(len(page2["rows"]) == chip, f"choosing Not Planned shows {len(page2['rows'])} rows, the chip says {chip}")
+    t.check(page2["chips"]["unplanned"]["title"] == f"{chip} open {'dependency' if chip == 1 else 'dependencies'} of {len(recount(F['data'], View('r=27.1'))['all'])}", f"chip hover: {page2['chips']['unplanned']['title']}")
+
+
+@SUITE.test("direction_two_rows_attention_flags_combine_with_a_relationship_and_every_count_is_what_choosing_it_shows")
+def _(t: T):
+    """The quick filter is a Relationship (one of All, Internal, Blocking external, Blocked by external, CXCROSS) and Needs attention flags (any of Overdue, Not planned, Schedule gaps).
+    A pair is shown when it matches the relationship AND at least one chosen flag (flags OR each other). Checked on the rows the page shows, against the recount of the relationship
+    and against the same flag chosen alone: the AND, the OR, each attention count (the flag alone under the held relationship), each relationship count (with the held flags),
+    the Showing wording, the address, an old single-value link and Clear filters."""
+    F = fixture()
+    O = recount(F["data"], View("r=27.1"))
+    base = "r=27.1&"
+    rows_of = lambda pg: {(r["d"], r["p"]) for r in pg["rows"]}
+    alone = {}
+    for att in ("overdue", "unplanned", "gap"):
+        pg = load(F["url"], base + f"dp={att}")                                    # an old single value reads as All plus that flag
+        alone[att] = rows_of(pg)
+        t.check(pg["chips"]["all"]["on"] and [b["value"] for b in pg["boxes"] if b["on"]] == [att], f"dp={att}: the old single value is All plus the {att} flag: {pg['boxes']}")
+        t.check(len(pg["rows"]) == int(pg["chips"][att]["n"]), f"dp={att}: {len(pg['rows'])} rows, the flag chip says {pg['chips'][att]['n']}")
+    union = load(F["url"], base + "dp=overdue|unplanned|gap")
+    t.check(rows_of(union) == alone["overdue"] | alone["unplanned"] | alone["gap"], "flags OR each other: the three together show the union of each alone")
+    t.check(union["chips"]["all"]["n"] == str(len(rows_of(union))), "with flags chosen, the All count is the number of pairs that have any of them")
+    for rel in ("epics", "external", "blocking", "cx"):
+        relrows = {(a, b) for a, b, _ in expected_shown(O, rel)}
+        for att in ("overdue", "unplanned", "gap"):
+            pg = load(F["url"], base + f"dp={rel}|{att}")
+            got = rows_of(pg)
+            t.check(got == relrows & alone[att], f"dp={rel}|{att}: the rows are the relationship AND the flag ({len(got)} shown, expected {len(relrows & alone[att])})")
+            t.check(pg["chips"][rel]["on"] and int(pg["chips"][att]["n"]) == len(got) and int(pg["chips"][rel]["n"]) == len(got), f"dp={rel}|{att}: the held relationship and the flag count agree with the rows")
+    rel_only = load(F["url"], base + "dp=blocking")
+    held = load(F["url"], base + "dp=blocking|overdue|unplanned")
+    t.check(int(rel_only["chips"]["overdue"]["n"]) + 0 <= int(rel_only["chips"]["blocking"]["n"]), "a flag count under a relationship never exceeds that relationship's count")
+    if held["rows"]:
+        want = f"Showing {len(held['rows'])} of {len(O['all'])} open: Blocked by external and (Overdue or Not planned)."
+        t.check(held["showing"] == want, f"the Showing line names the choice: '{held['showing']}' (expected '{want}')")
+    t.check(held["clearBtns"] == 1, "a Clear filters button is on the board when something is applied")
+    t.check("dp=blocking%7Coverdue%7Cunplanned" in held["hash"] or "dp=blocking|overdue|unplanned" in held["hash"], f"the address lists the relationship first, then the flags: {held['hash']}")
+    ch = ctx.chrome
+    load(F["url"], base)
+    ch.js("document.querySelector('#f-da input[value=\"overdue\"]').click()")
+    time.sleep(0.2)
+    t.check("dp=overdue" in ch.js("location.hash"), "choosing a flag writes dp=overdue")
+    ch.js("document.querySelector('#f-dp input[value=\"blocking\"]').click()")
+    time.sleep(0.2)
+    t.check(ch.js("decodeURIComponent(location.hash)").endswith("dp=blocking|overdue") or "dp=blocking|overdue" in ch.js("decodeURIComponent(location.hash)"), "the relationship is written first")
+    ch.js("document.querySelector('#dep-body [data-dpclear]').click()")
+    time.sleep(0.2)
+    t.check("dp=" not in ch.js("location.hash") and ch.js("document.querySelector('#f-dp input[value=\"all\"]').checked && !document.querySelector('#f-da input:checked')") is True, "Clear filters returns to All with no flag")
 
 
 @SUITE.test("direction_blocked_by_outside_scope_is_gone_and_an_old_link_opens_the_default_view")
@@ -360,11 +438,11 @@ def _(t: T):
     O = recount(F["data"], View("r=27.1"))
     page = load(F["url"], "r=27.1&dp=blockedby")
     t.check(not page["console"], f"an old dp=blockedby link raises errors: {page['console'][:2]}")
-    t.check(page["chips"].get("epics", {}).get("on") and not any(c["on"] for k, c in page["chips"].items() if k != "epics"), f"dp=blockedby falls back to Epics Only: {page['chips']}")
+    t.check(page["chips"].get("all", {}).get("on") and not any(c["on"] for k, c in page["chips"].items() if k != "all"), f"dp=blockedby falls back to All: {page['chips']}")
     t.check("blockedby" not in page["chips"] and not any("Blocked by Outside Scope" in c["label"] for c in page["chips"].values()), f"a chip named Blocked by Outside Scope exists: {list(page['chips'])}")
     t.check(not any(r["value"] == "blockedby" for r in page["radios"]), "no radio has the value blockedby")
     t.check("dp=blockedby" not in page["hash"], f"the address still carries dp=blockedby: {page['hash']}")
-    bad = check_view(page, O, View("r=27.1"), "epics")
+    bad = check_view(page, O, View("r=27.1"), "all")
     t.check(not bad, f"the fallback view differs from the default view: {bad[:2]}")
     t.check(ctx.chrome.js("!/Blocked by Outside Scope/.test(document.body.innerText)") is True, "the words Blocked by Outside Scope appear nowhere on the page")
 
@@ -412,7 +490,7 @@ def _(t: T):
         page = load(url, "r=27.1&dp=blocking")
         bad = check_view(page, O2, v, "blocking")
         t.check(not bad, f"{name} dp=blocking: {bad[:2]}")
-        t.check(page["empty"] and "blocks an item in the selected projects" in page["empty"] and "Epics Only" in page["empty"], f"{name} dp=blocking: empty text '{page['empty']}'")
+        t.check(page["empty"] and "blocks an item in the selected projects" in page["empty"] and "Clear filters" in (page["empty"] or "") or page["clearBtns"] == 1, f"{name} dp=blocking: empty text '{page['empty']}'")
         t.check(page["chips"]["blocking"]["n"] == "0" and page["chips"]["blocking"]["title"] == f"0 open dependencies of {len(O2['all'])}", f"{name} dp=blocking: chip {page['chips']['blocking']}")
 
 
@@ -420,7 +498,7 @@ def _(t: T):
 def _(t: T):
     F = fixture()
     url, data = _variant_page({(d[0], d[1]) for d in F["data"]["deps"]})
-    for dp in ("epics", "blocking"):
+    for dp in ("all", "blocking"):
         page = load(url, f"r=27.1&dp={dp}")
         t.check(not page["console"], f"dp={dp}: console errors {page['console'][:2]}")
         t.check(page["empty"] is not None and "No open dependencies in view" in page["empty"] and not page["cards"] and not page["rows"], f"dp={dp}: empty state '{page['empty']}'")
@@ -475,7 +553,7 @@ SEEDS = [
     ("selected_project_providers_counted", "extBlock: inScope.has(a) && !state.projects.has(p.p) && p.p !== DEP_CX};", "extBlock: inScope.has(a) && p.p !== DEP_CX};"),
     ("cxcross_matched_loosely", "extBlock: inScope.has(a) && !state.projects.has(p.p) && p.p !== DEP_CX};", "extBlock: inScope.has(a) && !state.projects.has(p.p) && !p.p.includes(DEP_CX)};"),
     ("counts_drop_non_epic_providers", "const extBlock = all.filter(x => x.extBlock);", "const extBlock = all.filter(x => x.extBlock && x.epicsOnly);"),
-    ("board_drops_non_epic_providers", 'const depAnyType = () => state.depFilter === "all" || state.depFilter === "blocking";', 'const depAnyType = () => state.depFilter === "all";'),
+    ("board_drops_non_epic_providers", 'const pool = all, shown = pool.filter(depPassFilter);', 'const pool = open, shown = pool.filter(depPassFilter);'),
     ("counts_include_done_pairs", "const extBlock = all.filter(x => x.extBlock);", "const extBlock = m.inView.filter(x => x.extBlock);"),
     ("direction_column_swapped", 'x.extBlock ? "Waits on external scope" : x.inbound ? "Waits on outside scope"', 'x.extBlock ? "Waits on outside scope" : x.inbound ? "Waits on external scope"'),
     ("link_project_clause_misses_cxcross", "pkeys([...projectsAll.filter(p => state.projects.has(p)), DEP_CX])", "pkeys([...projectsAll.filter(p => state.projects.has(p))])"),

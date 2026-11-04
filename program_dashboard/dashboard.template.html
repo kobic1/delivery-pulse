@@ -156,6 +156,13 @@ button.btn.multi[aria-pressed="true"]::before { content:"\2713\00a0"; color:var(
 .capfs .seg .chip { padding:4px 11px; white-space:nowrap; }
 .seg .chip:first-child { border-radius:var(--radius-s) 0 0 var(--radius-s); margin-left:0; }
 .seg .chip:last-child { border-radius:0 var(--radius-s) var(--radius-s) 0; }
+#g-dep { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:8px 14px; align-items:center; }
+#g-dep > .lbl, #g-dep > .hintline { grid-column:1 / -1; }
+#g-dep .depgrp { display:contents; }
+#g-dep .dlbl { font-size:var(--t-xs); font-weight:600; color:var(--muted); }
+#g-dep .dlbl .muted { font-weight:400; }
+.periodbar.changed > #lbl-dp::before { content:"\25CF "; color:var(--blue-ink); white-space:pre; }
+@media (max-width:640px) { #g-dep { grid-template-columns:minmax(0,1fr); gap:6px; } }
 @media (max-width:1240px) { #f-dp { flex-wrap:wrap; gap:6px; } #f-dp .chip, #f-dp .chip:first-child, #f-dp .chip:last-child { margin-left:0; border-radius:var(--radius-s); } }      /* eight chips: they wrap before the row can overflow */
 #f-cl .chip { max-width:100%; overflow-wrap:anywhere; text-align:left; }
 @media (max-width:560px) { #f-dp, #f-cx { flex-wrap:wrap; gap:6px; } #f-dp .chip, #f-dp .chip:first-child, #f-dp .chip:last-child, #f-cx .chip, #f-cx .chip:first-child, #f-cx .chip:last-child { margin-left:0; border-radius:var(--radius-s); } }
@@ -711,16 +718,21 @@ footer.f b { color:var(--ink); }
     <div class="sub" id="dep-sub"></div>
     <div class="kpis five" id="dep-kpis"></div>
     <div class="cap" id="dep-story"></div>
-    <div class="periodbar" id="g-dep"><span class="lbl" id="lbl-dp">Quick Filter</span>
-      <div class="chips seg" id="f-dp" role="radiogroup" aria-labelledby="lbl-dp">
-        <label class="chip"><input type="radio" name="f-dp" value="epics"> Epics Only <span class="cnt" data-k="epics"></span></label>
-        <label class="chip"><input type="radio" name="f-dp" value="all"> All <span class="cnt" data-k="all"></span></label>
-        <label class="chip"><input type="radio" name="f-dp" value="overdue"> Overdue <span class="cnt" data-k="overdue"></span></label>
-        <label class="chip"><input type="radio" name="f-dp" value="external"> Blocking External <span class="cnt" data-k="external"></span></label>
-        <label class="chip"><input type="radio" name="f-dp" value="unplanned"> Not Planned <span class="cnt" data-k="unplanned"></span></label>
-        <label class="chip"><input type="radio" name="f-dp" value="gap"> Schedule Gaps <span class="cnt" data-k="gap"></span></label>
-        <label class="chip"><input type="radio" name="f-dp" value="blocking"> Blocked by External <span class="cnt" data-k="blocking"></span></label>
-      </div>
+    <div class="periodbar depfilter" id="g-dep"><span class="lbl" id="lbl-dp">Quick Filter</span>
+      <div class="depgrp"><span class="dlbl" id="lbl-dpr">Relationship</span>
+        <div class="chips seg" id="f-dp" role="radiogroup" aria-labelledby="lbl-dpr">
+          <label class="chip"><input type="radio" name="f-dp" value="all"> All <span class="cnt" data-k="all"></span></label>
+          <label class="chip"><input type="radio" name="f-dp" value="epics"> Internal <span class="cnt" data-k="epics"></span></label>
+          <label class="chip"><input type="radio" name="f-dp" value="external"> Blocking external <span class="cnt" data-k="external"></span></label>
+          <label class="chip"><input type="radio" name="f-dp" value="blocking"> Blocked by external <span class="cnt" data-k="blocking"></span></label>
+          <label class="chip"><input type="radio" name="f-dp" value="cx"> CXCROSS <span class="cnt" data-k="cx"></span></label>
+        </div></div>
+      <div class="depgrp"><span class="dlbl" id="lbl-da">Needs attention <span class="muted">(pick any)</span></span>
+        <div class="chips" id="f-da" role="group" aria-labelledby="lbl-da">
+          <label class="chip"><input type="checkbox" value="overdue"> Overdue <span class="cnt" data-k="overdue"></span></label>
+          <label class="chip"><input type="checkbox" value="unplanned"> Not planned <span class="cnt" data-k="unplanned"></span></label>
+          <label class="chip"><input type="checkbox" value="gap"> Schedule gaps <span class="cnt" data-k="gap"></span></label>
+        </div></div>
       <span class="hintline">Filters the board and table, not the tiles.</span>
     </div>
     <div id="dep-cap"></div>
@@ -918,7 +930,8 @@ DATA.bugs.forEach(b => { if (b.tm) KNOWN_TEAMS.add(b.tm); });
 // ---------------------------------------------------------------- state (kept in the URL when opened as a file, in browser storage in the viewer)
 const DC_IDS = ["1", "2"];                                   // the Delivery Cycle filter: the cycles it can show (Delivery Cycle 1 and 2); state.dc holds the ones shown, both by default
 const DC_OPTS = [["both", "Both cycles"], ["1", "Cycle 1"], ["2", "Cycle 2"]];      // the control is a choice of ONE of these (a radio group): "both" is state.dc = {1, 2}, "1" or "2" is that cycle alone
-const defaults = () => ({release: DATA.current, projects: new Set(projectsAll), teams: new Set(), dc: new Set(DC_IDS), ax: "no", bugPri: new Set(PRI_ALL), cfb: "all", capLvlOff: new Set(), gran: "month", cfbGroup: "version", depFilter: "epics", nfrTab: "project", cx: "all", cap: {by: "quarter", measure: "sp"}, cy: cyDefaults()});
+const DEP_REL = ["all", "epics", "external", "blocking", "cx"], DEP_ATT = ["overdue", "unplanned", "gap"];      // the Dependencies quick filter: one relationship (radio) and any number of attention flags (checkboxes; a pair passes when it has any of them)
+const defaults = () => ({release: DATA.current, projects: new Set(projectsAll), teams: new Set(), dc: new Set(DC_IDS), ax: "no", bugPri: new Set(PRI_ALL), cfb: "all", capLvlOff: new Set(), gran: "month", cfbGroup: "version", depRel: "all", depAtt: new Set(), nfrTab: "project", cx: "all", cap: {by: "quarter", measure: "sp"}, cy: cyDefaults()});
 const state = {...defaults()};
 let projMulti = false;                                         // the Multi-Select toggle; the mode is derived: 2 to 5 projects are always in multi-select mode, nothing is stored
 const resetFilters = () => { projMulti = false; cyBugsOpen.clear(); ocfbOpen.clear(); CY_FIND = ""; CY_PODLIST = null; CY_RET = null; return Object.assign(state, defaults()); };
@@ -935,7 +948,9 @@ function readParams(h) {
   { const off = (list("clx") || []).map(x => x === CL_NONE_TOKEN ? "" : x).filter(x => CAP_LEVEL_VALUES().has(x)); if (off.length) state.capLvlOff = new Set(off); }      // Capabilities: the Commitment Levels switched off ("~notset" = Not Set); only a level the data holds is accepted
   if (["week", "quarter"].includes(h.get("g"))) state.gran = h.get("g");
   if (["month", "quarter"].includes(h.get("cg"))) state.cfbGroup = h.get("cg");
-  if (["all", "epics", "overdue", "external", "unplanned", "gap", "blocking"].includes(h.get("dp"))) state.depFilter = h.get("dp");
+  { const t = list("dp") || [];      // dp=<relationship>|<attention>|...: one relationship (the first wins), any attention flags; an old single value (dp=overdue, dp=epics) still reads
+    const rel = t.find(x => DEP_REL.includes(x)); if (rel) state.depRel = rel;
+    DEP_ATT.forEach(k => { if (t.includes(k)) state.depAtt.add(k); }); }
   if (["category", "commitment", "capability", "team"].includes(h.get("nt"))) state.nfrTab = h.get("nt");
   if (["committed", "notset", "stretch"].includes(h.get("cx"))) state.cx = h.get("cx");
   if (h.get("cpg") === "release") state.cap.by = "release";
@@ -954,7 +969,7 @@ function serialize() {
   if (state.capLvlOff.size) h.set("clx", [...state.capLvlOff].sort((a, b) => a === "" ? 1 : b === "" ? -1 : a.localeCompare(b)).map(clTok).join("|"));
   if (state.gran !== "month") h.set("g", state.gran);
   if (state.cfbGroup !== "version") h.set("cg", state.cfbGroup);
-  if (state.depFilter !== "epics") h.set("dp", state.depFilter);
+  { const t = [state.depRel !== "all" ? state.depRel : null, ...DEP_ATT.filter(k => state.depAtt.has(k))].filter(Boolean); if (t.length) h.set("dp", t.join("|")); }
   if (state.nfrTab !== "project") h.set("nt", state.nfrTab);
   if (state.cx !== "all") h.set("cx", state.cx);
   if (state.cap.by !== "quarter") h.set("cpg", state.cap.by);
@@ -2552,6 +2567,7 @@ const GAP_RULE = "A schedule gap: provider X blocks dependent Y, and X is planne
 
 // ---- the open dependency pairs in view (the dependent or the provider is in the scope of the selected release)
 const DEP_CX = "CXCROSS";                                       // CXCROSS items have their own section; they are never "external" here (neither Blocked by External nor Blocking External)
+const isCx = r => r.p === DEP_CX || (r.cp || "").startsWith("CXCROSS-");      // a CXCROSS item (the project, compared as a whole key) or an epic that delivers a CXCROSS capability (the CXCROSS section's own test)
 function depModel() {
   const rel = state.release, scope = scopeOf(rel), inScope = new Set(scope.map(e => e.k));
   const map = new Map(DATA.epics.map(e => [e.k, e])), deps = DATA.deps || [];
@@ -2560,7 +2576,7 @@ function depModel() {
   const uniq = [...merged.entries()].map(([k, tys]) => { const [a, b] = k.split("|"); return [a, b, ["D", "B"].filter(c => tys.includes(c)).join("")]; });
   const inView = uniq.filter(([a, b]) => inScope.has(a) || inScope.has(b)).map(([a, b, ty]) => {
     const d = epicRec(map, a), p = epicRec(map, b), plan = plannedOf(p), planD = plannedOf(d), g = depGap(d, p, plan, planD);
-    return {d, p, ty, dIn: inScope.has(a), pIn: inScope.has(b), plan, planD, gap: g.gap, nc: g.nc, gapText: g.text, gapParts: g.parts, overdue: sprintEnded(plan.sprint), external: inScope.has(b) && !state.projects.has(d.p) && d.p !== DEP_CX, unplanned: !plan.sprint,
+    return {d, p, ty, dIn: inScope.has(a), pIn: inScope.has(b), plan, planD, gap: g.gap, nc: g.nc, gapText: g.text, gapParts: g.parts, overdue: sprintEnded(plan.sprint), external: inScope.has(b) && !state.projects.has(d.p) && d.p !== DEP_CX, cx: isCx(d) || isCx(p), internal: d.ty === "Epic" && p.ty === "Epic" && state.projects.has(d.p) && state.projects.has(p.p) && !isCx(d) && !isCx(p), unplanned: !plan.sprint,
       open: p.s !== "Done" && d.s !== "Done", outside: d.ext || p.ext, epicsOnly: d.ty === "Epic" && p.ty === "Epic",
       inbound: inScope.has(a) && !inScope.has(b), outbound: !inScope.has(a) && inScope.has(b),
       extBlock: inScope.has(a) && !state.projects.has(p.p) && p.p !== DEP_CX};      // direction against the chosen scope (release, projects, teams): inbound = an epic in scope waits on a provider outside it; outbound = an item outside it waits on a provider in scope. extBlock (Blocked by External) = the dependent is in scope and the PROVIDER's Jira project is neither one of the selected projects nor CXCROSS (whole project keys compared, so OLDCXCROSS is not CXCROSS). Blocking External (external) is the mirror: the PROVIDER is in scope and the DEPENDENT's Jira project is neither one of the selected projects nor CXCROSS.
@@ -2570,9 +2586,16 @@ function depModel() {
 }
 let depCache = null;                                             // the model is shared with the Needs Attention panel within one render
 const depOpen = () => (depCache = depModel());
-const depPassFilter = x => state.depFilter === "all" || state.depFilter === "epics" || (state.depFilter === "overdue" ? x.overdue : state.depFilter === "external" ? x.external : state.depFilter === "gap" ? x.gap : state.depFilter === "blocking" ? x.extBlock : x.unplanned);
+const DEP_REL_FN = {all: () => true, epics: x => x.internal, external: x => x.external, blocking: x => x.extBlock, cx: x => x.cx};
+const DEP_ATT_FN = {overdue: x => x.overdue, unplanned: x => x.unplanned, gap: x => x.gap && x.epicsOnly};      // Schedule Gaps stays between epics, as Needs Attention counts it
+const depAttPass = x => !state.depAtt.size || DEP_ATT.some(k => state.depAtt.has(k) && DEP_ATT_FN[k](x));
+const depPassFilter = x => DEP_REL_FN[state.depRel](x) && depAttPass(x);
+const DEP_NAME = {all: "All", epics: "Internal", external: "Blocking external", blocking: "Blocked by external", cx: "CXCROSS", overdue: "Overdue", unplanned: "Not planned", gap: "Schedule gaps"};
+const depFilterText = () => { const a = DEP_ATT.filter(k => state.depAtt.has(k)).map(k => DEP_NAME[k]), rel = state.depRel !== "all" ? DEP_NAME[state.depRel] + (state.depRel === "epics" ? " (between epics)" : "") : "";
+  return [rel, a.length > 1 ? `(${a.join(" or ")})` : a[0] || ""].filter(Boolean).join(" and ").replace(/^\((.*)\)$/, "$1"); };      // "Blocked by external and (Overdue or Not planned)", "Overdue or Not planned"
+const depFiltered = () => state.depRel !== "all" || state.depAtt.size > 0;
+const DEP_CLEAR = `<button type="button" class="btn dpclear" data-dpclear>Clear filters</button>`;
 const depDirOf = x => x.extBlock ? "Waits on external scope" : x.inbound ? "Waits on outside scope" : x.outbound ? "Needed by outside scope" : "Within scope";
-const depAnyType = () => state.depFilter === "all" || state.depFilter === "blocking";      // All and Blocked by External read every pair at any issue type: the external provider can be a Task, Bug, Story or Capability
 const noPlanData = r => !!r.ext && !r.dd && !r.ts;               // the page holds no planning data for this issue (another project, or not an epic it reads): "Not Planned" would be a claim it cannot make
 const NO_PLAN_DATA = "Planning data not tracked here";
 
@@ -2602,13 +2625,13 @@ function renderDeps() {
   const running = isRunning(rel);
   document.getElementById("dep-state").hidden = !running;
   const overdue = open.filter(x => x.overdue), external = open.filter(x => x.external), unplanned = open.filter(x => x.unplanned);
-  const gapSrc = state.depFilter === "all" ? m.openAll : open, gapPool = gapSrc.filter(x => x.gap), ncPool = gapSrc.filter(x => x.nc), gaps = open.filter(x => x.gap);
+  const gapSrc = open, gapPool = gapSrc.filter(x => x.gap), ncPool = gapSrc.filter(x => x.nc), gaps = open.filter(x => x.gap);
   const epicsOf = list => new Set(depKeys(list)).size;                    // the figures count pairs; a link opens the epics at both ends
   const nOf = (list) => keyIn(depKeys(list)), all = m.openAll;
   const otherTypes = (() => { const c = new Map(); all.filter(x => !x.epicsOnly).forEach(x => [x.d, x.p].forEach(r => { if (r.ty && r.ty !== "Epic") c.set(r.ty, (c.get(r.ty) || 0) + 1); }));
     const nm = t => t.endsWith("y") ? t.slice(0, -1) + "ies" : t + "s", top = [...c.entries()].sort((a, b) => b[1] - a[1]).map(x => x[0]);
     return top.length ? top.slice(0, 3).map(nm).join(", ") + (top.length > 3 ? " and other issue types" : "") : "other issue types"; })();
-  const extBlock = all.filter(x => x.extBlock);      // read from every open pair, at any issue type, whatever the Epics Only / All view
+  const extBlock = all.filter(x => x.extBlock);      // read from every open pair, at any issue type, whatever the quick filter
   const keyInCap = list => { const h = keyIn(depKeys(list)); return h && h.length <= CY_URL_MAX ? h : null; };      // a list too long for Jira's front door is plain text, not a link
   const dWord = n => n === 1 ? "dependency" : "dependencies";
   const extLink = list => { if (!list.length) return null;      // the dependents by key, and the providers by key AND the project clause, so a provider that has since moved into a selected project or CXCROSS drops out in Jira
@@ -2624,24 +2647,26 @@ function renderDeps() {
     {c: "x", v: tlink(overdue.length, nOf(overdue), `${nn(overdue.length, "overdue dependency", "overdue dependencies")}\nThe provider's planned sprint has ended; the provider is not Done.`), l: "Overdue", s: "planned sprint ended, provider not Done"},
     {c: "x", v: tlink(external.length, nOf(external), `${nn(external.length, "dependency blocking another project", "dependencies blocking other projects")}\nThe provider is in a selected project; the item it blocks is in an unselected project.`), l: "Blocking External", s: "our epic blocks another project's"},
     {c: "x", v: tlink(unplanned.length, nOf(unplanned), `${nn(unplanned.length, "dependency has", "dependencies have")} no planned sprint\nThe provider has no due date or Target Sprint, or the date is outside the sprint calendar.`), l: "Not Planned", s: "no due date or Target Sprint"},
-    {c: "x", v: tlink(gapPool.length, nOf(gapPool), `${nn(gapPool.length, "schedule gap", "schedule gaps")}${state.depFilter === "all" ? ", all issue types" : ", between epics"}\n${GAP_SHORT}.`), l: "Schedule Gaps", s: `provider planned in the dependent's sprint or later${ncPool.length ? `<br>${ncPool.length} not comparable` : ""}`},
+    {c: "x", v: tlink(gapPool.length, nOf(gapPool), `${nn(gapPool.length, "schedule gap", "schedule gaps")}, between epics\n${GAP_SHORT}.`), l: "Schedule Gaps", s: `provider planned in the dependent's sprint or later${ncPool.length ? `<br>${ncPool.length} not comparable` : ""}`},
   ]);
   document.getElementById("dep-cap").innerHTML = defs(howBody({id: "dep",
     bl: `Use this to find work that waits on another epic and may not be ready in time. Each card is an epic that other epics need (the provider), placed in the sprint it is planned for.`,
     defs: [
       ["Open dependency", `an explicit Jira link of type Dependency or Blocks between two epics, where neither epic is Done.`],
-      ["Provider and dependent", `the provider is the epic that is needed; the dependent is the epic that needs it.`],
-      ["Planned sprint", `the sprint that holds the provider's due date, else its Target Sprint. With neither, the provider is Not Planned. If both exist and differ, the due date wins.`],
+      ["Provider and dependent", `the provider is the item that is needed; the dependent is the item that needs it.`],
+      ["Planned sprint", `the sprint that holds the provider's due date, else its Target Sprint. With neither, the provider is Not Planned (so is a provider the page holds no planning data for: another project, or not an epic; its card says "Planning data not tracked here"). If both exist and differ, the due date wins.`],
       ["Overdue", `the planned sprint has ended and the provider is not Done.`],
+      ["Internal", `an epic-to-epic pair where both ends are in the selected projects and neither is in CXCROSS: selected projects blocking selected projects.`],
       ["Blocking External", `the provider is in a selected project and the item it blocks is in a project that is not selected and is not CXCROSS (the mirror of Blocked by External).`],
       ["Schedule gap", `the provider is planned in the same sprint as the dependent, or later.`],
-      ["Blocked by External", `an item in the selected projects waits on a provider in a project that is not selected and is not CXCROSS (any issue type; planning data for projects this page does not track is often missing). CXCROSS items are shown in the CXCROSS section.`]
+      ["Blocked by External", `an item in the selected projects waits on a provider in a project that is not selected and is not CXCROSS (any issue type; planning data for projects this page does not track is often missing). CXCROSS items are in the CXCROSS quick filter and the CXCROSS section.`],
+      ["CXCROSS", `an open pair where either end is a CXCROSS item or an epic that delivers a CXCROSS capability, whichever end blocks. It cuts across the other scope chips: Internal leaves such pairs out.`]
     ],
     left: `Pairs with a Done end (${m.leftOut} recorded), links to Removed epics (${(DATA.depsDropped && DATA.depsDropped.removed) || 0}) and other link types. Story, task and bug links under the release's epics are a separate fact line.`,
     know: `A link means a dependency is recorded, not that it is risky, and a missing link is not a missing dependency. Overdue and schedule gaps are facts about planned dates, not a verdict on a team or person. Data as of ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}.`,
     more: [
-      ["Epics Only and All", `The figures and the default view count pairs between epics. All also shows links where one end is an epic and the other end is another issue type (Capability, Initiative, Story, Task and so on), counted in the secondary line. A pair is in view when an epic at one end is in scope for ${esc(rel)} under the current filters.`],
-      ["Outside scope", `outside the chosen release, projects and teams. This is separate from Blocking External, which looks at the project of the item the provider blocks. The Blocked by External quick filter shows every open pair where an item of the selected projects, in the chosen release and teams, waits on a provider in a project that is not selected and is not CXCROSS (CXCROSS is in its own section), at any issue type, whichever of Epics Only and All is chosen. A provider in CXCROSS, or in a selected project but outside the release or team filters, is not counted there; the Direction column says Waits on outside scope for it. The provider's issue type is on its card. Facts only, no ranking. A link means a dependency is recorded, not that it is risky; no link is not no dependency.`],
+      ["Internal, All and CXCROSS", `The headline figures and tiles count pairs between epics. Internal (the default view) shows the epic-to-epic pairs where both ends are in the selected projects, neither one CXCROSS: selected projects blocking selected projects. A pair inside the selected projects that is not epic-to-epic is only under All. All shows every open pair, including links where one end is another issue type (Capability, Initiative, Story, Task and so on). CXCROSS shows every open pair where either end is a CXCROSS item or delivers a CXCROSS capability. The Needs attention flags cut across the relationships. The quick filter is two rows: choose one Relationship (All is the default) and, in Needs attention, any flags (Overdue, Not planned, Schedule gaps). A pair is shown when it matches the relationship and at least one chosen flag; each count is what choosing that option would show with the other row held. Schedule gaps stays between epics, as Needs Attention counts it. Every other option counts pairs at any issue type. A pair is in view when an epic at one end is in scope for ${esc(rel)} under the current filters.`],
+      ["Outside scope", `outside the chosen release, projects and teams. This is separate from Blocking External, which looks at the project of the item the provider blocks. The Blocked by External quick filter shows every open pair where an item of the selected projects, in the chosen release and teams, waits on a provider in a project that is not selected and is not CXCROSS (CXCROSS is in its own section), at any issue type, whichever quick filter is chosen. A provider in CXCROSS, or in a selected project but outside the release or team filters, is not counted there; the Direction column says Waits on outside scope for it. The provider's issue type is on its card. Facts only, no ranking. A link means a dependency is recorded, not that it is risky; no link is not no dependency.`],
       ["Planned sprint, detail", `In a gap between sprints, the next sprint that starts is used. A due date outside the sprint calendar also makes the provider Not Planned. Sprint dates are read from the Target Sprint labels: the date in the label is the start, and a sprint runs three weeks.`],
       ["Overdue, as-of date", `the planned sprint ended before ${shortDate(asOfDay())}. It is a fact about dates, not a forecast.`],
       ["Schedule gap rule", `${esc(GAP_RULE)}`],
@@ -2653,13 +2678,12 @@ function renderDeps() {
       ["Freshness", `Links, due dates and Target Sprints are updated by Refresh. Story-level links and the sprint calendar are read only when the page is built.`]
     ]}));
   // quick filter counts
-  const counts4 = {all: all.length, epics: open.length, overdue: overdue.length, external: external.length, unplanned: unplanned.length, gap: gaps.length, blocking: extBlock.length};
-  const denom4 = {all: all.length, epics: open.length, overdue: open.length, external: open.length, unplanned: open.length, gap: open.length, blocking: all.length};      // the pool each chip counts within
-  document.querySelectorAll("#f-dp .cnt").forEach(s => { const k = s.dataset.k; s.textContent = counts4[k]; s.parentElement.title = `${counts4[k]} open ${counts4[k] === 1 ? "dependency" : "dependencies"} of ${denom4[k]}`; });
-  const pool = depAnyType() ? all : open, shown = pool.filter(depPassFilter);
+  const relCnt = k => all.filter(x => DEP_REL_FN[k](x) && depAttPass(x)).length, attCnt = k => all.filter(x => DEP_REL_FN[state.depRel](x) && DEP_ATT_FN[k](x)).length;      // each count is what choosing that option would show with the other row held
+  document.querySelectorAll("#f-dp .cnt, #f-da .cnt").forEach(s => { const k = s.dataset.k, n = DEP_REL.includes(k) ? relCnt(k) : attCnt(k); s.textContent = n; s.parentElement.title = `${n} open ${n === 1 ? "dependency" : "dependencies"} of ${all.length}`; });
+  const pool = all, shown = pool.filter(depPassFilter);
   if (!state.projects.size || !scope.length) host.innerHTML = `<div class="empty">${whyEmpty("epics")}</div>`;
   else if (!pool.length) host.innerHTML = `<div class="empty">No open dependencies in view for this selection${m.leftOut ? `; the ${m.leftOut} recorded ${m.leftOut === 1 ? "pair is" : "pairs are"} complete` : ""}.</div>`;
-  else if (!shown.length) host.innerHTML = `<div class="empty">${state.depFilter === "blocking" ? "No external item (not selected, not CXCROSS) blocks an item in the selected projects." : "No open dependency matches this quick filter."} Choose Epics Only to see the ${open.length} between epics.</div>`;
+  else if (!shown.length) host.innerHTML = `<div class="empty">${state.depRel === "blocking" && !state.depAtt.size ? "No external item (not selected, not CXCROSS) blocks an item in the selected projects." : `No open dependencies match ${esc(depFilterText())}.${state.depAtt.has("gap") ? " Schedule gaps only counts epic-to-epic pairs." : ""}`} ${DEP_CLEAR}</div>`;
   else host.innerHTML = boardHtml(shown, m) + depDataHtml(shown, m);
   depStoryLine(m);
 }
@@ -2710,8 +2734,7 @@ function boardHtml(shown, m) {
     return `<div class="bcol" role="group" aria-label="${esc(col.title)}${col.state ? ", " + col.state : ""}, ${n} open ${n === 1 ? "dependency" : "dependencies"}"><div class="bh"><div class="bn1">${esc(col.title)}${col.state ? ` <span class="bst ${col.state === "Ended" ? "ended" : ""}">${col.state}</span>` : ""}</div><div class="bd">${esc(col.sub)}</div><div class="bc">${n} ${n === 1 ? "dependency" : "dependencies"}</div></div>` +
       (col.cards.length ? col.cards.map(cardHtml).join("") : `<div class="bempty">None</div>`) + `</div>`; };
   const total = shown.length;
-  const FNAME = {unplanned: "Not Planned", overdue: "Overdue", gap: "Schedule Gaps", external: "Blocking External", blocking: "Blocked by External"};
-  return `<div class="cap" id="dep-showing">Showing ${total} of ${(depAnyType() ? m.openAll : m.open).length} open${state.depFilter === "all" ? " (all issue types)" : state.depFilter === "epics" ? "" : ` (quick filter: ${FNAME[state.depFilter]}${depAnyType() ? ", all issue types" : ""})`}.</div>` +
+  return `<div class="cap" id="dep-showing" role="status">Showing ${total} of ${m.openAll.length} open${depFiltered() ? `: ${esc(depFilterText())}.` : " (all issue types)."} ${depFiltered() ? DEP_CLEAR : ""}</div>` +
     `<a class="skip" href="#h-nfr" data-skip="h-nfr">Skip to NFRs</a>` +
     `<div class="board" role="region" aria-label="Open dependencies by planned sprint, scrolls sideways" tabindex="0">${cols.map(colHtml).join("")}</div>`;
 }
@@ -3028,7 +3051,7 @@ function renderAttention() {
   };
   body.querySelectorAll("[data-act]").forEach(b => b.onclick = () => act(b.dataset.act));
   body.querySelectorAll("[data-gapjump]").forEach(b => b.onclick = () => {                      // the quick filter Schedule Gaps in Dependencies; a script scroll, because the address hash holds the filters
-    state.depFilter = "gap"; anchorUserAt = performance.now(); update({anchor: false});
+    state.depRel = "all"; state.depAtt = new Set(["gap"]); anchorUserAt = performance.now(); update({anchor: false});
     SEC.go("h-deps");
   });
   tog.onclick = () => { attnUi.panel = !attnUi.panel; withAnchor(renderAttention, "#attn-toggle"); tog.focus({preventScroll: true}); };
@@ -4142,7 +4165,9 @@ function buildFilters() {
   document.getElementById("f-cl").onchange = e => { const v = e.target.value === CL_NONE_TOKEN ? "" : e.target.value; e.target.checked ? state.capLvlOff.delete(v) : state.capLvlOff.add(v); update({hold: holdSel(e.target)}); };
   document.getElementById("f-gran").onchange = e => { state.gran = e.target.value; update({hold: holdSel(e.target)}); };
   document.getElementById("f-cfbgrp").onchange = e => { state.cfbGroup = e.target.value; update({hold: holdSel(e.target)}); };
-  document.getElementById("f-dp").onchange = e => { state.depFilter = e.target.value; update({hold: holdSel(e.target)}); };
+  document.getElementById("f-dp").onchange = e => { state.depRel = e.target.value; update({hold: holdSel(e.target)}); };
+  document.getElementById("f-da").onchange = e => { e.target.checked ? state.depAtt.add(e.target.value) : state.depAtt.delete(e.target.value); update({hold: holdSel(e.target)}); };
+  document.getElementById("dep-body").addEventListener("click", e => { if (!e.target.closest("[data-dpclear]")) return; state.depRel = "all"; state.depAtt = new Set(); update(); const r = document.querySelector('#f-dp input[value="all"]'); if (r) r.focus({preventScroll: true}); });
   document.getElementById("f-cx").innerHTML = Object.entries(CX_TYPES).map(([k, [n]]) => `<label class="chip"><input type="radio" name="f-cx" value="${k}"> ${n}</label>`).join("");
   document.getElementById("f-cx").onchange = e => { state.cx = e.target.value; saveState(); withAnchor(() => { syncControls(); renderCx(); }, holdSel(e.target) || "#g-cx"); };
   document.getElementById("f-reset").onclick = e => { const hold = holdSel(e.currentTarget); resetFilters(); { const ts = document.getElementById("f-teams-search"); if (ts) ts.value = ""; } update({hold}); document.getElementById("f-release").focus({preventScroll: true}); };   // the button disables itself, so focus moves to the first control
@@ -4193,7 +4218,7 @@ function renderTeamList() {
 function filterChanges() {
   const same = (a, b) => a.size === b.length && b.every(x => a.has(x));
   return {release: state.release !== DATA.current, projects: !same(state.projects, projectsAll), teams: state.teams.size > 0, dc: !dcState().all,
-    bugpri: state.bugPri.size !== PRI_ALL.length, cfb: state.cfb !== "all", caplevel: capLevelChanged(), ax: state.ax !== "no", period: state.gran !== "month", cfbgrp: state.cfbGroup !== "version", depfilter: state.depFilter !== "epics", nfrtab: state.nfrTab !== "project", cx: state.cx !== "all", cap: state.cap.by !== "quarter" || state.cap.measure !== "sp", cycles: cyChanged()};
+    bugpri: state.bugPri.size !== PRI_ALL.length, cfb: state.cfb !== "all", caplevel: capLevelChanged(), ax: state.ax !== "no", period: state.gran !== "month", cfbgrp: state.cfbGroup !== "version", depfilter: state.depRel !== "all" || state.depAtt.size > 0, nfrtab: state.nfrTab !== "project", cx: state.cx !== "all", cap: state.cap.by !== "quarter" || state.cap.measure !== "sp", cycles: cyChanged()};
 }
 function syncControls() {
   const ch = filterChanges(), nCh = Object.values(ch).filter(Boolean).length;
@@ -4202,7 +4227,8 @@ function syncControls() {
   document.getElementById("f-toggle").textContent = nCh ? `Filters (${nCh} Applied)` : "Filters";
   document.getElementById("f-release").value = state.release;
   document.querySelectorAll("#f-gran input").forEach(i => { i.checked = i.value === state.gran; i.parentElement.classList.toggle("on", i.checked); });
-  document.querySelectorAll("#f-dp input").forEach(i => { i.checked = i.value === state.depFilter; i.parentElement.classList.toggle("on", i.checked); });
+  document.querySelectorAll("#f-dp input").forEach(i => { i.checked = i.value === state.depRel; i.parentElement.classList.toggle("on", i.checked); });
+  document.querySelectorAll("#f-da input").forEach(i => { i.checked = state.depAtt.has(i.value); i.parentElement.classList.toggle("on", i.checked); });
   document.querySelectorAll("#f-cx input").forEach(i => { i.checked = i.value === state.cx; i.parentElement.classList.toggle("on", i.checked); });
   document.querySelectorAll("#f-cfbgrp input").forEach(i => { i.checked = i.value === state.cfbGroup; i.parentElement.classList.toggle("on", i.checked); });
   document.querySelectorAll("#f-cfb input").forEach(i => { i.checked = i.value === state.cfb; i.parentElement.classList.toggle("on", i.checked); });
