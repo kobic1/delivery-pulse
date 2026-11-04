@@ -1179,7 +1179,7 @@ def test_the_glance_share_moved_to_recording_health_and_the_text_report_keeps_it
 
 
 def test_the_device_card_spans_two_columns_in_the_css_and_the_donut_is_larger_when_the_card_is_wide():
-    assert ".kpi#kpi-device { grid-column:span 2; }" in UR.CSS and "@container (min-width:250px)" in UR.CSS and ".donut { width:120px; height:120px; }" in UR.CSS and "flex-direction:row" in UR.CSS
+    assert ".kpi#kpi-device { grid-column:span 2; }" in UR.CSS and "@container (min-width:250px)" in UR.CSS and ".donut { width:150px; height:150px; }" in UR.CSS and "flex-direction:row" in UR.CSS
     assert UR.CSS.index("@container (min-width:250px)") > UR.CSS.index(".donut { position:relative;")                   # the wide-card size comes after the default, so it wins
 
 
