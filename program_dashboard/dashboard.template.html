@@ -723,15 +723,15 @@ footer.f b { color:var(--ink); }
         <div class="chips seg" id="f-dp" role="radiogroup" aria-labelledby="lbl-dpr">
           <label class="chip"><input type="radio" name="f-dp" value="all"> All <span class="cnt" data-k="all"></span></label>
           <label class="chip"><input type="radio" name="f-dp" value="epics"> Internal <span class="cnt" data-k="epics"></span></label>
-          <label class="chip"><input type="radio" name="f-dp" value="external"> Blocking external <span class="cnt" data-k="external"></span></label>
-          <label class="chip"><input type="radio" name="f-dp" value="blocking"> Blocked by external <span class="cnt" data-k="blocking"></span></label>
+          <label class="chip"><input type="radio" name="f-dp" value="external"> Blocking External <span class="cnt" data-k="external"></span></label>
+          <label class="chip"><input type="radio" name="f-dp" value="blocking"> Blocked by External <span class="cnt" data-k="blocking"></span></label>
           <label class="chip"><input type="radio" name="f-dp" value="cx"> CXCROSS <span class="cnt" data-k="cx"></span></label>
         </div></div>
-      <div class="depgrp"><span class="dlbl" id="lbl-da">Needs attention <span class="muted">(pick any)</span></span>
+      <div class="depgrp"><span class="dlbl" id="lbl-da">Needs Attention <span class="muted">(pick any)</span></span>
         <div class="chips" id="f-da" role="group" aria-labelledby="lbl-da">
           <label class="chip"><input type="checkbox" value="overdue"> Overdue <span class="cnt" data-k="overdue"></span></label>
-          <label class="chip"><input type="checkbox" value="unplanned"> Not planned <span class="cnt" data-k="unplanned"></span></label>
-          <label class="chip"><input type="checkbox" value="gap"> Schedule gaps <span class="cnt" data-k="gap"></span></label>
+          <label class="chip"><input type="checkbox" value="unplanned"> Not Planned <span class="cnt" data-k="unplanned"></span></label>
+          <label class="chip"><input type="checkbox" value="gap"> Schedule Gaps <span class="cnt" data-k="gap"></span></label>
         </div></div>
       <span class="hintline">Filters the board and table, not the tiles.</span>
     </div>
@@ -2590,11 +2590,11 @@ const DEP_REL_FN = {all: () => true, epics: x => x.internal, external: x => x.ex
 const DEP_ATT_FN = {overdue: x => x.overdue, unplanned: x => x.unplanned, gap: x => x.gap && x.epicsOnly};      // Schedule Gaps stays between epics, as Needs Attention counts it
 const depAttPass = x => !state.depAtt.size || DEP_ATT.some(k => state.depAtt.has(k) && DEP_ATT_FN[k](x));
 const depPassFilter = x => DEP_REL_FN[state.depRel](x) && depAttPass(x);
-const DEP_NAME = {all: "All", epics: "Internal", external: "Blocking external", blocking: "Blocked by external", cx: "CXCROSS", overdue: "Overdue", unplanned: "Not planned", gap: "Schedule gaps"};
+const DEP_NAME = {all: "All", epics: "Internal", external: "Blocking External", blocking: "Blocked by External", cx: "CXCROSS", overdue: "Overdue", unplanned: "Not Planned", gap: "Schedule Gaps"};
 const depFilterText = () => { const a = DEP_ATT.filter(k => state.depAtt.has(k)).map(k => DEP_NAME[k]), rel = state.depRel !== "all" ? DEP_NAME[state.depRel] : "";
-  return [rel, a.length > 1 ? `(${a.join(" or ")})` : a[0] || ""].filter(Boolean).join(" and ").replace(/^\((.*)\)$/, "$1"); };      // "Blocked by external and (Overdue or Not planned)", "Overdue or Not planned"
+  return [rel, a.length > 1 ? `(${a.join(" or ")})` : a[0] || ""].filter(Boolean).join(" and ").replace(/^\((.*)\)$/, "$1"); };      // "Blocked by External and (Overdue or Not Planned)", "Overdue or Not Planned"
 const depFiltered = () => state.depRel !== "all" || state.depAtt.size > 0;
-const DEP_CLEAR = `<button type="button" class="btn dpclear" data-dpclear>Clear filters</button>`;
+const DEP_CLEAR = `<button type="button" class="btn dpclear" data-dpclear>Clear Filters</button>`;
 const depDirOf = x => x.extBlock ? "Waits on external scope" : x.inbound ? "Waits on outside scope" : x.outbound ? "Needed by outside scope" : "Within scope";
 const noPlanData = r => !!r.ext && !r.dd && !r.ts;               // the page holds no planning data for this issue (another project, or not an epic it reads): "Not Planned" would be a claim it cannot make
 const NO_PLAN_DATA = "Planning data not tracked here";
@@ -2665,7 +2665,7 @@ function renderDeps() {
     left: `Pairs with a Done end (${m.leftOut} recorded), links to Removed epics (${(DATA.depsDropped && DATA.depsDropped.removed) || 0}) and other link types. Story, task and bug links under the release's epics are a separate fact line.`,
     know: `A link means a dependency is recorded, not that it is risky, and a missing link is not a missing dependency. Overdue and schedule gaps are facts about planned dates, not a verdict on a team or person. Data as of ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}.`,
     more: [
-      ["Internal, All and CXCROSS", `The headline figures and tiles count pairs between epics. Internal shows the pairs where both ends are in the selected projects, neither one CXCROSS, at any issue type: selected projects blocking selected projects. All shows every open pair, including links where one end is another issue type (Capability, Initiative, Story, Task and so on). CXCROSS shows every open pair where either end is a CXCROSS item or delivers a CXCROSS capability. Internal, Blocking external and Blocked by external together make up All, except the pairs that involve CXCROSS, which CXCROSS also shows (so a pair can be in CXCROSS and in one of them). The Needs attention flags cut across the relationships. The quick filter is two rows: choose one Relationship (All is the default) and, in Needs attention, any flags (Overdue, Not planned, Schedule gaps). A pair is shown when it matches the relationship and at least one chosen flag; each count is what choosing that option would show with the other row held. Schedule gaps stays between epics, as Needs Attention counts it. Every other option counts pairs at any issue type. A pair is in view when an epic at one end is in scope for ${esc(rel)} under the current filters.`],
+      ["Internal, All and CXCROSS", `The headline figures and tiles count pairs between epics. Internal shows the pairs where both ends are in the selected projects, neither one CXCROSS, at any issue type: selected projects blocking selected projects. All shows every open pair, including links where one end is another issue type (Capability, Initiative, Story, Task and so on). CXCROSS shows every open pair where either end is a CXCROSS item or delivers a CXCROSS capability. Internal, Blocking External and Blocked by External together make up All, except the pairs that involve CXCROSS, which CXCROSS also shows (so a pair can be in CXCROSS and in one of them). The Needs Attention flags cut across the relationships. The quick filter is two rows: choose one Relationship (All is the default) and, in Needs Attention, any flags (Overdue, Not Planned, Schedule Gaps). A pair is shown when it matches the relationship and at least one chosen flag; each count is what choosing that option would show with the other row held. Schedule Gaps stays between epics, as Needs Attention counts it. Every other option counts pairs at any issue type. A pair is in view when an epic at one end is in scope for ${esc(rel)} under the current filters.`],
       ["Outside scope", `outside the chosen release, projects and teams. This is separate from Blocking External, which looks at the project of the item the provider blocks. The Blocked by External quick filter shows every open pair where an item of the selected projects, in the chosen release and teams, waits on a provider in a project that is not selected and is not CXCROSS (CXCROSS is in its own section), at any issue type, whichever quick filter is chosen. A provider in CXCROSS, or in a selected project but outside the release or team filters, is not counted there; the Direction column says Waits on outside scope for it. The provider's issue type is on its card. Facts only, no ranking. A link means a dependency is recorded, not that it is risky; no link is not no dependency.`],
       ["Planned sprint, detail", `In a gap between sprints, the next sprint that starts is used. A due date outside the sprint calendar also makes the provider Not Planned. Sprint dates are read from the Target Sprint labels: the date in the label is the start, and a sprint runs three weeks.`],
       ["Overdue, as-of date", `the planned sprint ended before ${shortDate(asOfDay())}. It is a fact about dates, not a forecast.`],
@@ -2683,7 +2683,7 @@ function renderDeps() {
   const pool = all, shown = pool.filter(depPassFilter);
   if (!state.projects.size || !scope.length) host.innerHTML = `<div class="empty">${whyEmpty("epics")}</div>`;
   else if (!pool.length) host.innerHTML = `<div class="empty">No open dependencies in view for this selection${m.leftOut ? `; the ${m.leftOut} recorded ${m.leftOut === 1 ? "pair is" : "pairs are"} complete` : ""}.</div>`;
-  else if (!shown.length) host.innerHTML = `<div class="empty">${state.depRel === "blocking" && !state.depAtt.size ? "No external item (not selected, not CXCROSS) blocks an item in the selected projects." : `No open dependencies match ${esc(depFilterText())}.${state.depAtt.has("gap") ? " Schedule gaps only counts epic-to-epic pairs." : ""}`} ${DEP_CLEAR}</div>`;
+  else if (!shown.length) host.innerHTML = `<div class="empty">${state.depRel === "blocking" && !state.depAtt.size ? "No external item (not selected, not CXCROSS) blocks an item in the selected projects." : `No open dependencies match ${esc(depFilterText())}.${state.depAtt.has("gap") ? " Schedule Gaps only counts epic-to-epic pairs." : ""}`} ${DEP_CLEAR}</div>`;
   else host.innerHTML = boardHtml(shown, m) + depDataHtml(shown, m);
   depStoryLine(m);
 }
