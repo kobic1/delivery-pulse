@@ -58,7 +58,7 @@ SESSION_KEYS = {"t", "s", "vs", "sec", "nav", "f", "l", "o", "r", "rs", "rt", "n
 DOC_KEYS = {"u", "v", "first", "last", "w", "pr"}
 KEYRE = re.compile(r"[A-Z][A-Z0-9]+-\d+")
 DAYRE, WEEKRE, WEEKRE_V1, SIDRE = re.compile(r"^\d{4}-\d{2}-\d{2}$"), re.compile(r"^S\d{4}-\d{2}-\d{2}$"), re.compile(r"^\d{4}-W\d{2}$"), re.compile(r"^[a-z0-9]{8}$")
-NOTE_TEXT = ("Usage statistics: this page counts, per pseudonymous user id (a code, no name or e-mail; only the owner of this page can read these records), "
+NOTE_TEXT = ("Usage statistics: this page counts, per pseudonymous user id (a code, no name or e-mail; only the owner and the editors of this page can read these records), "
              "which sections are opened and which controls are used, to improve the dashboard. What is counted")
 NOTE_ITEMS = ["How long each visit lasts, counted only while the page is open in front of you and in use. A look of 5 seconds or more counts as a visit, even without a click.",
               "Which sections you read, and which section links you click.",
@@ -67,7 +67,7 @@ NOTE_ITEMS = ["How long each visit lasts, counted only while the page is open in
               "Which details you open, how often you press Refresh and Reset Filters and whether Refresh worked, your screen size (small, medium or large), the page version and how old its data was, and the number of page errors.",
               "Never counted: names, e-mail addresses, issue keys, project, team or pod names, search text.",
               "Kept for 12 weeks: older weeks are removed from your record when you next open the page, and the owner also deletes records not seen for 12 weeks."]
-CAPS = {"db": {"rules": [{"path": "", "write": "admin"}, {"path": "usage", "read": "owner", "write": "owner"}, {"path": "usage/{self}", "read": "interact", "write": "interact"}]}, "user": {}}
+CAPS = {"db": {"rules": [{"path": "", "write": "admin"}, {"path": "usage", "read": "admin", "write": "admin"}, {"path": "usage/{self}", "read": "interact", "write": "interact"}]}, "user": {}}
 NOTES: list[str] = []                                                                  # observations the tests print (sizes)
 
 

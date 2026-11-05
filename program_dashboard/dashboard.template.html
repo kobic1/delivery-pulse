@@ -5008,8 +5008,8 @@ window.addEventListener("resize", () => {                     // charts are draw
 // which Jira links are followed (by section only) and how long the page is in real use, and keeps one small record per person at usage/<id>. Everything recorded comes from the fixed lists in USAGE_VOC; anything else is dropped.
 // Never recorded: names, e-mails, issue keys, team, pod or project names, search text, link addresses, any free text, the release looked at, the browser's language, agent or address. A local copy, a page without the capabilities and a viewer without an id record nothing and show nothing.
 // The note at the bottom of the page appears only after the first successful write of a visit: a viewer whose write is refused never sees it.
-// Access rules, declared when the page is published (not in the page): {"db": {"rules": [{"path": "", "write": "admin"}, {"path": "usage", "read": "owner", "write": "owner"}, {"path": "usage/{self}", "read": "interact", "write": "interact"}]}, "user": {}}
-// (each person writes and reads only their own record; only the owner reads all, which the live usage view at the end of this file needs; the platform wants write at least as high as read). `user` is declared without scopes on purpose: no names, no e-mails.
+// Access rules, declared when the page is published (not in the page): {"db": {"rules": [{"path": "", "write": "admin"}, {"path": "usage", "read": "admin", "write": "admin"}, {"path": "usage/{self}", "read": "interact", "write": "interact"}]}, "user": {}}
+// (each person writes and reads only their own record; Editors and the owner read all, which the live usage view at the end of this file needs). `user` is declared without scopes on purpose: no names, no e-mails.
 // Record (schema 2): {u, v: 2, first, last, pr?, w: {"S<ISO date of the Sunday>": {"<Israel day>": {"<visit id>": {t, s, vs, d, b, bt, fa, lf, lv?, g?, rr?, sec, nav, f, l, o, ro, r, rs, rt, np, er, erb, x}}}}}; the week is the Sunday-to-Saturday work week (a record written by schema 1 keeps its ISO week keys: both are read).
 // Each visit writes only its own session object with a nested merge of its full cumulative state, so a re-sent write is harmless and several tabs never overwrite each other.
 // Kept 12 weeks, at most 10 sessions per day, every counter map at most 40 keys, the record kept below 90 KiB (at the heaviest use the oldest weeks go first and `pr` is set).
@@ -5180,7 +5180,7 @@ const USAGE = (() => {
   function note() {
     const el = document.createElement("div"); el.id = "usage-note"; el.className = "usage";
     const p = document.createElement("p"); p.className = "cap";
-    p.append("Usage statistics: this page counts, per pseudonymous user id (a code, no name or e-mail; only the owner of this page can read these records), which sections are opened and which controls are used, to improve the dashboard. ");
+    p.append("Usage statistics: this page counts, per pseudonymous user id (a code, no name or e-mail; only the owner and the editors of this page can read these records), which sections are opened and which controls are used, to improve the dashboard. ");
     const b = document.createElement("button"); b.type = "button"; b.className = "linkbtn"; b.textContent = "What is counted"; b.setAttribute("aria-expanded", "false"); b.setAttribute("aria-controls", "usage-what");
     const ul = document.createElement("ul"); ul.id = "usage-what"; ul.className = "cap"; ul.hidden = true;
     ["How long each visit lasts, counted only while the page is open in front of you and in use. A look of 5 seconds or more counts as a visit, even without a click.",
@@ -5215,11 +5215,11 @@ const USAGE = (() => {
 })();
 
 // ---------------------------------------------------------------- live usage view (owner only: a self-contained block, like the usage block above it)
-// Shown only when the viewer is the OWNER of this artifact; for everyone else the container stays hidden and nothing is read. It reads the collection `usage` (one record per person, written by the block
+// Shown only when the viewer is the OWNER of this artifact or has Editor access to it (the owner grants that in the Share menu); for everyone else the container stays hidden and nothing is read. It reads the collection `usage` (one record per person, written by the block
 // above) when the owner opens it and again on every press of "Refresh usage", and draws the report in the page: the browser port of usage_report.py (UR, inlined by the build at the placeholder line below,
 // program_dashboard/usage_view/*.js; tests/dashboard_browser/usage_port/ checks it against the Python report, byte for byte) makes the same page the Python report makes, with every minimum off
 // (usage_report.py --show-all). Its style sheet is the report's own, so the page lives in a shadow root: the dashboard's styles do not reach it and its styles do not reach the dashboard.
-// What protects the records is the database rule, not this block: publish with {"path": "usage", "read": "owner", "write": "owner"}, so any other viewer's read is refused by the database itself.
+// What protects the records is the database rule, not this block: publish with {"path": "usage", "read": "admin", "write": "admin"} (Editor level and the owner), so any other viewer's read is refused by the database itself.
 // Nothing is written, nothing leaves the page, ids are never drawn.
 /*__USAGE_REPORT_JS__*/
 const UV = (() => {
@@ -5237,6 +5237,7 @@ const UV = (() => {
   function paint(html) {                                                           // into the shadow root: no <title>, <meta> or <link>, and the report's :root and body rules apply to the host
     const host = $("uv-out"), root = host.shadowRoot || host.attachShadow({mode: "open"});
     root.innerHTML = html.replace(/<title>[\s\S]*?<\/title>|<meta [^>]*>|<link [^>]*>/g, "").replace(/<style>([\s\S]*?)<\/style>/, (m, css) => "<style>" + css.replace(/:root\b/g, ":host").replace(/(^|\})\s*body\s*\{/g, "$1:host{") + "</style>");
+    root.querySelectorAll("h1, h2, h3, h4, h5, h6").forEach(h => h.setAttribute("aria-level", String(Math.min(6, +h.tagName[1] + 2))));      // under this section's own h2: the report's title is level 3, its sections 4, its panels 5 (the style is unchanged)
   }
   async function load() {
     if (busy || !db) return;
@@ -5255,7 +5256,7 @@ const UV = (() => {
   async function start() {
     if (!RUNTIME) return;
     let user = null;
-    try { user = await window.claude.use("user"); if (!user || !(await user.isOwner())) return; db = await window.claude.use("db"); if (!db) return; } catch (e) { return; }
+    try { user = await window.claude.use("user"); if (!user || !((await user.isOwner()) || (await user.canEdit()))) return; db = await window.claude.use("db"); if (!db) return; } catch (e) { return; }
     const box = $("usageview"), tg = $("uv-toggle"), rf = $("uv-refresh"), body = $("uv-body"); if (!box || !tg || !rf || !body) return;
     box.hidden = false;
     const show = open => { body.hidden = !open; rf.hidden = !open; tg.textContent = open ? "Hide usage" : "Show usage"; tg.setAttribute("aria-expanded", String(open)); return open && !loaded ? load() : Promise.resolve(); };

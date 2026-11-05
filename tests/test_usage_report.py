@@ -158,7 +158,7 @@ UV_MARK = "// ---------------------------------------------------------------- l
 
 def test_the_page_reads_only_the_id_and_never_leaves_the_page():
     block = TEMPLATE[TEMPLATE.index("const USAGE_VOC"):TEMPLATE.index(UV_MARK)]                # the recording block, up to the owner-only view
-    assert re.search(r"Usage statistics: this page counts, per pseudonymous user id \(a code, no name or e-mail; only the owner of this page can read these records\)", block)
+    assert re.search(r"Usage statistics: this page counts, per pseudonymous user id \(a code, no name or e-mail; only the owner and the editors of this page can read these records\)", block)
     assert "What is counted" in block and "Kept for 12 weeks" in block
     assert re.search(r"user\.id\(\)", block) and not re.search(r"user\.(name|email|me|profiles|search)\b", block)
     assert block.count('window.claude.use("db")') == 1 and block.count('window.claude.use("user")') == 1 and "scopes" not in block
@@ -180,7 +180,7 @@ def test_the_browser_port_of_the_report_is_pure():
 
 def test_the_owner_view_only_reads_and_never_shows_or_sends_identity():
     uv = TEMPLATE[TEMPLATE.index(UV_MARK):]
-    assert "isOwner()" in uv and "return;" in uv.split("isOwner()")[1][:80], "the view must stop at once for a viewer who is not the owner"
+    assert "isOwner()" in uv and "canEdit()" in uv and "return;" in uv.split("canEdit()")[1][:80], "the view must stop at once for a viewer who is neither the owner nor an Editor"
     assert not re.search(r"user\.(id|name|email|me|profiles|search)\b", uv) and "scopes" not in uv       # no identity is read
     assert 'db.collection("usage").limit(' in uv and set(re.findall(r"\bdb\.(\w+)", uv)) == {"collection"}, "the view reads one collection and uses nothing else of the db"
     assert not re.search(r"\.doc\(|\.(update|delete)\(|batch|transaction|\bset\(\{", uv), "the view writes nothing"
