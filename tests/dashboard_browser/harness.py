@@ -317,6 +317,31 @@ def _(t: T):
     t.check(s["y"] <= 2 and s["h1"] == "H1" and not s["on"], f"a click returns to the top with the heading focused and hides the button: {s}")
 
 
+@SUITE.test("cxcross_table_header_stays_in_view_while_the_list_scrolls")
+def _(t: T):
+    """The CXCROSS capability list can be long: the table sits in a box that fits the window below the sticky stack and its header row stays at the top of the box while the rows scroll."""
+    fx = build_fixture()
+    ch = ctx.chrome
+    ch.viewport(1400, 900)
+    ch.goto(ctx.write(fx.fragment, "plain"))
+    kit.wait_ready(ch, 15)
+    time.sleep(1.0)
+    info = ch.js("""(() => { const w = document.querySelector('.cxwrap'); if (!w) return null; const th = w.querySelector('thead th');
+      return {tall: w.classList.contains('tall'), pos: getComputedStyle(th).position, rows: w.querySelectorAll('tbody tr').length, maxH: parseFloat(getComputedStyle(w).maxHeight), vh: innerHeight}; })()""")
+    t.check(info is not None, "the CXCROSS table has no scrolling box (.cxwrap)")
+    if not info:
+        return
+    t.check(info["tall"] and info["pos"] == "sticky", f"the header cells of the CXCROSS table are not sticky: {info}")
+    t.check(0 < info["maxH"] <= info["vh"], f"the box is not limited to the window height: {info}")
+    r = ch.js("""(() => { const w = document.querySelector('.cxwrap'), th = w.querySelector('thead th'); w.style.maxHeight = '140px'; w.scrollTop = 0;
+      const before = th.getBoundingClientRect().top - w.getBoundingClientRect().top; w.scrollTop = 200;
+      const after = th.getBoundingClientRect().top - w.getBoundingClientRect().top;
+      return {before: Math.round(before), after: Math.round(after), scrolled: w.scrollTop, can: w.scrollHeight > w.clientHeight}; })()""")
+    t.check(r["can"] and r["scrolled"] > 0, f"the rows do not scroll in the box: {r}")
+    t.check(abs(r["after"] - r["before"]) <= 1, f"the header row moved when the rows scrolled: {r}")
+    t.check(not ch.console_errors(), f"console error: {ch.console_errors()[:2]}")
+
+
 @SUITE.test("fixture_renders_every_section_without_errors")
 def _(t: T):
     fx = build_fixture()
