@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """The owner-only live usage view at the bottom of dashboard.template.html (`UV`, the block after the usage statistics block): in headless Chrome with the mocked db.
 
-The view is for the artifact's owner alone: for anybody else it stays hidden and reads nothing. The owner opens it, the page reads the collection `usage` (a list, never a write), draws the report of
+The view is for the artifact's owner and the people who have Editor access: for anybody else it stays hidden and reads nothing. The owner opens it, the page reads the collection `usage` (a list, never a write), draws the report of
 usage_report.py (the browser port, program_dashboard/usage_view/*.js) in a shadow root and the owner can read again with "Refresh usage". What protects the records is the database rule
-({"path": "usage", "read": "owner", "write": "owner"}), not this block; the test covers the page side of it. The port itself is checked against the Python report in usage_port/port_check.py.
+({"path": "usage", "read": "admin", "write": "admin"}), not this block; the test covers the page side of it. The port itself is checked against the Python report in usage_port/port_check.py.
 
 Asserted:
-  * a viewer who is not the owner (and a page with no user capability) sees no usage view, and the page reads no `usage` collection;
+  * a viewer who is neither the owner nor an Editor (and a page with no user capability) sees no usage view, and the page reads no `usage` collection;
+  * an Editor who is not the owner sees the view and the Usage link and can open and refresh it;
   * the Usage link at the right end of the Section Strip is there for the owner only, opens the view and scrolls to it, and is not one of the strip's sections;
   * the owner sees the closed view, nothing is read before it is opened, opening it reads once, "Refresh usage" reads again and picks up a record added in between;
   * what the view draws IS the Python report: the shadow root equals usage_report.py's page for the same records (every minimum off, the page's own clock), and the dashboard's styles are not in it;
@@ -114,6 +115,23 @@ def _(t: T):
     t.check(not ch.console_errors(), f"console error without capabilities: {ch.console_errors()[:2]}")
     ch = load(owner=True, user=None)
     t.check(ch.js("document.getElementById('usageview').hidden") is True, "the usage view is visible when there is no user capability")
+
+
+@SUITE.test("usage_view_an_editor_who_is_not_the_owner_sees_and_refreshes_it")
+def _(t: T):
+    ch = load(owner=False, editor=True)
+    t.check(ch.js("document.getElementById('usageview').hidden") is False, "an Editor does not see the usage view")
+    t.check(ch.js("document.getElementById('uv-link').hidden") is False, "an Editor does not see the Usage link in the strip")
+    t.check(not reads(ch), "the page read the records before the Editor opened the view")
+    ch.js("document.getElementById('uv-link').click()")
+    t.check(wait_read(ch), "the Usage link did not open the view for an Editor: " + stamp(ch))
+    t.check("Delivery Pulse Usage" in shadow_text(ch), "the report is not in the Editor's view")
+    ch.js("document.getElementById('uv-refresh').click()")
+    t.check(ch.wait_for("window.__dbLog.filter(e => e.op === 'list').length === 2", 6), "Refresh usage did not read again for an Editor")
+    ch = load(owner=False, editor=False)
+    t.check(ch.js("document.getElementById('usageview').hidden") is True and ch.js("document.getElementById('uv-link').hidden") is True, "a viewer who is neither owner nor Editor sees the view or its link")
+    t.check(not reads(ch), "a viewer who is neither owner nor Editor caused a read")
+    t.check(not ch.console_errors(), f"console error: {ch.console_errors()[:2]}")
 
 
 @SUITE.test("usage_view_owner_opens_reads_once_and_refresh_reads_again")
