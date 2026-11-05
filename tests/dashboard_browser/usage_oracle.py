@@ -58,7 +58,7 @@ SESSION_KEYS = {"t", "s", "vs", "sec", "nav", "f", "l", "o", "r", "rs", "rt", "n
 DOC_KEYS = {"u", "v", "first", "last", "w", "pr"}
 KEYRE = re.compile(r"[A-Z][A-Z0-9]+-\d+")
 DAYRE, WEEKRE, WEEKRE_V1, SIDRE = re.compile(r"^\d{4}-\d{2}-\d{2}$"), re.compile(r"^S\d{4}-\d{2}-\d{2}$"), re.compile(r"^\d{4}-W\d{2}$"), re.compile(r"^[a-z0-9]{8}$")
-NOTE_TEXT = ("Usage statistics: this page counts, per pseudonymous user id (a code, no name or e-mail; the editors of this page can read these records), "
+NOTE_TEXT = ("Usage statistics: this page counts, per pseudonymous user id (a code, no name or e-mail; only the owner of this page can read these records), "
              "which sections are opened and which controls are used, to improve the dashboard. What is counted")
 NOTE_ITEMS = ["How long each visit lasts, counted only while the page is open in front of you and in use. A look of 5 seconds or more counts as a visit, even without a click.",
               "Which sections you read, and which section links you click.",
@@ -67,7 +67,7 @@ NOTE_ITEMS = ["How long each visit lasts, counted only while the page is open in
               "Which details you open, how often you press Refresh and Reset Filters and whether Refresh worked, your screen size (small, medium or large), the page version and how old its data was, and the number of page errors.",
               "Never counted: names, e-mail addresses, issue keys, project, team or pod names, search text.",
               "Kept for 12 weeks: older weeks are removed from your record when you next open the page, and the owner also deletes records not seen for 12 weeks."]
-CAPS = {"db": {"rules": [{"path": "", "write": "admin"}, {"path": "usage", "read": "admin", "write": "admin"}, {"path": "usage/{self}", "read": "interact", "write": "interact"}]}, "user": {}}
+CAPS = {"db": {"rules": [{"path": "", "write": "admin"}, {"path": "usage", "read": "owner", "write": "owner"}, {"path": "usage/{self}", "read": "interact", "write": "interact"}]}, "user": {}}
 NOTES: list[str] = []                                                                  # observations the tests print (sizes)
 
 
@@ -1135,13 +1135,14 @@ def b_daycap() -> list[str]:
 @SUITE.test("usage_the_vocabularies_and_the_documented_access_rules_are_the_ones_in_the_page")
 def _(t: T):
     src = ctx.template.read_text(encoding="utf-8")
+    rec = src[src.index("const USAGE_VOC"):src.index("// ---------------------------------------------------------------- live usage view (owner only")]      # the recording block; the owner-only view after it is checked in test_usage_report.py and usage_view_check.py
     m = re.search(r"const USAGE_VOC = (\{.*?\});\n", src)
     t.check(bool(m), "the page has one USAGE_VOC literal")
     if m:
         t.check(json.loads(m.group(1)) == VOC, "the page's vocabulary equals the one spelled out in this oracle")
     t.check(json.dumps(CAPS)[1:-1] in src.replace('": ', '":').replace('", ', '",') or "usage/{self}" in src, "the access rules are written in the page")
-    t.check('user.id()' in src and 'user.name' not in src and 'user.email' not in src and 'scopes' not in src[src.index("const USAGE_VOC"):], "the block reads only user.id(): no name, no e-mail, no scopes")
-    t.check(src.count("window.claude.use(\"db\")") == 1 and "fetch(" not in src[src.index("const USAGE_VOC"):] and "sendBeacon" not in src and "XMLHttpRequest" not in src[src.index("const USAGE_VOC"):], "the only way out of the block is the db capability")
+    t.check('user.id()' in rec and 'user.name' not in rec and 'user.email' not in rec and 'scopes' not in rec, "the block reads only user.id(): no name, no e-mail, no scopes")
+    t.check(rec.count("window.claude.use(\"db\")") == 1 and "fetch(" not in rec and "sendBeacon" not in src and "XMLHttpRequest" not in rec, "the only way out of the block is the db capability")
 
 
 

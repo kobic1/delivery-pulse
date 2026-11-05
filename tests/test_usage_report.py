@@ -153,14 +153,28 @@ def test_the_report_knows_the_keys_the_page_records():
     assert list(UR.READ_SECTIONS)[0] == "top" and UR.READ_SECTIONS["top"] == "Headline tiles"
 
 
+UV_MARK = "// ---------------------------------------------------------------- live usage view (owner only"
+
+
 def test_the_page_reads_only_the_id_and_never_leaves_the_page():
-    block = TEMPLATE[TEMPLATE.index("const USAGE_VOC"):]
-    assert re.search(r"Usage statistics: this page counts, per pseudonymous user id \(a code, no name or e-mail; the editors of this page can read these records\)", block)
+    block = TEMPLATE[TEMPLATE.index("const USAGE_VOC"):TEMPLATE.index(UV_MARK)]                # the recording block, up to the owner-only view
+    assert re.search(r"Usage statistics: this page counts, per pseudonymous user id \(a code, no name or e-mail; only the owner of this page can read these records\)", block)
     assert "What is counted" in block and "Kept for 12 weeks" in block
     assert re.search(r"user\.id\(\)", block) and not re.search(r"user\.(name|email|me|profiles|search)\b", block)
     assert block.count('window.claude.use("db")') == 1 and block.count('window.claude.use("user")') == 1 and "scopes" not in block
     for banned in ("fetch(", "sendBeacon", "XMLHttpRequest", "WebSocket", "localStorage", "document.cookie"):
         assert banned not in block, f"the usage block must not use {banned}"
+
+
+def test_the_owner_view_only_reads_and_never_shows_or_sends_identity():
+    uv = TEMPLATE[TEMPLATE.index(UV_MARK):]
+    assert "isOwner()" in uv and "return;" in uv.split("isOwner()")[1][:80], "the view must stop at once for a viewer who is not the owner"
+    assert not re.search(r"user\.(id|name|email|me|profiles|search)\b", uv) and "scopes" not in uv       # no identity is read
+    assert 'db.collection("usage").limit(' in uv and set(re.findall(r"\bdb\.(\w+)", uv)) == {"collection"}, "the view reads one collection and uses nothing else of the db"
+    assert not re.search(r"\.doc\(|\.(update|delete)\(|batch|transaction|\bset\(\{", uv), "the view writes nothing"
+    for banned in ("fetch(", "sendBeacon", "XMLHttpRequest", "WebSocket", "localStorage", "document.cookie", "downloads"):
+        assert banned not in uv, f"the owner view must not use {banned}"
+    assert not re.search(r"\bu_[A-Za-z0-9]", uv)                                                          # no id is ever drawn or kept
 
 
 # ------------------------------------------------------------------------------------------------ loading and export integrity

@@ -270,16 +270,18 @@ A local copy, a page without the capabilities and a viewer without an id record 
 
 **Privacy.** The record is **pseudonymous, not anonymous**: it is keyed by an opaque user id (a `u_...` code), the editors of the page can read every record, and an id that is stable for a person is still a way to follow that person over time. Names and e-mail addresses are not recorded: the page reads only `user.id()` and declares `user` **without scopes**.
 Never recorded: names, e-mails, issue keys, team, pod or project names (the project chips are configuration the viewer chose: only the number of selected projects is kept), the release looked at, search text, the address of a Jira link, the browser, language, referrer or address, free text of any kind.
-Every recorded key comes from the fixed lists below; anything else is dropped. A visible note at the very bottom of the page, shown only after the first successful write of a visit, says what is counted (the wording is in the template: "per pseudonymous user id (a code, no name or e-mail; the editors of this page can read these records)")
+Every recorded key comes from the fixed lists below; anything else is dropped. A visible note at the very bottom of the page, shown only after the first successful write of a visit, says what is counted (the wording is in the template: "per pseudonymous user id (a code, no name or e-mail; only the owner of this page can read these records)")
 and ends with the retention sentence ("Kept for 12 weeks: older weeks are removed from your record when you next open the page, and the owner also deletes records not seen for 12 weeks"). A viewer whose write is refused (a view-only viewer) never sees it, and it disappears if the visit stops recording.
 
 **Publish with these capabilities** (the access rules are declared at publish time, not in the page; they are also written in the template comment):
 
 ```json
-{"db": {"rules": [{"path": "", "write": "admin"}, {"path": "usage", "read": "admin", "write": "admin"}, {"path": "usage/{self}", "read": "interact", "write": "interact"}]}, "user": {}}
+{"db": {"rules": [{"path": "", "write": "admin"}, {"path": "usage", "read": "owner", "write": "owner"}, {"path": "usage/{self}", "read": "interact", "write": "interact"}]}, "user": {}}
 ```
 
-Each person writes and reads only their own record `usage/<id>`; Editors and the owner read all. A viewer at the `view` level can never write: their visit records nothing, silently.
+Each person writes and reads only their own record `usage/<id>`; only the owner reads all (the platform wants a collection's write level at least its read level, so the collection is owner for both). A viewer at the `view` level can never write: their visit records nothing, silently.
+
+**Live usage view (owner only).** The block at the very end of the template (`UV`) draws the usage figures inside the page for the artifact's owner: a closed "Usage" section with Show usage / Refresh usage buttons that reads the collection `usage` when opened and on each Refresh (a list, never a write) and shows key figures, people active per week and per day, section and control reach, screen size and link and Refresh use, each chart with a "Show data" table. It uses the report's definitions (Sunday-start weeks, Israel days, 30 s = reached a section, engaged = not a glance, window = the last 4 completed weeks and the week in progress) and no ids. The page hides it from everybody else, but what really protects the records is the rule: the rule above (owner read and write on `usage`) makes the database itself refuse a read by anyone but the owner, Editors included. `tests/dashboard_browser/usage_view_check.py` checks it against `usage_report.py --show-all` on the same fictitious data.
 
 **The record** (schema 2), one document per person (never one per event or per visit; the database holds at most 25,000 documents). A session is one visit; a field a v1 session lacks means *unknown*, never 0:
 

@@ -130,10 +130,15 @@
         delete: () => run("delete", path, undefined, () => { const d = read(); delete d[path]; save(d); window.__dbDocs = d; }),
         collection: p => colRef(path + "/" + p)};
     };
-    const colRef = path => { grammar(path, false); return {path, doc: id => docRef(path + "/" + (id || Math.random().toString(36).slice(2))), onSnapshot: () => () => {}}; };
+    const list = path => run("list", path, undefined, () => {      // a collection read (the owner-only usage view): U.listFault = a refusal by code, U.latency slows it; U.owner = the viewer is the artifact's owner
+      if (U.listFault) throw err(U.listFault, "list refused");
+      const d = read(), prefix = path + "/", ids = Object.keys(d).filter(k => k.startsWith(prefix) && !k.slice(prefix.length).includes("/"));
+      return Object.freeze({docs: ids.map(k => snap(k, clone(d[k]))), size: ids.length, empty: !ids.length});
+    });
+    const colRef = path => { grammar(path, false); return {path, doc: id => docRef(path + "/" + (id || Math.random().toString(36).slice(2))), onSnapshot: () => () => {}, get: () => list(path), limit: n => ({get: () => list(path)})}; };
     dbNs = Object.freeze({doc: docRef, collection: colRef});
     const uid = U.uid === undefined ? "u_synthetic_001" : U.uid;
-    userNs = Object.freeze({id: async () => uid, name: async () => "Synthetic Person", email: async () => "synthetic.person@example.invalid", isOwner: async () => false, canEdit: async () => false, can: async () => null,
+    userNs = Object.freeze({id: async () => uid, name: async () => "Synthetic Person", email: async () => "synthetic.person@example.invalid", isOwner: async () => U.owner === true, canEdit: async () => U.owner === true, can: async () => null,
       me: async () => ({id: uid, name: "Synthetic Person", email: "synthetic.person@example.invalid", avatarUrl: "", color: "#000", isOwner: false, canEdit: false}), profiles: async ids => ({})});
   }
   window.claude = {use: async (name) => name === "mcp" ? (U && U.mcp === null ? null : self) : (U && name === "db") ? (U.db === null ? null : dbNs) : (U && name === "user") ? (U.user === null ? null : userNs) : null};
