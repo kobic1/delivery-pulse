@@ -166,6 +166,18 @@ def test_the_page_reads_only_the_id_and_never_leaves_the_page():
         assert banned not in block, f"the usage block must not use {banned}"
 
 
+def test_the_browser_port_of_the_report_is_pure():
+    """program_dashboard/usage_view/*.js computes and writes strings only: no network, no storage, no DOM, no dynamic code (the page's owner view decides what to do with the result)."""
+    src = Path(__file__).resolve().parent.parent / "program_dashboard" / "usage_view"
+    files = sorted(src.glob("*.js"))
+    assert [f.name for f in files] == ["core.js", "render_a.js", "render_b.js", "signals.js", "views.js"]
+    for f in files:
+        text = f.read_text(encoding="utf-8")
+        for banned in ("fetch(", "XMLHttpRequest", "sendBeacon", "localStorage", "sessionStorage", "document.", "WebSocket", "eval(", "new Function", "import(", "Date.now()", "Math.random"):
+            assert banned not in text, f"{f.name} must not use {banned}"
+        assert not re.search(r"(?<![\w.])window\.", text), f"{f.name} must not use the browser's window (the report's own `a.window` is a data key)"
+
+
 def test_the_owner_view_only_reads_and_never_shows_or_sends_identity():
     uv = TEMPLATE[TEMPLATE.index(UV_MARK):]
     assert "isOwner()" in uv and "return;" in uv.split("isOwner()")[1][:80], "the view must stop at once for a viewer who is not the owner"

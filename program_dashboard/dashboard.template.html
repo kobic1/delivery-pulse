@@ -560,18 +560,6 @@ footer.f b { color:var(--ink); }
 .uv { margin-top:56px; padding-top:20px; padding-bottom:8px; border-top:1px solid var(--line); }
 .uvlink { position:absolute; right:0; top:0; z-index:1; height:calc(100% - 1px); display:flex; align-items:center; padding:0 12px; background:var(--bg); border-left:1px solid var(--line); font-size:var(--t-cap); font-weight:500; color:var(--blue-ink); text-decoration:none; } .uvlink:hover { background:var(--panel); } .uvlink:focus-visible { outline:2px solid var(--blue-ink); outline-offset:-2px; } .uvlink[hidden] { display:none; } .secnav.hasuv ul { padding-right:84px; }
 .uvhead { display:flex; flex-wrap:wrap; align-items:center; gap:10px; } .uvhead h2 { margin:0 auto 0 0; font-size:var(--t-title); font-weight:600; display:flex; align-items:center; gap:10px; }
-.uvkpis { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:10px; margin:12px 0 4px; }
-.uvkpi { background:var(--panel); border-radius:var(--radius-s); padding:10px 12px; } .uvkpi b { display:block; font-size:var(--t-fig); font-weight:600; line-height:1.2; } .uvkpi span { font-size:var(--t-cap); color:var(--muted); }
-.uvgrid { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:20px 28px; margin-top:16px; } .uvgrid > div { min-width:0; }
-.uv h3 { margin:0; font-size:var(--t-sub); font-weight:600; }
-.uvcols { display:flex; align-items:flex-end; gap:4px; height:120px; margin-top:10px; border-bottom:1px solid var(--line); } .uvcols > div { flex:1; min-width:0; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; height:100%; font-size:var(--t-xs); }
-.uvcols i { display:block; width:100%; background:var(--blue); border-radius:3px 3px 0 0; min-height:1px; } .uvcols i.part { background:var(--blue-tint); outline:1px dashed var(--blue-ink); outline-offset:-1px; }
-.uvlbl { display:flex; gap:4px; font-size:var(--t-xs); color:var(--muted); } .uvlbl span { flex:1; min-width:0; text-align:center; white-space:nowrap; overflow:visible; }
-.uvbars { display:grid; gap:5px; margin-top:8px; } .uvbar { display:grid; grid-template-columns:minmax(90px, 36%) 1fr 74px; align-items:center; gap:8px; font-size:var(--t-cap); }
-.uvbar .t { height:10px; background:var(--line-soft); border-radius:5px; overflow:hidden; } .uvbar .t i { display:block; height:100%; background:var(--blue); } .uvbar .v { color:var(--muted); font-variant-numeric:tabular-nums; white-space:nowrap; }
-.uv table { border-collapse:collapse; font-size:var(--t-cap); margin-top:6px; } .uv th, .uv td { padding:3px 10px 3px 0; text-align:left; border-bottom:1px solid var(--line-soft); font-variant-numeric:tabular-nums; } .uv th { font-weight:600; }
-.uvscroll { overflow-x:auto; max-width:100%; } .uv details { margin-top:8px; } .uv details > summary { cursor:pointer; font-size:var(--t-cap); color:var(--blue-ink); }
-.uvnote { color:var(--muted); font-size:var(--t-cap); max-width:80ch; margin-top:14px; }
 @media (prefers-reduced-motion: no-preference) { .teampanel { animation:fade .12s ease-out; } @keyframes fade { from { opacity:0; } to { opacity:1; } } }
 </style>
 
@@ -5227,98 +5215,40 @@ const USAGE = (() => {
 })();
 
 // ---------------------------------------------------------------- live usage view (owner only: a self-contained block, like the usage block above it)
-// Shown only when the viewer is the OWNER of this artifact; for everyone else the container stays hidden and nothing is read. It reads the collection `usage` (one record per person, written by the block above) when the owner
-// opens it and again on every press of "Refresh usage", and draws the figures in the page. What protects the records is the database rule, not this block: publish with {"path": "usage", "read": "owner", "write": "admin"}, so any other
-// viewer's read is refused by the database itself. Nothing is written, nothing leaves the page, ids are never drawn. The same definitions as usage_report.py (Sunday-start weeks, Israel days, 30 s = reached a section, engaged = not a glance).
+// Shown only when the viewer is the OWNER of this artifact; for everyone else the container stays hidden and nothing is read. It reads the collection `usage` (one record per person, written by the block
+// above) when the owner opens it and again on every press of "Refresh usage", and draws the report in the page: the browser port of usage_report.py (UR, inlined by the build at the placeholder line below,
+// program_dashboard/usage_view/*.js; tests/dashboard_browser/usage_port/ checks it against the Python report, byte for byte) makes the same page the Python report makes, with every minimum off
+// (usage_report.py --show-all). Its style sheet is the report's own, so the page lives in a shadow root: the dashboard's styles do not reach it and its styles do not reach the dashboard.
+// What protects the records is the database rule, not this block: publish with {"path": "usage", "read": "owner", "write": "owner"}, so any other viewer's read is refused by the database itself.
+// Nothing is written, nothing leaves the page, ids are never drawn.
+/*__USAGE_REPORT_JS__*/
 const UV = (() => {
-  const SEC_MIN = 30, WEEKS = 12, WIN = 4, DAYS = 14, READ_MAX = 1000, LOAD_MS = 10000;
-  const SECTIONS = {attn: "Needs Attention", burnup: "Delivery", eff: "Efficiency", ai: "AI Adoption", bugs: "Quality", deps: "Dependencies", nfr: "NFRs", cx: "CXCROSS", capview: "Capabilities", cycles: "Cycles", analysis: "Release Analysis"};
-  const READ = {top: "Headline tiles", ...SECTIONS};
-  const CONTROLS = {release: "Release", projects: "Projects", multi: "Multi-select toggle", teams: "Teams", dc: "Delivery Cycle", ax: "Accessibility Bugs", cfb: "Customer-Found Bugs", bugpri: "Bug priority", gran: "Week, Month or Quarter", cfbgrp: "Customer-found bugs grouping", dp: "Dependencies view", nfrtab: "NFR tabs", cx: "CXCROSS commitment type", caplevel: "Capability commitment level", capby: "Capitalization grouping", capmeasure: "Capitalization measure", cycle: "Cycle choice", cytab: "Cycles detail tab", cystatus: "Cycles status filter", cypods: "Pod lists"};
-  const DEVICES = {l: "Desktop (wide window)", m: "Tablet (medium window)", s: "Phone (narrow window)"};
-  const WEEK_KEY = /^(\d{4}-W\d{2}|S\d{4}-\d{2}-\d{2})$/, DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
-  const isNum = v => typeof v === "number" && isFinite(v);
-  const dMs = d => { const [y, m, x] = d.split("-").map(Number); return Date.UTC(y, m - 1, x); }, dStr = ms => new Date(ms).toISOString().slice(0, 10);
-  const sunday = d => dStr(dMs(d) - new Date(dMs(d)).getUTCDay() * DAY), plus = (d, n) => dStr(dMs(d) + n * DAY);
-  const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
-  const pct = (x, n) => n ? Math.round(100 * x / n) : 0;
-  const median = xs => { if (!xs.length) return null; const a = [...xs].sort((p, q) => p - q), m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
-  // bodies: the record bodies read from the db; today: the Israel day. Returns plain numbers only (a person is a position in the list, never an id).
-  function compute(bodies, today) {
-    const cur = sunday(today), first = plus(cur, -(WEEKS - 1) * 7), rows = [];
-    let docs = 0;
-    (bodies || []).forEach((b, u) => {
-      if (!b || typeof b !== "object" || !b.w || typeof b.w !== "object" || Array.isArray(b.w) || (b.v !== 1 && b.v !== 2)) return;
-      docs++;
-      Object.entries(b.w).forEach(([wk, days]) => {
-        if (!WEEK_KEY.test(wk) || !days || typeof days !== "object") return;
-        Object.entries(days).forEach(([day, ss]) => {
-          if (!DAY_KEY.test(day) || day > today || day < first || !ss || typeof ss !== "object") return;
-          Object.values(ss).forEach(s => { if (s && typeof s === "object") rows.push({u, day, ws: sunday(day), s, glance: s.g === 1}); });
-        });
-      });
-    });
-    const byWeek = new Map(), weeks = [];
-    for (let w = first; w <= cur; w = plus(w, 7)) { weeks.push(w); byWeek.set(w, []); }
-    rows.forEach(r => byWeek.get(r.ws).push(r));
-    const active = w => new Set(byWeek.get(w).map(r => r.u));
-    const perWeek = weeks.map(w => ({week: w, people: active(w).size, engaged: byWeek.get(w).filter(r => !r.glance).length, glances: byWeek.get(w).filter(r => r.glance).length, partial: w === cur}));
-    const perDay = []; for (let i = DAYS - 1; i >= 0; i--) { const d = plus(today, -i); perDay.push({day: d, people: new Set(rows.filter(r => r.day === d).map(r => r.u)).size}); }
-    const last = plus(cur, -7), win = weeks.filter(w => w < cur).slice(-WIN); if (byWeek.get(cur).length) win.push(cur);        // the last 4 completed weeks and the week in progress, to date
-    const A = new Set(), wrows = [];
-    win.forEach(w => byWeek.get(w).forEach(r => { A.add(r.u); wrows.push(r); }));
-    const reach = {}, ctl = {}; Object.keys(READ).forEach(k => reach[k] = new Set()); Object.keys(CONTROLS).forEach(k => ctl[k] = new Set());
-    win.forEach(w => {
-      const secs = new Map();
-      byWeek.get(w).forEach(r => {
-        Object.entries(r.s.sec || {}).forEach(([k, v]) => { if (k in READ && isNum(v) && v > 0) { const o = secs.get(r.u) || {}; o[k] = (o[k] || 0) + v; secs.set(r.u, o); } });
-        Object.entries(r.s.f || {}).forEach(([k, v]) => { if (k in CONTROLS && isNum(v) && v > 0) ctl[k].add(r.u); });
-      });
-      secs.forEach((o, u) => Object.entries(o).forEach(([k, v]) => { if (v >= SEC_MIN) reach[k].add(u); }));
-    });
-    const eng = wrows.filter(r => !r.glance), mins = eng.filter(r => isNum(r.s.s) && r.s.s > 0).map(r => r.s.s / 60);
-    const clicks = r => Object.values(r.s.l || {}).reduce((a, v) => a + (isNum(v) && v > 0 ? v : 0), 0);
-    const dev = eng.filter(r => r.s.d in DEVICES), devCount = {l: 0, m: 0, s: 0}; dev.forEach(r => devCount[r.s.d]++);
-    const refreshers = new Set(wrows.filter(r => isNum(r.s.r) && r.s.r > 0).map(r => r.u)), anyCtl = new Set(); Object.values(ctl).forEach(s => s.forEach(u => anyCtl.add(u)));
-    const people = new Set(rows.map(r => r.u)).size;
-    return {today, docs, people, sessions: rows.length, cur, last, weeks: perWeek, days: perDay, window: {weeks: win.length, completed: win.filter(w => w < cur).length, current: win.includes(cur), people: A.size, engaged: eng.length, glances: wrows.length - eng.length},
-      activeLast: active(last).size, activeCur: active(cur).size, medianMinutes: median(mins) == null ? null : Math.round(10 * median(mins)) / 10, visitsPerPerson: A.size ? Math.round(10 * eng.length / A.size) / 10 : null,
-      linkVisitPct: pct(eng.filter(r => clicks(r) > 0).length, eng.length), refreshPeople: refreshers.size, controlPeople: anyCtl.size,
-      sections: Object.keys(READ).map(k => ({key: k, name: READ[k], people: reach[k].size})), controls: Object.keys(CONTROLS).map(k => ({key: k, name: CONTROLS[k], people: ctl[k].size})),
-      devices: Object.keys(DEVICES).map(k => ({key: k, name: DEVICES[k], visits: devCount[k]})), devTotal: dev.length};
-  }
-  const tag = (n, label) => `<div class="uvkpi"><b>${esc(n)}</b><span>${esc(label)}</span></div>`;
-  const bars = (rows, den, unit) => `<div class="uvbars">${rows.map(r => `<div class="uvbar"><span>${esc(r.name)}</span><span class="t" aria-hidden="true"><i style="width:${pct(r.n, den)}%"></i></span><span class="v">${r.n} (${pct(r.n, den)}%)</span></div>`).join("")}</div>`;
-  const dl = d => { const [, m, x] = d.split("-"); return `${+x}/${+m}`; };
-  const cols = (rows, key) => { const mx = Math.max(1, ...rows.map(r => r.people));
-    return `<div class="uvcols" role="img" aria-label="${esc(key)}">${rows.map(r => `<div title="${esc(dl(r.week || r.day))}: ${r.people}"><span>${r.people}</span><i class="${r.partial ? "part" : ""}" style="height:${Math.round(100 * r.people / mx * 0.8)}%"></i></div>`).join("")}</div><div class="uvlbl" aria-hidden="true">${rows.map((r, i) => `<span>${(rows.length - 1 - i) % 2 ? "" : esc(dl(r.week || r.day))}</span>`).join("")}</div>`; };      // every second date is named, the newest always
-  const table = (head, rows) => `<details><summary>Show data</summary><div class="uvscroll"><table><thead><tr>${head.map(h => `<th scope="col">${esc(h)}</th>`).join("")}</tr></thead><tbody>${rows.map(r => `<tr>${r.map((c, i) => i ? `<td>${esc(c)}</td>` : `<th scope="row">${esc(c)}</th>`).join("")}</tr>`).join("")}</tbody></table></div></details>`;
-  function render(m) {
-    if (!m.sessions) return `<p class="uvnote">No usage recorded yet in the last ${WEEKS} weeks (${m.docs} record${m.docs === 1 ? "" : "s"} read).</p>`;
-    const W = m.window, win = `the last ${W.completed} completed week${W.completed === 1 ? "" : "s"}${W.current ? " and the week in progress" : ""}`;
-    return `<div class="uvkpis">${tag(m.people, "people recorded (last 12 weeks)")}${tag(m.activeLast, "people active, last completed week")}${tag(m.activeCur, "people active, this week so far")}${tag(W.engaged, "engaged visits in the window")}${tag(m.medianMinutes == null ? "n/a" : m.medianMinutes + " min", "median active time per engaged visit")}${tag(m.visitsPerPerson == null ? "n/a" : m.visitsPerPerson, "engaged visits per active person")}</div>
-      <p class="uvnote">Window for the reach figures: ${esc(win)}, ${W.people} people active in it. Engaged = a visit that is not a glance. Weeks run Sunday to Saturday, days are Israel days; the dashed bar is the week in progress.</p>
-      <div class="uvgrid">
-        <div><h3>People active per week</h3>${cols(m.weeks, "People active per week")}${table(["Week starting", "People", "Engaged visits", "Glances"], m.weeks.map(w => [w.week + (w.partial ? " (in progress)" : ""), w.people, w.engaged, w.glances]))}</div>
-        <div><h3>People active per day</h3>${cols(m.days, "People active per day")}${table(["Day", "People"], m.days.map(d => [d.day, d.people]))}</div>
-        <div><h3>Section reach</h3><p class="cap">People with 30 s or more in the section, of the ${W.people} active in the window.</p>${bars(m.sections.map(s => ({name: s.name, n: s.people})), W.people)}</div>
-        <div><h3>Control reach</h3><p class="cap">People who changed the control, of the ${W.people} active in the window. ${m.controlPeople} changed at least one.</p>${bars(m.controls.map(s => ({name: s.name, n: s.people})), W.people)}</div>
-        <div><h3>Screen size</h3><p class="cap">Engaged visits by browser window width, not device type.</p>${bars(m.devices.map(d => ({name: d.name, n: d.visits})), m.devTotal)}</div>
-        <div><h3>Use of links and Refresh</h3><p class="cap">${m.linkVisitPct}% of engaged visits followed a Jira link. ${m.refreshPeople} of ${W.people} active people pressed Refresh.</p></div>
-      </div>`;
-  }
-  let db = null, busy = false, loaded = false;
+  const READ_MAX = 1000, LOAD_MS = 10000;
+  const SHOW_ALL = {min_group: 1, min_den: 1, heatmap_min_visits: 1, show_partial_week: 1};      // the owner reads every figure as it is (usage_report.py --show-all)
+  const hasReport = () => typeof UR !== "undefined" && !!UR && ["aggregate", "html_report", "load_export", "THRESHOLDS"].every(k => !!UR[k]);
+  let db = null, busy = false, loaded = false, last = null;
   const $ = id => document.getElementById(id);
   const stamp = t => { const el = $("uv-stamp"); if (el) el.textContent = t; };
+  function report(docs) {                                                          // the records -> the page fragment of usage_report.py html_report
+    const [bodies, stats] = UR.load_export(docs.map(d => ({id: d.id, data: d.data()}))), now = new Date().toISOString(), today = ilDate(Date.now());
+    last = {now, today};
+    return UR.html_report(UR.aggregate(bodies, {today, as_of: now, now, demo: false, since: null, audience: null, calendar: typeof UR_CALENDAR === "undefined" ? null : UR_CALENDAR, th: {...UR.THRESHOLDS, ...SHOW_ALL}, stats}));
+  }
+  function paint(html) {                                                           // into the shadow root: no <title>, <meta> or <link>, and the report's :root and body rules apply to the host
+    const host = $("uv-out"), root = host.shadowRoot || host.attachShadow({mode: "open"});
+    root.innerHTML = html.replace(/<title>[\s\S]*?<\/title>|<meta [^>]*>|<link [^>]*>/g, "").replace(/<style>([\s\S]*?)<\/style>/, (m, css) => "<style>" + css.replace(/:root\b/g, ":host").replace(/(^|\})\s*body\s*\{/g, "$1:host{") + "</style>");
+  }
   async function load() {
-    if (busy || !db) return; busy = true; $("uv-refresh").disabled = true; stamp("Reading the usage records...");
+    if (busy || !db) return;
+    if (!hasReport()) { stamp("The usage report is not part of this build of the page."); return; }
+    busy = true; $("uv-refresh").disabled = true; stamp("Reading the usage records...");
     let to; const timeout = new Promise((_, rej) => { to = setTimeout(() => rej({code: "timeout"}), LOAD_MS); });
     try {
       const qs = await Promise.race([db.collection("usage").limit(READ_MAX).get(), timeout]);
-      const bodies = qs.docs.map(d => d.data()), m = compute(bodies, ilDate(Date.now()));
-      $("uv-out").innerHTML = render(m);
+      const docs = qs.docs;
+      paint(report(docs));
       const t = new Date().toLocaleTimeString("en-GB", {timeZone: "Asia/Jerusalem", hour: "2-digit", minute: "2-digit"});
-      stamp(`Read ${m.docs} record${m.docs === 1 ? "" : "s"} at ${t} (Israel time)${m.docs >= READ_MAX ? "; the first " + READ_MAX + " only" : ""}. Press Refresh usage to read again.`); loaded = true;
+      stamp(`Read ${docs.length} record${docs.length === 1 ? "" : "s"} at ${t} (Israel time)${docs.length >= READ_MAX ? "; the first " + READ_MAX + " only" : ""}. Press Refresh usage to read again.`); loaded = true;
     } catch (e) { stamp(e && e.code === "timeout" ? "Reading the usage records took too long. Press Refresh usage to try again." : "The usage records could not be read" + (e && e.code ? " (" + e.code + ")" : "") + ". Press Refresh usage to try again."); }
     finally { clearTimeout(to); busy = false; $("uv-refresh").disabled = false; }
   }
@@ -5338,8 +5268,8 @@ const UV = (() => {
       link.onclick = ev => { ev.preventDefault(); const ready = show(true); toView(); ready.then(toView); tg.focus({preventScroll: true}); };      // again once the figures are drawn: the page is longer then
     }
   }
-  if (window.__dpUsageT) window.__dpUsageViewTest = {compute, render};      // for the test page only
+  if (window.__dpUsageT) window.__dpUsageViewTest = {hasReport, get last() { return last; }};      // for the test page only
   start().catch(() => {});
-  return {compute};
+  return {};
 })();
 </script>
