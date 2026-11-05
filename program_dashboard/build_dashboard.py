@@ -39,6 +39,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "dashboards"))     # reuse the weekly emails' Jira client + EDCT
 import edct_from_jira as E  # noqa: E402
 sys.path.insert(0, str(HERE))
+import usage_bundle  # noqa: E402
 import importlib.util as _ilu  # noqa: E402
 _spec = _ilu.spec_from_file_location("release_planning_model", HERE.parent / "release_planning" / "model.py")
 RPM = _ilu.module_from_spec(_spec)                       # the release planning report's own pod rule (classify / pod_labels), reused rather than copied
@@ -1033,6 +1034,7 @@ def render(data: dict) -> None:
     payload = json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
     assert fragment.count("/*__DATA__*/null") == 1
     fragment = fragment.replace("/*__DATA__*/null", payload)
+    fragment = usage_bundle.inline_into(fragment, usage_calendar(data))                     # the browser port of the usage report (the owner-only Usage view)
     out, out_artifact = (OUT_SANDBOX, OUT_SANDBOX_ARTIFACT) if SANDBOX else (OUT, OUT_ARTIFACT)
     if SANDBOX:
         fragment = sandbox_fragment(fragment, data["build"])

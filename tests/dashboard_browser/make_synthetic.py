@@ -806,7 +806,9 @@ def render_page(data: dict, template: Path = LIVE_TEMPLATE) -> str:
     fragment = Path(template).read_text(encoding="utf-8")
     payload = json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
     assert fragment.count("/*__DATA__*/null") == 1
-    return fragment.replace("/*__DATA__*/null", payload)
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "program_dashboard"))
+    import usage_bundle                                                              # the browser port of the usage report, inlined the same way the build does
+    return usage_bundle.inline_into(fragment.replace("/*__DATA__*/null", payload))
 
 
 def main() -> int:
