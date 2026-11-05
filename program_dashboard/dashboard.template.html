@@ -5322,7 +5322,7 @@ const UV = (() => {
     } catch (e) { stamp(e && e.code === "timeout" ? "Reading the usage records took too long. Press Refresh usage to try again." : "The usage records could not be read" + (e && e.code ? " (" + e.code + ")" : "") + ". Press Refresh usage to try again."); }
     finally { clearTimeout(to); busy = false; $("uv-refresh").disabled = false; }
   }
-  async function init() {
+  async function start() {
     if (!RUNTIME) return;
     let user = null;
     try { user = await window.claude.use("user"); if (!user || !(await user.isOwner())) return; db = await window.claude.use("db"); if (!db) return; } catch (e) { return; }
@@ -5339,7 +5339,7 @@ const UV = (() => {
     }
   }
   if (window.__dpUsageT) window.__dpUsageViewTest = {compute, render};      // for the test page only
-  init().catch(() => {});
+  start().catch(() => {});
   return {compute};
 })();
 </script>

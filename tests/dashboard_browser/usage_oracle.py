@@ -1135,13 +1135,14 @@ def b_daycap() -> list[str]:
 @SUITE.test("usage_the_vocabularies_and_the_documented_access_rules_are_the_ones_in_the_page")
 def _(t: T):
     src = ctx.template.read_text(encoding="utf-8")
+    rec = src[src.index("const USAGE_VOC"):src.index("// ---------------------------------------------------------------- live usage view (owner only")]      # the recording block; the owner-only view after it is checked in test_usage_report.py and usage_view_check.py
     m = re.search(r"const USAGE_VOC = (\{.*?\});\n", src)
     t.check(bool(m), "the page has one USAGE_VOC literal")
     if m:
         t.check(json.loads(m.group(1)) == VOC, "the page's vocabulary equals the one spelled out in this oracle")
     t.check(json.dumps(CAPS)[1:-1] in src.replace('": ', '":').replace('", ', '",') or "usage/{self}" in src, "the access rules are written in the page")
-    t.check('user.id()' in src and 'user.name' not in src and 'user.email' not in src and 'scopes' not in src[src.index("const USAGE_VOC"):], "the block reads only user.id(): no name, no e-mail, no scopes")
-    t.check(src.count("window.claude.use(\"db\")") == 1 and "fetch(" not in src[src.index("const USAGE_VOC"):] and "sendBeacon" not in src and "XMLHttpRequest" not in src[src.index("const USAGE_VOC"):], "the only way out of the block is the db capability")
+    t.check('user.id()' in rec and 'user.name' not in rec and 'user.email' not in rec and 'scopes' not in rec, "the block reads only user.id(): no name, no e-mail, no scopes")
+    t.check(rec.count("window.claude.use(\"db\")") == 1 and "fetch(" not in rec and "sendBeacon" not in src and "XMLHttpRequest" not in rec, "the only way out of the block is the db capability")
 
 
 
