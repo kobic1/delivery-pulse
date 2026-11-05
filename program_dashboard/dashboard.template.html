@@ -5237,6 +5237,7 @@ const UV = (() => {
   function paint(html) {                                                           // into the shadow root: no <title>, <meta> or <link>, and the report's :root and body rules apply to the host
     const host = $("uv-out"), root = host.shadowRoot || host.attachShadow({mode: "open"});
     root.innerHTML = html.replace(/<title>[\s\S]*?<\/title>|<meta [^>]*>|<link [^>]*>/g, "").replace(/<style>([\s\S]*?)<\/style>/, (m, css) => "<style>" + css.replace(/:root\b/g, ":host").replace(/(^|\})\s*body\s*\{/g, "$1:host{") + "</style>");
+    root.querySelectorAll("h1, h2, h3, h4, h5, h6").forEach(h => h.setAttribute("aria-level", String(Math.min(6, +h.tagName[1] + 2))));      // under this section's own h2: the report's title is level 3, its sections 4, its panels 5 (the style is unchanged)
   }
   async function load() {
     if (busy || !db) return;

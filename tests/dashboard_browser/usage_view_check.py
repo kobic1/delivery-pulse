@@ -176,8 +176,14 @@ def _(t: T):
     a = UR.aggregate(got, today=dt.date.fromisoformat(last["today"]), as_of=now, now=now, th=th, stats=stats)
     expect = clean_like_the_page(UR.html_report(a))
     same = ch.js("""(() => { const expect = %s, h = document.createElement('div'); document.body.append(h); const r = h.attachShadow({mode: 'open'}); r.innerHTML = expect;
+      r.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(x => x.setAttribute('aria-level', String(Math.min(6, +x.tagName[1] + 2))));
       const real = document.getElementById('uv-out').shadowRoot.innerHTML, mine = r.innerHTML; h.remove(); return real === mine ? true : [real.length, mine.length, [...real].findIndex((c, i) => c !== mine[i])]; })()""" % json.dumps(expect))
     t.check(same is True, f"the page's report differs from usage_report.py's for the same records: {same}")
+    heads = ch.js(f"[...{SHADOW}.querySelectorAll('h1, h2, h3, h4, h5, h6')].map(h => [+h.tagName[1], +h.getAttribute('aria-level')])")
+    t.check(bool(heads) and all(lvl == min(6, tag + 2) for tag, lvl in heads), f"the report's headings are not nested under the view's own heading: {heads[:6]}")
+    t.check(heads[0][1] == 3 and ch.js("document.getElementById('h-uv').tagName") == "H2", "the report's title is not level 3 under the view's h2")
+    levels = [lvl for _, lvl in heads]
+    t.check(all(b - a <= 1 for a, b in zip(levels, levels[1:])), f"a heading level is skipped inside the view: {levels}")
     t.check("Delivery Pulse Usage" in shadow_text(ch) and "Key figures" in shadow_text(ch) and "Recording health" in shadow_text(ch), "the report lacks its sections")
     t.check(ch.js(f"{SHADOW}.querySelector('style') && !{SHADOW}.querySelector('title, meta, link')") is True, "the shadow root holds the report's own style and no head elements")
     outside = ch.js(f"getComputedStyle({SHADOW}.querySelector('h1')).fontSize")
