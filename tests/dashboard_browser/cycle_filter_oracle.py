@@ -14,12 +14,12 @@ or planned after the release end, is in neither cycle and counts only when every
      readout, the drawn lines read back from the SVG geometry, the plain-words line, the headline, the labels, the aria-label and the table days, for the as-of day before Delivery Cycle 1, inside it,
      on its last day, inside Delivery Cycle 2 and after the release end; a window of one day; a 390 px chart; the hash round trip and the re-draw on a click.
   2. Cycles section: it has NO selector of its own and follows this filter; a banner names the cycles it shows and their dates (Cycle 1, Cycle 2, or both combined); the five Overview figures equal a recount
-     of the selected window (both ticked: every epic planned from the release start to the release end, counted once); "After Release End" and the "No Planned Date, Active" list appear only when every
-     cycle is shown, with their counts. An older link with the removed key (cy=DC1) is ignored without an error.
+     of the selected window (both ticked: every epic planned from the release start to the release end, counted once); the number of epics planned after the release end is folded into the Planned
+     caption ("... · N after release end") and appears only when every cycle is shown. An older link with a removed key (cy=DC1, or the detail view keys ct= and cs=) is ignored without an error.
   3. The header control: present, no Commitment Type control, the hash round trip (dc), an older c= link ignored, the last cycle cannot be unticked, keyboard operation, no sideways scroll at 320 and
      800 px, a release with only Delivery Cycle 1 (Cycle 2 disabled with its reason; a stored dc=2 falls back to Cycle 1).
   4. Other sections do not read the filter (the page outside the burnup, the Cycles section, the filter bar and the two epic-delivery tiles Epics Delivered and Forecast Epics, which tile_oracle.py checks, is identical with Cycle 1 only, Cycle 2 only and both).
-  5. Seeded defects must be caught: Cycles ignoring the filter, both cycles counted as Cycle 1 only, the banner naming the wrong cycle, the removed selector coming back, the old key read again, After Release End or the undated list shown for one cycle, Cycle 1 ending a day early in the Cycles section; and for the burnup:
+  5. Seeded defects must be caught: Cycles ignoring the filter, both cycles counted as Cycle 1 only, the banner naming the wrong cycle, the removed selector coming back, the old key read again, the after-release-end number or the undated rows shown for one cycle, Cycle 1 ending a day early in the Cycles section; and for the burnup:
      Done or Scope narrowed to the cycle's epics, the domain not narrowed, Done restarting at zero in Cycle 2, the Done line or label drawn before W7, the Cycle 1 pace not through the end state,
      the Cycle 2 pace starting at scope minus N / ignoring the end of W6 / at Done now before W7, the planned-start label missing, the release scope drawn in the Cycle 1 view, the dotted marker
      missing at the end of Cycle 1 or drawn in Cycle 2, the snapshot marker outside the window, Cycle 2 treated as started before W7, the headline not stopping at the end of Cycle 1, the
@@ -27,6 +27,7 @@ or planned after the release end, is in neither cycle and counts only when every
 """
 from __future__ import annotations
 
+import collections
 import copy
 import datetime as dt
 import json
@@ -43,6 +44,7 @@ import jql_eval as J                                                            
 import kit                                                                          # noqa: E402
 import link_cycles as LC                                                            # noqa: E402  (variant payload, epic_issue)
 import make_synthetic as MS                                                         # noqa: E402
+import pod_oracle as PO                                                             # noqa: E402
 from kit import ctx, T                                                              # noqa: E402
 
 SUITE = kit.Suite("Delivery Pulse Delivery Cycle filter")
@@ -65,8 +67,7 @@ PROBE = r"""(async () => {
     head: [...document.querySelectorAll('#bu-data thead th')].map(t), rows: [...document.querySelectorAll('#bu-data tbody tr')].map(r => [...r.children].map(t)),
     buLink: (document.getElementById('bu-link') || {getAttribute: () => null}).getAttribute('href'), svgText: svg ? t(svg) : null, svgAria: svg ? svg.getAttribute('aria-label') : null,
     empty: t(document.querySelector('#burnup .empty')),
-    banner: t(document.getElementById('cy-showing')), bannerCycles: (document.getElementById('cy-banner') || {dataset: {}}).dataset.cycles, point: t(document.getElementById('cy-point')), tiles, after: t(document.getElementById('cy-after')), cySub: t(document.getElementById('cy-sub')),
-    noDue: (() => { const h = [...document.querySelectorAll('#cy-panel h3')].find(x => /^No Planned Date, Active/.test(t(x))); return h ? t(h) : null; })(),
+    banner: t(document.getElementById('cy-showing')), bannerCycles: (document.getElementById('cy-banner') || {dataset: {}}).dataset.cycles, point: t(document.getElementById('cy-point')), tiles, plannedCap: t(document.querySelector('#cy-kpis1 [data-kpi="planned"] .s')), gone: ['cy-after', 'cy-sub', 'cy-notes', 'cy-panel'].filter(id => document.getElementById(id)),
     dcChips: [...document.querySelectorAll('#f-dc input')].map(i => ({v: i.value, on: i.checked, off: i.disabled})), dcNote: t(document.getElementById('f-dc-note')),
     errors: []};
 })()"""
@@ -571,14 +572,11 @@ def check_view(t_problems: list, data: dict, universe: list, h: str, r: dict, la
         if got_t.get(names[k]) != v:
             p.append(f"{tag} Cycles ({cname}) {k}: the page shows {got_t.get(names[k])}, the recount {v}")
     after = R.after_count()
-    shown_after = re.search(r"After Release End: ([\d,]+)", r["after"] or "")
-    if R.all and after:
-        if not shown_after or int(shown_after.group(1).replace(",", "")) != after:
-            p.append(f"{tag} After Release End: the page says {r['after']!r}, the recount {after}")
-    elif shown_after:
-        p.append(f"{tag} After Release End is shown ({r['after']!r}) but {'there are none' if R.all else 'epics in no cycle are left out while one cycle is shown'}")
-    if (r["cySub"] or "") != "Delivery Cycle 1: release start to the end of W6. Delivery Cycle 2: W7 to the release end.":      # the two definitions only: what the selection shows and leaves out is the banner's job, said once
-        p.append(f"{tag} the Cycles subtitle is not just the two cycle definitions (the banner says what is shown, once): {r['cySub']!r}")
+    want_cap = f"epics planned in {cname}" + (f" \u00b7 {after} after release end" if R.all and after else "")
+    if r["plannedCap"] != want_cap:
+        p.append(f"{tag} the Planned caption says {r['plannedCap']!r}, expected {want_cap!r} ({'every cycle shown' if R.all else 'one cycle shown: epics in no cycle are left out'})")
+    if r["gone"]:
+        p.append(f"{tag} removed elements are still on the page: {r['gone']}")
 
 
 @SUITE.test("burnup_and_cycles_equal_an_independent_recount_for_cycle_1_cycle_2_and_both")
@@ -599,30 +597,28 @@ def _(t: T):
     t.check(not probs, f"{len(probs)} differences in {n} views")
 
 
-def deep_check_cycles(ch, url, data, universe, probs):
-    """The undated list sits in a detail view: open the first project's view in the three states and compare its count."""
+@SUITE.test("the_after_release_end_number_is_in_the_planned_caption_only_when_every_cycle_is_shown")
+def _(t: T):
+    """The line After Release End is gone: its number is a link inside the Planned caption (the same query as before), shown with both cycles when above 0, never with one cycle."""
+    data, url, universe = payload("variant")
+    ch = ctx.chrome
+    seen = 0
     for rel in ("27.1", "27.2"):
         for d in DCS:
-            h = "&".join(x for x in (f"r={rel}", "p=PMN", d, "ct=pmn") if x)
+            h = "&".join(x for x in (f"r={rel}", d) if x)
             r = load(ch, url, h)
-            R = Recount(data, rel, {"PMN"}, set(), parse_state(h)[3], r["asOf"])
-            want = R.nodue("PMN") if R.all else 0
-            m = re.search(r"\((\d+)\)", r["noDue"] or "")
-            got = int(m.group(1)) if m else 0
-            if got != want:
-                probs.append(f"[#{h}] No Planned Date, Active: the page lists {got}, the recount {want}")
-
-
-@SUITE.test("the_undated_list_is_shown_only_when_every_cycle_is_shown")
-def _(t: T):
-    data, url, universe = payload("variant")
-    probs: list[str] = []
-    deep_check_cycles(ctx.chrome, url, data, universe, probs)
-    t.check(not probs, "; ".join(probs[:4]))
-    r = load(ctx.chrome, url, "r=27.1&p=PMN&ct=pmn")
-    R = Recount(data, "27.1", {"PMN"}, set(), None, r["asOf"])
-    t.check(R.nodue("PMN") > 0, "the fixture has an active epic with no planned date in PMN on 27.1 (otherwise this test proves nothing)")
-    t.check(Recount(data, "27.1", set(data["projects"]), set(), None, r["asOf"]).after_count() > 0, "the fixture has epics planned after the release end (the After Release End line is real)")
+            R = Recount(data, rel, set(data["projects"]), set(), parse_state(h)[3], r["asOf"])
+            n = R.after_count() if R.all else 0
+            cap = ch.js("""(() => { const s = document.querySelector('#cy-kpis1 [data-kpi="planned"] .s'); return {text: s.textContent.replace(/\\s+/g, ' ').trim(), links: [...s.querySelectorAll('a[href]')].map(a => ({text: a.textContent.trim(), href: a.getAttribute('href')})),
+                line: !!document.getElementById('cy-after')}; })()""")
+            t.check(not cap["line"], f"{h}: the separate After Release End element is back")
+            if n:
+                seen += 1
+                link = [x for x in cap["links"] if x["text"] == str(n)]
+                t.check(len(link) == 1 and "duedate >" in urllib.parse.unquote(link[0]["href"]), f"{h}: the caption has no link with {n} to the after-release-end query: {cap}")
+            else:
+                t.check("after release end" not in cap["text"], f"{h}: the caption mentions the after-release-end number with nothing to show: {cap['text']!r}")
+    t.check(seen > 0, "the fixture has epics planned after the release end (otherwise this test proves nothing)")
 
 
 @SUITE.test("burnup_numbers_are_the_whole_release_whatever_cycle_is_ticked")
@@ -785,10 +781,10 @@ SEC_JS = r"""(() => {
   const bn = document.getElementById('cy-banner'), sh = document.getElementById('cy-showing'), pt = document.getElementById('cy-point'), btn = document.getElementById('cy-tofilter');
   const bg = ink(bn, 'backgroundColor');
   return {removed: ['g-cy', 'f-cy', 'lbl-cy'].filter(id => document.getElementById(id)), radios: sec.querySelectorAll('input[type=radio]').length, groups: sec.querySelectorAll('[role=radiogroup], select, .periodbar').length,
-    ownKey: Object.keys(state.cy), kick: [...document.querySelectorAll('#cy-kpis1 .kpi .k')].map(t), plannedCap: t(document.querySelector('#cy-kpis1 [data-kpi="planned"] .s')), idleCap: t(document.querySelector('#cy-kpis2 [data-kpi="idle"] .s')),
-    headsTiles: bn.nextElementSibling === document.getElementById('cy-kpis1'), podScope: t(document.getElementById('cy-podscope')), sub: t(document.getElementById('cy-sub')), role: sh.getAttribute('role'), banner: t(sh), point: t(pt), hidden: bn.hidden, btn: btn ? {tag: btn.tagName, type: btn.type, tab: btn.tabIndex, text: t(btn), disabled: btn.disabled, label: btn.getAttribute('aria-label')} : null,
+    ownKey: Object.keys(state).filter(k => /^cy/.test(k)), kick: [...document.querySelectorAll('#cy-kpis1 .kpi .k')].map(t), plannedCap: t(document.querySelector('#cy-kpis1 [data-kpi="planned"] .s')), idleCap: t(document.querySelector('#cy-kpis2 [data-kpi="idle"] .s')),
+    headsTiles: bn.nextElementSibling === document.getElementById('cy-kpis1'), podsHead: t(document.getElementById('cy-pods-h')), podsKids: [...document.getElementById('cy-pods').children].map(e => e.id), sub: !!document.getElementById('cy-sub'), role: sh.getAttribute('role'), banner: t(sh), point: t(pt), hidden: bn.hidden, btn: btn ? {tag: btn.tagName, type: btn.type, tab: btn.tabIndex, text: t(btn), disabled: btn.disabled, label: btn.getAttribute('aria-label')} : null,
     contrast: {show: ratio(ink(sh, 'color'), bg), point: ratio(ink(pt, 'color'), bg), link: btn ? ratio(ink(btn, 'color'), bg) : null, edge: ratio(ink(bn, 'borderLeftColor'), [255, 255, 255])},
-    ovMeta: t(document.querySelector('#cy-ovtable') && document.querySelector('#cy-ovtable').closest('.cyblock').querySelector('.cymeta')), hash: location.hash, errors: []};
+    ovMeta: t(document.querySelector('#cy-ovtable') && document.querySelector('#cy-ovtable').closest('.cyblock').querySelector(':scope > .cymeta')), ovCaption: t(document.querySelector('#cy-ovtable > caption')), hash: location.hash, errors: []};
 })()"""
 
 
@@ -801,8 +797,8 @@ def structure_probs(ch, url) -> list[str]:
         r = ch.js(SEC_JS)
         if r["removed"] or r["radios"] or r["groups"]:
             p.append(f"#{h}: the removed selector is still in the page: {r['removed']} radios {r['radios']} groups {r['groups']}")
-        if "cycle" in " ".join(r["ownKey"]).lower():
-            p.append(f"#{h}: the Cycles state still has a cycle key: {r['ownKey']}")
+        if r["ownKey"]:
+            p.append(f"#{h}: the page state still has a Cycles key: {r['ownKey']}")
         if not (r["role"] == "status" and not r["hidden"] and r["banner"].startswith(f"Showing {said} \u00b7 ")):
             p.append(f"#{h}: the banner is not a status that says what is shown: {r['role']} {r['banner']!r}")
         if r["kick"]:
@@ -811,36 +807,44 @@ def structure_probs(ch, url) -> list[str]:
             p.append(f"#{h}: the banner is not directly above the five tiles it heads (a picture of the tiles would not say the cycle)")
         if name not in (r["plannedCap"] or "") or name not in (r["idleCap"] or ""):
             p.append(f"#{h}: the Planned and Idle Pods captions (the figures counted against the cycle) must name it: {r['plannedCap']!r} {r['idleCap']!r}")
-        if "The filter bar shows" in (r["sub"] or ""):
-            p.append(f"#{h}: the subtitle says a second time what the banner says: {r['sub']!r}")
-        if "Only Idle Pods follows the cycle" not in (r["podScope"] or ""):
-            p.append(f"#{h}: the Pods block does not say which of its figures ignore the cycle: {r['podScope']!r}")
-        if name not in (r["ovMeta"] or ""):
-            p.append(f"#{h}: the Projects, Teams and Pods caption does not name the cycle: {r['ovMeta']!r}")
+        if r["sub"]:
+            p.append(f"#{h}: a subtitle is back under the heading (the banner says which cycles are shown)")
+        if r["podsHead"] != f"Pod health in {name}" or r["podsKids"] != ["cy-pods-h", "cy-kpis2", "cy-podlist"]:
+            p.append(f"#{h}: the Pod health block must name the cycles in its heading and hold no notes: {r['podsHead']!r} {r['podsKids']}")
+        if r["ovMeta"]:
+            p.append(f"#{h}: a paragraph is back above the Projects, Teams and Pods table: {r['ovMeta']!r}")
+        if name not in (r["ovCaption"] or ""):
+            p.append(f"#{h}: the Projects, Teams and Pods table caption does not name the cycle: {r['ovCaption']!r}")
         b = r["btn"]
         if not (b and b["tag"] == "BUTTON" and b["type"] == "button" and b["tab"] == 0 and not b["disabled"] and b["text"] == "Delivery Cycle filter" and "Delivery Cycle filter" in (b["label"] or "")):
             p.append(f"#{h}: the pointer is not a real, keyboard-reachable button: {b}")
         c = r["contrast"]
         if not (c["show"] >= 4.5 and c["point"] >= 4.5 and (c["link"] or 9) >= 4.5 and c["edge"] >= 3):
             p.append(f"#{h}: the banner contrast is below WCAG AA: {c}")
-        if "cy=" in r["hash"]:
-            p.append(f"#{h}: the address carries the removed key: {r['hash']}")
+        if re.search(r"(^|&)(cy|ct|cs)=", r["hash"].lstrip("#")):
+            p.append(f"#{h}: the address carries a removed key: {r['hash']}")
         if h == "r=27.1" and "Both cycles together" not in (r["point"] or ""):
             p.append(f"#{h}: both cycles are shown and the banner does not say they are counted together: {r['point']!r}")
         if ch.console_errors():
             p.append(f"#{h}: console errors {ch.console_errors()[:2]}")
+    # the page-level layout: the order of the blocks, nothing of the removed features (the same recount the Cycles links suite runs in every view)
+    res = {"pod_bad": p, "pod_seen": collections.Counter()}
+    for h in ("r=27.1", "r=27.1&p=PMN&dc=2"):
+        ch.goto(url + "#" + h)
+        kit.wait_ready(ch)
+        PO.check_page(res, payload("variant")[0], ch.js(PO.PAGE_JS), ch.js(PO.POD_JS), f"#{h}", ch)
     # an older link with the removed key: the page is the same as without it, no error, the key does not stay in the address
     for base in ("r=27.1", "r=27.1&dc=1", "r=27.1&p=PMN&dc=2"):
         want = load(ch, url, base, axis=False)
-        for old in ("cy=DC1", "cy=DC2", "cy=bogus"):
+        for old in ("cy=DC1", "cy=DC2", "cy=bogus", "ct=pmn.team-alpha&cs=late", "ct=overview&cs=stale"):
             h = f"{base}&{old}"
             got = load(ch, url, h, axis=False)
             if got["errors"]:
                 p.append(f"#{h}: console errors {got['errors'][:2]}")
-            if not all(got[k] == want[k] for k in ("banner", "bannerCycles", "tiles", "after", "cySub", "noDue", "dc")):
+            if not all(got[k] == want[k] for k in ("banner", "bannerCycles", "tiles", "plannedCap", "gone", "dc")):
                 p.append(f"#{h}: the page differs from #{base}: {got['banner']!r} {got['tiles']} vs {want['banner']!r} {want['tiles']}")
-            if "cy=" in ch.js("location.hash"):
-                p.append(f"#{h}: the removed key stays in the address: {ch.js('location.hash')}")
+            if re.search(r"(^|&)(cy|ct|cs)=", ch.js("location.hash").lstrip("#")):
+                p.append(f"#{h}: a removed key stays in the address: {ch.js('location.hash')}")
     ch.goto(url + "#cy=DC2&ct=overview&cs=all")
     kit.wait_ready(ch)
     if not ch.js(SEC_JS)["banner"].startswith("Showing Delivery Cycles 1 and 2"):
@@ -859,7 +863,7 @@ def structure_probs(ch, url) -> list[str]:
 def _(t: T):
     data, url, universe = payload("variant")
     probs = structure_probs(ctx.chrome, url)
-    t.note("3 selections, the old key in 9 links, a redraw that must not touch the banner")
+    t.note("3 selections, the page layout, old keys in 15 links, a redraw that must not touch the banner")
     for x in probs[:8]:
         t.check(False, x)
     t.check(not probs, f"{len(probs)} problems")
@@ -916,7 +920,7 @@ def _(t: T):
 OTHER_JS = r"""(async () => {
   await document.fonts.ready; updateCore();
   const m = document.querySelector('main').cloneNode(true);
-  ['#filters', '#f-live', '#burnup', '#bu-sub', '#bu-plain', '#bu-w6', '#bu-cap', '#bu-data', '#bu-legend', '#cycles', '#cy-body', '#cy-kpis1', '#cy-kpis2', '#cy-pods', '#cy-after', '#cy-sub', '#cy-cap', '#cy-notes', '#cy-banner', '#cy-podlist', '#cy-pods-h'].forEach(s => m.querySelectorAll(s).forEach(n => n.remove()));
+  ['#filters', '#f-live', '#burnup', '#bu-sub', '#bu-plain', '#bu-w6', '#bu-cap', '#bu-data', '#bu-legend', '#cycles', '#cy-body', '#cy-kpis1', '#cy-kpis2', '#cy-pods', '#cy-cap', '#cy-banner', '#cy-podlist', '#cy-pods-h'].forEach(s => m.querySelectorAll(s).forEach(n => n.remove()));
   [...m.querySelectorAll('#kpis .kpi')].filter(k => /^(Epics Delivered|Forecast Epics)$/.test(k.querySelector('.l').textContent.trim())).forEach(n => n.remove());      // the two epic-delivery tiles follow the filter (tile_oracle.py); the three others must not
   return m.innerHTML;
 })()"""
@@ -1295,22 +1299,24 @@ def _(t: T):
 KEEP_JS = 'e => { const p = plannedDue(e), w = DATA.windows[rel], m = !p ? null : p <= cyAdd(w[0], 48) ? "1" : p <= w[1] ? "2" : null; return dc.all || (m !== null && dc.shown.includes(m)); }'
 MUTANTS = [
     ("Cycles ignores the filter", "dcs = dcState(), shown = cycles.filter(x => dcs.shown.includes(x.id.slice(2)));", "dcs = dcState(), shown = cycles;"),
-    ("After Release End is shown with one cycle", "const after = M.dcAll ? M.epics.filter(", "const after = true ? M.epics.filter("),
-    ("the undated list is shown with one cycle", "noDue: dcs.all ? eps.filter(", "noDue: true ? eps.filter("),
+    ("the after-release-end number is shown with one cycle", "after: dcs.all ? eps.filter(", "after: true ? eps.filter("),
+    ("undated active epics keep rows alive with one cycle", "noDue: dcs.all ? eps.filter(", "noDue: true ? eps.filter("),
     ("Delivery Cycle 1 ends a day early in the Cycles section", "const w6 = cyAdd(w[0], 48);", "const w6 = cyAdd(w[0], 47);"),
     ("both cycles are counted as Cycle 1 only", "end: sel[sel.length - 1].end,", "end: sel[0].end,"),
     ("the Cycle 2 epics are dropped from the combined view", "e.due >= cc.start && e.due <= cc.end);", "e.due >= cc.start && e.due <= (cc.multi ? cc.set[0].end : cc.end));"),
     ("the banner shows the wrong cycle", "const head = `Showing ${c.name}", "const head = `Showing ${c.first}"),
     ("the banner does not say the cycles are counted together", "${c.multi ? \"Both cycles together: an epic planned in either counts once. \" : \"Epics planned outside it are not counted. \"}", ""),
     ("the banner line a picture shows does not say 'combined'", "`Showing ${c.name}${c.multi ? \" combined\" : \"\"}`", "`Showing ${c.name}`"),
-    ("the Planned tile repeats the cycle in a kicker", "planned: ({s, c, g}) => ({c: \"cy\", v:", "planned: ({s, c, g}) => ({c: \"cy\", k: esc(c.name), v:"),
-    ("the Planned caption lost the cycle", "l: \"Planned\", s: `epics planned in ${c.name}`})", "l: \"Planned\", s: `epics planned`})"),
-    ("the banner is moved away from the tiles it heads", '<div class="kpis five" id="cy-kpis1"></div>\n    <div class="sub" id="cy-after"></div>', '<div class="sub" id="cy-after"></div>\n    <div class="kpis five" id="cy-kpis1"></div>'),
-    ("the subtitle says a second time what the banner says", "Delivery Cycle 2: W7 to the release end.\";\n  const planned", "Delivery Cycle 2: W7 to the release end. The filter bar shows one cycle.\";\n  const planned"),
-    ("the Pods block does not say which figures ignore the cycle", "These count the whole release in every cycle. Only Idle Pods follows the cycle shown above.", "Pods."),
+    ("the Planned tile repeats the cycle in a kicker", "planned: ({s, c, after}) => ({c: \"cy\", v:", "planned: ({s, c, after}) => ({c: \"cy\", k: esc(c.name), v:"),
+    ("the Planned caption lost the cycle", "s: `epics planned in ${c.name}` + (after.length", "s: `epics planned` + (after.length"),
+    ("a line sits between the banner and the tiles it heads", '    </div>\n    <div class="kpis five" id="cy-kpis1"></div>', '    </div>\n    <div class="sub">A line.</div>\n    <div class="kpis five" id="cy-kpis1"></div>'),
+    ("a subtitle is back under the heading", '<h2 id="h-cycles" tabindex="-1">Delivery Cycle Governance</h2>\n', '<h2 id="h-cycles" tabindex="-1">Delivery Cycle Governance</h2>\n    <div class="sub" id="cy-sub">Delivery Cycle 1: release start to the end of W6.</div>\n'),
+    ("the Pod health heading does not name the cycles", "`Pod health in ${M.c.name}`", "`Pods in ${state.release}`"),
+    ("the Find box is back", '<button type="button" class="btn link" data-cyact="colall">Collapse All</button></div>', '<button type="button" class="btn link" data-cyact="colall">Collapse All</button><input type="search" id="cy-find"></div>'),
+    ("an explainer paragraph is back above the Projects table", '<div class="cyblock"><h3>Projects, Teams and Pods</h3>', '<div class="cyblock"><h3>Projects, Teams and Pods</h3><div class="cymeta">Open a name for its epics.</div>'),
     ("the banner pointer has no name of its own", " aria-label=\"Go to the Delivery Cycle filter\"", ""),
     ("the removed selector is back", '<div class="cybanner" id="cy-banner">', '<div class="periodbar" id="g-cy"><div class="chips seg" id="f-cy" role="radiogroup"><input type="radio" name="f-cy"></div></div><div class="cybanner" id="cy-banner">'),
-    ("the removed key is read again", "// the section's own cycle (cy=DC1 or DC2, an older link) is not read:", "if (/^DC[12]$/.test(h.get(\"cy\") || \"\")) state.dc = new Set([h.get(\"cy\").slice(2)]); //"),
+    ("the removed key is read again", '  if (h.get("cpm") === "count") state.cap.measure = "count";', '  if (h.get("cpm") === "count") state.cap.measure = "count";\n  if (/^DC[12]$/.test(h.get("cy") || "")) state.dc = new Set([h.get("cy").slice(2)]);'),
     ("the banner is rewritten at every redraw", "if (host.textContent !== txt) host.innerHTML", "if (true) host.innerHTML"),
     # the burnup: a time window of the whole release
     ("the burnup Done is narrowed to the epics planned in the cycle", "const dlist = doneScope(rel);", "const dlist = doneScope(rel).filter(" + KEEP_JS + ");"),
@@ -1339,8 +1345,8 @@ MUTANTS = [
     ("the even-pace readout ignores the window", "const pace = Math.round(paceAt(d));", "const pace = Math.round(D ? N * d / D : 0);"),
 ]
 STRUCTURAL = {"the removed selector is back", "the removed key is read again", "the banner is rewritten at every redraw", "the banner does not say the cycles are counted together", "the banner line a picture shows does not say 'combined'",
-              "the Planned tile repeats the cycle in a kicker", "the Planned caption lost the cycle", "the banner is moved away from the tiles it heads", "the subtitle says a second time what the banner says",
-              "the Pods block does not say which figures ignore the cycle", "the banner pointer has no name of its own"}      # caught by structure_probs, not by the numbers
+              "the Planned tile repeats the cycle in a kicker", "a line sits between the banner and the tiles it heads", "a subtitle is back under the heading", "the Pod health heading does not name the cycles",
+              "the Find box is back", "an explainer paragraph is back above the Projects table", "the banner pointer has no name of its own"}      # caught by structure_probs, not by the numbers
 MUTANT_VIEWS = [("variant", "r=27.1&dc=1"), ("variant", "r=27.1&dc=2"), ("variant", "r=27.1"), ("asof_pre", "r=27.1&dc=2"), ("asof_w7", "r=27.1&dc=1"), ("asof_w7", "r=27.1&dc=2"), ("asof_w7", "r=27.1")]
 
 
@@ -1354,7 +1360,7 @@ def _(t: T):
         tpl = _write_tmp(src.replace(old, new, 1))
         pages: dict = {}
         probs: list[str] = []
-        views = MUTANT_VIEWS + ([("variant", "r=27.1&p=PMN&dc=2&ct=pmn"), ("variant", "r=27.1&p=PMN&ct=pmn")] if "undated" in what else [])
+        views = MUTANT_VIEWS + ([("variant", "r=27.1&p=PMN&dc=2"), ("variant", "r=27.1&p=PMN")] if "undated" in what else [])
         for kind, h in views:
             data, _u, universe = payload(kind)
             if kind not in pages:
@@ -1362,9 +1368,7 @@ def _(t: T):
                 f.write_text(MS.render_page(data, tpl), encoding="utf-8")
                 pages[kind] = "file://" + str(f)
             check_view(probs, data, universe, h, load(ch, pages[kind], h), "mutant")
-        if "undated" in what:
-            data, _u, universe = payload("variant")
-            deep_check_cycles(ch, pages["variant"], data, universe, probs)
+            PO.check_page({"pod_bad": probs, "pod_seen": collections.Counter()}, data, ch.js(PO.PAGE_JS), ch.js(PO.POD_JS), f"[{h}]", ch)      # the weeks, the opened rows and the removed features
         if what in STRUCTURAL:
             probs += structure_probs(ch, pages["variant"])
         t.check(bool(probs), f"the oracle did not notice the seeded defect: {what}")

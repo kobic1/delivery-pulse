@@ -565,6 +565,7 @@ class Gen:
             keys[name] = k
             return k
 
+        PLAN = 10                                                                              # the Pod health tiles count the epics planned in the selected cycles: the cases of 2 to 4 are planned at as-of + 10 (inside Delivery Cycle 1, and so in the combined view)
         ns = "Team Seed Ns"                                                                   # 1. not started, planned in [as-of, as-of + 7]
         add("ns_0", ns, ["Pod-Ns-A"], "Ready for Dev", 0)                                     # in: today
         add("ns_7", ns, ["Pod-Ns-A"], "New", 7)                                               # in: the last day
@@ -581,11 +582,11 @@ class Gen:
         def team(name, spec, c="Committed"):                                                   # spec: [(pod label, in progress, validation, other open epics)]; c: the Commitment Type
             for lab, ip, vl, other in spec:
                 for i in range(ip):
-                    add(f"{name}:{lab}:ip{i}", name, [lab], "In Progress", c=c)
+                    add(f"{name}:{lab}:ip{i}", name, [lab], "In Progress", PLAN, c=c)
                 for i in range(vl):
-                    add(f"{name}:{lab}:vl{i}", name, [lab], "Validation", c=c)
+                    add(f"{name}:{lab}:vl{i}", name, [lab], "Validation", PLAN, c=c)
                 for i in range(other):
-                    add(f"{name}:{lab}:new{i}", name, [lab], "New", c=c)
+                    add(f"{name}:{lab}:new{i}", name, [lab], "New", PLAN, c=c)
 
         team("Team Seed Lvl A", [("Pod-Lvl-A1", 2, 0, 0), ("Pod-Lvl-A2", 8, 2, 0), ("Pod-Lvl-A3", 0, 0, 1)])   # 2 vs 10 and a pod with none in-progress: flagged (10 of 12)
         team("Team Seed Lvl B", [("Pod-Lvl-B1", 3, 0, 0), ("Pod-Lvl-B2", 2, 0, 0)])                       # 3 vs 2: total 5, spread 20%: not flagged
@@ -596,32 +597,33 @@ class Gen:
         team("Team Seed Lvl G", [("Pod-Lvl-G1", 3, 0, 0), ("Pod-Lvl-G2", 1, 0, 0), ("Pod-Lvl-G3", 1, 0, 0)])   # 3, 1, 1: spread 2 of 5 = 40% exactly: flagged; the two lightest tie
         team("Team Seed Lvl H", [("Pod-Lvl-H1", 4, 0, 0), ("Pod-Lvl-H2", 2, 0, 0)])                       # 4 vs 2: spread 33%: not flagged
         team("Team Seed Lvl I", [("Pod-Lvl-I1", 5, 0, 0)])                                                # a pod with Done epics only does not take part
-        add("lvl_i2_done_a", "Team Seed Lvl I", ["Pod-Lvl-I2"], "Done")
-        add("lvl_i2_done_b", "Team Seed Lvl I", ["Pod-Lvl-I2"], "Done")
+        add("lvl_i2_done_a", "Team Seed Lvl I", ["Pod-Lvl-I2"], "Done", PLAN)
+        add("lvl_i2_done_b", "Team Seed Lvl I", ["Pod-Lvl-I2"], "Done", PLAN)
 
-        # 2b. Pods With More Than 3 Epics In Progress counts the status In Progress only (Validation is not counted). One team of four pods, none with a date, balanced for Pods To Level (4, 4, 5, 4 in-progress: spread 1 of 17, not flagged,
+        # 2b. Pods With More Than 3 Epics In Progress counts the status In Progress only (Validation is not counted). One team of four pods, all planned at as-of + 10, balanced for Pods To Level (4, 4, 5, 4 in-progress: spread 1 of 17, not flagged,
         # so no other Pods tile moves): exactly 4 In Progress is over the level; 3 In Progress + 1 Validation, 3 + 2 and 4 Validation only are NOT (they were over the level while Validation counted).
         # Stretch epics are in the Cycles section like any other but outside the target scope, so the burnup, the release bars and the scope arithmetic of the other suites (cycle_filter_oracle's shrunk scope) do not move.
         team("Team Seed Wip", [("Pod-Wip-Four", 4, 0, 0), ("Pod-Wip-Mix1", 3, 1, 0), ("Pod-Wip-Mix2", 3, 2, 0), ("Pod-Wip-Val", 0, 4, 0)], c="Stretch")
 
+        PLANNED_BEFORE = -3                                                                    # the providers of the waiting items are planned before their dependents (as-of - 3, inside Delivery Cycle 1): no schedule gap, and they are in the Pod health population
         wt = "Team Seed Wt"                                                                    # 3. providers for the waiting items
-        add("wt_pod", wt, ["Pod-Wt-A"], "In Progress")                                        # provider with a pod label
-        add("wt_nopod", wt, None, "In Progress")                                              # provider with no pod label
-        add("wt_done", wt, ["Pod-Wt-A"], "Done")                                              # a Done provider: its pairs are not open
+        add("wt_pod", wt, ["Pod-Wt-A"], "In Progress", PLANNED_BEFORE)                                        # provider with a pod label
+        add("wt_nopod", wt, None, "In Progress", PLANNED_BEFORE)                                              # provider with no pod label
+        add("wt_done", wt, ["Pod-Wt-A"], "Done", PLANNED_BEFORE)                                              # a Done provider: its pairs are not open
         add("wt_other", wt, ["Pod-Wt-B"], "In Progress", fv=["27.2"])                         # a provider outside the release 27.1
 
         np_ = "Team Seed Np"                                                                   # 4. in-progress, with and without a pod label (labels that look like issue keys are pods too)
-        add("np_a", np_, ["POD-31"], "In Progress")
-        add("np_b", np_, ["POD-31"], "Validation")
-        add("np_c", np_, ["POD-32"], "In Progress")
+        add("np_a", np_, ["POD-31"], "In Progress", PLAN)
+        add("np_b", np_, ["POD-31"], "Validation", PLAN)
+        add("np_c", np_, ["POD-32"], "In Progress", PLAN)
         for i in range(3):
-            add(f"np_none{i}", np_, None, "In Progress")
-        add("np_val", np_, None, "Validation")
-        add("np_nfr", np_, None, "In Progress", nf=True)                                      # a label that is not a pod label (NFR): still no pod label
-        add("np_done", np_, None, "Done")
-        add("np_new", np_, None, "New")
+            add(f"np_none{i}", np_, None, "In Progress", PLAN)
+        add("np_val", np_, None, "Validation", PLAN)
+        add("np_nfr", np_, None, "In Progress", PLAN, nf=True)                                      # a label that is not a pod label (NFR): still no pod label
+        add("np_done", np_, None, "Done", PLAN)
+        add("np_new", np_, None, "New", PLAN)
         for i in range(2):
-            add(f"np2_none{i}", "Team Seed Np Small", None, "In Progress")                    # two in-progress, none labelled: no share under 5
+            add(f"np2_none{i}", "Team Seed Np Small", None, "In Progress", PLAN)                    # two in-progress, none labelled: no share under 5
         self.fixed = keys
 
     def proactive_deps(self, epics, deps, ext):
