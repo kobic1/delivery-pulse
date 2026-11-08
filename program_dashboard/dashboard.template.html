@@ -5221,7 +5221,11 @@ const USAGE = (() => {
   const count = k => { if (on) { S[k] = Math.min(S[k] + 1, COUNT_MAX); S.dirty = true; } };
   const secOf = el => { for (let s = el && el.closest ? el.closest("section") : null; s; s = s.parentElement ? s.parentElement.closest("section") : null) { const id = (s.getAttribute("aria-labelledby") || "").replace(/^h-/, ""); if (VOC.nav.includes(id)) return id; } return null; };
   // what the reader has in front of them: every section of the current row of the Section Strip (the current item and the ones lit beside it, side by side), or the headline tiles before the first section anchor
-  const reading = () => { try { if (SEC.top()) return ["top"]; return [...new Set([...document.querySelectorAll("#seclist a[aria-current], #seclist a.co")].map(a => (a.dataset.jump || "").replace(/^h-/, "")).filter(id => VOC.nav.includes(id)))]; } catch (e) { return []; } };
+  const reading = () => { try { if (SEC.top()) return ["top"];
+      const ids = [...new Set([...document.querySelectorAll("#seclist a[aria-current], #seclist a.co")].map(a => (a.dataset.jump || "").replace(/^h-/, "")).filter(id => VOC.nav.includes(id)))];
+      const box = id => { const h = document.getElementById("h-" + id), s = h && h.closest("section"), r = s && s.getBoundingClientRect(); return r && r.height > 0 ? r : null; };
+      if (ids.includes("eff") && !ids.includes("ai") && VOC.nav.includes("ai")) { const e = box("eff"), a = box("ai"); if (e && a && Math.abs(e.top - a.top) < 16) ids.push("ai"); }      // the strip has no entry for AI Adoption: it is read together with Efficiency when the two sit side by side
+      return ids; } catch (e) { return []; } };
   const width = () => { const w = document.documentElement.clientWidth; return w <= 480 ? "s" : w <= 900 ? "m" : "l"; };
   const JIRA_HOST = (() => { try { return new URL(DATA.jiraBase).hostname; } catch (e) { return ""; } })();
   const isJira = a => { try { const h = new URL(a.getAttribute("href") || "", location.href).hostname; return (!!JIRA_HOST && h === JIRA_HOST) || /\.atlassian\.net$/.test(h); } catch (e) { return false; } };
