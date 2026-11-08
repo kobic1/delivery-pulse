@@ -1959,6 +1959,11 @@ function capRecords() {
 }
 const capIsCap = r => r.v >= 0 && String(DATA.cap.values[r.v]).startsWith(DATA.cap.prefix);
 const capTeam = r => r.t >= 0 ? DATA.cap.teams[r.t] : NO_TEAM;
+function capTeamsOf(project) {                                     // the teams that have capitalization records (Done Bugs, Stories, Tasks) in one project; rebuilt when the records are (after a Refresh)
+  const recs = capRecords();
+  if (capTeamsOf.recs !== recs) { capTeamsOf.recs = recs; capTeamsOf.by = new Map(); recs.forEach(r => { const pj = DATA.cap.projects[r.p]; if (!capTeamsOf.by.has(pj)) capTeamsOf.by.set(pj, new Set()); capTeamsOf.by.get(pj).add(capTeam(r)); }); }
+  return capTeamsOf.by.get(project) || new Set();
+}
 function capFiltered() {
   const C = DATA.cap, ok = r => state.projects.has(C.projects[r.p]) && (!state.teams.size || state.teams.has(capTeam(r)));
   return capRecords().filter(ok);
@@ -4202,19 +4207,23 @@ function buildFilters() {
   document.getElementById("f-teams-clear").onclick = () => { state.teams = new Set(); update(); };
   window.addEventListener("resize", () => { if (panel.classList.contains("open")) place(); });
 }
+let teamsNoEpics = false;                                          // the Teams menu lists teams with no epics on the release (bugs, stories or tasks only) only on request, or when searched for or already selected
 function renderTeamList() {
   const needle = document.getElementById("f-teams-search").value.toLowerCase(), m = new Map();
   DATA.epics.filter(e => state.projects.has(e.p) && inRelease(e, state.release)).forEach(e => teamsOf(e).forEach(t => m.set(t, (m.get(t) || 0) + 1)));
   DATA.bugs.filter(b => state.projects.has(b.p)).forEach(b => { const t = b.tm || NO_TEAM; if (!m.has(t)) m.set(t, 0); });
   state.teams.forEach(t => { if (!m.has(t)) m.set(t, 0); });
-  if (capOk()) DATA.cap.teams.forEach(t => { if (!m.has(t)) m.set(t, 0); });               // a team that only has Done Bugs, Stories or Tasks (no epics) is listed too
-  document.getElementById("f-teams-hint").textContent = `${state.teams.size ? state.teams.size + " selected · " : ""}Epics on ${state.release}. A dash means bugs only.`;
-  const names = [...m.keys()].filter(t => t.toLowerCase().includes(needle)).sort((a, b) => a === NO_TEAM ? 1 : b === NO_TEAM ? -1 : a.localeCompare(b));
+  if (capOk()) state.projects.forEach(p => capTeamsOf(p).forEach(t => { if (!m.has(t)) m.set(t, 0); }));               // a team that only has Done Bugs, Stories or Tasks (no epics) is listed too, but only in the projects it works in
+  document.getElementById("f-teams-hint").textContent = `${state.teams.size ? state.teams.size + " selected · " : ""}Epics on ${state.release}, in the selected projects. A dash means no epics: bugs, stories or tasks only.`;
+  const found = [...m.keys()].filter(t => t.toLowerCase().includes(needle)).sort((a, b) => a === NO_TEAM ? 1 : b === NO_TEAM ? -1 : a.localeCompare(b));
+  const dashed = found.filter(t => !m.get(t) && !state.teams.has(t)), names = needle || teamsNoEpics ? found : found.filter(t => !dashed.includes(t));
   const list = document.getElementById("f-teams-list");
   const allRow = `<div class="rowwrap"><label class="row allrow"><input type="checkbox" data-allteams="1" ${state.teams.size ? "" : "checked"}> <span>All Teams</span></label></div>`;
-  list.innerHTML = (needle ? "" : allRow) + names.map(t => `<div class="rowwrap"><label class="row${m.get(t) ? "" : " bo"}"><input type="checkbox" data-t="${esc(t)}" ${state.teams.has(t) ? "checked" : ""}> <span>${esc(t)}</span><span class="c">${m.get(t) || "–"}</span></label><button type="button" class="only" data-only="${esc(t)}" aria-label="Only ${esc(t)}">Only</button></div>`).join("")
+  const moreRow = !needle && dashed.length ? `<div class="rowwrap"><button type="button" class="btn link" id="f-teams-more" aria-expanded="${teamsNoEpics}">${teamsNoEpics ? "Hide" : "Show"} ${dashed.length} ${dashed.length === 1 ? "team" : "teams"} with no epics</button></div>` : "";
+  list.innerHTML = (needle ? "" : allRow) + names.map(t => `<div class="rowwrap"><label class="row${m.get(t) ? "" : " bo"}"><input type="checkbox" data-t="${esc(t)}" ${state.teams.has(t) ? "checked" : ""}> <span>${esc(t)}</span><span class="c">${m.get(t) || "–"}</span></label><button type="button" class="only" data-only="${esc(t)}" aria-label="Only ${esc(t)}">Only</button></div>`).join("") + moreRow
     || `<div class="empty">No team matches.</div>`;
   const refocus = sel => { const again = list.querySelector(sel); if (again) again.focus({preventScroll: true}); };
+  const more = list.querySelector("#f-teams-more"); if (more) more.onclick = () => { teamsNoEpics = !teamsNoEpics; renderTeamList(); refocus("#f-teams-more"); };
   list.querySelectorAll("input[data-t]").forEach(cb => cb.onchange = () => {
     const t = cb.dataset.t;
     cb.checked ? state.teams.add(t) : state.teams.delete(t); update();
