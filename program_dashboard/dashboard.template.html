@@ -113,6 +113,7 @@ header.top h1 { margin:0; font-size:var(--t-sub); font-weight:600; }
 select, input[type=search], button.btn { font:inherit; font-size:var(--t-body); padding:5px 9px; min-height:32px; border:1px solid var(--ctl); border-radius:var(--radius-s); background:#fff; color:var(--ink); max-width:100%; }
 input[type=search] { width:200px; }
 :focus-visible { outline:2px solid var(--blue-ink); outline-offset:2px; }
+html.deeplanding :focus-visible { outline:none; }               /* a link that opens on a section puts focus on its heading: no ring around it until the reader uses the keyboard or the page */
 .chips { display:flex; flex-wrap:wrap; gap:6px; }
 .chip { display:inline-flex; align-items:center; gap:5px; padding:4px 10px; min-height:32px; border:1px solid var(--ctl); border-radius:var(--radius-s); background:#fff; cursor:pointer; user-select:none; font-size:var(--t-body); position:relative; }
 .chip input { position:absolute; opacity:0; width:1px; height:1px; margin:0; pointer-events:none; }
@@ -123,14 +124,18 @@ input[type=search] { width:200px; }
 #g-projects > .lbl { grid-area:lbl; } #g-projects > .chips { grid-area:chips; } #g-projects > .btn.multi { grid-area:btn; } #g-projects > .multihint { grid-area:hint; } #g-projects > .sr { grid-area:lbl; }
 #g-projects button.btn.multi { min-height:24px; padding:0 9px; font-size:var(--t-xs); }
 #filterbar #g-projects .seg .chip, #filterbar #g-dc .seg .chip { padding:4px 10px; }
-/* filter bar row system: groups hang from one top line, each a 24px label row over a 32px control row (the Multi-Select button shares the label row), so labels and controls sit on two common lines. The Delivery Cycle note is helper text below its control; Reset Filters sits on the control line. */
-#filterbar { align-items:flex-start; }
+/* filter bar row system: groups hang from one top line, each a 24px label row over a 32px control row (the Multi-Select button shares the label row), so labels and controls sit on two common lines. The Delivery Cycle note is helper text below its control; Reset Filters sits on the control line, at the right end of the bar. */
+#filterbar { align-items:flex-start; position:relative; }
 #filterbar .ftoggle { align-self:flex-end; }
 #filterbar .fg > .lbl, #filterbar .fg > label { line-height:24px; }
 #filterbar #f-teams-btn { height:32px; padding-top:4px; padding-bottom:4px; }
 #filterbar .freset { padding:5px 0; margin-top:28px; }
-@media (min-width:761px) { #filterbar .freset { margin-left:auto; } }      /* Reset Filters sits at the right end of the control line, wrapped or not */
+/* Reset Filters: its label grows from "Reset Filters" to "Reset Filters (14)", and a button in the flex flow that grew wrapped onto a new row and made the sticky bar taller. From an 840px window up it is out of the flow, in a column of its own at the right end that the controls leave free (padding-right 126px = 8px + the widest label, 115px, + 3px), so the bar has one height whatever the count; group gaps are 14px, not 18px, which pays for the column (the bar needs no more width than before). Below that the bar wraps into rows anyway, so there the button stays in the flow with the width of its longest label (a label that never changes width cannot change a wrap). */
+@media (min-width:761px) and (max-width:839px) { #filterbar .freset { margin-left:auto; min-width:115px; text-align:right; } }
+@media (min-width:840px) { #filterbar { padding-right:126px; column-gap:14px; } #filterbar .freset { position:absolute; top:38px; right:8px; margin:0; white-space:nowrap; } }
+#filterbar #f-teams-btn { max-width:100px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }      /* a team name never widens the row: it is cut with an ellipsis (the full name is the button's title) */
 @media (max-width:760px) { #filterbar .freset { margin-top:0; } #filterbar #f-release, #filterbar #f-teams-btn, #filterbar .ftoggle, #filterbar .freset { height:44px; } }      /* phone: every control is 44px, the height the chips already use */
+@media (max-width:760px) { #filterbar .ftoggle { flex:1 1 0; min-width:0; white-space:normal; line-height:1.2; } #filterbar .freset { min-width:115px; text-align:left; } }      /* phone: "Filters (3 Applied)" and "Reset Filters (14)" are longer than "Filters" and "Reset Filters". The toggle takes the rest of its row whatever it says (its text wraps in the 44px button), and Reset keeps the room of its longest label, so no row ever wraps differently */
 .multihint, .fnote { font-size:var(--t-xs); color:var(--muted); }
 .chip.dis { opacity:.55; cursor:not-allowed; }
 button.chip { font-family:inherit; }
@@ -145,6 +150,14 @@ button.btn.multi[aria-pressed="true"]::before { content:"\2713\00a0"; color:var(
 @media (max-width:760px) { #g-dc { flex:1 1 100%; } #f-dc { display:flex; width:100%; } #f-dc .chip { flex:1 1 auto; justify-content:center; } }      /* phone: the three segments share the row, each a 44px target */
 @media (max-width:380px) { #filterbar #g-dc .seg .chip { padding:4px 6px; } }      /* 320 px: the same three joined segments, with tighter padding */
 @media (max-width:300px) { #f-dc { flex-wrap:wrap; gap:6px; } #f-dc .chip, #f-dc .chip:first-child, #f-dc .chip:last-child { margin-left:0; border-radius:var(--radius-s); } }      /* narrower than any phone in use: separate chips, like the Projects chips */
+#filterbar [hidden], .prodnote[hidden] { display:none !important; }
+.prodauto { font-size:var(--t-body); }
+.prodauto b { font-weight:600; }
+.prodnote { margin:2px 0 12px; font-size:var(--t-cap); color:var(--muted); line-height:1.5; }
+.prodnote .tt { cursor:help; }
+#filterbar .prodauto { align-self:flex-start; padding:4px 0 0; line-height:24px; white-space:nowrap; }       /* the one project of a product view, as text */
+#filterbar #g-product.changed > label::before { content:"● "; color:var(--blue-ink); white-space:pre; }
+@media (max-width:760px) { #filterbar #f-product { height:44px; } #filterbar .prodauto { padding-top:10px; } }
 .teampanel .rowwrap { display:flex; align-items:center; gap:4px; }
 .teampanel .rowwrap .row { flex:1; min-width:0; }
 .teampanel .only { border:none; background:none; color:var(--blue-ink); text-decoration:underline; font:inherit; font-size:var(--t-xs); padding:4px 6px; min-height:28px; cursor:pointer; opacity:0; }
@@ -580,7 +593,9 @@ footer.f b { color:var(--ink); }
   <div class="filters" id="filters">
     <div class="bar" id="filterbar">
       <button class="btn ftoggle" id="f-toggle" type="button" aria-expanded="false" aria-controls="filterbar">Filters</button>
+      <div class="fg" id="g-product" hidden><label for="f-product">Product</label><select id="f-product"></select></div>
       <div class="fg" id="g-release"><label for="f-release">Release</label><select id="f-release"></select></div>
+      <div class="fg" id="g-scope" hidden><span class="lbl">Project</span><span class="prodauto" id="prod-scope"></span></div>
       <div class="fg hideable" id="g-projects"><span class="lbl" id="lbl-projects">Projects</span>
         <div class="chips seg" id="f-projects" role="group" aria-labelledby="lbl-projects"></div>
         <button type="button" class="btn multi" id="f-multi" aria-pressed="false" aria-describedby="f-multi-desc" data-tip="Select several projects: click chips to add or remove them. Shift-click does the same." data-link="0">Multi-Select</button><span class="multihint" id="f-multihint" hidden>Click projects to add or remove</span><span class="sr" id="f-multi-desc">Select several projects: click chips to add or remove them. Shift-click does the same.</span></div>
@@ -601,6 +616,7 @@ footer.f b { color:var(--ink); }
   </div>
 
   <div id="banner"></div>
+  <p class="prodnote" id="prod-note" hidden></p>
   <h2 class="sr">Delivery, Efficiency, Quality &amp; AI Adoption</h2>
   <div class="st-row">
     <h2 class="st-h"><span class="rel" id="st-rel"></span><span class="rest" id="st-rest"></span><span class="state" id="st-state" hidden>In Progress</span></h2>
@@ -695,11 +711,9 @@ footer.f b { color:var(--ink); }
     <h3 class="sub3" id="h-ocfb" tabindex="-1">Open CFBs</h3>
     <div class="sub">Not in a final status, with age against SLA and Root Cause Analysis (RCA) state.</div>
     <div class="kpis four" id="ocfb-kpis"></div>
-    <div class="cap" id="ocfb-note"></div>
     <div id="ocfb-table"></div>
     <div id="ocfb-cap"></div>
-    <h3 class="sub3" id="h-cfbfixed" tabindex="-1">CFB Fixed and Regressions per Release</h3>
-    <div class="sub" id="cfb-sub"></div>
+    <h3 class="sub3" id="h-cfbfixed" tabindex="-1">CFB Fixed and Regressions</h3>
     <div class="periodbar" id="g-cfbgrp"><span class="lbl" id="lbl-cfbgrp">Group CFB By</span>
       <div class="chips seg" id="f-cfbgrp" role="radiogroup" aria-labelledby="lbl-cfbgrp">
         <label class="chip"><input type="radio" name="f-cfbgrp" value="version"> Version</label>
@@ -719,9 +733,7 @@ footer.f b { color:var(--ink); }
   <section class="sec x" aria-labelledby="h-deps">
     <div class="seclabel">Dependencies <span class="state" id="dep-state" hidden>In Progress</span></div>
     <h2 id="h-deps" tabindex="-1">Open Dependencies by Planned Sprint</h2>
-    <div class="sub" id="dep-sub"></div>
     <div class="kpis five" id="dep-kpis"></div>
-    <div class="cap" id="dep-story"></div>
     <div class="periodbar depfilter" id="g-dep"><span class="lbl" id="lbl-dp">Quick Filter</span>
       <div class="depgrp"><span class="dlbl" id="lbl-dpr">Relationship</span>
         <div class="chips seg" id="f-dp" role="radiogroup" aria-labelledby="lbl-dpr">
@@ -748,7 +760,6 @@ footer.f b { color:var(--ink); }
     <h2 id="h-nfr" tabindex="-1">NFR Epics (Label or Category)</h2>
     <div class="sub" id="nfr-sub"></div>
     <div class="kpis five" id="nfr-kpis"></div>
-    <div class="cap" id="nfr-facts"></div>
     <div id="nfr-cap"></div>
     <div id="nfr-body"></div>
   </section>
@@ -857,7 +868,33 @@ footer.f b { color:var(--ink); }
 <button type="button" class="totop" id="totop" aria-label="Back to Top" hidden><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 2 1.5 7l1.2 1.1L6 4.6l3.3 3.5L10.5 7z"/></svg><span class="tt">Back to Top</span></button>
 
 <script>
-const DATA = /*__DATA__*/null;
+const DATA_ALL = /*__DATA__*/null;
+// Product mode. The CXone projects share one set of releases (26.4, 27.1 ...); WFM, EEM and ESP are products of their own, each with its own fix versions, built by the collector as a payload of the same shape
+// (DATA_ALL.products[name]). The page runs on ONE dataset, chosen here before anything is computed: the CXone payload, or a product's. Switching product stores the choice and reloads, so no cache or
+// derived value can carry over from one dataset to the other. A link without prod= opens CXone.
+const PRODUCT_NAMES = Object.keys(DATA_ALL.products || {}).filter(k => DATA_ALL.products[k] && !DATA_ALL.products[k].unavailable);
+// Deep links. A link to the dashboard can end in a plain #token (the only kind of address part an Artifact passes to the page): #quality, #release-calendar, #eem (a product view) or #eem~delivery (a section of a product view).
+// The page opens on that section and moves focus to its heading. A token is not a filter state: the reader's saved filters still apply. A token for a section this view does not have opens the page as usual.
+const DEEP_SECTIONS = {"needs-attention": "h-attn", "delivery": "h-burnup", "efficiency": "h-eff", "ai-adoption": "h-ai", "quality": "h-bugs", "dependencies": "h-deps", "nfrs": "h-nfr", "cxcross": "h-cx", "capabilities": "h-capview", "cycles": "h-cycles", "release-analysis": "h-analysis", "release-calendar": "h-ftenable"};
+const HASH_IS_TOKEN = /^#[^=&]+$/.test(location.hash);
+const DEEP = (() => {
+  if (!HASH_IS_TOKEN) return null;
+  let raw = ""; try { raw = decodeURIComponent(location.hash.slice(1)).toLowerCase(); } catch (e) { return null; }
+  const [a, b] = raw.includes("~") ? raw.split("~", 2) : [raw, ""], prod = ["cxone", ...PRODUCT_NAMES].find(n => n.toLowerCase() === a);
+  return {product: prod || null, id: DEEP_SECTIONS[prod ? b : raw.includes("~") ? "" : a] || null};
+})();
+const PRODUCT = (() => {
+  try {
+    const want = (DEEP && DEEP.product) || new URLSearchParams(location.hash.slice(1)).get("prod") || localStorage.getItem("dp.product") || "cxone";
+    return PRODUCT_NAMES.includes(want) ? want : "cxone";
+  } catch (e) { return "cxone"; }
+})();
+const PRODUCT_RES = PRODUCT === "cxone" ? null : DATA_ALL.products[PRODUCT].resolution;      // the resolution record: the evidence, the rule version, the Major, Minor and Future
+const DATA = PRODUCT === "cxone" ? DATA_ALL : (() => {
+  const keep = {}; ["jiraBase", "cloudId", "cfbAccount", "bugSince", "schema", "defs", "build"].forEach(k => { if (DATA_ALL[k] !== undefined) keep[k] = DATA_ALL[k]; });
+  return {...keep, ...DATA_ALL.products[PRODUCT]};
+})();
+const filtersKey = "delivery-pulse-filters" + (PRODUCT === "cxone" ? "" : ":" + PRODUCT);          // each product keeps its own filters; CXone keeps the key it always had
 
 // ---------------------------------------------------------------- definitions
 const BASE = DATA.jiraBase;
@@ -988,15 +1025,15 @@ function serialize() {
 function loadState() {
   try {
     const fromHash = new URLSearchParams(location.hash.slice(1));
-    if ([...fromHash.keys()].length) return readParams(fromHash);                 // any filter in the address is a view, with or without r=
-    const saved = localStorage.getItem("delivery-pulse-filters");
+    if (!HASH_IS_TOKEN && [...fromHash.keys()].length) return readParams(fromHash);                 // any filter in the address is a view, with or without r=
+    const saved = localStorage.getItem(filtersKey);
     if (saved) readParams(new URLSearchParams(saved));
   } catch (e) { /* storage or hash unavailable: start from the defaults */ }
 }
 function saveState() {
   try {
-    if (RUNTIME) localStorage.setItem("delivery-pulse-filters", serialize());
-    else history.replaceState(null, "", "#" + serialize());
+    if (RUNTIME) localStorage.setItem(filtersKey, serialize());
+    else history.replaceState(null, "", "#" + (PRODUCT === "cxone" ? "" : "prod=" + encodeURIComponent(PRODUCT) + "&") + serialize());
   } catch (e) { /* not persisted */ }
 }
 
@@ -1398,7 +1435,7 @@ const isRunning = rel => isProv(rel) && !["", "Not Started", "Closed"].includes(
 // The single source of the target scope: the Committed + Not Set epics that were in the release on the first day of W1 (before W1, the target so far).
 // The Forecast Epics tile, the burnup scope, its label, tooltip, subtitle and caption, and the even-pace reference all read this one value.
 function targetBase(rel = state.release) {
-  const win = DATA.windows && DATA.windows[rel], tgt = targetOf(rel);
+  const win = PRODUCT === "cxone" ? DATA.windows && DATA.windows[rel] : null, tgt = targetOf(rel);          // a product adds epics to a release as they are planned or finish, so it has no W1 scope: its target is the scope today
   const w1 = win ? utc(win[0]) + 7 * DAY : null, base = win ? tgt.filter(e => utc((e.ad && e.ad[rel]) || win[0]) <= w1) : tgt;
   const pre = !!win && asOfDay() < w1, N = base.length;
   return {rel, win, w1, pre, N, today: tgt.length, added: tgt.length - N, tgt, members: base,
@@ -1449,7 +1486,7 @@ function deliveryTiles(rel, TB, tDone, paceLine) {
 }
 function renderStatus() {
   const rel = state.release, list = scopeOf(rel), c = counts(list), mo = lastDays(), ms = monthStats(mo), inWin = `in the last ${WINDOW_DAYS} days (${windowWords(mo)})`;
-  const projLabel = state.projects.size === projectsAll.length ? "All Projects" : [...state.projects].join(", ") || "No project";
+  const projLabel = PRODUCT !== "cxone" ? PRODUCT : state.projects.size === projectsAll.length ? "All Projects" : [...state.projects].join(", ") || "No project";
   const wk = weekOf(rel), noProj = !state.projects.size, TB = targetBase(rel), tgt = TB.tgt, tDone = doneScope(rel).filter(e => cls(e.s) === "done").length;
   document.getElementById("st-rel").textContent = `Release ${rel}`;
   document.getElementById("st-rest").textContent = `${projLabel}${state.teams.size ? " · " + [...state.teams].join(", ") : ""}${wk ? " · " + wk : ""}`;
@@ -1536,8 +1573,7 @@ function renderLimitedNotes() {
   const eff = document.getElementById("eff-note"), ra = document.getElementById("ra-note"); if (!eff || !ra) return;
   if (!RUNTIME) { eff.textContent = ra.textContent = ""; return; }
   const wait = DATA.epics.filter(e => state.projects.has(e.p) && edctPending(e)).length, c = DATA.capRefreshedAt, e0 = DATA.edctAt;
-  eff.textContent = DATA.edctFailed ? `Cycle time: not refreshed: ${DATA.edctFailed}${e0 ? `; as of ${ilStamp(e0)}` : ""}.`
-    : `Cycle time: ${e0 ? `refreshed ${ilLabel(e0)}` : "not refreshed yet"}; Refresh updates it up to twice a day.${wait ? ` ${wait} ${wait === 1 ? "epic that closed" : "epics that closed"} since then ${wait === 1 ? "is" : "are"} not counted yet.` : ""}`;
+  eff.textContent = DATA.edctFailed ? `Cycle time: not refreshed: ${DATA.edctFailed}${e0 ? `; as of ${ilStamp(e0)}` : ""}.` : "";      // a normal refresh is not announced under the chart (the header stamp and Needs Attention say it)
   ra.textContent = (e0 && c ? `Cycle time and Capitalization: refreshed ${ilLabel([e0, c].sort()[0])}` : !e0 && !c ? "Cycle time and Capitalization: not refreshed yet"
     : `Cycle time: ${e0 ? `refreshed ${ilLabel(e0)}` : "not refreshed yet"}; Capitalization: ${c ? `refreshed ${ilLabel(c)}` : "not refreshed yet"}`) + "; Refresh updates them up to twice a day.";
 }
@@ -1645,22 +1681,14 @@ function renderBurnup() {
     while (di < doneT.length && doneT[di] <= t) di++;
     done.push(di);
   }
-  const N = baseScope, W6 = D >= 41 && state.projects.size ? w6Model(rel, w1) : null, nP = W6 ? W6.within.length : 0;      // nP: the Committed epics Delivery Cycle 1 plans to deliver by the end of W6 (the dotted marker's count)
+  const N = baseScope, W6 = PRODUCT === "cxone" && D >= 41 && state.projects.size ? w6Model(rel, w1) : null, nP = W6 ? W6.within.length : 0;      // nP: the Committed epics Delivery Cycle 1 plans to deliver by the end of W6 (the dotted marker's count)
   const w6Done = kind === "c2" ? done[ds - 1] : 0;                 // Done is the whole release's, cumulative: Delivery Cycle 2's line starts at the Done count at the end of W6
   {
     const dn = dlist.filter(e => cls(e.s) === "done"), last = dn.map(e => e.rd).filter(Boolean).sort().pop(), wk = weekOf(rel);
     const shownDone = closed ? done[de] : dn.length, since = closed ? done[snapD] - done[de] : 0;
-    document.getElementById("bu-sub").textContent = list.length ? `${shownDone.toLocaleString("en-US")}${win ? ` of ${baseScope.toLocaleString("en-US")} target scope` : ""} epics delivered${closed ? ` by the end of ${cy1}${since > 0 ? ` · ${since.toLocaleString("en-US")} more Done since` : ""}` : ""}${before ? ` · ${cy1} starts ${shortDate(w1 + ds * DAY)}` : ""}${wk ? " · " + wk.replace(/^Week/, "week") : ""}${last ? ` · last epic closed ${last}` : ""}${nm ? ` · ${nm}` : ""}` : "";
+    document.getElementById("bu-sub").textContent = list.length ? `${shownDone.toLocaleString("en-US")}${win ? ` of ${baseScope.toLocaleString("en-US")} target scope` : ""} epics delivered${closed ? ` by the end of ${cy1}${since > 0 ? ` · ${since.toLocaleString("en-US")} more Done since` : ""}` : ""}${before ? ` · ${cy1} starts ${shortDate(w1 + ds * DAY)}` : ""}${wk ? " · " + wk.replace(/^Week/, "week") : ""}` : "";
     // The plain-words line under the title (only when one cycle is selected, so the chart with both is untouched): which weeks the axis shows and what the Done and even-pace lines mean there.
-    let pl0 = document.getElementById("bu-plain");
-    if (dc.all || !win) { if (pl0) pl0.remove(); }
-    else {
-      if (!pl0) { pl0 = document.createElement("div"); pl0.className = "sub"; pl0.id = "bu-plain"; document.getElementById("bu-sub").after(pl0); }
-      const a = shortDate(w1 + ds * DAY), z = shortDate(w1 + de * DAY), wa = Math.floor(ds / 7) + 1, wz = kind === "c2" ? weeks : Math.floor(de / 7) + 1;
-      pl0.textContent = before ? `${cy1} starts ${a}. Planned pace from the ${nP.toLocaleString("en-US")} ${epicWord(nP)} Delivery Cycle 1 plans to deliver to the release scope; Done is shown from W${wa}.`
-        : kind === "c1" ? `${cy1}: W${wa} to W${wz} (${a} to ${z}). The numbers are the whole release's: Done is cumulative since the release start. The even-pace line goes from zero to the ${nP.toLocaleString("en-US")} ${epicWord(nP)} ${cy1} plans to deliver by the end of W${wz}.${closed ? ` Window closed on ${z}.` : ""}`
-        : `${cy1}: W${wa} to W${wz} (${a} to ${z}). The numbers are the whole release's: Done is cumulative since the release start, so the line starts at the ${nn(w6Done, "epic", "epics")} Done at the end of W${wa - 1}. The even-pace line goes from there to the release scope at the release end.`;
-    }
+    { const pl0 = document.getElementById("bu-plain"); if (pl0) pl0.remove(); }                    // no paragraph under the headline: the chart and the filter say which cycle is shown
   }
   if (!win) { el.innerHTML = `<div class="empty">Jira has no dated version for ${esc(rel)}, so there is no timeline to draw.</div>`; return; }
   if (!list.length) { el.innerHTML = `<div class="empty">${whyEmpty("epics")}</div>`; return; }
@@ -1709,8 +1737,15 @@ function renderBurnup() {
     g += `<text x="${tx}" text-anchor="${anc}" y="${ty}" font-size="12" font-weight="600" fill="#025AFB" stroke="#fff" stroke-width="3" paint-order="stroke">${doneTxt}${paceTxt && !narrow ? " · " + paceTxt : ""}</text>`;
     if (paceTxt && narrow) g += `<text x="${tx}" text-anchor="${anc}" y="${ty + 15}" font-size="11" fill="#025AFB" stroke="#fff" stroke-width="3" paint-order="stroke">${paceTxt}</text>`;
   }
-  const pd = ds + span * .64;
-  g += `<text x="${x(pd)}" y="${y(kind === "all" ? N * .64 : paceAt(pd)) - 8}" text-anchor="middle" font-size="11" fill="#5A5F6B" stroke="#fff" stroke-width="3" paint-order="stroke">Even pace</text>`;
+  // 'Even pace' sits on the line at the first of these points where it clears the Done readout and the Scope label (today can fall anywhere along the line)
+  const doneBox = before ? null : [anc === "start" ? tx : tx - est, anc === "start" ? tx + est : tx, ty - 14, ty + (paceTxt && narrow ? 20 : 6)];
+  const scopeBox = kind !== "c1" ? [x(de) - 9 - 100, x(de) - 9, sTop - 14, sTop + (addTxt ? 18 : 6)] : null;
+  const nmBox = nm ? [x(de) - 8 - nm.length * 7.4, x(de) - 8, pt + ph - 24, pt + ph - 6] : null;      // the cycle name at the bottom right
+  const clash = (a, b) => !!a && !!b && a[0] < b[1] && b[0] < a[1] && a[2] < b[3] && b[2] < a[3];
+  const paceY = (f, p) => y(kind === "all" ? N * f : paceAt(p)) - 8;
+  const pf = [.64, .5, .38, .76, .26, .88, .14].find(f => { const p = ds + span * f, cx = x(p), cy = paceY(f, p), box = [cx - 34, cx + 34, cy - 12, cy + 5]; return !clash(box, doneBox) && !clash(box, scopeBox) && !clash(box, nmBox); }) ?? .64;
+  const pd = ds + span * pf;
+  g += `<text x="${x(pd)}" y="${paceY(pf, pd)}" text-anchor="middle" font-size="11" fill="#5A5F6B" stroke="#fff" stroke-width="3" paint-order="stroke">Even pace</text>`;
   if (before) g += `<text pointer-events="none" x="${x(ds) + 8}" y="${y(p0) + 16}" font-size="11" fill="#3B3F4A" stroke="#fff" stroke-width="3" paint-order="stroke">planned start</text>`;      // provisional until W6 has ended
   if (nm) g += `<text pointer-events="none" x="${x(de) - 8}" y="${pt + ph - 10}" text-anchor="end" font-size="12" font-weight="600" fill="#3B3F4A" stroke="#fff" stroke-width="3" paint-order="stroke">${esc(nm)}</text>`;      // the chart says which cycles it shows
   const w6Mark = W6 && kind !== "c2";                              // the dotted marker: at the end of W6 inside the whole-release axis, at the right edge (the end state of the window) with Delivery Cycle 1 only; not in Delivery Cycle 2, whose pace starts at it
@@ -1793,15 +1828,15 @@ function renderBurnup() {
       ["Delivery Cycle filter, details", `With one cycle selected the chart shows a window of the whole release, and Scope, Done, Remaining, the day readout, the data table and the Jira links are the whole release's: the filter chooses weeks, not epics (the Cycles section does choose epics, by planned date). The axis shows only that cycle: Delivery Cycle 1 is W1 to the end of W6 (W1 start + 41 days), Delivery Cycle 2 is W7 to the release end. Done stays cumulative since the release start. Delivery Cycle 1: no release scope is drawn; the dotted marker is the end state of the window, the epics Delivery Cycle 1 plans to deliver by the end of W6, and the even-pace line runs from zero through it. Delivery Cycle 2: the even-pace line runs to the release scope at the release end, from the Done count at the end of W6 once W6 has ended; before that it starts at the planned count (labelled planned start) and the Done line and the snapshot marker are not drawn until W7 starts. The snapshot marker is drawn only while the as-of day is inside the window; after Delivery Cycle 1 ends its line stops on its last day, the headline says "by the end of Delivery Cycle 1" and how many more were Done since, and the Done link is bounded at the end of the cycle. The window is a time cut of today's data: Jira keeps no earlier planned dates.`],
       ["Delivery Cycle 1, other uses", `Delivery Cycle 1 leaves out Not Set and Stretch epics here. The Cycles section counts every Commitment Type.`]
     ]}));
-  const w6Cols = W6 && kind !== "c2";                           // the two Delivery Cycle 1 columns: with both cycles and with Delivery Cycle 1 (the row of its end)
   const days = [];
   for (let d = ds; d <= de; d += 7) days.push(d);
-  (kind === "all" ? [snapD, D, ...(w6Cols ? [41] : [])] : [...(!before && snapD >= ds && snapD <= de ? [snapD] : []), de]).forEach(d => { if (!days.includes(d)) days.push(d); });      // a narrowed axis keeps its own last day (the end of W6 is the Delivery Cycle 1 row)
+  (kind === "all" ? [snapD, D] : [...(!before && snapD >= ds && snapD <= de ? [snapD] : []), de]).forEach(d => { if (!days.includes(d)) days.push(d); });      // a narrowed axis keeps its own last day (the end of W6 is the Delivery Cycle 1 row)
   days.sort((a, b) => a - b);
-  // Delivery Cycle 1 columns: on the row of the cycle end (W1 start + 41 days) the Committed epics planned by then and how many of them are Done, linked like the fact line.
-  dataTable("bu-data", `Burnup for ${rel}, weekly${kind === "all" ? ", at the latest day and at the end of Delivery Cycle 1" : `, W${Math.floor(ds / 7) + 1} to W${kind === "c2" ? weeks : Math.floor(de / 7) + 1}${before ? "" : ", at the latest day"}${kind === "c1" && w6Cols ? " and at the end of Delivery Cycle 1" : ""}, ${nm}`}`, ["Date", "Week", "Scope", "Done", "Remaining"].concat(w6Cols ? ["Delivery Cycle 1 Planned", "Delivery Cycle 1 Done"] : []),
-    days.map(d => [shortDate(w1 + d * DAY), "W" + (Math.min(d, D - 1) >= 0 ? Math.floor(Math.min(d, D - 1) / 7) + 1 : 1), N, d > snapD ? "–" : done[d], d > snapD ? "–" : Math.max(0, N - done[d])]
-      .concat(w6Cols ? (d === 41 ? [w6n(W6.within, W6.hrefs.within, "planned by the end of Delivery Cycle 1"), w6n(W6.done, W6.hrefs.done, "Done, planned by the end of Delivery Cycle 1")] : ["–", "–"]) : [])));
+  const wkOf = d => (Math.min(d, D - 1) >= 0 ? Math.floor(Math.min(d, D - 1) / 7) + 1 : 1), byWeek = new Map();      // one row per week: the week's first day, except the week of the latest day, which shows that day (the latest Done)
+  days.forEach(d => { const k = wkOf(d); if (!byWeek.has(k) || (d === snapD && snapD >= ds && snapD <= de)) byWeek.set(k, d); });
+  days.splice(0, days.length, ...[...byWeek.values()].sort((a, b) => a - b));
+  dataTable("bu-data", `Burnup for ${rel}, weekly${kind === "all" ? ", one row per week" : `, W${Math.floor(ds / 7) + 1} to W${kind === "c2" ? weeks : Math.floor(de / 7) + 1}${before ? "" : ", at the latest day"}, ${nm}`}`, ["Date", "Week", "Scope", "Done", "Remaining"],
+    days.map(d => [shortDate(w1 + d * DAY), "W" + wkOf(d), N, d > snapD ? "–" : done[d], d > snapD ? "–" : Math.max(0, N - done[d])]));
 }
 
 // ---------------------------------------------------------------- trend charts
@@ -2332,7 +2367,6 @@ function renderCfb() {
   const chartEl = document.getElementById("cfb-chart"), tableEl = document.getElementById("cfb-table"), capEl = document.getElementById("cfb-cap");
   const mode = state.cfbGroup, U = CFB_UNIT[mode];
   document.getElementById("h-cfbfixed").textContent = `CFB Fixed and Regressions per ${U.head}`;
-  document.getElementById("cfb-sub").innerHTML = `Fixed CFBs and regressions by ${mode === "version" ? "release window" : mode === "month" ? "calendar month" : "calendar quarter"}, counted by Closed date.${followsRow(["Projects", "Teams"])}`;
   const rfdEl = document.getElementById("cfb-rfd"); rfdEl.innerHTML = "";
   if (!state.projects.size) { tableEl.innerHTML = ""; capEl.textContent = ""; chartEl.innerHTML = `<div class="empty">${whyEmpty("bugs")}</div>`; return; }
   const fixed = bugsBase().filter(isCfbFixed), wins = cfbWindows();
@@ -2445,7 +2479,7 @@ function renderCfbAbout() {
 }
 function renderOpenCfb() {
   const host = document.getElementById("ocfb-table"), kp = document.getElementById("ocfb-kpis"); if (!host) return;
-  if (!state.projects.size) { kpiCards(kp, ["Open CFBs", "RCA Not Done", "Over SLA", "Regression"].map(l => ({c: "q", v: "–", l, s: "No project is selected"}))); host.innerHTML = `<div class="empty">${whyEmpty("bugs")}</div>`; document.getElementById("ocfb-note").innerHTML = ""; document.getElementById("ocfb-cap").innerHTML = ""; return; }
+  if (!state.projects.size) { kpiCards(kp, ["Open CFBs", "RCA Not Done", "Over SLA", "Regression"].map(l => ({c: "q", v: "–", l, s: "No project is selected"}))); host.innerHTML = `<div class="empty">${whyEmpty("bugs")}</div>`; document.getElementById("ocfb-cap").innerHTML = ""; return; }
   const M = ocfbModel(), R = M.rows, n = R.length, asOf = iso(asOfDay());
   const sub = (list, what, extra) => list.length ? tlink(list.length, ocfbKeys(list), `${nn(list.length, "open CFB", "open CFBs")} ${what}${extra ? "\n" + extra : ""}`) : "0";
   const notDone = R.filter(r => r.rca === "not"), done = R.filter(r => r.rca === "done"), na = R.filter(r => r.rca === "na"), over = R.filter(r => r.late), reg = R.filter(r => r.b.rg);
@@ -2456,7 +2490,6 @@ function renderOpenCfb() {
     {c: "q", v: over.length ? tlink(over.length, href(`${ocfbBase()} AND ${OPEN_BUG_JQL}${bugTeamClause(state.teams)} AND (${overSlaJql()})`), `${nn(over.length, "open CFB", "open CFBs")} past their SLA\nAge is more than the SLA days for the priority, as of ${asOf}.`) : "0", l: "Over SLA", s: `of ${n} open ${n === 1 ? "CFB" : "CFBs"}`},
     {c: "q", v: reg.length ? tlink(reg.length, href(`${ocfbBase()} AND ${OPEN_BUG_JQL} AND regression = Yes${bugTeamClause(state.teams)}`), `${nn(reg.length, "open CFB", "open CFBs")} with Regression set to Yes`) : "0", l: "Regression", s: "Regression field is Yes"},
   ]);
-  document.getElementById("ocfb-note").innerHTML = followsRow(["Projects", "Teams"]);
   let inner = "";
   if (!n) { inner = `<div class="empty">No open CFBs in the selected ${state.teams.size ? "projects and teams" : "projects"}.</div>`; }
   else {
@@ -2621,18 +2654,6 @@ function providerCards(pairs) {                                  // one card per
 const depKeys = list => list.flatMap(x => [x.d.k, x.p.k]);
 
 let depBoardEl = null;
-// Dependency and Blocks links on the stories, tasks and bugs UNDER the epics of the release (not on the epics themselves): a separate fact, not on the board and not in the headline.
-function depStoryLine(m) {
-  const host = document.getElementById("dep-story"); if (!host) return;
-  const S = DATA.sdeps || [], info = DATA.sinfo || {}; host.innerHTML = "";
-  if (!S.length || !state.projects.size) return;
-  const epicLevel = new Set((DATA.deps || []).flatMap(([a, b]) => [a + "|" + b, b + "|" + a]));
-  const TEST_TYPES = ["Test", "Test Plan", "Test Execution", "Sub Test Execution"], notTest = k => !TEST_TYPES.includes((info[k] || {}).ty);
-  const open = S.filter(([a, b, , pe]) => !epicLevel.has(a + "|" + b) && pe.some(k => m.inScope.has(k)) && notTest(a) && notTest(b) && (info[a] || {}).s !== "Removed" && (info[b] || {}).s !== "Removed" && (info[a] || {}).s !== "Done" && (info[b] || {}).s !== "Done");
-  if (!open.length) return;
-  const same = open.filter(([a, b]) => a.split("-")[0] === b.split("-")[0]).length, keys = [...new Set(open.flatMap(([a, b]) => [a, b]))];
-  host.innerHTML = `${tlink(open.length, href(`key in (${keys.join(", ")})`), `${nn(open.length, "open story-level link", "open story-level links")} under epics of ${m.rel}\nStories, tasks and bugs; neither end Done. Not on the board.`)} story-level ${open.length === 1 ? "link sits" : "links sit"} under these epics (${same === open.length ? "all" : same} in one project); not on the board.`;
-}
 function renderDeps() {
   const m = depOpen(), {rel, scope, open} = m, host = document.getElementById("dep-body"), kp = document.getElementById("dep-kpis");
   const running = isRunning(rel);
@@ -2641,26 +2662,15 @@ function renderDeps() {
   const gapSrc = open, gapPool = gapSrc.filter(x => x.gap), ncPool = gapSrc.filter(x => x.nc), gaps = open.filter(x => x.gap);
   const epicsOf = list => new Set(depKeys(list)).size;                    // the figures count pairs; a link opens the epics at both ends
   const nOf = (list) => keyIn(depKeys(list)), all = m.openAll;
-  const otherTypes = (() => { const c = new Map(); all.filter(x => !x.epicsOnly).forEach(x => [x.d, x.p].forEach(r => { if (r.ty && r.ty !== "Epic") c.set(r.ty, (c.get(r.ty) || 0) + 1); }));
-    const nm = t => t.endsWith("y") ? t.slice(0, -1) + "ies" : t + "s", top = [...c.entries()].sort((a, b) => b[1] - a[1]).map(x => x[0]);
-    return top.length ? top.slice(0, 3).map(nm).join(", ") + (top.length > 3 ? " and other issue types" : "") : "other issue types"; })();
-  const extBlock = all.filter(x => x.extBlock);      // read from every open pair, at any issue type, whatever the quick filter
-  const keyInCap = list => { const h = keyIn(depKeys(list)); return h && h.length <= CY_URL_MAX ? h : null; };      // a list too long for Jira's front door is plain text, not a link
-  const dWord = n => n === 1 ? "dependency" : "dependencies";
-  const extLink = list => { if (!list.length) return null;      // the dependents by key, and the providers by key AND the project clause, so a provider that has since moved into a selected project or CXCROSS drops out in Jira
-    const h = href(`key in (${[...new Set(list.map(x => x.d.k))].join(", ")}) OR (key in (${[...new Set(list.map(x => x.p.k))].join(", ")}) AND project not in (${pkeys([...projectsAll.filter(p => state.projects.has(p)), DEP_CX])}))`);
-    return h && h.length <= CY_URL_MAX ? h : null; };      // a list too long for Jira's front door is plain text, not a link
-  const outsideClause = extBlock.length ? ` ${tlink(extBlock.length, extLink(extBlock), `${nn(extBlock.length, "open dependency", "open dependencies")} on a provider in a project that is not selected (${nn(epicsOf(extBlock), "issue", "issues")})\nNot CXCROSS; any issue type; neither end Done.`)} ${dWord(extBlock.length)} where an item in the selected projects waits on an external provider (not selected, not CXCROSS).` : "";
-  const withOthers = all.length > open.length ? `${tlink(all.length, nOf(all), `${nn(all.length, "open dependency", "open dependencies")} including links to other issue types\nAt least one end is an epic; the other is any issue type; neither end Done.`)} including links to ${esc(otherTypes)}` : "";
-  document.getElementById("dep-sub").innerHTML = !state.projects.size ? "" : open.length || all.length
-    ? `${tlink(open.length.toLocaleString("en-US"), nOf(open), `${nn(open.length, "open dependency", "open dependencies")} between epics\nNeither end is Done; ${m.leftOut ? `${nn(m.leftOut, "pair with a Done end is", "pairs with a Done end are")} left out` : "none left out"}.`)} open ${open.length === 1 ? "dependency" : "dependencies"} between epics; ${tlink(external.length, nOf(external), `${nn(external.length, "dependency blocking another project", "dependencies blocking other projects")}\nThe provider is in a selected project; the item it blocks is in an unselected project.`)} blocking external, ${tlink(gaps.length, nOf(gaps), `${nn(gaps.length, "schedule gap", "schedule gaps")}\n${GAP_SHORT}.`)} schedule ${gaps.length === 1 ? "gap" : "gaps"}, ${tlink(overdue.length, nOf(overdue), `${nn(overdue.length, "overdue dependency", "overdue dependencies")}\nThe provider's planned sprint has ended; the provider is not Done.`)} overdue.${outsideClause}${followsRow(["Release", "Projects", "Teams"])}` : "";
+  const nc = list => providerCards(list).length;          // the tiles count the cards on the board: one per provider epic, however many dependents it blocks
+  const cOpen = nc(open), cOver = nc(overdue), cExt = nc(external), cUnp = nc(unplanned), cGap = nc(gaps), cGapPool = nc(gapPool);
   if (!state.projects.size) kpiCards(kp, ["Open Dependencies", "Overdue", "Blocking External", "Not Planned", "Schedule Gaps"].map(l => ({c: "x", v: "–", l, s: "No project is selected"})));
   else kpiCards(kp, [
-    {c: "x", v: tlink(open.length, nOf(open), `${nn(open.length, "open dependency", "open dependencies")} between epics\nNeither end is Done; ${m.leftOut ? `${nn(m.leftOut, "pair with a Done end is", "pairs with a Done end are")} left out` : "none left out"}.`), l: "Open Dependencies", s: `between epics · touching ${epicsOf(open)} epics`},
-    {c: "x", v: tlink(overdue.length, nOf(overdue), `${nn(overdue.length, "overdue dependency", "overdue dependencies")}\nThe provider's planned sprint has ended; the provider is not Done.`), l: "Overdue", s: "planned sprint ended, provider not Done"},
-    {c: "x", v: tlink(external.length, nOf(external), `${nn(external.length, "dependency blocking another project", "dependencies blocking other projects")}\nThe provider is in a selected project; the item it blocks is in an unselected project.`), l: "Blocking External", s: "our epic blocks another project's"},
-    {c: "x", v: tlink(unplanned.length, nOf(unplanned), `${nn(unplanned.length, "dependency has", "dependencies have")} no planned sprint\nThe provider has no due date or Target Sprint, or the date is outside the sprint calendar.`), l: "Not Planned", s: "no due date or Target Sprint"},
-    {c: "x", v: tlink(gapPool.length, nOf(gapPool), `${nn(gapPool.length, "schedule gap", "schedule gaps")}, between epics\n${GAP_SHORT}.`), l: "Schedule Gaps", s: `provider planned in the dependent's sprint or later${ncPool.length ? `<br>${ncPool.length} not comparable` : ""}`},
+    {c: "x", v: tlink(cOpen, nOf(open), `${nn(cOpen, "open provider", "open providers")} between epics (${nn(open.length, "open dependency", "open dependencies")})\nNeither end is Done; ${m.leftOut ? `${nn(m.leftOut, "pair with a Done end is", "pairs with a Done end are")} left out` : "none left out"}.`), l: "Open Dependencies", s: `provider epics · touching ${epicsOf(open)} epics`},
+    {c: "x", v: tlink(cOver, nOf(overdue), `${nn(cOver, "overdue provider", "overdue providers")} (${nn(overdue.length, "dependency", "dependencies")})\nThe provider's planned sprint has ended; the provider is not Done.`), l: "Overdue", s: "planned sprint ended, provider not Done"},
+    {c: "x", v: tlink(cExt, nOf(external), `${nn(cExt, "provider blocking another project", "providers blocking other projects")} (${nn(external.length, "dependency", "dependencies")})\nThe provider is in a selected project; the item it blocks is in an unselected project.`), l: "Blocking External", s: "our epic blocks another project's"},
+    {c: "x", v: tlink(cUnp, nOf(unplanned), `${nn(cUnp, "provider has", "providers have")} no planned sprint (${nn(unplanned.length, "dependency", "dependencies")})\nThe provider has no due date or Target Sprint, or the date is outside the sprint calendar.`), l: "Not Planned", s: "no due date or Target Sprint"},
+    {c: "x", v: tlink(cGapPool, nOf(gapPool), `${nn(cGapPool, "provider has", "providers have")} a schedule gap (${nn(gapPool.length, "gap", "gaps")}), between epics\n${GAP_SHORT}.`), l: "Schedule Gaps", s: `provider planned in the dependent's sprint or later${ncPool.length ? `<br>${ncPool.length} not comparable` : ""}`},
   ]);
   document.getElementById("dep-cap").innerHTML = defs(howBody({id: "dep",
     bl: `Use this to find work that waits on another epic and may not be ready in time. Each card is an epic that other epics need (the provider), placed in the sprint it is planned for.`,
@@ -2684,21 +2694,23 @@ function renderDeps() {
       ["Overdue, as-of date", `the planned sprint ended before ${shortDate(asOfDay())}. It is a fact about dates, not a forecast.`],
       ["Schedule gap rule", `${esc(GAP_RULE)}`],
       ["Schedule gap, board and counts", `A provider card shows a Schedule Gap flag and lists each gap with both issues linked. The Schedule Gaps figure counts pairs in the chosen view; pairs that cannot be compared are counted apart.`],
-      ["Story-level links", `Dependency or Blocks links on stories, tasks or bugs under the epics of the release, neither end Done, test items not counted. They are not on the board and not in the figures.`],
       ["Issues outside the page", `${m.open.filter(x => x.outside).length ? `${m.open.filter(x => x.outside).length} open ${m.open.filter(x => x.outside).length === 1 ? "pair involves" : "pairs involve"} an issue that is not one of the epics this page holds (another project, an epic with no release version on this page, or another issue type). It shows the status, release, team and dates Jira had when the page first read it; Refresh reads such an issue once.` : "none in view."}`],
       ["Links", `a figure opens the issues at both ends by their keys: a fixed list taken from the page's data, not a search that Jira runs again. Jira shows each issue's current state.`],
       ["Board and table", `The quick filter changes the board and the table, not the figures. Cards are sorted by key, not by importance.`],
       ["Freshness", `Links, due dates and Target Sprints are updated by Refresh. Story-level links and the sprint calendar are read only when the page is built.`]
     ]}));
   // quick filter counts
-  const relCnt = k => all.filter(x => DEP_REL_FN[k](x) && depAttPass(x)).length, attCnt = k => all.filter(x => DEP_REL_FN[state.depRel](x) && DEP_ATT_FN[k](x)).length;      // each count is what choosing that option would show with the other row held
-  document.querySelectorAll("#f-dp .cnt, #f-da .cnt").forEach(s => { const k = s.dataset.k, n = DEP_REL.includes(k) ? relCnt(k) : attCnt(k); s.textContent = n; s.parentElement.title = `${n} open ${n === 1 ? "dependency" : "dependencies"} of ${all.length}`; });
+  const cardsOf = list => providerCards(list).length, allCards = cardsOf(all);                  // the counts are the cards on the board: one per provider epic, however many dependents it blocks
+  const relCnt = k => cardsOf(all.filter(x => DEP_REL_FN[k](x) && depAttPass(x))), attCnt = k => cardsOf(all.filter(x => DEP_REL_FN[state.depRel](x) && DEP_ATT_FN[k](x)));      // each count is what choosing that option would show with the other row held
+  const chipTip = {all: "Every open dependency, whoever is on the other end.", epics: "Both ends are in your selected projects.", external: "Your epic holds up another project's work.", blocking: "Your epic is waiting on another project's.", cx: "A shared CXCROSS epic is on one end.",
+    overdue: "Its planned sprint has ended and it is not Done.", unplanned: "No due date or Target Sprint to place it.", gap: "The provider lands after the sprint that needs it."};      // what each choice keeps, in a line
+  document.querySelectorAll("#f-dp .cnt, #f-da .cnt").forEach(s => { const k = s.dataset.k, n = DEP_REL.includes(k) ? relCnt(k) : attCnt(k); s.textContent = n; const c = s.parentElement; c.removeAttribute("title"); c.setAttribute("data-tip", `${n} of ${allCards} providers\n${chipTip[k] || ""}`); c.setAttribute("data-link", "0"); });
+  [["lbl-dpr", "Pick one. It chooses whose dependencies you look at."], ["lbl-da", "Tick any. A card stays if it matches at least one. Counts follow your pick above."]].forEach(([id, tip]) => { const e = document.getElementById(id); if (e) { e.setAttribute("data-tip", tip); e.setAttribute("data-link", "0"); } });
   const pool = all, shown = pool.filter(depPassFilter);
   if (!state.projects.size || !scope.length) host.innerHTML = `<div class="empty">${whyEmpty("epics")}</div>`;
   else if (!pool.length) host.innerHTML = `<div class="empty">No open dependencies in view for this selection${m.leftOut ? `; the ${m.leftOut} recorded ${m.leftOut === 1 ? "pair is" : "pairs are"} complete` : ""}.</div>`;
   else if (!shown.length) host.innerHTML = `<div class="empty">${state.depRel === "blocking" && !state.depAtt.size ? "No external item (not selected, not CXCROSS) blocks an item in the selected projects." : `No open dependencies match ${esc(depFilterText())}.${state.depAtt.has("gap") ? " Schedule Gaps only counts epic-to-epic pairs." : ""}`} ${DEP_CLEAR}</div>`;
   else host.innerHTML = boardHtml(shown, m) + depDataHtml(shown, m);
-  depStoryLine(m);
 }
 // The Schedule Gap flag: focusable, one short line per gap in the global tooltip (and in a visually hidden description), the affected dependents are highlighted while it is hovered or focused.
 const gapLines = c => { const g = c.gaps.slice().sort((x, y) => x.d.k.localeCompare(y.d.k, "en", {numeric: true}));
@@ -2728,7 +2740,7 @@ function boardHtml(shown, m) {
     if (cs.length || (!isEnded && (s.rel === state.release || isCur))) cols.push({key: s.n, title: sprintName(s), sub: `${s.rel} · ${s.start} to ${s.end}`, state: isEnded ? "Ended" : isCur ? "Current" : "", cards: cs});
   });
   cols.push({key: "none", title: "Not Planned", sub: "no due date and no known Target Sprint", state: "", cards: by.get("none") || []});
-  const nPairs = col => col.cards.reduce((a, c) => a + c.pairs.length, 0);
+  const nCards = col => col.cards.length;                           // a column's count is its cards
   const cardHtml = c => {
     const p = c.p, tip = recTip(p), inS = c.pairs.filter(x => x.dIn).map(x => x.d), outS = c.pairs.filter(x => !x.dIn).map(x => x.d);
     const gapKeys = new Set(c.gaps.map(x => x.d.k));
@@ -2743,11 +2755,11 @@ function boardHtml(shown, m) {
       (c.plan.override ? `<div class="bq">${esc(overrideNote(c.plan, p.dd))}</div>` : "") + (c.plan.outside ? `<div class="bq">Due date outside the sprint calendar</div>` : "") + (c.plan.unknownTs ? `<div class="bq">Target Sprint ${esc(p.ts)} is not in the sprint calendar</div>` : "") + (!c.plan.sprint && !c.plan.outside && !c.plan.unknownTs && noPlanData(p) ? `<div class="bq">${NO_PLAN_DATA}</div>` : "") + dl(inS, "Blocks in scope:") + dl(outS, inS.length ? "Also blocks outside scope:" : "Blocks outside scope:") + ncHtml +
       `<div class="bwith"><a href="${keyIn(keys) || "#"}" target="_blank" rel="noopener" ${tipAttr(`${nn(keys.length, "issue", "issues")}: the provider and the ${nn(c.pairs.length, "issue it blocks", "issues it blocks")}`, keyIn(keys))} aria-label="${esc(p.k + " and the issues it blocks")}. Opens ${keys.length} issues in Jira.">Open with Dependents</a></div></article>`;
   };
-  const colHtml = col => { const n = nPairs(col);
-    return `<div class="bcol" role="group" aria-label="${esc(col.title)}${col.state ? ", " + col.state : ""}, ${n} open ${n === 1 ? "dependency" : "dependencies"}"><div class="bh"><div class="bn1">${esc(col.title)}${col.state ? ` <span class="bst ${col.state === "Ended" ? "ended" : ""}">${col.state}</span>` : ""}</div><div class="bd">${esc(col.sub)}</div><div class="bc">${n} ${n === 1 ? "dependency" : "dependencies"}</div></div>` +
+  const colHtml = col => { const n = nCards(col);
+    return `<div class="bcol" role="group" aria-label="${esc(col.title)}${col.state ? ", " + col.state : ""}, ${n} open ${n === 1 ? "provider" : "providers"}"><div class="bh"><div class="bn1">${esc(col.title)}${col.state ? ` <span class="bst ${col.state === "Ended" ? "ended" : ""}">${col.state}</span>` : ""}</div><div class="bd">${esc(col.sub)}</div><div class="bc">${n} ${n === 1 ? "provider" : "providers"}</div></div>` +
       (col.cards.length ? col.cards.map(cardHtml).join("") : `<div class="bempty">None</div>`) + `</div>`; };
-  const total = shown.length;
-  return `<div class="cap" id="dep-showing" role="status">Showing ${total} of ${m.openAll.length} open${depFiltered() ? `: ${esc(depFilterText())}.` : " (all issue types)."} ${depFiltered() ? DEP_CLEAR : ""}</div>` +
+  const total = cards.length;
+  return `<div class="cap" id="dep-showing" role="status">Showing ${total} of ${providerCards(m.openAll).length} open providers${depFiltered() ? `: ${esc(depFilterText())}.` : " (all issue types)."} ${depFiltered() ? DEP_CLEAR : ""}</div>` +
     `<a class="skip" href="#h-nfr" data-skip="h-nfr">Skip to NFRs</a>` +
     `<div class="board" role="region" aria-label="Open dependencies by planned sprint, scrolls sideways" tabindex="0">${cols.map(colHtml).join("")}</div>`;
 }
@@ -3229,7 +3241,6 @@ function renderNfr() {
   const stat = l => ({ns: l.filter(e => cls(e.s) === "notStarted").length, ip: l.filter(e => e.s === "In Progress").length, val: l.filter(e => e.s === "Validation").length, done: l.filter(e => cls(e.s) === "done").length,
     oth: l.filter(e => cls(e.s) === "other" || (cls(e.s) === "flight" && !["In Progress", "Validation"].includes(e.s))).length, total: l.length});
   const T = stat(nfr), commitTxt = "all Commitment Types";
-  const both = nfr.filter(e => isLabel(e) && isCat(e)), lab = nfr.filter(e => isLabel(e) && !isCat(e)), cat = nfr.filter(e => !isLabel(e) && isCat(e));
   document.getElementById("nfr-sub").innerHTML = noProj ? "" : `${tlink(N, N ? jira({extra: NFR_Q}) : null, `${nn(N, "NFR epic", "NFR epics")} in ${rel} under the page filters`)} NFR ${N === 1 ? "epic" : "epics"}${N ? `; ${T.done} Done${N >= MIN_N ? ` (${pct(T.done, N)}%)` : ""}, ${T.ns} not started` : ""}.${followsRow(["Release", "Projects", "Teams"])}`;
   const fig = (n, extra, label, kind) => n ? tlink(n, jira({kind, extra: `${NFR_Q}${extra ? " AND " + extra : ""}`}), label ? `${n.toLocaleString("en-US")} of ${nn(N, "NFR epic", "NFR epics")} in ${rel}: ${label}; ${commitTxt}` : `${nn(N, "NFR epic", "NFR epics")} in ${rel} under the page filters`) : "0";
   const sub = n => N ? tipFocus(N >= MIN_N ? `${pct(n, N)}% of ${N.toLocaleString("en-US")}` : `${n} of ${N}`, `${n} of ${nn(N, "NFR epic", "NFR epics")} in ${rel}`) : "none in this selection";
@@ -3241,17 +3252,10 @@ function renderNfr() {
     {c: "nf", v: fig(T.val, "status = Validation", "in Validation"), l: "Validation", s: sub(T.val)},
     {c: "nf", v: fig(T.ns, "", "Not Started (includes In Definition)", "notStarted"), l: "Not Started", s: sub(T.ns)},
   ]);
-  const mk = (n, extra, tip) => n ? tlink(n, jira({extra: `${extra}`}), tip) : "0";
-  const noCap = nfr.filter(needsCap), noCapExempt = nfr.filter(e => !e.cp && capExempt(e)), noTeam = nfr.filter(e => !e.tm || !e.tm.length), noCommit = nfr.filter(e => !e.c), noDue = nfr.filter(e => !e.dd), noCatLabel = nfr.filter(e => !e.cat);
-  const gapLink = (label, list, extra) => `${esc(label)} ${list.length ? tlink(list.length, jira({extra: `${NFR_Q} AND ${extra}`}), `${nn(list.length, "NFR epic has", "NFR epics have")} ${label.replace(/^No /, "no ")}`) : "0"}`;
-  document.getElementById("nfr-facts").innerHTML = noProj ? "" :
-    `Matched by label ${mk(lab.length, `labels = ${NFR_LABEL} AND (cf[10139] is EMPTY OR cf[10139] not in (${NFR_CATEGORIES.map(q).join(", ")}))`, `${nn(lab.length, "epic matched", "epics matched")} by label only`)}, category ${mk(cat.length, `${NFR_CAT_IN} AND (labels is EMPTY OR labels != NFR)`, `${nn(cat.length, "epic matched", "epics matched")} by category only`)}, both ${mk(both.length, `labels = ${NFR_LABEL} AND ${NFR_CAT_IN}`, `${nn(both.length, "epic matched", "epics matched")} by both`)}.`+
-    `<br>Data gaps: ${gapLink("No Capability", noCap, NO_CAP_JQL)}${noCapExempt.length ? ` (${tlink(noCapExempt.length, jira({extra: `${NFR_Q} AND parent is EMPTY AND ${CAP_EXEMPT_IN}`}), capExemptTip(noCapExempt.length))} more exempt by Issue Category)` : ""} · ${gapLink("No Team", noTeam, "cf[10040] is EMPTY AND cf[10098] is EMPTY")} · ${gapLink("No Commitment Type", noCommit, "cf[10094] is EMPTY")} · ${gapLink("No Issue Category", noCatLabel, "cf[10139] is EMPTY")} · ${gapLink("No Due Date", noDue, "duedate is EMPTY")}.`;
   document.getElementById("nfr-cap").innerHTML = defs(howBody({id: "nfr",
     bl: `Use this to see how much of the release is non-functional work and where those epics sit. The tabs regroup the same NFR epics.`,
     defs: [
       ["NFR epic", `an epic with the label NFR (this exact spelling) or an Issue Category of ${NFR_CATEGORIES.map(esc).join(", ")}. Both are self-reported in Jira.`],
-      ["Matched by", `label only, category only, or both. The three counts add up to the NFR epics.`],
       ["Status shares", `each status as a share of the NFR epics under the filters, for 5 or more epics.`],
       ["Target-scope share", `Committed NFR epics over the target scope, the Forecast Epics number. It uses a different population from the headline count.`]
     ],
@@ -4240,6 +4244,43 @@ function renderTeamList() {
   list.querySelectorAll("input[data-allteams]").forEach(cb => cb.onchange = () => { state.teams = new Set(); update(); refocus("input[data-allteams]"); });         // All Teams is a real first row; empty means all
   list.querySelectorAll("button.only").forEach(b => b.onclick = () => { const t = b.dataset.only; state.teams = new Set([t]); update(); refocus(`button.only[data-only="${CSS.escape(t)}"]`); });
 }
+// ---------------------------------------------------------------- products: the Product switch, the Release choice (Major, Minor, Future), the notice
+const fmtDay = d => d ? new Date(d.slice(0, 10) + "T00:00:00Z").toLocaleDateString("en-GB", {day: "numeric", month: "short", year: "numeric", timeZone: "UTC"}) : "";
+function switchProduct(v) {
+  // between two products the reader stays on the section being read (the page opens at the top when the other product has no such section, or the reader is above the first one); to or from CXone the page opens at the top
+  const cur = SEC.top() ? "" : SEC.current(), keep = cur && v !== "cxone" && PRODUCT !== "cxone" && !PRODUCT_HIDDEN.includes(cur) ? cur : "";
+  const rev = Object.entries(DEEP_SECTIONS).find(([, id]) => id === keep), tok = [v === "cxone" ? "" : v.toLowerCase(), rev ? rev[0] : ""].filter(Boolean).join("~");
+  try { localStorage.setItem("dp.product", v); } catch (e) { /* not persisted */ }
+  try { history.scrollRestoration = "manual"; } catch (e) { /* the browser decides */ }          // a reload must not bring back the old scroll position into a page of another shape
+  try { history.replaceState(null, "", RUNTIME ? "#" + (tok || "cxone") : tok ? "#" + tok : "#" + (v === "cxone" ? "" : "prod=" + encodeURIComponent(v))); } catch (e) { /* no history */ }
+  location.reload();
+}
+function buildProductUi() {
+  if (!PRODUCT_NAMES.length) return;                               // a payload without products: the page is exactly as it was
+  const fp = document.getElementById("f-product");
+  document.getElementById("g-product").hidden = false;
+  fp.innerHTML = [["cxone", "CXone"], ...PRODUCT_NAMES.map(n => [n, n])].map(([v, n]) => `<option value="${esc(v)}">${esc(n)}</option>`).join("");
+  fp.value = PRODUCT;
+  fp.onchange = e => switchProduct(e.target.value);
+  if (PRODUCT === "cxone") return;
+  ["g-projects", "g-dc"].forEach(id => { document.getElementById(id).hidden = true; });          // one project: shown as text. The Release select stays and holds the one release chosen for you (the running Major)
+  document.getElementById("g-scope").hidden = false;
+  document.getElementById("prod-scope").textContent = PRODUCT;
+  const rs = document.getElementById("f-release"); rs.setAttribute("data-tip", `Release chosen automatically\nThe running Major of ${PRODUCT}, from the work in each version. Other releases are not shown.`); rs.setAttribute("data-link", "0");
+}
+function syncProductUi() {
+  if (!PRODUCT_NAMES.length) return;
+  document.getElementById("f-product").value = PRODUCT;
+  document.getElementById("g-product").classList.toggle("changed", PRODUCT !== "cxone");
+  if (PRODUCT === "cxone") return;
+  const R = PRODUCT_RES, rel = state.release, win = DATA.windows && DATA.windows[rel], who = rel.startsWith(PRODUCT) ? rel : `${PRODUCT} ${rel}`;
+  const others = [R.minor && `Minor ${R.minor.name}`, R.future && `Future ${R.future.name}`].filter(Boolean).join(", ");
+  const tip = `${who}: how this view is built\nThe release is chosen from the work in each version (rule ${R.rule}, ${(R.major.confidence || "").toLowerCase()} confidence, as of ${fmtDay(R.asOf)})${others ? "; not shown: " + others : ""}.\n` +
+    `Its Done, Removed and Commitment Type rules are verified only for CXone, and the scope is counted as it is today.\n` +
+    `Release date ${R.major.release ? fmtDay(R.major.release) : "none"}. ` + (win ? `Dates are Jira version dates (${fmtDay(win[0])} to ${fmtDay(win[1])})${(DATA.windowsDerived || []).includes(rel) ? ", except the start: Jira has none, so it is the day the first epic of the release was created" : ""}.` : `${rel} has no start and release date in Jira, so the burn-up has no calendar.`);
+  const note = document.getElementById("prod-note"); note.hidden = false;
+  note.innerHTML = tipFocus(`${esc(who)} is a product view, not comparable with the CXone views. ${win ? "Dates are Jira version dates." : "It has no dates in Jira, so the burn-up is not drawn."}`, tip, `${who} product view`);
+}
 function filterChanges() {
   const same = (a, b) => a.size === b.length && b.every(x => a.has(x));
   return {release: state.release !== DATA.current, projects: !same(state.projects, projectsAll), teams: state.teams.size > 0, dc: !dcState().all,
@@ -4271,9 +4312,10 @@ function syncControls() {
     document.querySelectorAll("#f-dc input").forEach(i => { const has = dcHas(d, i.value); i.disabled = !has; i.checked = i.value === pick; i.parentElement.classList.toggle("on", i.checked); i.parentElement.classList.toggle("dis", !has);
       i.parentElement.title = has ? "" : !d.win ? `Jira has no dated version for ${state.release}` : i.value === "both" ? `${state.release} ends by the end of W6, so it has only Cycle 1` : `${state.release} ends by the end of W6, so it has no ${DC_NAME(i.value)}`; });
     st.textContent = dcStatus(d); st.hidden = !st.textContent;
-    note.textContent = !d.win ? "" : !d.has2 ? "No Cycle 2: the release ends by W6" : d.all ? "" : "Delivery chart, Cycles and 2 tiles only"; note.hidden = !note.textContent; }      // what a single cycle changes is said while one is selected; with both shown nothing is narrowed, and the bar stays as tall as it was
+    note.textContent = !d.win ? "" : !d.has2 ? "No Cycle 2: the release ends by W6" : ""; note.hidden = !note.textContent; }      // the bar stays as tall as it was whichever cycle is selected: only the missing-Cycle-2 case adds a line
+  syncProductUi();
   const n = state.teams.size;
-  document.getElementById("f-teams-btn").textContent = n === 0 ? "All Teams" : n === 1 ? [...state.teams][0] : `${n} Teams`;
+  { const tb = document.getElementById("f-teams-btn"); tb.textContent = n === 0 ? "All Teams" : n === 1 ? [...state.teams][0] : `${n} Teams`; tb.title = n === 1 ? tb.textContent : ""; }
   renderTeamList();
 }
 // ---- scroll anchoring: a filter change re-renders sections whose heights change above the reader, so the block being looked at is kept at the same screen position.
@@ -4354,8 +4396,9 @@ function update(opts) {
   updateCore(); uiRestore(ui); anchorRestore(st);
 }
 function updateCore() {
-  syncControls(); saveState(); renderKpis(); renderStatus(); renderBurnup(); renderEfficiency(); renderCharts(); renderBugs(); renderCfb(); renderOpenCfb(); renderCfbAbout(); renderDeps(); renderAttention(); renderCapabilities(); renderCx(); renderNfr(); renderAdoption(); renderCapDone(); renderCycles();
-  renderBreakdowns(); renderDQ(); renderMeta(); tipPass(); nowrapDates(); fitSticky();
+  const CXO = PRODUCT === "cxone";                       // a product view draws no NFRs, CXCROSS, Capabilities, Cycles or Release Analysis (they are hidden: they rest on the CXone organisation and its releases)
+  syncControls(); saveState(); renderKpis(); renderStatus(); renderBurnup(); renderEfficiency(); CXO && renderCharts(); renderBugs(); renderCfb(); renderOpenCfb(); renderCfbAbout(); renderDeps(); renderAttention(); CXO && renderCapabilities(); CXO && renderCx(); CXO && renderNfr(); renderAdoption(); CXO && renderCapDone(); CXO && renderCycles();
+  CXO && renderBreakdowns(); CXO && renderDQ(); renderMeta(); tipPass(); nowrapDates(); fitSticky();
 }
 // ONE stamp in the header: the oldest time among the LIVE sources (every open and every click refreshes them; after a Refresh they all carry the refresh time, a failed step keeps its old time).
 // The two LIMITED sources (cycle time, Capitalization: first open of the day and the first two clicks) are named in the tooltip, and only when they differ from it. A copy with no connector has no limited tier: its stamp is the oldest of all.
@@ -4772,6 +4815,7 @@ async function linksRefresh(mcp, say, sinceDay) {
   return {pairs: DATA.deps.length, changed};
 }
 async function refresh(opts = {}) {
+  if (PRODUCT !== "cxone") return;                              // Refresh reads the CXone projects; a product view is rebuilt with the page
   const auto = !!(opts && opts.auto), btn = document.getElementById("refresh"), status = document.getElementById("status");
   if (!auto) { const now = Date.now(); if (refresh.last && now - refresh.last < 10000) return; refresh.last = now; }        // a manual retry is rate-limited; the automatic attempt happens once per page load
   const say = (msg, kind = "info") => {
@@ -4866,9 +4910,9 @@ if (DATA.schema != null && DATA.schema !== PAGE_SCHEMA) {      // a payload from
     } else if (m.classList.contains("info")) { const auto = text.startsWith("Updating live data"), step = (text.replace(/^Updating live data: /, "").match(/^([^:…]+?)(?::| from Jira|…|$)/) || [])[1]; put(`${auto ? "Updating live data" : "Refreshing"}${step ? ": " + step : ""}…`, true); }
     else put(baseline(), false);
   }).observe(status, {childList: true, subtree: true, characterData: true});
-  if (!RUNTIME) {                                              // the standalone file cannot read Jira: the button stays present, looks unavailable, and says why on hover or focus
+  if (!RUNTIME || PRODUCT !== "cxone") {                       // the standalone file cannot read Jira, and Refresh reads the CXone projects only: the button stays present, looks unavailable, and says why on hover or focus
     btn.classList.add("unavail"); btn.setAttribute("aria-disabled", "true"); btn.setAttribute("aria-describedby", "refresh-why");
-    why.textContent = "Live refresh works in the published page in Claude. This file shows the data as of the time beside it.";
+    why.textContent = PRODUCT !== "cxone" ? `Refresh covers the CXone projects. This ${PRODUCT} view shows the data of the last rebuild, as of the time beside it.` : "Live refresh works in the published page in Claude. This file shows the data as of the time beside it.";
     document.addEventListener("keydown", e => { if (e.key === "Escape") unit.classList.add("nowhy"); });
     ["mouseleave", "blur"].forEach(ev => btn.addEventListener(ev, () => unit.classList.remove("nowhy")));
   } else why.hidden = true;
@@ -4909,6 +4953,13 @@ if (DATA.schema != null && DATA.schema !== PAGE_SCHEMA) {      // a payload from
 // ---- the Section Strip: jump links scroll with script (the address hash holds the filters); a scrollspy marks the section being read.
 // Anchors are the section elements (Delivery Cycle Governance and Release Analysis are sections too, and their sub-blocks keep them lit). The reading line is the bottom of the sticky stack + 30% of the rest of the window.
 // An anchor counts as passed when it touches the region above the reading line or has scrolled above the window; the current item is the last passed anchor in page order. No scroll handler.
+const PRODUCT_HIDDEN = ["h-nfr", "h-cx", "h-capview", "h-cycles", "h-analysis"];                  // the sections a product view does not have
+if (PRODUCT !== "cxone") {                                       // the strip entry goes and the section is hidden before the strip reads its links; the sections stay in the page (their renderers are skipped in updateCore)
+  PRODUCT_HIDDEN.forEach(id => {
+    const a = document.querySelector(`#seclist a[data-jump="${id}"]`); if (a && a.parentElement) a.parentElement.remove();
+    const h = document.getElementById(id), sec = h && h.closest("section"); if (sec) sec.hidden = true;
+  });
+}
 const SEC = (() => {
   const nav = document.getElementById("secnav"), list = document.getElementById("seclist"), links = [...list.querySelectorAll("a")];
   const calm = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -4917,6 +4968,7 @@ const SEC = (() => {
   let io = null, cur = null, pinned = null, lineY = 0; const passed = new Map();
   const heading = id => document.getElementById(id);
   function setCur(id, also) {
+    if (cur !== id) window.dispatchEvent(new CustomEvent("dp-section", {detail: id}));      // the address follows the section being read (see deepWrite)
     cur = id;
     A.forEach(x => { const on = x.id === id; on ? x.a.setAttribute("aria-current", "location") : x.a.removeAttribute("aria-current"); x.a.classList.toggle("co", !!also && also.includes(x.id) && !on); });
     const a = A.find(x => x.id === id).a; links.forEach(l => { l.tabIndex = l === a ? 0 : -1; });                      // one Tab stop: the current item
@@ -4934,13 +4986,13 @@ const SEC = (() => {
   function reseed() { A.forEach(x => passed.set(x.el, x.el.getBoundingClientRect().top < lineY)); pick(); }
   function observe() {
     io && io.disconnect(); const vh = window.innerHeight; lineY = Math.round(STICK + (vh - STICK) * 0.3);
-    io = new IntersectionObserver(es => { es.forEach(e => passed.set(e.target, e.isIntersecting || e.boundingClientRect.top < 0)); pick(); }, {rootMargin: `0px 0px ${-(vh - lineY)}px 0px`, threshold: 0});
+    io = new IntersectionObserver(() => reseed(), {rootMargin: `0px 0px ${-(vh - lineY)}px 0px`, threshold: 0});      // only a trigger: in a cross-origin frame (the published page) the browser ignores rootMargin, so the reading line is always measured on the page itself (reseed)
     reseed(); new Set(A.map(x => x.el)).forEach(el => io.observe(el));
   }
-  function go(id, viaKey) {                                                         // the target is current at once and stays pinned until the scroll ends or the reader scrolls
+  function go(id, viaKey, instant) {                                                         // the target is current at once and stays pinned until the scroll ends or the reader scrolls
     const el = anchorOf(id), h = heading(id); if (!el || !h) return;
     pinned = id; setCur(id);
-    window.scrollTo({top: landingY(id), behavior: calm() ? "auto" : "smooth"}); h.focus({preventScroll: true});
+    window.scrollTo({top: landingY(id), behavior: calm() || instant ? "auto" : "smooth"}); h.focus({preventScroll: true});
     const free = () => { pinned = null; ["wheel", "touchmove", "keydown"].forEach(ev => window.removeEventListener(ev, free)); pick(); };
     setTimeout(() => ["wheel", "touchmove", "keydown"].forEach(ev => window.addEventListener(ev, free, {once: true, passive: true})), 0);          // after the event that started the jump
     if (!("onscrollend" in window)) setTimeout(() => { pinned = null; reseed(); }, 900);
@@ -4949,7 +5001,8 @@ const SEC = (() => {
     if (pinned) { const y = landingY(pinned); if (y != null && Math.abs(window.scrollY - y) <= 6) return; pinned = null; }
     reseed();
   }
-  list.addEventListener("click", ev => { const a = ev.target.closest("a"); if (!a) return; ev.preventDefault(); go(a.dataset.jump); });
+  const named = id => window.dispatchEvent(new CustomEvent("dp-section-go", {detail: id}));            // the reader chose this section: the address names it at once (see deepWrite)
+  list.addEventListener("click", ev => { const a = ev.target.closest("a"); if (!a) return; ev.preventDefault(); go(a.dataset.jump); named(a.dataset.jump); });
   list.addEventListener("keydown", ev => {                                          // roving focus: Left, Right, Home, End move between items, Enter jumps (a link), Esc goes to the current section's heading
     const k = ev.key;
     if (k === "Escape") { const h = heading(cur); if (h) { ev.preventDefault(); h.focus({preventScroll: true}); } return; }
@@ -4963,9 +5016,10 @@ const SEC = (() => {
     if (!ev.altKey || ev.ctrlKey || ev.metaKey || !["ArrowDown", "ArrowUp"].includes(ev.key)) return;
     const t = ev.target; if (t && (t.matches("input, textarea, select, [contenteditable]") || t.isContentEditable)) return;
     const i = A.findIndex(x => x.id === cur), n = Math.max(0, Math.min(A.length - 1, i + (ev.key === "ArrowDown" ? 1 : -1)));
-    ev.preventDefault(); go(A[n].id, true);
+    ev.preventDefault(); go(A[n].id, true); named(A[n].id);
   });
   window.addEventListener("scrollend", settle);
+  let spyRaf = 0; window.addEventListener("scroll", () => { if (spyRaf || pinned) return; spyRaf = requestAnimationFrame(() => { spyRaf = 0; reseed(); }); }, {passive: true});      // the section being read follows the scroll (one measurement of the strip's sections per frame)
   let rt; const refit = () => { fitSticky(); clearTimeout(rt); rt = setTimeout(observe, 150); };
   window.addEventListener("resize", refit); if (window.ResizeObserver) { new ResizeObserver(refit).observe(filtersEl); new ResizeObserver(refit).observe(nav); }
   const top = () => { if (pinned || !A.length) return false; const atEnd = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2; return !atEnd && !A.some(x => passed.get(x.el)); };      // above the first section anchor: the headline tiles
@@ -4990,12 +5044,41 @@ document.getElementById("footer").innerHTML = `<details class="vd"><summary>How 
       ["Cycles section", `follows the Release, Projects, Teams and Delivery Cycle filters, and its own cycle choice picks one of the cycles the filter leaves in. It uses the same epics as the rest of the page. It states facts only: no verdict, no rating of a group.`],
       ["Scope of use", `Counts describe programs, releases and teams.`]
     ]})}</div></details>`;
-if (RUNTIME) slowLoad();                                     // the last limited refresh kept in this browser, before anything is drawn
-capInit(); cyInit(); loadState(); buildFilters(); update({anchor: false}); fitSticky(); SEC.observe();
+if (RUNTIME && PRODUCT === "cxone") slowLoad();                                     // the last limited refresh kept in this browser, before anything is drawn
+capInit(); cyInit(); loadState(); buildFilters(); buildProductUi(); update({anchor: false}); fitSticky(); SEC.observe();
+// ---------------------------------------------------------------- deep links: open on the section a #token names, and copy a link to the section being read
+function deepOpen() {
+  const id = DEEP.id, h = id && document.getElementById(id), sec = h && h.closest("section");
+  if (!h || (sec && sec.hidden)) return;                              // that section is not in this view: the page opens as usual
+  let stopped = false;
+  ["wheel", "touchstart", "keydown", "mousedown"].forEach(ev => window.addEventListener(ev, () => { stopped = true; }, {once: true, passive: true}));
+  const root = document.documentElement; root.classList.add("deeplanding");
+  ["keydown", "mousedown", "touchstart"].forEach(ev => window.addEventListener(ev, () => root.classList.remove("deeplanding"), {once: true, passive: true}));      // the reader takes over: no more corrections
+  const put = () => { if (stopped) return; const y = landingY(id); if (y != null && Math.abs(window.scrollY - y) > 3) window.scrollTo({top: y, behavior: "instant"}); };
+  if (SEC.has(id)) SEC.go(id, false, true); else { put(); h.focus({preventScroll: true}); }
+  [150, 600, 1500, 3500].forEach(ms => setTimeout(put, ms));         // the page grows while it settles (fonts, the first Refresh): land on the section again
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(put);
+}
+if (DEEP && DEEP.id) deepOpen();
+if (history.scrollRestoration === "manual") setTimeout(() => { try { history.scrollRestoration = "auto"; } catch (e) { /* stays */ } }, 4000);      // set by a product switch for this one load
+const deepToken = id => {                                             // [product~]section for a section id; the product alone at the top of a product view
+  const rev = Object.entries(DEEP_SECTIONS).find(([k, v]) => v === id), prod = PRODUCT === "cxone" ? "" : PRODUCT.toLowerCase();
+  return [prod, rev ? rev[0] : ""].filter(Boolean).join("~");
+};
+let deepWriteAt = 0, deepSettled = !(DEEP && DEEP.id);              // a link that names a section: the address is left alone until the page has landed on it and the reader moves
+if (!deepSettled) { const done = () => { deepSettled = true; }; setTimeout(done, 4000); ["wheel", "touchstart", "keydown", "mousedown"].forEach(ev => window.addEventListener(ev, done, {once: true, passive: true})); }
+if (RUNTIME) window.addEventListener("dp-section-go", e => {                  // a click on the strip: no waiting for the scroll to settle
+  clearTimeout(deepWriteAt); deepSettled = true;
+  try { history.replaceState(null, "", "#" + deepToken(e.detail)); } catch (x) { /* the address stays as it was */ }
+});
+if (RUNTIME) window.addEventListener("dp-section", e => {
+  clearTimeout(deepWriteAt);
+  deepWriteAt = setTimeout(() => { if (!deepSettled) return; try { history.replaceState(null, "", "#" + deepToken(e.detail)); } catch (x) { /* the address stays as it was */ } }, 350);
+});
 // Live data on open (the published page with the connector only): one automatic Refresh after the first paint, on EVERY open: a reload never shows older data. LIVE_GUARD_MS is the length of the old guard (skip when the last
 // refresh without a failed step was younger); 0 = none, 15 * 60 * 1000 restores the 15-minute guard. The limited tier runs only on the first open of the Israel day (SLOW_AUTO). A local file has no connector and says it is a snapshot.
 const LIVE_GUARD_MS = 0;
-if (RUNTIME) setTimeout(() => { let recent = false; try { const l = Number(localStorage.getItem("dp.lastRefresh")); recent = LIVE_GUARD_MS > 0 && l && Date.now() - l < LIVE_GUARD_MS; } catch (e) { /* no storage */ }
+if (RUNTIME && PRODUCT === "cxone") setTimeout(() => { let recent = false; try { const l = Number(localStorage.getItem("dp.lastRefresh")); recent = LIVE_GUARD_MS > 0 && l && Date.now() - l < LIVE_GUARD_MS; } catch (e) { /* no storage */ }
   const fresh = LIVE_GUARD_MS > 0 && Date.now() - new Date(DATA.refreshedAt || DATA.generated) < LIVE_GUARD_MS; if (!recent && !fresh && !refresh.busy) refresh({auto: true}); }, 600);
 if (!RUNTIME && /(^|&)ct=/.test(location.hash.slice(1))) {                  // a shared link with ct=<node> opens at the top of that detail view; the page above it is still settling (charts, fonts), so the jump is repeated until the reader scrolls
   let moved = false; const stop = () => { moved = true; };

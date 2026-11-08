@@ -416,23 +416,12 @@ def check_axis(p: list, R: Recount, B: dict, A: dict, universe: list, r: dict, t
     wa, wz = s // 7 + 1, (jround(D / 7) if kind != "c1" else e // 7 + 1)
     a_, z_ = R.date(s), R.date(e)
     plural = lambda n: "epic" if n == 1 else "epics"
-    if kind == "all":
-        want_plain = None
-    elif A["before"]:
-        want_plain = f"Delivery Cycle 2 starts {a_}. Planned pace from the {nP:,} {plural(nP)} Delivery Cycle 1 plans to deliver to the release scope; Done is shown from W{wa}."
-    elif kind == "c1":
-        want_plain = (f"Delivery Cycle 1: W{wa} to W{wz} ({a_} to {z_}). The numbers are the whole release's: Done is cumulative since the release start. "
-                      f"The even-pace line goes from zero to the {nP:,} {plural(nP)} Delivery Cycle 1 plans to deliver by the end of W{wz}." + (f" Window closed on {z_}." if A["closed"] else ""))
-    else:
-        want_plain = (f"Delivery Cycle 2: W{wa} to W{wz} ({a_} to {z_}). The numbers are the whole release's: Done is cumulative since the release start, so the line starts at the "
-                      f"{A['carry']:,} {plural(A['carry'])} Done at the end of W{wa - 1}. The even-pace line goes from there to the release scope at the release end.")
+    want_plain = None                                          # the plain-words paragraph under the headline is gone in every view (the chart and the filter say which cycle is shown)
     got_plain = r.get("plain")
     if got_plain != want_plain:
         p.append(f"{tag} the plain-words line is {got_plain!r}, expected {want_plain!r}")
-    if kind == "all" and ax["hasPlain"]:
-        p.append(f"{tag} the plain-words element exists with every cycle shown")
-    if kind != "all" and "whole release" not in (got_plain or "") and not A["before"]:
-        p.append(f"{tag} the plain line does not say that the numbers are the whole release's")
+    if ax["hasPlain"]:
+        p.append(f"{tag} the plain-words element exists")
     c1_part = f", {nP} planned by the end of the window" if kind == "c1" else f" against a scope of {N}"
     want_aria = f"Burnup for {R.rel}, weeks {wa} to {wz}: {A['done_n']} epics Done{c1_part}" + (f", {nm}" if nm else "") + (f"; {nm.split(' only')[0]} has not started" if A["before"] else "") + ". Daily values are in the data table below."
     if r["svgAria"] != want_aria:
@@ -495,13 +484,11 @@ def check_view(t_problems: list, data: dict, universe: list, h: str, r: dict, la
     B = R.burnup()
     word = "" if R.all else f"Delivery Cycle {sorted(R.shown)[0]} only"
     # ---- the chart says which cycles it shows
+    if r["sub"] and ("last epic closed" in r["sub"] or "only" in r["sub"].split("\u00b7")[-1]):
+        p.append(f"{tag} the burnup subtitle carries 'last epic closed' or the cycle name again: {r['sub']!r}")
     if word:
-        if word not in (r["sub"] or "") and not r["empty"]:
-            p.append(f"{tag} the burnup subtitle does not say '{word}': {r['sub']!r}")
         if not r["empty"] and (word not in (r["svgText"] or "") or word not in (r["svgAria"] or "")):
             p.append(f"{tag} the chart itself (drawn text and aria-label) does not say '{word}'")
-    elif r["sub"] and "only" in r["sub"].split("·")[-1]:
-        p.append(f"{tag} the subtitle names a cycle with every cycle shown: {r['sub']!r}")
     if r["empty"] is not None and "planned in Delivery Cycle" in r["empty"]:
         p.append(f"{tag} the burnup shows a notice about epics planned in a cycle: the chart is the whole release, whatever cycle is ticked ({r['empty']!r})")
     if r["empty"] is not None and r["rows"] == []:
@@ -509,12 +496,16 @@ def check_view(t_problems: list, data: dict, universe: list, h: str, r: dict, la
     # ---- every row of Show data: Scope, Done, Remaining
     N, series, snap_d, D = B["N"], B["series"], B["snap_d"], B["D"]
     head = r["head"]
-    c1cols = ["Delivery Cycle 1 Planned", "Delivery Cycle 1 Done"]
-    want_c1 = D >= 41 and 1 in R.shown
-    if (head[5:] == c1cols) != want_c1:
-        p.append(f"{tag} the Delivery Cycle 1 columns are {'present' if head[5:] == c1cols else 'absent'}, expected {'present' if want_c1 else 'absent'} (cycles shown {sorted(R.shown)}, {D} days)")
+    if head != ["Date", "Week", "Scope", "Done", "Remaining"]:
+        p.append(f"{tag} the table columns are {head}, expected Date, Week, Scope, Done, Remaining (no Delivery Cycle 1 columns)")
     A = R.axis(B)
-    want_days = set(A["grid"]) | ({snap_d, D} | ({41} if want_c1 else set()) if A["kind"] == "all" else ({snap_d} if not A["before"] and A["s"] <= snap_d <= A["e"] else set()) | {A["e"]})
+    cand = set(A["grid"]) | ({snap_d, D} if A["kind"] == "all" else ({snap_d} if not A["before"] and A["s"] <= snap_d <= A["e"] else set()) | {A["e"]})
+    wk_of = lambda d: (min(d, D - 1) // 7 + 1) if min(d, D - 1) >= 0 else 1
+    by_week: dict = {}
+    for d in sorted(cand):                                         # one row per week: its first day, except the week of the latest day, which shows that day
+        if wk_of(d) not in by_week or (d == snap_d and A["s"] <= snap_d <= A["e"]):
+            by_week[wk_of(d)] = d
+    want_days = set(by_week.values())
     if [row[0] for row in r["rows"]] != [R.date(d) for d in sorted(want_days)]:
         p.append(f"{tag} the table rows are {[row[0] for row in r['rows']]}, expected the days {[R.date(d) for d in sorted(want_days)]}")
     for row in r["rows"]:
@@ -527,8 +518,6 @@ def check_view(t_problems: list, data: dict, universe: list, h: str, r: dict, la
             break
         if row[1] != f"W{min(d, D - 1) // 7 + 1}":
             p.append(f"{tag} row {row[0]}: week {row[1]}, expected W{min(d, D - 1) // 7 + 1}")
-        if want_c1 and d == 41 and row[5:7] != [str(len(B["within"])), str(len(B["within_done"]))]:
-            p.append(f"{tag} Delivery Cycle 1 columns at the cycle end {row[5:7]}, the recount {[len(B['within']), len(B['within_done'])]}")
     if r.get("axis"):
         check_axis(p, R, B, A, universe, r, tag)
     # ---- the Delivery Cycle 1 line
@@ -737,7 +726,7 @@ def _(t: T):
     ch.js("document.querySelector('#f-dc input[value=\"2\"]').click()")
     time.sleep(0.4)
     mid = ch.js(snap)
-    t.check(mid["plain"] and mid["svg"] != before["svg"] and "Delivery Cycle 2 only" in mid["svg"] and ">W1<" not in mid["svg"], "Cycle 2 picked: the axis is Cycle 2's and the plain-words line appears")
+    t.check(not mid["plain"] and mid["svg"] != before["svg"] and "Delivery Cycle 2 only" in mid["svg"] and ">W1<" not in mid["svg"], "Cycle 2 picked: the axis is Cycle 2's and no plain-words line appears")
     t.check(mid["tip"] in ("none", "gone") and mid["cross"] in ("none", "gone"), f"no stale tooltip or crosshair after the filter changed: {mid['tip']} {mid['cross']}")
     t.check("dc=2" in ch.js("location.hash") and ">W7<" in mid["svg"], "the address names dc=2 and the chart starts at W7")
     ch.js("document.querySelector('#f-dc input[value=\"both\"]').click()")
@@ -749,7 +738,7 @@ def _(t: T):
         kit.wait_ready(ch)
         time.sleep(0.2)
         x = ch.js(snap)
-        t.check(first in x["svg"] and last in x["svg"] and x["plain"], f"#{h}: the axis runs {first} to {last}")
+        t.check(first in x["svg"] and last in x["svg"] and not x["plain"], f"#{h}: the axis runs {first} to {last}")
         t.check((">W1<" in x["svg"]) == (first == ">W1<") and (">W7<" in x["svg"]) == (first == ">W7<"), f"#{h}: only its own weeks")
         t.check(not ch.console_errors(), f"#{h}: console errors {ch.console_errors()[:2]}")
 
@@ -1049,7 +1038,7 @@ def header_probs(ch, url: str, short_url: str, data: dict, short_data: dict, ful
                 p.append(f"{tag}: the address is {f['hash']}")
             if f["status"] != want_status(win, to):
                 p.append(f"{tag}: the status line says {f['status']!r}, expected {want_status(win, to)!r}")
-            if (f["note"] or "") != ("" if to == "both" else "Delivery chart, Cycles and 2 tiles only"):
+            if (f["note"] or "") != "":
                 p.append(f"{tag}: the scope note says {f['note']!r}")
             if f["changed"] != (to != "both") or f["reset"] != ("Reset Filters" if to == "both" else "Reset Filters (1)"):
                 p.append(f"{tag}: the changed-filter marker is {f['changed']} and the button says {f['reset']!r}")
@@ -1144,8 +1133,8 @@ def _(t: T):
         t.check(f["status"] == want_status(win, v), f"{LABELS[v]}: the status line says {f['status']!r}, expected {want_status(win, v)!r}")
         t.check(f["live"].startswith(say), f"{LABELS[v]}: a polite announcement for a screen reader: {f['live']!r}")
         t.check(ch.js("getComputedStyle(document.getElementById('f-dc-status')).display") != "none", f"{LABELS[v]}: the status line is visible")
-        t.check((f["note"] or "") == ("" if v == "both" else "Delivery chart, Cycles and 2 tiles only"), f"{LABELS[v]}: the scope note (what one cycle changes) shows while a single cycle is selected: {f['note']!r}")
-        t.check(ch.js("getComputedStyle(document.getElementById('f-dc-note')).display === 'none'") == (v == "both"), f"{LABELS[v]}: the empty note takes no room")
+        t.check((f["note"] or "") == "", f"{LABELS[v]}: no scope note is added under the Delivery Cycle filter, so the filter bar keeps its height: {f['note']!r}")
+        t.check(ch.js("getComputedStyle(document.getElementById('f-dc-note')).display === 'none'") is True, f"{LABELS[v]}: the empty note takes no room")
     # the status line is what the page shows, so it follows a release change too (this fixture's 27.2 has the same 12 weeks)
     ch.js("(() => { const s = document.getElementById('f-release'); s.value = '27.2'; s.dispatchEvent(new Event('change', {bubbles: true})); })()")
     time.sleep(0.4)
@@ -1345,7 +1334,6 @@ MUTANTS = [
     ("the headline does not stop at the end of Delivery Cycle 1", "const shownDone = closed ? done[de] : dn.length, since = closed ? done[snapD] - done[de] : 0;", "const shownDone = dn.length, since = 0;"),
     ("the Done link of a closed Delivery Cycle 1 is unbounded", "...(closed ? {extra: `resolutiondate < \"${iso(w1 + (de + 1) * DAY)}\"`} : {})", ""),
     ("the keyboard leaves the window", "kd = ev.key === \"Home\" ? ds : de; dayAt(kd);", "kd = ev.key === \"Home\" ? 0 : D; dayAt(kd);"),
-    ("the plain-words line is shown with both cycles", "if (dc.all || !win) { if (pl0) pl0.remove(); }", "if (!win) { if (pl0) pl0.remove(); }"),
     ("the last day of a narrowed axis has no tick", "const endTick = kind !== \"all\" && (de - ds) % tickEvery !== 0;", "const endTick = false;"),
     ("the Cycle 1 end marker says release end", "`end of ${cy1} ${shortDate(w1 + de * DAY)}`", "`release end ${shortDate(end)}`"),
     ("the even-pace readout ignores the window", "const pace = Math.round(paceAt(d));", "const pace = Math.round(D ? N * d / D : 0);"),
@@ -1401,7 +1389,7 @@ HEADER_MUTANTS = [
     ("the group is not a radio group", "role=\"radiogroup\" aria-labelledby=\"lbl-dc\"", "role=\"group\" aria-labelledby=\"lbl-dc\""),
     ("the selected option does not follow the state", "i.checked = i.value === pick;", "i.checked = i.value === \"both\";"),
     ("a single cycle is not marked as a changed filter", "dc: !dcState().all,", "dc: false,"),
-    ("the scope note is missing while one cycle is selected", "d.all ? \"\" : \"Delivery chart, Cycles and 2 tiles only\"", "\"\""),
+    ("a single cycle adds a scope line to the filter bar", "\"No Cycle 2: the release ends by W6\" : \"\"; note.hidden", "\"No Cycle 2: the release ends by W6\" : d.all ? \"\" : \"Delivery chart only\"; note.hidden"),
     ("a release with one cycle keeps Both cycles enabled", "const dcHas = (d, v) => v === \"both\" ? d.has2 : d.ids.includes(v);", "const dcHas = (d, v) => v === \"both\" ? true : d.ids.includes(v);"),
 ]
 

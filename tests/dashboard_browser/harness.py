@@ -1201,14 +1201,14 @@ def _(t: T):
     a = r["after"]
     t.check(not r["timed_out"] and a["stampTxt"] == "Data as of " + il_label(live_oldest(a)), f"after a live-only refresh the header is the oldest of the five live sources -> {a['stampTxt']}")
     t.check("Cycle time not refreshed yet; Capitalization not refreshed yet." in a["stampTip"] and "0 of 2 Refresh clicks left today." in a["stampTip"], f"the tooltip names the limited sources and the clicks left -> {a['stampTip']!r}")
-    t.check(a["effNote"].startswith("Cycle time: not refreshed yet; Refresh updates it up to twice a day.") and a["raNote"] == "Cycle time and Capitalization: not refreshed yet; Refresh updates them up to twice a day.", f"Efficiency and Release Analysis say it -> {a['effNote']!r} {a['raNote']!r}")
+    t.check(a["effNote"] == "" and a["raNote"] == "Cycle time and Capitalization: not refreshed yet; Refresh updates them up to twice a day.", f"Efficiency and Release Analysis say it -> {a['effNote']!r} {a['raNote']!r}")
     t.check("not refreshed yet" in a["capNote"], f"and so does the Capitalization caption -> {a['capNote'][-60:]}")
     t.check(not any("build" in x.lower() for x in (a["effNote"], a["raNote"], a["capNote"], a["stampTip"], r["status"])), "no note, caption, tooltip or status talks about a build")
     r2 = scenario("ok", sr="none", **kw)
     b = r2["after"]
     t.check(b["stampTxt"] == "Data as of " + il_label(live_oldest(b)), f"after a full refresh the header is still the oldest live source -> {b['stampTxt']}")
     t.check("not refreshed yet" not in b["stampTip"] and " as of " not in b["stampTip"] and "1 of 2 Refresh clicks left today." in b["stampTip"], f"the limited line is absent when the sources agree -> {b['stampTip']!r}")
-    t.check(b["effNote"].startswith(f"Cycle time: refreshed {il_label(b['edctAt'])};") and b["raNote"].startswith("Cycle time and Capitalization: refreshed ") and f"refreshed {il_label(b['capAt'])}" in b["capNote"], f"the notes carry the refresh times -> {b['effNote']!r}")
+    t.check(b["effNote"] == "" and b["raNote"].startswith("Cycle time and Capitalization: refreshed ") and f"refreshed {il_label(b['capAt'])}" in b["capNote"], f"the notes carry the refresh times -> {b['effNote']!r}")
     # a copy with no connector has no limited tier and none of these notes
     ch = ctx.chrome
     ch.goto(ctx.write(build_fixture().fragment, "plain"))
@@ -1225,7 +1225,7 @@ def _(t: T):
     t.check(a["noEdctRow"]["n"] == b["noEdctRow"]["n"] and naive == a["noEdctRow"]["n"] + 1, f"the newly Done epic is not counted as a missing cycle time (row {b['noEdctRow']['n']} -> {a['noEdctRow']['n']}, {naive} Done without one)")
     t.check("1 more wait for the next cycle-time refresh" in a["noEdctRow"]["note"], f"the row says it waits -> {a['noEdctRow']['note']}")
     t.check("rebuild" not in r["status"] and "newly Done" not in r["status"], f"the status does not say it needs a rebuild -> {r['status'][-120:]}")
-    t.check("1 epic that closed since then is not counted yet." in a["effNote"], f"the Efficiency note counts it -> {a['effNote']!r}")
+    t.check(a["effNote"] == "", f"no note under the Efficiency chart announces a normal refresh -> {a['effNote']!r}")
     t.check("wait for the next cycle-time refresh" in ctx.chrome.js("document.body.textContent"), "and the Needs Attention row shows the note")
     r2 = scenario("ok", ls="recent", click=True, sr="none", cache=False)
     t.check(r2["after"]["noEdctRow"]["n"] == b["noEdctRow"]["n"] and "wait for" not in r2["after"]["noEdctRow"]["note"] and "not counted yet" not in r2["after"]["effNote"], f"with the cycle-time step run the count is the same and nothing waits ({r2['after']['noEdctRow']})")

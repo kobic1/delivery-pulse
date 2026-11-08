@@ -85,7 +85,7 @@ def test_render_writes_schema_defs_and_build_stamp_and_drops_the_dead_keys(tmp_p
     monkeypatch.setattr(BD, "sprint_calendar", lambda labels: [])
     BD.render(synthetic_payload())
     page = (tmp_path / "artifact.html").read_text(encoding="utf-8")
-    m = re.search(r"const DATA = (\{.*?\});\n", page, re.S)
+    m = re.search(r"const DATA_ALL = (\{.*?\});\n", page, re.S)
     payload = json.loads(m.group(1))
     assert payload["schema"] == BD.SCHEMA and payload["defs"] == BD.definitions()
     assert set(payload["build"]) == {"sha", "dirty", "at"}

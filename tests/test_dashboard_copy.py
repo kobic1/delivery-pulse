@@ -216,7 +216,7 @@ def test_dependencies_have_one_disclosure_and_the_gap_rule_has_its_reason():
     assert m and "equal due dates are a gap" in m.group(1) and "X is not planned to finish before Y's sprint" in m.group(1)
 
 
-MANDATED = ["test items not counted", "Open means a status other than Done, Ready for Deploy, Closed, Resolved or Removed", "Release windows run from the Jira version start",
+MANDATED = ["Open means a status other than Done, Ready for Deploy, Closed, Resolved or Removed", "Release windows run from the Jira version start",
             "values are printed on top of each bar", "The dependency board keeps the due date over the Target Sprint",
             "Rows are sorted by title and columns follow the standard project order", "Removed excluded", "implemented by an AI agent", "nothing here ranks or scores"]
 
@@ -330,17 +330,14 @@ def test_blocking_external_scope_is_the_only_outside_scope_chip_and_says_what_it
     # the rule: the provider's project is neither a selected project nor CXCROSS, compared as whole keys
     assert re.search(r'extBlock: inScope\.has\(a\) && !state\.projects\.has\(p\.p\) && p\.p !== DEP_CX\}', TEMPLATE)
     assert 'const DEP_CX = "CXCROSS";' in TEMPLATE and "startsWith(DEP_CX)" not in TEMPLATE and "includes(DEP_CX)" not in TEMPLATE
-    assert "blocking: x => x.extBlock" in TEMPLATE and "const extBlock = all.filter(x => x.extBlock)" in TEMPLATE
+    assert "blocking: x => x.extBlock" in TEMPLATE
     # the headline clause, the empty state, the definition, the Direction column
-    assert "where an item in the selected projects waits on an external provider (not selected, not CXCROSS)." in TEMPLATE
     assert "No external item (not selected, not CXCROSS) blocks an item in the selected projects." in TEMPLATE
     dep = BLOCKS["dep"]
     assert '["Blocked by External", `an item in the selected projects waits on a provider in a project that is not selected and is not CXCROSS' in dep
     assert "CXCROSS items are in the CXCROSS quick filter and the CXCROSS section." in dep
     assert "Blocked by outside scope" not in dep and "Blocking outside scope" not in dep
     assert 'x.extBlock ? "Waits on external scope"' in TEMPLATE
-    # the headline link is a query with the project clause, inside the URL budget
-    assert "project not in (${pkeys([...projectsAll.filter(p => state.projects.has(p)), DEP_CX])})" in TEMPLATE and "h.length <= CY_URL_MAX" in TEMPLATE
 
 
 # ---- the four proactive tiles of the Cycles Pods block (Not-Started Epics Due Within 7 Days, Waiting Dependents Due Soon, Pods To Level, In-Progress Epics Without a Pod Label)
@@ -381,7 +378,7 @@ def test_the_proactive_tiles_are_defined_in_the_cycles_disclosure_with_their_thr
         assert name in cy, name
     # the numbers come from the named constants, not from literals typed twice
     assert "${Math.round(CY.levelSpread * 100)}%" in cy and "at least ${MIN_N} in-progress" in cy and "${CY.next} days later" in cy
-    assert "the later date counts (the later of the due date and the Target Sprint end)" in cy              # the owner confirmed: the later date counts
+    assert "whose planned date (the due date, else the Target Sprint end) is from the as-of date up to ${CY.next} days later" in cy              # the owner confirmed: the due date wins, the Target Sprint end only without one
     assert "the due date first, else the Target Sprint end" in cy                                          # the dependency rule for the waiting item
     assert "A team is flagged when its busiest and lightest pods differ by" in cy and "of the team's in-progress epics" in cy
     assert "A pod takes part when it has an epic in ${esc(state.release)} that is not Done" in cy
@@ -451,7 +448,7 @@ def test_the_two_delivery_tiles_follow_the_delivery_cycle_filter_and_the_others_
     assert "dcState(" in helper and "dcDomain(" in helper and "w6Model(" in helper and "CY_URL_MAX" in helper        # the burnup's own helpers and the link budget
     status = TEMPLATE.split("function renderStatus() {", 1)[1].split("// Plain facts shown under the headline numbers", 1)[0]
     assert "dcState" not in status and "state.dc" not in status and "dcWord" not in status
-    assert "Delivery chart, Cycles and 2 tiles" in TEMPLATE and "Delivery chart and Cycles only" not in TEMPLATE and "Delivery chart and Cycles:" not in TEMPLATE
+    assert "Delivery chart, Cycles and 2 tiles" not in TEMPLATE and "Delivery chart and Cycles only" not in TEMPLATE and "Delivery chart and Cycles:" not in TEMPLATE
 
 
 def test_the_cycles_section_says_how_the_filter_changes_it():

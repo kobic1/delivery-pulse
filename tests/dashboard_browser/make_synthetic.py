@@ -273,6 +273,7 @@ class Gen:
             "generated": il_stamp(gen_day, 8, 30), "jiraBase": JIRA_BASE, "projects": list(PROJECTS), "releases": list(RELEASES), "current": CURRENT,
             "windows": windows, "provisional": list(PROVISIONAL), "epics": epics, "bugs": bugs, "cfbAccount": CFB_ACCOUNT, "bugSince": windows[RELEASES[0]][0],
             "quality": {"cycleTimeErrors": [], "edctDiffersFromEmail": []},
+            "productList": [], "products": {},                       # the non-CXone products: none in the standard fixture (product_sample builds two for product_check.py), so the page has no Product switch
             "deps": deps, "ext": ext, "capabilities": caps, "depsDropped": {"removed": 7}, "sprints": sprints, "hier": hier, "cloudId": CLOUD_ID,
             "cycles": {"asOf": self.d(gen_day), "cycles": [], "stale": 0, "next": 0, "page": None, "projects": [], "groups": [], "epics": [], "caps": [], "noCap": 0, "jql": "", "title": "Synthetic"},
             "cfbx": cfbx, "sdeps": sdeps, "sinfo": sinfo, "capList": cap_list, "capEpics": cap_epics,
@@ -799,6 +800,45 @@ def canarify(data: dict) -> dict:
 def make(today: dt.date | None = None, seed: int = 20261030, canary: bool = False) -> dict:
     data = Gen(today or il_today(), seed).build()
     return canarify(data) if canary else data
+
+
+def product_sample(data: dict) -> dict:
+    """Two fictitious non-CXone products built from the fictitious CXone data, each a payload of its own in the same shape (what build_dashboard.collect_product writes):
+    PRD1 has dated releases 7.4 (Major), 7.4.1 (Minor, no dates) and 7.5 (Future); PRD2 has releases Z31.1 and Z31.2 and no dates at all. Nothing here is a real project's data."""
+    import copy
+
+    def one(project, src_project, rel_map, windows, derived, minor, major_conf):
+        epics = []
+        major_name = sorted(set(rel_map.values()))[0]
+        for e in data["epics"]:
+            if e["p"] != src_project:
+                continue
+            fv = [rel_map[v] for v in e["fv"] if v in rel_map and rel_map[v] == major_name]        # a product payload holds its running Major only
+            if not fv:
+                continue
+            e2 = copy.deepcopy(e)
+            e2["p"], e2["fv"] = project, fv
+            e2["ad"] = {rel_map[k]: v for k, v in (e.get("ad") or {}).items() if k in rel_map}
+            epics.append(e2)
+        keys = {e["k"] for e in epics}
+        bugs = [dict(copy.deepcopy(b), p=project) for b in data["bugs"] if b["p"] == src_project][:60]
+        majors = sorted(set(rel_map.values()))
+        names = [majors[0]]
+        res = {"project": project, "rule": "v1", "asOf": data["generated"][:10], "override": False, "warnings": [], "closingOut": [], "candidates": [],
+               "major": {"name": majors[0], "release": (windows.get(majors[0]) or [None, None])[1], "confidence": major_conf},
+               "minor": {"name": minor, "release": None, "confidence": "HIGH"} if minor else None,
+               "future": {"name": majors[1], "release": (windows.get(majors[1]) or [None, None])[1], "state": "planned"}}
+        out = copy.deepcopy({k: v for k, v in data.items() if k not in ("epics", "bugs", "products", "productList")})
+        out.update({"project": project, "resolution": res, "projects": [project], "releases": names, "current": majors[0], "provisional": names, "windows": {k: v for k, v in windows.items() if k in names}, "windowsDerived": derived,
+                    "epics": epics, "bugs": bugs, "hier": {}, "capabilities": {}, "capList": {}, "capEpics": [], "cfbx": {}, "cap": {}, "deps": [], "ext": {}, "sdeps": [], "sinfo": {}, "eb": {}, "podRx": {}, "sprints": []})
+        return out
+
+    w = data["windows"]
+    cxco_src = "CXCO"
+    return {
+        "PRD1": one("PRD1", cxco_src, {"27.1": "7.4", "27.2": "7.5"}, {"7.4": list(w["27.1"]), "7.5": list(w["27.2"])} if "27.2" in w else {"7.4": list(w["27.1"])}, [], "7.4.1", "HIGH"),
+        "PRD2": one("PRD2", "CXSUP", {"27.1": "Z31.1", "27.2": "Z31.2"}, {}, [], None, "MEDIUM"),
+    }
 
 
 def render_page(data: dict, template: Path = LIVE_TEMPLATE) -> str:
