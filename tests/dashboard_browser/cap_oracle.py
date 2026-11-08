@@ -79,10 +79,22 @@ def recount(data: dict, v: View) -> dict:
     def in_col(c, col):
         return c["s"] not in STATUSES if col == "Other Status" else c["s"] == col
     rows_a = []
+    kids_of: dict = {}
+    for r in data["capEpics"]:
+        kids_of.setdefault(r[5], []).append(r)
+    short = lambda x: x if len(x) <= 90 else x[:89].rstrip() + "\u2026"
+    nn = lambda n, one, many: f"{n:,} {one if n == 1 else many}"
     for p in sel + [None]:
         mine = {k for k, c in caps.items() if p is None or c["p"] == p}
         cells = [{k for k in mine if in_col(caps[k], col)} for col in cols] + [mine]
-        rows_a.append({"label": p or "All Selected Projects (Each Capability Once)", "cells": cells})
+        rows_a.append({"label": p or "All Selected Projects (Each Capability Once)", "cells": cells, "level": "project" if p else "total", "project": p})
+        for k in sorted(mine if p else (), key=lambda x: (x.rsplit("-", 1)[0], int(x.rsplit("-", 1)[1]))):       # the Capabilities of a project under its row, by key
+            c = caps[k]
+            ke = kids_of.get(k, [])
+            done = sum(1 for r in ke if r[2] == "Done")
+            dash = "\u2013"
+            note = f"{c['s'] or dash} \u00b7 Commitment Level {c.get('cl') or dash} \u00b7 Fix version {', '.join(c['fv']) or dash} \u00b7 {nn(len(ke), 'child epic', 'child epics')}" + (f", {done} Done" if ke else "")
+            rows_a.append({"label": f"{k} {short(c['t'] or dash)}", "level": "cap", "key": k, "project": p, "note": note, "cells": [({k} if in_col(c, col) else set()) for col in cols] + [{k}]})
     kids = [r for r in data["capEpics"] if r[5] in caps]
 
     def bst(r):
@@ -94,11 +106,38 @@ def recount(data: dict, v: View) -> dict:
         by_p.setdefault(r[1], []).append(r)
     order = [p for p in allp if p in by_p] + sorted(p for p in by_p if p not in allp)
     rows_b = []
-    for p in order + [None]:
-        mine = [r for r in kids if p is None or r[1] == p]
+
+    def row_b(label, mine, level):
         done = sum(1 for r in mine if bst(r) == "done")
-        rows_b.append({"label": p or "All Projects", "cells": [{r[0] for r in mine if bst(r) == c} for c in bcols] + [{r[0] for r in mine}],
-                       "pct": (f"{rnd(done, len(mine))}%" if len(mine) >= 5 else "–")})
+        return {"label": label, "level": level, "cells": [{r[0] for r in mine if bst(r) == c} for c in bcols] + [{r[0] for r in mine}], "pct": (f"{rnd(done, len(mine))}%" if len(mine) >= 5 else "–")}
+    recs = {e["k"]: e for e in data["epics"]}
+    first_spelling: dict = {}                                                          # a pod is one label compared without regard to case, shown with the first spelling found in the epics
+    for e in data["epics"]:
+        for l in e.get("pl") or []:
+            first_spelling.setdefault(l.lower(), l)
+    for p in order:
+        mine = [r for r in kids if r[1] == p]
+        rows_b.append(dict(row_b(p, mine, "project"), project=p))
+        if p not in allp:
+            continue                                                                   # a project the page does not track has no team or pod data: no rows under it
+        known = [r for r in mine if r[0] in recs]
+        unknown = [r for r in mine if r[0] not in recs]
+        teams_of = lambda r: recs[r[0]].get("tm") or ["(No Team)"]
+        for tm in sorted({t for r in known for t in teams_of(r)}, key=lambda x: (x == "(No Team)", x.lower())):
+            te = [r for r in known if tm in teams_of(r)]
+            rows_b.append(dict(row_b(tm, te, "team"), project=p, team=tm))
+            keys = {l.lower() for r in te for l in recs[r[0]].get("pl") or []}
+            if not keys:
+                continue
+            for k in sorted(keys, key=lambda x: first_spelling[x].lower()):
+                pe = [r for r in te if k in {l.lower() for l in recs[r[0]].get("pl") or []}]
+                rows_b.append(dict(row_b(first_spelling[k], pe, "pod"), project=p, team=tm, pod=k))
+            none = [r for r in te if not (recs[r[0]].get("pl") or [])]
+            if none:
+                rows_b.append(dict(row_b("No Pod Label", none, "pod"), project=p, team=tm, pod=None))
+        if unknown:
+            rows_b.append(dict(row_b("Team Unknown", unknown, "team"), project=p, unknown=True))
+    rows_b.append(row_b("All Projects", kids, "total"))
     return {"sel": sel, "caps_in_view": caps_in_view, "choices": choices, "on": on, "all_on": len(on) == len(choices), "caps": caps, "cols": cols, "rows_a": rows_a,
             "kids": kids, "bcols": bcols, "rows_b": rows_b, "outside": [r for r in kids if r[1] not in allp]}
 
@@ -109,7 +148,15 @@ def cap_issues(data: dict) -> list:
 
 
 def epic_issues(data: dict) -> list:
-    return [{"key": r[0], "project": r[1], "issuetype": "Epic", "status": r[2], "parent": r[5], "summary": "x", "labels": []} for r in data["capEpics"]]
+    """The child epics as Jira fields: the status, parent and release fix versions of the capEpics row, and the teams and pod labels of the page's own epic record. An epic the page holds no record of has
+    a team that no row names, so a team or pod query can never find it (what its real team is, nobody here knows)."""
+    recs = {e["k"]: e for e in data["epics"]}
+    out = []
+    for r in data["capEpics"]:
+        e = recs.get(r[0])
+        out.append({"key": r[0], "project": r[1], "issuetype": "Epic", "status": r[2], "parent": r[5], "fixversion": list(r[3]), "summary": "x",
+                    "labels": list(e.get("pl") or []) if e else [], "cf[10040]": list(e.get("tm") or []) if e else ["Team Nobody Names"], "cf[10098]": None})
+    return out
 
 
 # --------------------------------------------------------------------------------------------- what the page prints
@@ -117,7 +164,7 @@ READ_JS = r"""(() => {
   const txt = e => (e ? e.textContent : '').replace(/\s+/g, ' ').trim();
   const cell = c => { const a = c.querySelector('a'); return {text: txt(c), href: a ? a.getAttribute('href') : null, tip: a ? (a.getAttribute('data-tip') || '') : ''}; };
   const tables = [...document.querySelectorAll('#capview table.captable')].map(tb => ({head: [...tb.tHead.rows[0].cells].map(txt),
-    rows: [...tb.tBodies[0].rows].map(r => ({label: txt(r.cells[0]), cells: [...r.cells].slice(1).map(cell)}))}));
+    rows: [...tb.tBodies[0].rows].map(r => ({label: txt(r.cells[0].querySelector('.xtname') || r.cells[0]), level: r.dataset.lvl || (r.classList.contains('total') ? 'total' : ''), par: r.dataset.par || '', hidden: r.hidden, note: (r.cells[0].querySelector('.cysub') ? txt(r.cells[0].querySelector('.cysub')) : null), keyHref: (r.cells[0].querySelector('.xtname a') ? r.cells[0].querySelector('.xtname a').getAttribute('href') : null), cells: [...r.cells].slice(1).map(cell)}))}));
   const chips = [...document.querySelectorAll('#f-cl label.chip')].map(l => { const i = l.querySelector('input'); return {value: i.value, label: txt(l), checked: i.checked, on: l.classList.contains('on'), tip: l.getAttribute('data-tip') || '', type: i.type}; });
   const link = a => ({text: txt(a), href: a.getAttribute('href'), tip: a.getAttribute('data-tip') || ''});
   const blocks = [...document.querySelectorAll('#capview .cyblock')], g = document.getElementById('g-cl'), grp = document.getElementById('f-cl'), rs = document.getElementById('f-reset');
@@ -154,8 +201,17 @@ def check_cells(tag: str, table: dict, rows: list, heads: list, issues: list, ba
         bad.append(f"{tag} rows {[r['label'] for r in table['rows']]}, expected {[r['label'] for r in rows]}")
         return
     for pr, er in zip(table["rows"], rows):
+        if er.get("level") == "cap":                                                   # a Capability row: its facts under its name, a link on the key, itself counted once in its status column and in the Total
+            if pr.get("note") != er["note"]:
+                bad.append(f"{tag} {er['label']} facts '{pr.get('note')}', expected '{er['note']}'")
+            if not (pr.get("keyHref") or "").endswith("/browse/" + er["key"]):
+                bad.append(f"{tag} {er['label']} key link {pr.get('keyHref')}")
         for ci, (c, keys) in enumerate(zip(pr["cells"], er["cells"])):
             where = f"{tag} {er['label']} / {heads[ci + 1] if ci + 1 < len(heads) else '?'}"
+            if er.get("level") == "cap" and not keys:
+                if c["text"] != "" or c["href"]:
+                    bad.append(f"{where} is not in this column but prints '{c['text']}'")
+                continue
             if c["text"] != f"{len(keys):,}":
                 bad.append(f"{where} prints '{c['text']}', the recount is {len(keys)}")
                 continue
@@ -237,11 +293,11 @@ def check_view(page: dict, R: dict, v: View, data: dict, base: dict | None = Non
         if len(page["tables"]) != 2 or page["empty"]:
             bad.append(f"{tag} expected two tables, got {len(page['tables'])} (empty '{page['empty']}')")
         else:
-            check_cells(f"{tag} A", page["tables"][0], R["rows_a"], ["Project"] + R["cols"] + ["Total"], issues_c, bad, R["all_on"], True)
+            check_cells(f"{tag} A", page["tables"][0], R["rows_a"], ["Project and Capability"] + R["cols"] + ["Total"], issues_c, bad, R["all_on"], True)
             bnames = {"ns": "Not Started", "ip": "In Progress", "val": "Validation", "done": "Done", "oth": "Other Status"}
             tb = page["tables"][1]
             check_cells(f"{tag} B", {"head": tb["head"][:-1], "rows": [{"label": r["label"], "cells": r["cells"][:-1]} for r in tb["rows"]]}, R["rows_b"],
-                        ["Project"] + [bnames[c] for c in R["bcols"]] + ["Total"], epic_issues(data), bad, True, False)
+                        ["Project, Team and Pod"] + [bnames[c] for c in R["bcols"]] + ["Total"], epic_issues(data), bad, True, False)
             for pr, er in zip(tb["rows"], R["rows_b"]):
                 if pr["cells"] and pr["cells"][-1]["text"] != er["pct"]:
                     bad.append(f"{tag} B {er['label']} % Done '{pr['cells'][-1]['text']}', expected '{er['pct']}'")
@@ -514,7 +570,7 @@ def _hash_defect(url: str) -> list[str]:
 
 
 SEEDS = [
-    ("filter_ignored_in_table_a", "caps.filter(c => c.p === p), [p], false)", "capsAll.filter(c => c.p === p), [p], false)", None),
+    ("filter_ignored_in_table_a", "aCells(n.list, n.name, [n.project], false)", "aCells(capsAll.filter(c => c.p === n.project), n.name, [n.project], false)", None),
     ("filter_ignored_in_the_link", '${lv.clause ? " AND " + lv.clause : ""}`;', '`;', None),
     ("not_set_dropped_from_the_clause", 'if (on.has("")) parts.push("cf[10136] is EMPTY");', "", None),
     ("not_set_dropped_from_the_choices", "const vals = [...new Set(list.map(c => c.cl || \"\"))]", "const vals = [...new Set(list.map(c => c.cl || \"\"))].filter(v => v !== \"\")", None),
@@ -522,6 +578,14 @@ SEEDS = [
     ("table_b_does_not_follow", "const inSet = new Set(capKeys), kids", "const inSet = new Set(capsAll.map(c => c.k)), kids", None),
     ("state_not_written_to_the_address", 'if (state.capLvlOff.size) h.set("clx",', 'if (false) h.set("clx",', _hash_defect),
     ("level_label_dropped", "${esc(clLabel(v))}</label>", "</label>", None),
+    ("capability_rows_ignore_the_level_filter", 'const pn = an.add("project", p, null, {project: p, list: caps.filter(c => c.p === p)});', 'const pn = an.add("project", p, null, {project: p, list: capsAll.filter(c => c.p === p)});', None),
+    ("capability_rows_in_reverse_key_order", "pn.list.slice().sort((x, y) => keyCmp(x.k, y.k))", "pn.list.slice().sort((x, y) => keyCmp(y.k, x.k))", None),
+    ("capability_child_epics_done_wrong", "${ke.length ? `, ${dn} Done` : \"\"}", "${ke.length ? `, ${ke.length - dn} Done` : \"\"}", None),
+    ("capability_fix_versions_cut_to_the_first", '${esc((c.fv || []).join(", ") || "–")}', '${esc((c.fv || []).slice(0, 1).join(", ") || "–")}', None),
+    ("capability_empty_level_not_a_dash", '${esc(c.cl || "–")}', '${esc(c.cl || "Not Set")}', None),
+    ("capability_in_the_wrong_status_column", '(st === "Other Status" ? !known.has(n.cap.s) : n.cap.s === st) ? nc(1,', '(st === "Other Status" ? !known.has(n.cap.s) : n.cap.s !== st) ? nc(1,', None),
+    ("capability_link_names_another_key", "nc(1, `key = ${n.key}`, `${n.key}, ${st}", "nc(1, `key = ${n.key}-1`, `${n.key}, ${st}", None),
+    ("capability_key_is_not_a_link", '<a href="${BASE}/browse/${esc(c.k)}" target="_blank" rel="noopener" ${tipAttr(`${c.k}\\n${shortText(c.t, 120)}\\n${c.s}`, "x")}', '<a ${tipAttr(`${c.k}\\n${shortText(c.t, 120)}\\n${c.s}`, "x")}', None),
 ]
 
 

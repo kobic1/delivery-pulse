@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import datetime as dt
+import re
 import json
 import random
 import sys
@@ -264,6 +265,10 @@ class Gen:
         for p in ("EXA", "EXB"):
             for i in range(4):
                 cap_epics.append([self.key(p), p, r.choice(["New", "Done"]), [CURRENT] if i % 2 else [], "Product - Other", r.choice([k for k, c in cap_list.items() if c["p"] == p])])
+        for p in ("PMN", "CXWFM"):                                                         # child epics of a tracked project with no release fix version: the page holds no record, so no team and no pod for them (the "team unknown" row of the Capabilities table)
+            host = sorted(k for k, c in cap_list.items() if c["p"] == p and CURRENT in c["fv"]) or sorted(k for k, c in cap_list.items() if c["p"] == p)
+            for i in range(3):
+                cap_epics.append(["%s-%d" % (p, 98001 + 3 * ("PMN", "CXWFM").index(p) + i), p, ["New", "In Progress", "Done"][i], [], "Product - Other", host[i % len(host)]])      # keys from a range of their own, so no other record moves
         cap_nofv = [c for c in cap_list.values() if not c["fv"] and c["s"] != "Removed"]
         for n, k in enumerate(sorted(cap_list)):                                          # Commitment Level of every Capability: a fixed cycle (no random draw, so no other record moves); three levels and empty
             cap_list[k]["cl"] = CAP_LEVELS[n % len(CAP_LEVELS)]
@@ -273,6 +278,7 @@ class Gen:
             "generated": il_stamp(gen_day, 8, 30), "jiraBase": JIRA_BASE, "projects": list(PROJECTS), "releases": list(RELEASES), "current": CURRENT,
             "windows": windows, "provisional": list(PROVISIONAL), "epics": epics, "bugs": bugs, "cfbAccount": CFB_ACCOUNT, "bugSince": windows[RELEASES[0]][0],
             "quality": {"cycleTimeErrors": [], "edctDiffersFromEmail": []},
+            "productList": [], "products": {},                       # the non-CXone products: none in the standard fixture (product_sample builds two for product_check.py), so the page has no Product switch
             "deps": deps, "ext": ext, "capabilities": caps, "depsDropped": {"removed": 7}, "sprints": sprints, "hier": hier, "cloudId": CLOUD_ID,
             "cycles": {"asOf": self.d(gen_day), "cycles": [], "stale": 0, "next": 0, "page": None, "projects": [], "groups": [], "epics": [], "caps": [], "noCap": 0, "jql": "", "title": "Synthetic"},
             "cfbx": cfbx, "sdeps": sdeps, "sinfo": sinfo, "capList": cap_list, "capEpics": cap_epics,
@@ -564,6 +570,7 @@ class Gen:
             keys[name] = k
             return k
 
+        PLAN = 10                                                                              # the Pod health tiles count the epics planned in the selected cycles: the cases of 2 to 4 are planned at as-of + 10 (inside Delivery Cycle 1, and so in the combined view)
         ns = "Team Seed Ns"                                                                   # 1. not started, planned in [as-of, as-of + 7]
         add("ns_0", ns, ["Pod-Ns-A"], "Ready for Dev", 0)                                     # in: today
         add("ns_7", ns, ["Pod-Ns-A"], "New", 7)                                               # in: the last day
@@ -580,11 +587,11 @@ class Gen:
         def team(name, spec, c="Committed"):                                                   # spec: [(pod label, in progress, validation, other open epics)]; c: the Commitment Type
             for lab, ip, vl, other in spec:
                 for i in range(ip):
-                    add(f"{name}:{lab}:ip{i}", name, [lab], "In Progress", c=c)
+                    add(f"{name}:{lab}:ip{i}", name, [lab], "In Progress", PLAN, c=c)
                 for i in range(vl):
-                    add(f"{name}:{lab}:vl{i}", name, [lab], "Validation", c=c)
+                    add(f"{name}:{lab}:vl{i}", name, [lab], "Validation", PLAN, c=c)
                 for i in range(other):
-                    add(f"{name}:{lab}:new{i}", name, [lab], "New", c=c)
+                    add(f"{name}:{lab}:new{i}", name, [lab], "New", PLAN, c=c)
 
         team("Team Seed Lvl A", [("Pod-Lvl-A1", 2, 0, 0), ("Pod-Lvl-A2", 8, 2, 0), ("Pod-Lvl-A3", 0, 0, 1)])   # 2 vs 10 and a pod with none in-progress: flagged (10 of 12)
         team("Team Seed Lvl B", [("Pod-Lvl-B1", 3, 0, 0), ("Pod-Lvl-B2", 2, 0, 0)])                       # 3 vs 2: total 5, spread 20%: not flagged
@@ -595,32 +602,33 @@ class Gen:
         team("Team Seed Lvl G", [("Pod-Lvl-G1", 3, 0, 0), ("Pod-Lvl-G2", 1, 0, 0), ("Pod-Lvl-G3", 1, 0, 0)])   # 3, 1, 1: spread 2 of 5 = 40% exactly: flagged; the two lightest tie
         team("Team Seed Lvl H", [("Pod-Lvl-H1", 4, 0, 0), ("Pod-Lvl-H2", 2, 0, 0)])                       # 4 vs 2: spread 33%: not flagged
         team("Team Seed Lvl I", [("Pod-Lvl-I1", 5, 0, 0)])                                                # a pod with Done epics only does not take part
-        add("lvl_i2_done_a", "Team Seed Lvl I", ["Pod-Lvl-I2"], "Done")
-        add("lvl_i2_done_b", "Team Seed Lvl I", ["Pod-Lvl-I2"], "Done")
+        add("lvl_i2_done_a", "Team Seed Lvl I", ["Pod-Lvl-I2"], "Done", PLAN)
+        add("lvl_i2_done_b", "Team Seed Lvl I", ["Pod-Lvl-I2"], "Done", PLAN)
 
-        # 2b. Pods With More Than 3 Epics In Progress counts the status In Progress only (Validation is not counted). One team of four pods, none with a date, balanced for Pods To Level (4, 4, 5, 4 in-progress: spread 1 of 17, not flagged,
+        # 2b. Pods With More Than 3 Epics In Progress counts the status In Progress only (Validation is not counted). One team of four pods, all planned at as-of + 10, balanced for Pods To Level (4, 4, 5, 4 in-progress: spread 1 of 17, not flagged,
         # so no other Pods tile moves): exactly 4 In Progress is over the level; 3 In Progress + 1 Validation, 3 + 2 and 4 Validation only are NOT (they were over the level while Validation counted).
         # Stretch epics are in the Cycles section like any other but outside the target scope, so the burnup, the release bars and the scope arithmetic of the other suites (cycle_filter_oracle's shrunk scope) do not move.
         team("Team Seed Wip", [("Pod-Wip-Four", 4, 0, 0), ("Pod-Wip-Mix1", 3, 1, 0), ("Pod-Wip-Mix2", 3, 2, 0), ("Pod-Wip-Val", 0, 4, 0)], c="Stretch")
 
+        PLANNED_BEFORE = -3                                                                    # the providers of the waiting items are planned before their dependents (as-of - 3, inside Delivery Cycle 1): no schedule gap, and they are in the Pod health population
         wt = "Team Seed Wt"                                                                    # 3. providers for the waiting items
-        add("wt_pod", wt, ["Pod-Wt-A"], "In Progress")                                        # provider with a pod label
-        add("wt_nopod", wt, None, "In Progress")                                              # provider with no pod label
-        add("wt_done", wt, ["Pod-Wt-A"], "Done")                                              # a Done provider: its pairs are not open
+        add("wt_pod", wt, ["Pod-Wt-A"], "In Progress", PLANNED_BEFORE)                                        # provider with a pod label
+        add("wt_nopod", wt, None, "In Progress", PLANNED_BEFORE)                                              # provider with no pod label
+        add("wt_done", wt, ["Pod-Wt-A"], "Done", PLANNED_BEFORE)                                              # a Done provider: its pairs are not open
         add("wt_other", wt, ["Pod-Wt-B"], "In Progress", fv=["27.2"])                         # a provider outside the release 27.1
 
         np_ = "Team Seed Np"                                                                   # 4. in-progress, with and without a pod label (labels that look like issue keys are pods too)
-        add("np_a", np_, ["POD-31"], "In Progress")
-        add("np_b", np_, ["POD-31"], "Validation")
-        add("np_c", np_, ["POD-32"], "In Progress")
+        add("np_a", np_, ["POD-31"], "In Progress", PLAN)
+        add("np_b", np_, ["POD-31"], "Validation", PLAN)
+        add("np_c", np_, ["POD-32"], "In Progress", PLAN)
         for i in range(3):
-            add(f"np_none{i}", np_, None, "In Progress")
-        add("np_val", np_, None, "Validation")
-        add("np_nfr", np_, None, "In Progress", nf=True)                                      # a label that is not a pod label (NFR): still no pod label
-        add("np_done", np_, None, "Done")
-        add("np_new", np_, None, "New")
+            add(f"np_none{i}", np_, None, "In Progress", PLAN)
+        add("np_val", np_, None, "Validation", PLAN)
+        add("np_nfr", np_, None, "In Progress", PLAN, nf=True)                                      # a label that is not a pod label (NFR): still no pod label
+        add("np_done", np_, None, "Done", PLAN)
+        add("np_new", np_, None, "New", PLAN)
         for i in range(2):
-            add(f"np2_none{i}", "Team Seed Np Small", None, "In Progress")                    # two in-progress, none labelled: no share under 5
+            add(f"np2_none{i}", "Team Seed Np Small", None, "In Progress", PLAN)                    # two in-progress, none labelled: no share under 5
         self.fixed = keys
 
     def proactive_deps(self, epics, deps, ext):
@@ -801,6 +809,45 @@ def make(today: dt.date | None = None, seed: int = 20261030, canary: bool = Fals
     return canarify(data) if canary else data
 
 
+def product_sample(data: dict) -> dict:
+    """Two fictitious non-CXone products built from the fictitious CXone data, each a payload of its own in the same shape (what build_dashboard.collect_product writes):
+    PRD1 has dated releases 7.4 (Major), 7.4.1 (Minor, no dates) and 7.5 (Future); PRD2 has releases Z31.1 and Z31.2 and no dates at all. Nothing here is a real project's data."""
+    import copy
+
+    def one(project, src_project, rel_map, windows, derived, minor, major_conf):
+        epics = []
+        major_name = sorted(set(rel_map.values()))[0]
+        for e in data["epics"]:
+            if e["p"] != src_project:
+                continue
+            fv = [rel_map[v] for v in e["fv"] if v in rel_map and rel_map[v] == major_name]        # a product payload holds its running Major only
+            if not fv:
+                continue
+            e2 = copy.deepcopy(e)
+            e2["p"], e2["fv"] = project, fv
+            e2["ad"] = {rel_map[k]: v for k, v in (e.get("ad") or {}).items() if k in rel_map}
+            epics.append(e2)
+        keys = {e["k"] for e in epics}
+        bugs = [dict(copy.deepcopy(b), p=project) for b in data["bugs"] if b["p"] == src_project][:60]
+        majors = sorted(set(rel_map.values()))
+        names = [majors[0]]
+        res = {"project": project, "rule": "v1", "asOf": data["generated"][:10], "override": False, "warnings": [], "closingOut": [], "candidates": [],
+               "major": {"name": majors[0], "release": (windows.get(majors[0]) or [None, None])[1], "confidence": major_conf},
+               "minor": {"name": minor, "release": None, "confidence": "HIGH"} if minor else None,
+               "future": {"name": majors[1], "release": (windows.get(majors[1]) or [None, None])[1], "state": "planned"}}
+        out = copy.deepcopy({k: v for k, v in data.items() if k not in ("epics", "bugs", "products", "productList")})
+        out.update({"project": project, "resolution": res, "projects": [project], "releases": names, "current": majors[0], "provisional": names, "windows": {k: v for k, v in windows.items() if k in names}, "windowsDerived": derived,
+                    "epics": epics, "bugs": bugs, "hier": {}, "capabilities": {}, "capList": {}, "capEpics": [], "cfbx": {}, "cap": {}, "deps": [], "ext": {}, "sdeps": [], "sinfo": {}, "eb": {}, "podRx": {}, "sprints": []})
+        return out
+
+    w = data["windows"]
+    cxco_src = "CXCO"
+    return {
+        "PRD1": one("PRD1", cxco_src, {"27.1": "7.4", "27.2": "7.5"}, {"7.4": list(w["27.1"]), "7.5": list(w["27.2"])} if "27.2" in w else {"7.4": list(w["27.1"])}, [], "7.4.1", "HIGH"),
+        "PRD2": one("PRD2", "CXSUP", {"27.1": "Z31.1", "27.2": "Z31.2"}, {}, [], None, "MEDIUM"),
+    }
+
+
 def render_page(data: dict, template: Path = LIVE_TEMPLATE) -> str:
     """The same substitution as build_dashboard.render(): one placeholder, compact JSON, `</` escaped."""
     fragment = Path(template).read_text(encoding="utf-8")
@@ -808,7 +855,26 @@ def render_page(data: dict, template: Path = LIVE_TEMPLATE) -> str:
     assert fragment.count("/*__DATA__*/null") == 1
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "program_dashboard"))
     import usage_bundle                                                              # the browser port of the usage report, inlined the same way the build does
-    return usage_bundle.inline_into(fragment.replace("/*__DATA__*/null", payload))
+    import ft_calendar                                                                # the FT enablement events: fictitious ones, around the fixture's day
+    page = usage_bundle.inline_into(fragment.replace("/*__DATA__*/null", payload))
+    return ft_calendar.inline_into(page, payload=ft_sample(data))
+
+
+def ft_sample(data: dict) -> dict:
+    """A fictitious FT enablement calendar around today (clusters, change numbers and releases are made up): past and upcoming events of every status, a flag, a long cluster list and a 27.x event."""
+    today = il_today()
+    rows = [(-20, "done", "", "26.3", "EU2, EU3", "CHG9000001"), (-9, "done", "", "26.3", "NA1 (C6, C8, C9, C13, C18, C19)", "CHG9000002"), (-2, "done", "", "26.4", "M35", "CHG9000003"),
+            (3, "appr", "", "26.4", "CA1", "CHG9000004"), (3, "appr", "", "26.4", "ZA1", "CHG9000005"), (3, "tent", "", "26.4", "EU2", "CHG9000006"), (3, "tent", "", "26.4", "EU3", "CHG9000007"),
+            (6, "ready", "", "26.4", "B2, B32", "CHG9000008"), (7, "tent", "", "26.4", "UK2 - LO27", "CHG9000009"), (7, "appr", "hold", "26.4", "AU2", "CHG9000010"),
+            (14, "tent", "", "26.4", "NA1 (C28, C33, C36, C54, C55, C56)", "CHG9000011"), (40, "tent", "", "27.1", "M35", "")]
+    ev = []
+    for off, s, f, r, t, c in rows:
+        ks = list(dict.fromkeys(re.findall(r"\b(?:(?:NA|EU|UK|AU|JP|JO|KR|CA|ZA|AE)\d|LO\d+|B\d+|M\d+|C\d+)\b", t)))
+        gs = list(dict.fromkeys(("Beta" if re.match(r"^(LO|B|M)\d+$", k) else k[:2]) for k in ks if not re.match(r"^C\d+$", k))) or ["C clusters"]
+        title = f"Enable {r} FTs on {t} {c}".strip() if r != "27.1" else f"{r} FT Enablement on {t}"
+        ev.append({"d": (today + dt.timedelta(days=off)).isoformat(), "s": s, "f": f, "r": r, "t": t, "c": c, "n": "", "k": ks, "g": gs, "raw": title})
+    return {"asOf": dt.datetime.now(IL).isoformat(timespec="minutes"), "events": ev}
+
 
 
 def main() -> int:

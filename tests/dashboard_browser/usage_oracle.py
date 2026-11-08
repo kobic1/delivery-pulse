@@ -851,9 +851,10 @@ def b_reading() -> list[str]:
     r = read_at(None, "document.getElementById('h-eff').scrollIntoView({block: 'start'}); window.scrollBy(0, -150)", ["eff", "ai"], "side by side")
     if isinstance(r, tuple):
         s, cur = r
-        row = set(cur["cur"]) | set(cur["co"])
-        if row != {"eff", "ai"}:
-            bad.append(f"the strip does not show Efficiency and AI Adoption side by side at 1400 px: {cur}")
+        strip_row = set(cur["cur"]) | set(cur["co"])
+        if strip_row != {"eff"}:
+            bad.append(f"the strip should show Efficiency alone (it has no AI Adoption entry): {cur}")
+        row = {"eff", "ai"}                                                             # the two sections stand side by side at 1400 px: both are being read, each for every active tick
         if (s.get("sec") or {}) != {k: s["s"] for k in row}:
             bad.append(f"side by side: the reading time is {s.get('sec')}, expected {sorted(row)} for {s['s']} s each (the strip says {cur})")
     # (c) on a phone the same sections are stacked: only Efficiency
@@ -1261,9 +1262,9 @@ def _(t: T):
     t.check(ch.wait_for(f"window.__dbLog.filter(e => e.op === 'update' && e.result === 'ok').length >= 1", 3), "going hidden writes the held change")
     t.check((session(ch).get("nav") or {}) == {"eff": 1, "bugs": 1}, f"the session after the hidden write: {session(ch).get('nav')}")
     ch.js("window.__vis = 'visible'")
-    click(ch, '#seclist a[data-jump="h-ai"]'); time.sleep(0.5)
+    click(ch, '#seclist a[data-jump="h-deps"]'); time.sleep(0.5)
     ch.js("window.dispatchEvent(new Event('pagehide'))")
-    t.check(ch.wait_for("(session => true)() && window.__dbLog.filter(e => e.op === 'update' && e.result === 'ok').length >= 2", 3) and (session(ch).get("nav") or {}).get("ai") == 1, "leaving the page writes the held change")
+    t.check(ch.wait_for("(session => true)() && window.__dbLog.filter(e => e.op === 'update' && e.result === 'ok').length >= 2", 3) and (session(ch).get("nav") or {}).get("deps") == 1, "leaving the page writes the held change")
     t.check(not errors(ch), f"console: {errors(ch)[:2]}")
 
 
@@ -1292,12 +1293,12 @@ def _(t: T):
     a = snap(ch)["S"]["sid"]; d1 = docs(ch)[PATH]
     ch = load(usage={"share": True}, keep=True)                                            # the same person again (a second tab or a later visit): the same store
     b = snap(ch)["S"]["sid"]
-    click(ch, '#seclist a[data-jump="h-ai"]'); time.sleep(0.4)
+    click(ch, '#seclist a[data-jump="h-deps"]'); time.sleep(0.4)
     settle(ch)
     d2 = docs(ch)[PATH]
     sess = {sid: s for wk in d2["w"].values() for day in wk.values() for sid, s in day.items()}
     t.check(a != b and set(sess) == {a, b}, f"both sessions are in the record: {sorted(sess)}")
-    t.check(sess[a].get("nav") == {"eff": 1, "bugs": 1} and sess[b].get("nav") == {"ai": 1}, f"each keeps its own counters: {sess[a].get('nav')} {sess[b].get('nav')}")
+    t.check(sess[a].get("nav") == {"eff": 1, "bugs": 1} and sess[b].get("nav") == {"deps": 1}, f"each keeps its own counters: {sess[a].get('nav')} {sess[b].get('nav')}")
     t.check([e["op"] for e in log(ch)][:2] == ["get", "update"], f"the second visit merges: {[e['op'] for e in log(ch)][:3]}")
     t.check(d2["first"] == d1["first"], "first is not moved")
     # a write that is sent twice (a retried write) leaves the record exactly as one write does

@@ -34,7 +34,7 @@ STATES = [
     ("hostile team", "TEAM"), ("delivery cycle 1 only", "dc=1"), ("delivery cycle 2 only", "dc=2"), ("accessibility only, P1+P2", "ax=yes&bp=P1|P2"), ("accessibility all", "ax=all"),
     ("CFB yes", "cfb=yes"), ("CFB no", "cfb=no"), ("quarter groupings", "g=quarter&cg=quarter"), ("month CFB grouping", "cg=month"),
     ("dependencies all", "dp=all"), ("dependencies overdue", "dp=overdue"), ("dependencies external", "dp=external"), ("dependencies gap", "dp=gap"), ("dependencies blocked by external", "dp=blocking"),
-    ("NFR by category", "nt=category"), ("NFR by commitment", "nt=commitment"), ("NFR by capability", "nt=capability"), ("NFR by team", "nt=team"),
+    ("NFR by category", "nt=category"), ("NFR by commitment", "nt=commitment"), ("NFR by capability", "nt=capability"), ("NFR by team", "nt=team"), ("NFR by pod", "nt=pod"),
     ("CXCROSS committed", "cx=committed"), ("CXCROSS not set", "cx=notset"), ("CXCROSS stretch", "cx=stretch"),
     ("capitalization by release, count", "cpg=release&cpm=count"), ("old Cycles key (cy=DC2, ignored)", "cy=DC2"), ("old release, all projects, hostile team", "r=26.2&TEAM"),
 ]

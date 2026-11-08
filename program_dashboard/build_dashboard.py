@@ -39,13 +39,16 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "dashboards"))     # reuse the weekly emails' Jira client + EDCT
 import edct_from_jira as E  # noqa: E402
 sys.path.insert(0, str(HERE))
-import usage_bundle  # noqa: E402
+import product_releases as PR
+import usage_bundle
+import ft_calendar  # noqa: E402
 import importlib.util as _ilu  # noqa: E402
 _spec = _ilu.spec_from_file_location("release_planning_model", HERE.parent / "release_planning" / "model.py")
 RPM = _ilu.module_from_spec(_spec)                       # the release planning report's own pod rule (classify / pod_labels), reused rather than copied
 _spec.loader.exec_module(RPM)
 
-PROJECTS = ["PMN", "CXCO", "CXSUP", "CXWFM", "WFM", "CXINT", "INT"]
+PROJECTS = ["PMN", "CXCO", "CXSUP", "CXWFM", "CXINT", "INT"]                # the CXone projects: one release train (26.4, 27.1 ...) with dated Jira versions
+PRODUCTS = ["WFM", "EEM", "ESP"]                                             # not CXone: one project each, its own fix versions (9.0, 9.4, ESP27.1), resolved by product_releases.py
 # Project keys that are reserved JQL words: Jira rejects INT as a bare project key ("'INT' is a reserved JQL word. You must surround it in quotation marks") and wants it quoted.
 # EVERY query that names a project key goes through pkey / pkeys; the page has the same helper (JQL_RESERVED_KEYS reaches it through definitions()), and tests/test_program_dashboard.py fails on an unquoted interpolation.
 JQL_RESERVED_KEYS = ["INT"]
@@ -818,8 +821,8 @@ def collect_bugs(j) -> list:
     return bugs
 
 
-def fetch() -> dict:
-    j = E.Jira()
+def pull_epics(j) -> list:
+    """The epics of PROJECTS in RELEASES as compact rows (the globals are swapped for a product run, see collect_product)."""
     quoted = ", ".join(f'"{r}"' for r in RELEASES)
     epics = []
     for proj in PROJECTS:
@@ -846,10 +849,11 @@ def fetch() -> dict:
                 "rd": resolved, "cr": (f.get("created") or "")[:10],
                 "cat": val(f.get("customfield_10139")),
             })
+    return epics
 
-    bugs = collect_bugs(j)
-    bugs_at = dt.datetime.now().astimezone().isoformat(timespec="minutes")
 
+def add_changelog(j, epics) -> None:
+    """Cycle time and the release join dates of every epic (one changelog request each)."""
     print(f"reading the changelog of {len(epics)} epics (cycle time + release join dates) ...", flush=True)
 
     def work(e):
@@ -875,6 +879,92 @@ def fetch() -> dict:
             if "edct" in m:
                 e["ip"], e["vl"], e["edct"], e["cal"] = m["ip"], m["vl"], m["edct"], m["cal"]
 
+
+OVERRIDES_PATH = HERE / "product_release_overrides.json"          # optional pins of a product's Major / Minor / Future (see product_releases.py); no secrets in it
+
+
+def load_overrides() -> dict:
+    try:
+        return json.loads(OVERRIDES_PATH.read_text(encoding="utf-8")) if OVERRIDES_PATH.exists() else {}
+    except ValueError as exc:
+        print(f"warning: {OVERRIDES_PATH.name} is not valid JSON ({exc}); no release is pinned", flush=True)
+        return {}
+
+
+def product_windows(resolution: dict, names: list) -> dict:
+    """Release start and end from the Jira versions, only for versions that have both dates (the page draws the burn-up on them)."""
+    by = {c["name"]: c for c in resolution["candidates"]}
+    return {n: [by[n]["start"][:10], by[n]["release"][:10]] for n in names if n in by and by[n].get("start") and by[n].get("release")}
+
+
+def derive_windows(resolution: dict, names: list, epics: list, windows: dict) -> list:
+    """A version with a release date but no start date (WFM 9.0) gets a window that starts the day its first epic was created; the page says so. A version with no release date gets none."""
+    by, derived = {c["name"]: c for c in resolution["candidates"]}, []
+    for n in names:
+        c = by.get(n)
+        if n in windows or not c or not c.get("release") or c.get("start"):
+            continue
+        created = [e["cr"] for e in epics if n in e["fv"] and e.get("cr")]
+        if created:
+            windows[n] = [min(created), c["release"][:10]]
+            derived.append(n)
+    return derived
+
+
+def collect_product(j, project: str, resolution: dict) -> dict:
+    """One non-CXone product as a payload of its own, in the same shape as the CXone one, so the page draws it with the code it already has.
+    The collector's functions read the module globals, so they are swapped for the run and always restored. What belongs to the CXone organisation
+    only (Capabilities, NFRs, customer-found bugs, capitalization, the CXCROSS hierarchy) is left out on purpose."""
+    global PROJECTS, RELEASES, CURRENT_RELEASE, PROVISIONAL
+    names = [resolution["major"]["name"]]                          # the release is chosen for the reader: the running Major only (the resolution keeps the Minor and the Future as information)
+    saved = (PROJECTS, RELEASES, CURRENT_RELEASE, PROVISIONAL)
+    PROJECTS, RELEASES, CURRENT_RELEASE, PROVISIONAL = [project], names, resolution["major"]["name"], names
+    try:
+        epics = pull_epics(j)
+        bugs = collect_bugs(j)
+        bugs_at = dt.datetime.now().astimezone().isoformat(timespec="minutes")
+        add_changelog(j, epics)
+        links = collect_links(j, epics)
+        plan = planning(j, epics, bugs, links)
+        windows = product_windows(resolution, names)
+        derived = derive_windows(resolution, names, epics, windows)
+        return {"project": project, "resolution": resolution, "projects": [project], "releases": names, "current": CURRENT_RELEASE, "provisional": names,
+                "windows": windows, "windowsDerived": derived, "epics": epics, "bugs": bugs, **links, **plan,
+                "hier": {}, "capabilities": {}, "capList": {}, "capEpics": [], "cfbx": {}, "cap": {},
+                "generated": dt.datetime.now().astimezone().isoformat(timespec="minutes"), "bugsPulledAt": bugs_at}
+    finally:
+        PROJECTS, RELEASES, CURRENT_RELEASE, PROVISIONAL = saved
+
+
+def fetch_products(j) -> dict:
+    """Resolve the running Major / Minor / Future of every product, then pull the ones that have a Major. A product that fails is left out with the reason: it never sinks the build."""
+    rd = PR.Reader.from_session(j.s, j.base)
+    overrides, today, out = load_overrides(), dt.date.today(), {}
+    for proj in PRODUCTS:
+        try:
+            res = PR.resolve(proj, PR.collect_evidence(rd, proj), today, overrides)
+            for w in res["warnings"]:
+                print(f"warning: {proj}: {w}", flush=True)
+            if not res["major"]:
+                out[proj] = {"project": proj, "resolution": res, "unavailable": "no running Major"}
+                continue
+            print(f"{proj}: Major {res['major']['name']} ({res['major']['confidence']}), Minor {(res['minor'] or {}).get('name')}, Future {(res['future'] or {}).get('name')}", flush=True)
+            out[proj] = collect_product(j, proj, res)
+        except Exception as exc:                                  # one product failing must not sink the others or the CXone build
+            print(f"warning: product {proj} not built: {str(exc)[:160]}", flush=True)
+            out[proj] = {"project": proj, "unavailable": str(exc)[:120]}
+    return out
+
+
+def fetch() -> dict:
+    j = E.Jira()
+    epics = pull_epics(j)
+
+    bugs = collect_bugs(j)
+    bugs_at = dt.datetime.now().astimezone().isoformat(timespec="minutes")
+
+    add_changelog(j, epics)
+
     links = collect_links(j, epics)
     plan = planning(j, epics, bugs, links)
     plan.update(collect_hier(j, epics, links["capabilities"]))
@@ -887,7 +977,8 @@ def fetch() -> dict:
             "projects": PROJECTS, "releases": RELEASES, "current": CURRENT_RELEASE,
             "windows": fetch_windows(j),
             "provisional": PROVISIONAL, "epics": epics, "bugs": bugs,
-            "cfbAccount": CFB_ACCOUNT, "bugSince": BUG_SINCE, "bugsPulledAt": bugs_at}
+            "cfbAccount": CFB_ACCOUNT, "bugSince": BUG_SINCE, "bugsPulledAt": bugs_at,
+            "productList": PRODUCTS, "products": fetch_products(j)}
 
 
 SCHEMA = 2           # the payload layout the page expects (PAGE_SCHEMA in dashboard.template.html must be the same number; tests/test_definitions_contract.py checks it)
@@ -1034,10 +1125,11 @@ def render(data: dict) -> None:
     payload = json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
     assert fragment.count("/*__DATA__*/null") == 1
     fragment = fragment.replace("/*__DATA__*/null", payload)
-    fragment = usage_bundle.inline_into(fragment, usage_calendar(data))                     # the browser port of the usage report (the owner-only Usage view)
     out, out_artifact = (OUT_SANDBOX, OUT_SANDBOX_ARTIFACT) if SANDBOX else (OUT, OUT_ARTIFACT)
-    if SANDBOX:
+    if SANDBOX:                                                                              # the banner goes in BEFORE the usage bundle: its strings contain the page's own header markup, which the banner step counts
         fragment = sandbox_fragment(fragment, data["build"])
+    fragment = usage_bundle.inline_into(fragment, usage_calendar(data))                     # the browser port of the usage report (the owner-only Usage view)
+    fragment = ft_calendar.inline_into(fragment, HERE / "build" / "ft_events.json")
     out_artifact.write_text(fragment, encoding="utf-8")
 
     head = ""
@@ -1056,6 +1148,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--reuse", action="store_true", help="render from build/program_data.json")
     ap.add_argument("--sandbox", action="store_true", help="write the Sandbox build instead of the live files: 'Delivery Pulse (sandbox).html' and '(sandbox artifact).html', with a banner naming the branch and commit; the live files are left alone. Combine it with a mode flag")
+    ap.add_argument("--add-products", action="store_true", help="resolve and pull the non-CXone products (WFM, EEM, ESP) into build/program_data.json, then render")
     ap.add_argument("--add-nfr", action="store_true", help="flag the epics that carry the NFR label in build/program_data.json, then render")
     ap.add_argument("--add-hier", action="store_true", help="add the CXCROSS Initiative > Capability hierarchy to build/program_data.json, then render")
     ap.add_argument("--add-planning", action="store_true", help="add due dates, target sprints, sprint calendar, status-since and bug updates to build/program_data.json, then render")
@@ -1068,7 +1161,7 @@ def main() -> int:
     ap.add_argument("--emit-usage-calendar", action="store_true", help="write build/usage_calendar.json (release W1 start, end of W6, release end, sprint boundaries: dates only) for usage_report.py --calendar; reads build/program_data.json, renders nothing")
     ap.add_argument("--add-cycles", action="store_true", help="no longer used (kept so old command lines still run): the Confluence pods pull was removed; Group By is Team or Pod from labels")
     args = ap.parse_args()
-    modes = [a for a in ("reuse", "add_nfr", "add_hier", "add_planning", "add_deps", "add_bugs", "add_pods", "add_cfb_open", "add_capitalization", "add_capabilities", "add_cycles", "emit_usage_calendar") if getattr(args, a)]
+    modes = [a for a in ("reuse", "add_products", "add_nfr", "add_hier", "add_planning", "add_deps", "add_bugs", "add_pods", "add_cfb_open", "add_capitalization", "add_capabilities", "add_cycles", "emit_usage_calendar") if getattr(args, a)]
     if len(modes) > 1:      # the branches below are an if/elif chain: a second flag used to be skipped without a word
         ap.error("use one mode flag at a time (got " + ", ".join("--" + m.replace("_", "-") for m in modes) + "); run them one after another")
     global SANDBOX
@@ -1077,7 +1170,11 @@ def main() -> int:
     if args.emit_usage_calendar:
         write_usage_calendar(json.loads(DATA_PATH.read_text(encoding="utf-8")))
         return 0
-    if args.add_nfr:
+    if args.add_products:
+        data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
+        data["productList"], data["products"] = PRODUCTS, fetch_products(E.Jira())
+        save_data(data)
+    elif args.add_nfr:
         data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
         collect_nfr(E.Jira(), [e for e in data["epics"] if e["p"] in PROJECTS])
         save_data(data)

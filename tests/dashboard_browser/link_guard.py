@@ -43,7 +43,6 @@ KEYRE = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
 ALLOW: list[tuple[str, str, str, str]] = []      # (regex on the elided JQL, regex on the link's hover title or "", reason, what a query could do instead)
 PROPOSED_ALLOW = [      # the accepted gaps: every entry is a population Jira cannot express as a query, or a documented pending decision; the list may only shrink      # sites whose population Jira's native JQL cannot express (reasons checked on the synthetic payload, see the QA report)
     (r"\bparent in \(<keys>\)", "", "child epics / bugs selected by an attribute of their PARENT (the Capability's fix version, the epic's planned date): not searchable in native JQL", "none; the Capabilities query is the closest"),
-    (r"^key in \(<keys>\) OR \(key in \(<keys>\) AND project not in \(", "", "Blocked by External headline: the dependents by key, and the external providers by key AND a project clause (not in the selected projects and CXCROSS); which pairs are open is a linked issue's status, not searchable", "issueLinkType in (...) is a superset"),
     (r"^key in \(<keys>\)$", r"^\d[\d,]* waiting items?", "the waiting items of Waiting Dependents Due Soon (Cycles, Pods block): an item of any issue type that waits on an epic through an issue link, due soon by the Dependencies planned-date rule; Jira cannot search for the far end of a link or for a planned date taken from a sprint, so the list is exact and its tooltip says so", "none; issueLinkType in (...) is a superset and cannot tell which items are due soon"),
     (r"^key in \(<keys>\)$", "", "pairs whose far end is not Done, story-level links, dependency cards, Needs Attention groups, DQ 'no cycle time' (changelog-derived): a linked issue's status / the changelog is not searchable", "issueLinkType in (...) is a superset"),
     (r"^issuetype = Bug AND key in \(<keys>\)$", "", "open CFBs by Root Cause Analysis state: the field is pre-filled with a template Jira cannot search", "all open CFBs (superset)"),
@@ -60,7 +59,6 @@ EXPAND_JS = r"""(() => {
     document.querySelectorAll('[data-act^="more-"][aria-expanded="false"]').forEach(b => b.click());
   }
   const ex = document.querySelector('[data-cyact="expall"]'); if (ex) ex.click();
-  document.querySelectorAll('[data-cyact="bug"][aria-expanded="false"]').forEach(b => { try { b.click(); } catch (e) {} });
   document.querySelectorAll('details').forEach(d => { d.open = true; });
   const grab = root => [...root.querySelectorAll('a[href]')].map(a => { const s = a.closest('section[aria-labelledby]');
     return {href: a.getAttribute('href'), text: (a.textContent || '').trim().slice(0, 50), sec: s ? s.getAttribute('aria-labelledby') : 'other', tip: ((a.getAttribute('data-tip') || '').split('\n')[0]).slice(0, 100), full: (a.getAttribute('data-tip') || '').slice(0, 600)}; });
@@ -68,14 +66,13 @@ EXPAND_JS = r"""(() => {
   if (!document.getElementById('cy-pods').hidden) document.querySelectorAll('#cy-kpis2 [data-cyact="pods"]').forEach(b => { b.click(); out.push(...grab(document.getElementById('cy-podlist'))); b.click(); });      // the pod lists, opened in turn
   return out;
 })()"""
-NODES_JS = "[...document.querySelectorAll('#cy-ovbody [data-cyact=\"open\"]')].map(b => b.dataset.cyval)"
 
 
 def views(full: bool, data: dict) -> list[str]:
     rels = data["releases"] if full else ["26.4", "27.1"]
     psets = ["", "p=PMN", "p=PMN|CXCO", "p=INT"] + (["p=CXWFM|WFM|CXINT|INT"] if full else [])
     out = [f"r={r}&{p}".rstrip("&") for r in rels for p in psets]                     # the Cycles section follows the Delivery Cycle filter: both ticked (the default) shows both cycles combined
-    facets = ["dc=1", "dc=2", "p=PMN&dc=2", "cy=DC2", "ax=yes", "ax=all", "cfb=yes", "g=week", "g=quarter", "cg=quarter", "dp=all", "dp=overdue", "dp=gap", "dp=blocking", "p=PMN&dp=blocking", "dp=blockedby", "nt=capability", "nt=team", "cx=committed", "cpg=release", "cpm=count", "clx=Stretch|~notset", "clx=Committed|Target", "clx=Committed|Stretch|Target"]
+    facets = ["dc=1", "dc=2", "p=PMN&dc=2", "cy=DC2", "ax=yes", "ax=all", "cfb=yes", "g=week", "g=quarter", "cg=quarter", "dp=all", "dp=overdue", "dp=gap", "dp=blocking", "p=PMN&dp=blocking", "dp=blockedby", "nt=capability", "nt=team", "nt=pod", "cx=committed", "cpg=release", "cpm=count", "clx=Stretch|~notset", "clx=Committed|Target", "clx=Committed|Stretch|Target"]
     out += [f"r=27.1&{f}" for f in facets]
     teams = sorted({t for e in data["epics"] for t in (e.get("tm") or [])})                   # every team ticked: the longest queries (team clauses and sprint names together)
     allt = "t=" + "|".join(urllib.parse.quote(t) for t in teams)
@@ -101,7 +98,6 @@ def sweep(template: Path | None = None) -> dict:
         found, n_links, errors, secs = {}, 0, [], collections.Counter()
         full = bool(os.environ.get("LINK_GUARD_FULL"))
         todo = views(full, data)
-        seen_nodes: set = set()
         i = 0
         while i < len(todo):
             h = todo[i]
@@ -111,12 +107,6 @@ def sweep(template: Path | None = None) -> dict:
             time.sleep(0.1)
             errors += [f"{h}: {e}" for e in ch.console_errors()]
             anchors = ch.js(EXPAND_JS)
-            if re.fullmatch(r"r=27\.1(&(dc=[12]|p=[A-Z|]+))?", h) and h not in seen_nodes:      # the detail view behind every project, team and pod tile
-                seen_nodes.add(h)
-                for nd in (ch.js(NODES_JS) or [])[: (None if full else 12)]:
-                    ch.goto(url + "#" + h + "&ct=" + nd)
-                    kit.wait_ready(ch)
-                    anchors += ch.js(EXPAND_JS)
             for a in anchors:
                 q = urllib.parse.urlsplit(a["href"])
                 if q.path.rstrip("/") != "/issues":

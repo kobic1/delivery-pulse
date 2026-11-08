@@ -5,20 +5,24 @@ The page counts pods with podRegistry / cyPodsOf / cyPodFig. This module counts 
   * a POD is one pod label per project, compared without regard to case; an epic with several labels counts once under each pod; an epic with no label is in no pod;
   * Idle Pods: pods that carry at least one epic of the release (under the page's Release, Projects and Teams filters) and have NO epic planned in the selected Delivery Cycles (the Delivery Cycle filter:
     one cycle, or both combined = the release start to the release end);
-  * Pods With More Than 3 Epics In Progress: more than POD_LEVEL epics whose status is In Progress (N_WIP, Validation NOT counted: the owner's decision for this tile and its list only) among the epics of the
-    release, and the number of those epics, each once. Every other in-progress figure (Pods To Level, In-Progress Epics Without a Pod Label, the release bars) keeps N_FLIGHT = In Progress or Validation;
+  * Pods With More Than 3 Epics In Progress: more than POD_LEVEL epics whose status is In Progress (N_WIP, Validation NOT counted: the owner's decision for this tile and its list only) among the epics PLANNED IN THE
+    SELECTED CYCLES (the Planned tile's epics), and the number of those epics, each once. Every other in-progress figure (Pods To Level, In-Progress Epics Without a Pod Label, the release bars) keeps N_FLIGHT = In Progress or Validation;
+    all six Pod health tiles count only the epics planned in the selected cycles (the pods themselves, for Idle Pods, are the pods of the release);
   * the four proactive tiles (act_oracle below): Not-Started Epics Due Within 7 Days, Waiting Dependents Due Soon, Pods To Level, In-Progress Epics Without a Pod Label, with their lists.
 
 The window of the selected cycles is spelled here again from the release window and the ticked cycles (window_of), never read from the page, so a section that shows the wrong cycles is caught; the section's
 five headline tiles and the banner are recounted the same way (epic_tiles). The only things taken from the page are its filters, the as-of date and the planned date of each epic (plannedDue; the due date, else the Target
 Sprint calendar is proven by the other kinds of link_cycles.py).
-`check_pods` compares the printed tiles and the two lists opened in turn; `check_node` compares the facts line and the strip of a detail view.
+`check_pods` compares the printed tiles and the two lists opened in turn; `check_page` compares the page-level Weekly Plan vs. Actual table (the weeks, the Before W1 row, the Result wording, the sum against the
+Planned tile, the folded "after release end" number), the pod and team rows opened to their epics (every row's epics, week and flags recounted below), and checks that the removed features (detail views, status chips, the
+Find box, the After Release End line, the explainer notes) are gone.
 """
 from __future__ import annotations
 
 import collections
 import datetime as dt
 import json
+import math
 import re
 
 N_FLIGHT = ("In Progress", "Validation")             # the other in-progress figures of the page (CLASS.flight)
@@ -33,10 +37,11 @@ POD_JS = r"""(() => {
   const tile = (box, id) => { const t = document.querySelector(box + ' [data-kpi="' + id + '"]'); return t ? {v: t.querySelector('.v').textContent.trim(), s: t.querySelector('.s').textContent.trim(), btn: !!t.querySelector('.v button')} : null; };
   const ids = box => [...document.querySelectorAll(box + ' [data-kpi]')].map(t => t.dataset.kpi);
   return {release: state.release, projects: [...state.projects], teams: [...state.teams], dc: [...state.dc], cycleName: M.c.name, banner: (document.getElementById('cy-showing') || {}).textContent, bannerCycles: (document.getElementById('cy-banner') || {dataset: {}}).dataset.cycles,
-    point: (document.getElementById('cy-point') || {}).textContent, podScope: (document.getElementById('cy-podscope') || {}).textContent,
+    point: (document.getElementById('cy-point') || {}).textContent,
     tiles1: Object.fromEntries([...document.querySelectorAll('#cy-kpis1 [data-kpi]')].map(t => [t.dataset.kpi, t.querySelector('.v').textContent.trim()])), due: Object.fromEntries(M.epics.map(e => [e.k, e.due])), ids1: ids('#cy-kpis1'), ids2: ids('#cy-kpis2'), asof: CY.asOf, grid: document.getElementById('cy-kpis2').className, tiles: Object.fromEntries(ids('#cy-kpis2').map(id => [id, tile('#cy-kpis2', id)])),
     texts: [...document.querySelectorAll('#cy-kpis1 .kpi, #cy-kpis2 .kpi')].map(t => t.textContent), shown: document.getElementById('cy-pods').hidden === false,
-    heading: document.getElementById('cy-pods-h').textContent};
+    heading: document.getElementById('cy-pods-h').textContent,
+    plannedCap: (() => { const t = document.querySelector('#cy-kpis1 [data-kpi="planned"] .s'); return {text: t.textContent.replace(/\s+/g, ' ').trim(), hrefs: [...t.querySelectorAll('a[href]')].map(a => ({href: a.getAttribute('href'), text: a.textContent.trim()}))}; })()};
 })()"""
 LIST_JS = r"""((kind) => {
   const b = document.querySelector('#cy-kpis2 [data-cyact="pods"][data-cyval="' + kind + '"]'), host = document.getElementById('cy-podlist'); if (!b) return null;
@@ -49,15 +54,53 @@ LIST_JS = r"""((kind) => {
   b.click(); out.closedHidden = host.hidden; out.closedExpanded = b.getAttribute('aria-expanded'); out.closedFocus = document.activeElement === b;
   return out;
 })"""
-NODE_JS = r"""(() => {
-  const M = CYM, g = M && cyGroups().find(x => x.id === state.cy.tab); if (!g) return null;
-  const f = document.getElementById('cy-gfacts');
-  const rows = [...document.querySelectorAll('#cy-weekly tbody tr')].map(r => [...r.children].map(c => c.textContent.trim()));
-  return {level: g.level, epics: g.epics.map(e => e.k), due: Object.fromEntries(M.epics.map(e => [e.k, e.due])), release: state.release, dc: [...state.dc], asof: CY.asOf, facts: f ? f.textContent : null, weekly: rows,
-    tilesV: Object.fromEntries([...document.querySelectorAll('#cy-gkpis [data-kpi]')].map(t => [t.dataset.kpi, t.querySelector('.v').textContent.trim()])),
-    ids: [...document.querySelectorAll('#cy-gkpis [data-kpi]')].map(t => t.dataset.kpi), cls: document.getElementById('cy-gkpis').className, texts: [...document.querySelectorAll('#cy-gkpis .kpi')].map(t => t.textContent)};
+# The page-level Weekly Plan vs. Actual table, the Projects, Teams and Pods table opened to the epics, and what must be gone.
+PAGE_JS = r"""(() => {
+  const M = CYM; if (!M || M.none) return null;
+  const txt = n => n.textContent.replace(/\s+/g, ' ').trim();
+  const wk = document.getElementById('cy-wktable');
+  const heads = [...document.querySelectorAll('#cy-sec h3')].map(txt);
+  const ov = document.getElementById('cy-ovtable'), ovBlock = ov && ov.closest('.cyblock');
+  const hidden0 = ov ? [...ov.querySelectorAll('#cy-ovbody tr[data-id]')].map(r => ({id: r.dataset.id, lvl: r.dataset.lvl, hidden: r.hidden})) : [];
+  const out = {
+    release: state.release, projects: [...state.projects], teams: [...state.teams], dc: [...state.dc], asof: CY.asOf,
+    weekly: wk ? {hdr: [...wk.querySelectorAll('thead th')].map(txt), hdrCls: [...wk.querySelectorAll('thead th')].map(h => h.className), rows: [...wk.querySelectorAll('tbody tr')].map(r => ({pctCls: r.children[5].className, pctLinks: r.children[5].querySelectorAll('a').length, cells: [...r.children].map((c, i) => i === 0 ? txt(c).replace(/^\u25cf\s*/, '') : txt(c)), cur: r.getAttribute('aria-current'), dot: !!r.querySelector('th .cydot'), weight: +getComputedStyle(r.children[0]).fontWeight, tint: getComputedStyle(r.children[1]).backgroundColor, cls: r.className, links: [...r.querySelectorAll('a[href]')].map(a => ({href: a.getAttribute('href'), text: txt(a)}))})), caption: txt(wk.querySelector('caption')), note: txt(document.querySelector('#cy-weekly > .cymeta'))} : null,
+    order: ['cy-banner', 'cy-kpis1', 'cy-pods', 'cy-weekly', 'cy-ovtable', 'cy-cap'].map(id => { const e = document.getElementById(id); return e ? Math.round(e.getBoundingClientRect().top + scrollY) : null; }),
+    heads, firstHeadings: [...document.querySelectorAll('#cy-sec > *')].map(e => e.id || e.className || e.tagName).slice(0, 8),
+    gone: {find: !!document.getElementById('cy-find') || !!document.getElementById('cy-findstat'), chips: document.querySelectorAll('#cy-sec .pill, #cy-sec .chips').length, after: !!document.getElementById('cy-after'), sub: !!document.getElementById('cy-sub'),
+      detail: !!document.querySelector('#cy-sec .cydetail, #cy-crumb, #cy-panel, #cy-gkpis, #cy-concerns, #cy-lists'), notes: !!document.getElementById('cy-notes'), nameButtons: document.querySelectorAll('#cy-sec .cyname button, #cy-sec button.cyname, #cy-sec [data-cyact="open"]').length,
+      explainer: ovBlock ? [...ovBlock.children].some(c => c.classList.contains('cymeta')) : false, afterText: /After Release End/.test(document.getElementById('cy-sec').textContent)},
+    ovBlock: ovBlock ? [...ovBlock.children].map(c => c.tagName + '.' + c.className) : null,
+    toggles: ov ? [...ov.querySelectorAll('[data-cyact]')].map(b => b.dataset.cyact) : [], hidden0,
+    bodyIds: [...document.querySelectorAll('#cy-body > *')].map(e => e.id || e.className)};
+  return out;
 })()"""
-PODS_JS = "CYM.tabGroups.filter(n => n.level === 'pod' && !n.virtual).slice(0, 3).map(n => n.id)"
+EXPAND_JS = r"""(() => {
+  const ex = document.querySelector('[data-cyact="expall"]'); if (!ex) return null;
+  ex.click();
+  const txt = n => n.textContent.replace(/\s+/g, ' ').trim();
+  const rows = [...document.querySelectorAll('#cy-ovbody tr[data-id]')], by = new Map(rows.map(r => [r.dataset.id, r]));
+  const name = r => txt(r.querySelector('.cyname'));
+  const lists = [], expandable = [];
+  rows.forEach(r => {
+    const tg = r.querySelector('.cytgl'); if (tg) expandable.push({lvl: r.dataset.lvl, name: name(r), expanded: tg.getAttribute('aria-expanded'), hasEpics: !!document.getElementById('cye-' + r.dataset.id), ctl: tg.getAttribute('aria-controls')});
+    if (r.dataset.lvl !== 'epics') return;
+    const node = by.get(r.dataset.par), team = node.dataset.lvl === 'pod' ? by.get(node.dataset.par) : node, proj = by.get(team.dataset.par);
+    const tb = r.querySelector('table.cyepl');
+    lists.push({lvl: node.dataset.lvl, project: name(proj), team: name(team), pod: node.dataset.lvl === 'pod' ? name(node) : null, shown: !r.hidden, parentShown: !node.hidden,
+      hdr: [...tb.querySelectorAll(':scope > thead th')].map(txt), caption: !!tb.querySelector('caption'), epicsCell: txt(node.children[2]),
+      rows: [...tb.querySelectorAll(':scope > tbody > tr')].map(x => ({key: txt(x.querySelector('th')), href: (x.querySelector('th a') || {getAttribute: () => null}).getAttribute('href'), cells: [...x.querySelectorAll('td')].map(txt)}))});
+  });
+  const allShown = rows.every(r => !r.hidden);
+  return {lists, expandable, allShown, nodes: rows.filter(r => r.dataset.lvl !== 'epics').map(r => ({lvl: r.dataset.lvl, name: name(r), project: r.dataset.lvl === 'project' ? name(r) : name(by.get(r.dataset.par).dataset.lvl === 'project' ? by.get(r.dataset.par) : by.get(by.get(r.dataset.par).dataset.par)), par: r.dataset.par, id: r.dataset.id, epicsCell: txt(r.children[2])}))};
+})()"""
+COLLAPSE_JS = r"""(() => {
+  const c = document.querySelector('[data-cyact="colall"]'); if (!c) return null; c.click();
+  const rows = [...document.querySelectorAll('#cy-ovbody tr[data-id]')];
+  const shown = rows.filter(r => !r.hidden).map(r => r.dataset.lvl);
+  const pod = document.querySelector('#cy-ovbody tr[data-lvl="pod"]'), proj = document.querySelector('#cy-ovbody tr[data-lvl="project"]');
+  return {shown, rows: rows.length};
+})()"""
 
 
 def pods_of(epics: list) -> dict:
@@ -105,8 +148,8 @@ def figures(epics: list, due: dict, cycle: dict) -> dict:
         return bool(due.get(e["k"])) and cycle["start"] <= due[e["k"]] <= cycle["end"]
 
     idle = {k for k, es in pods.items() if not any(planned(e) for e in es)}
-    wip = {k for k, es in pods.items() if len(wip_epics(es)) > POD_LEVEL}
-    return {"pods": pods, "idle": idle, "wip": wip, "wip_epics": {e["k"] for k in wip for e in wip_epics(pods[k])}}
+    wip = {k for k, es in pods.items() if len(wip_epics([e for e in es if planned(e)])) > POD_LEVEL}          # among the epics planned in the selected cycles
+    return {"pods": pods, "idle": idle, "wip": wip, "wip_epics": {e["k"] for k in wip for e in wip_epics([x for x in pods[k] if planned(x)])}, "planned": planned}
 
 
 def oracle(data: dict, st: dict) -> dict:
@@ -131,11 +174,9 @@ def check_pods(res: dict, data: dict, st, tag: str, ch) -> None:
         bad.append(f"{tag}: the tiles are {st['ids1']} and {st['ids2']}")
     if any(re.search(r"undefined|NaN|\[object", t) for t in st["texts"]):
         bad.append(f"{tag}: a tile prints undefined or NaN")
-    if "Only Idle Pods follows the cycle" not in (st.get("podScope") or ""):
-        bad.append(f"{tag}: the Pods block does not say that only Idle Pods follows the cycle: {st.get('podScope')!r}")
-    if not st["shown"] or st["heading"] != f"Pods in {st['release']}":
-        bad.append(f"{tag}: the Pods block is hidden or its heading is '{st['heading']}'")
     win = window_of(data, st["release"], st["dc"])
+    if not st["shown"] or st["heading"] != f"Pod health in {win['name']}":
+        bad.append(f"{tag}: the Pod health block is hidden or its heading is '{st['heading']}', expected 'Pod health in {win['name']}'")
     cal = {s["n"]: s["end"] for s in data["sprints"]}
     want_banner = f"Showing {win['name']}{' combined' if len(win['shown']) > 1 else ''} · {win['start']} to {win['end']}"
     if st["banner"] != want_banner or st["cycleName"] != win["name"] or st["bannerCycles"] != "+".join(map(str, win["shown"])):
@@ -200,7 +241,7 @@ def check_pods(res: dict, data: dict, st, tag: str, ch) -> None:
         else:
             for (p, nm), r in rows.items():
                 es = exp["pods"][(p, nm)]
-                want_n = len(es) if kind == "idle" else len(wip_epics(es))
+                want_n = len(es) if kind == "idle" else len(wip_epics([e for e in es if exp["planned"](e)]))
                 if int(r["cells"][2].replace(",", "")) != want_n or (kind == "idle" and r["cells"][3] != "0"):
                     bad.append(f"{tag}: {kind} row {nm} ({p}) prints {r['cells']}, the recount is {want_n}")
         order = [(r["name"], r["cells"][0]) for r in got["rows"]]
@@ -216,69 +257,279 @@ def check_pods(res: dict, data: dict, st, tag: str, ch) -> None:
             bad.append(f"{tag}: the {kind} list header is {got['hdr']}")
 
 
-def check_weekly(res: dict, es: list, nd: dict, win: dict, cal: dict, tag: str) -> None:
-    """The weekly table of a detail view: seven-day weeks from the start of the window (the release start when both cycles are shown), as many rows as the window has weeks, and in each row the Planned,
-    Done and Not Done counts of the epics whose planned date falls in that week; the rows add up to the Planned tile."""
-    bad = res["pod_bad"]
-    start, end = dt.date.fromisoformat(win["start"]), dt.date.fromisoformat(win["end"])
-    planned = [e for e in es if planned_date(e, cal) and win["start"] <= planned_date(e, cal) <= win["end"]]
-    rows = nd["weekly"]
-    if not planned:
-        if rows:
-            bad.append(f"{tag}: a weekly table is shown for a view with nothing planned in {win['name']}")
-        return
-    n_weeks = -(-((end - start).days + 1) // 7)
-    res["pod_seen"]["weekly_rows>7" if n_weeks > 7 else "weekly_rows<=7"] += 1
-    if len(rows) != n_weeks:
-        bad.append(f"{tag}: the weekly table has {len(rows)} rows, {win['name']} has {n_weeks} weeks")
-        return
-    tot = 0
-    for w, r in enumerate(rows):
-        ws, we = start + dt.timedelta(days=7 * w), min(start + dt.timedelta(days=7 * w + 6), end)
-        in_w = [e for e in planned if ws.isoformat() <= planned_date(e, cal) <= we.isoformat()]
-        want = [f"Week {w + 1}", f"{ws.isoformat()} to {we.isoformat()}", str(len(in_w)), str(sum(1 for e in in_w if e["s"] == "Done")), str(sum(1 for e in in_w if e["s"] != "Done"))]
-        got = [r[0], r[1]] + [x.replace(",", "") for x in r[2:5]]
-        if got != want:
-            bad.append(f"{tag}: weekly row {w + 1} is {got}, the recount {want}")
-        tot += len(in_w)
-    if tot != len(planned):
-        bad.append(f"{tag}: the weekly rows add up to {tot}, the recount of planned is {len(planned)}")
+def jround(x: float) -> int:
+    return math.floor(x + 0.5)                                    # JavaScript's Math.round (halves go up), not Python's
 
 
-def check_node(res: dict, data: dict, nd, tag: str) -> None:
-    """A detail view: the strip of five, no 'flagged as blocked' in the facts line, and the two pod facts (project and team views only, only above 0) against the recount over the node's epics."""
-    bad = res["pod_bad"]
-    if not nd:
-        bad.append(f"{tag}: no detail view")
+def weeks_of(data: dict, release: str) -> list:
+    """The release's weeks as the burnup numbers them: W1 starts 7 days after the release start, the end of W6 is start + 48 days, the end of the last week (W12 in a standard release) is the release end. Spelled here
+    on purpose, from the release window alone: [(n, first day, last day)]."""
+    start, end = (dt.date.fromisoformat(x) for x in data["windows"][release])
+    n_weeks = round(((end - start).days - 7) / 7)
+    out = []
+    for n in range(1, n_weeks + 1):
+        ws = start + dt.timedelta(days=7 * n)
+        we = end if n == n_weeks else start + dt.timedelta(days=7 * n + 6)
+        out.append((n, ws, we))
+    return out
+
+
+def week_label(e: dict, data: dict, release: str, cal: dict) -> str:
+    """The week of an epic's planned date as an epic list prints it: W#, 'Before W1' (the first seven days of the release and anything earlier), 'After release end', or a dash with no planned date."""
+    d = planned_date(e, cal)
+    if not d:
+        return "–"
+    start, end = (dt.date.fromisoformat(x) for x in data["windows"][release])
+    day = dt.date.fromisoformat(d)
+    if day > end:
+        return "After release end"
+    for n, ws, we in weeks_of(data, release):
+        if ws <= day <= we:
+            return f"W{n}"
+    return "Before W1"
+
+
+def weekly_expected(data: dict, es: list, st: dict, win: dict, cal: dict) -> dict:
+    """The rows the Weekly Plan vs. Actual table must hold for the epics `es` and the selected cycles: Cycle 1 shows W1 to W6, Cycle 2 shows W7 to W12, both show W1 to W12 (a release with fewer weeks, only those); one
+    extra first row 'Before W1' (the first seven days of the release, a part of Cycle 1) only when it holds planned epics. Never a 13th week. Epics planned after the last shown week are the 'after release end' number."""
+    start, end = (dt.date.fromisoformat(x) for x in data["windows"][st["release"]])
+    asof = st["asof"]
+    weeks = weeks_of(data, st["release"])
+    first = 1 in win["shown"]
+    lo = 1 if first else 7
+    hi = max(n for n, _, _ in weeks) if 2 in win["shown"] else min(6, max(n for n, _, _ in weeks))
+    spans = [(f"W{n}", ws, we) for n, ws, we in weeks if lo <= n <= hi]
+    if first:
+        spans.insert(0, ("Before W1", start, start + dt.timedelta(days=6)))
+    rows = []
+    for label, ws, we in spans:
+        inw = [e for e in es if (d := planned_date(e, cal)) and ws.isoformat() <= d <= we.isoformat()]
+        if label == "Before W1" and not inw:
+            continue
+        nd = sum(1 for e in inw if e["s"] != "Done")
+        share = f"{jround(100 * (len(inw) - nd) / len(inw))}%" if len(inw) >= MIN_SAMPLE else "–"      # % Done: Done over Planned, from MIN_SAMPLE (5) planned epics, a dash under that and for 0; JavaScript's rounding
+        res = "–" if not inw else (("All Done" if not nd else f"{nd} Not Done") if we.isoformat() < asof else ("Upcoming" if ws.isoformat() > asof else "Current Week"))
+        rows.append([label, f"{ws.isoformat()} to {we.isoformat()}", str(len(inw)), str(len(inw) - nd), str(nd), share, res])
+    planned = [e for e in es if (d := planned_date(e, cal)) and win["start"] <= d <= win["end"]]
+    after = [e for e in es if (d := planned_date(e, cal)) and d > end.isoformat()] if win["all"] else []
+    return {"rows": rows, "planned": len(planned), "after": len(after)}
+
+
+def _live(e: dict, win: dict, cal: dict, asof: str) -> bool:
+    """An epic keeps its row alive: planned in the selected cycles, carried over (not Done, planned before the window, once the window has started), or (with every cycle shown) active with no planned date."""
+    d = planned_date(e, cal)
+    if d and win["start"] <= d <= win["end"]:
+        return True
+    if d and e["s"] != "Done" and d < win["start"] and asof >= win["start"]:
+        return True
+    return win["all"] and not d and e["s"] in N_FLIGHT
+
+
+def epic_flags(e: dict, asof: str, cal: dict) -> str:
+    out = []
+    d = planned_date(e, cal)
+    if d and e["s"] != "Done" and d < asof:
+        n = (dt.date.fromisoformat(asof) - dt.date.fromisoformat(d)).days
+        out.append(f"{n} {'day' if n == 1 else 'days'} overdue")
+    if e.get("fl") and e["s"] != "Done":
+        out.append("Flagged as blocked in Jira")
+    if not d:
+        out.append("no planned date")
+    return "; ".join(out)
+
+
+def lists_expected(data: dict, es: list, st: dict, win: dict, cal: dict) -> dict:
+    """Which epics each opened pod row (and each team row with no pod rows) must list: the epics of the row under Epics in Release (every status, any planned date), keyed (project, team, pod name lower-cased or '*')."""
+    asof = st["asof"]
+    by_team: dict = collections.defaultdict(list)
+    for e in es:
+        for t in _teams(e):
+            by_team[(e["p"], t)].append(e)
+    out = {}
+    for (p, t), tes in by_team.items():
+        pods = collections.defaultdict(list)
+        for e in tes:
+            for k in _pods(e):
+                pods[k].append(e)
+        none = [e for e in tes if not _pods(e)]
+        live_pods = {k: v for k, v in pods.items() if any(_live(e, win, cal, asof) for e in v)}
+        live_none = none if (pods and any(_live(e, win, cal, asof) for e in none)) else []        # the No Pod Label row exists only in a team that has pod labels
+        if not any(_live(e, win, cal, asof) for e in tes):
+            continue                                                                                  # a team with nothing live has no row at all
+        if live_pods:
+            for k, v in live_pods.items():
+                out[(p, t, k)] = v
+            if live_none:
+                out[(p, t, "")] = live_none
+        else:
+            out[(p, t, "*")] = tes                                                                    # no pod rows: the team lists its own epics
+    return out
+
+
+def _check_week_caption_and_marker(res: dict, wk: dict, rows: list, asof: str, win: dict, tag: str) -> None:
+    """The caption of the weekly table is one short sentence, "Epics by planned week in <cycles>. Weeks run <first weekday> to <last weekday>.", the weekdays read off the table's own dates (the first numbered
+    week of seven days; spelled here with strftime, never fixed). The row whose dates hold the as-of day is marked: aria-current="date", a dot glyph in the week cell, bold, and a tint (a marker that does not rest on
+    colour alone); exactly one row when the as-of day is inside the shown rows (Before W1 included when shown), none otherwise (Cycle 2 before W7, a closed release, a release not started)."""
+    bad, seen = res["pod_bad"], res["pod_seen"]
+    spans = [(r[1].split(" to ")[0], r[1].split(" to ")[1], r[0]) for r in rows]
+    numbered = [x for x in spans if x[2] != "Before W1"]
+    full = [x for x in numbered if (dt.date.fromisoformat(x[1]) - dt.date.fromisoformat(x[0])).days == 6] or numbered
+    if full:
+        a, b = (dt.date.fromisoformat(full[0][0]).strftime("%A"), dt.date.fromisoformat(full[0][1]).strftime("%A"))
+        want = f"Epics by planned week in {win['name']}. Weeks run {a} to {b}."
+        if wk["note"] != want:
+            bad.append(f"{tag}: the weekly caption is {wk['note']!r}, expected {want!r}")
+    marked = [i for i, (ws, we, _) in enumerate(spans) if ws <= asof <= we]
+    got = [i for i, r in enumerate(wk["rows"]) if r["cur"] == "date" or "cycur" in r["cls"].split()]
+    if got != marked or len(got) > 1:
+        bad.append(f"{tag}: the marked weekly rows are {got}, the as-of day {asof} is in row(s) {marked} of {[x[2] for x in spans]}")
+    seen["cur_marked" if marked else "cur_none"] += 1
+    if any(r["cur"] not in (None, "date") for r in wk["rows"]):
+        bad.append(f"{tag}: aria-current has a value other than date")
+    others = [r for i, r in enumerate(wk["rows"]) if i not in got]
+    for i in got:
+        r = wk["rows"][i]
+        if not (r["cur"] == "date" and r["dot"] and r["weight"] >= 700 and others and all(r["tint"] != o["tint"] for o in others)):
+            bad.append(f"{tag}: the current-week row {r['cells'][0]} lacks its marker (aria-current {r['cur']!r}, dot {r['dot']}, weight {r['weight']}, tint {r['tint']} vs {others[0]['tint'] if others else None})")
+    if any(r["dot"] or r["weight"] >= 700 for r in others):
+        bad.append(f"{tag}: a row other than the current week is marked (dot or bold)")
+
+
+def check_page(res: dict, data: dict, st, exp_st, tag: str, ch) -> None:
+    """The page-level layout and numbers of the Cycles section (every difference goes to res['pod_bad']): the order of the blocks, the removed features, the weekly table against weekly_expected, the Planned caption,
+    and every opened pod or team row against lists_expected. `st` is the PAGE_JS state, `exp_st` the POD_JS state of the same view."""
+    bad, seen = res["pod_bad"], res["pod_seen"]
+    if not st:
+        bad.append(f"{tag}: no page state")
         return
-    if nd["ids"] != EPIC_IDS or "five" not in nd["cls"].split() or "six" in nd["cls"].split():
-        bad.append(f"{tag}: the detail strip is {nd['ids']} ({nd['cls']})")
-    if any(re.search(r"undefined|NaN", t) for t in nd["texts"]):
-        bad.append(f"{tag}: a detail tile prints undefined or NaN")
-    es = [e for e in data["epics"] if e["k"] in set(nd["epics"])]
-    win = window_of(data, nd["release"], nd["dc"])
-    fig = figures(es, nd["due"], win)
+    g = st["gone"]
+    for k, v in g.items():
+        if v:
+            bad.append(f"{tag}: a removed feature is on the page ({k}: {v!r})")
+    if st["firstHeadings"][:7] != ["seclabel", "h-cycles", "cy-banner", "cy-kpis1", "cy-pods", "cy-body", "cy-cap"]:
+        bad.append(f"{tag}: the top of the section is {st['firstHeadings']}")
+    blk = [x for x in (st["ovBlock"] or []) if x != "DIV.scrollcue"]                                    # (the page adds the scroll cue itself)
+    if st["ovBlock"] and blk != ["H3.", "DIV.cyfrow cytogglebar", "DIV.tablewrap"]:
+        bad.append(f"{tag}: the Projects table block is {st['ovBlock']} (heading, Expand/Collapse bar, table; no paragraph, no Find box)")
+    if st["ovBlock"] and sorted(set(st["toggles"])) != ["tgl"]:
+        bad.append(f"{tag}: the table has controls other than the row arrows: {sorted(set(st['toggles']))}")
+    win = window_of(data, st["release"], st["dc"])
     cal = {s["n"]: s["end"] for s in data["sprints"]}
-    for k, v in epic_tiles(es, nd["asof"], win, cal).items():
-        got = nd["tilesV"].get(k)
-        if not (k == "flagged" and got == "–") and (got is None or got.replace(",", "") != str(v)):
-            bad.append(f"{tag}: the detail {k} tile prints {got}, the recount of {win['name']} is {v}")
-    check_weekly(res, es, nd, win, cal, tag)
-    facts = nd["facts"] or ""
-    if "flagged as blocked" in facts:
-        bad.append(f"{tag}: the facts line still says 'flagged as blocked': {facts}")
-    idle, wip = len(fig["idle"]), len(fig["wip"])
-    if nd["level"] == "pod":
-        if "idle pod" in facts or "epics In Progress" in facts:
-            bad.append(f"{tag}: a pod leaf shows pod facts: {facts}")
+    es = _scope(data, st)
+    want = weekly_expected(data, es, st, win, cal)
+    wk = st["weekly"]
+    if not want["planned"]:
+        if wk:
+            bad.append(f"{tag}: a weekly table is shown for a view with nothing planned in {win['name']}")
+    else:
+        if not wk:
+            bad.append(f"{tag}: no weekly table, {want['planned']} epics are planned")
+        else:
+            seen["weekly_views"] += 1
+            if wk["hdr"] != ["Week", "Dates", "Planned", "Done", "Not Done", "% Done", "Result"]:
+                bad.append(f"{tag}: the weekly header is {wk['hdr']}")
+            got = [r["cells"] for r in wk["rows"]]
+            if got != want["rows"]:
+                bad.append(f"{tag}: the weekly rows are {got[:3]}..., the independent recount {want['rows'][:3]}... ({len(got)} vs {len(want['rows'])} rows)")
+            _check_week_caption_and_marker(res, wk, want["rows"], st["asof"], win, tag)
+            labels = [r[0] for r in got]
+            if any(re.fullmatch(r"W(1[3-9]|[2-9]\d)", x) for x in labels) or "Week 13" in labels:
+                bad.append(f"{tag}: a week after W12 is shown: {labels}")
+            seen["before_w1" if "Before W1" in labels else "no_before_w1"] += 1
+            seen[f"weekly_{win['shown'][0]}_{win['shown'][-1]}"] += 1
+            if sum(int(r[2]) for r in got) != want["planned"]:
+                bad.append(f"{tag}: the weekly rows add up to {sum(int(r[2]) for r in got)}, the Planned tile recount is {want['planned']}")
+            tiles = exp_st["tiles1"].get("planned", "").replace(",", "")
+            if tiles != str(want["planned"]):
+                bad.append(f"{tag}: the Planned tile prints {tiles}, the recount {want['planned']}")
+            if wk["hdrCls"][2:6] != ["n"] * 4 or any(r["pctCls"] != "n" or r["pctLinks"] for r in wk["rows"]):
+                bad.append(f"{tag}: the % Done column is not a right-aligned number column without links: {wk['hdrCls']}")
+            seen["pct_share"] += sum(1 for r in wk["rows"] if r["cells"][5].endswith("%"))
+            seen["pct_dash_small"] += sum(1 for r in wk["rows"] if r["cells"][5] == "–" and int(r["cells"][2]) > 0)
+            for r in wk["rows"]:                                      # every count of the table above 0 is a Jira link with that number; a 0 is plain text
+                texts = [x["text"] for x in r["links"]]
+                for idx in (2, 3, 4):
+                    n = r["cells"][idx]
+                    if (n != "0") != (n in texts):
+                        bad.append(f"{tag}: weekly row {r['cells'][0]}, column {idx}: the count {n} {'has no link' if n != '0' else 'is a link'}")
+            if None in st["order"] or not (st["order"][0] < st["order"][1] < st["order"][2] < st["order"][3] < st["order"][4] < st["order"][5]):
+                bad.append(f"{tag}: the blocks are not in the order banner, tiles, Pod health, weekly table, Projects table, disclosure: {st['order']}")
+    cap = exp_st["plannedCap"]
+    after_txt = f" · {want['after']} after release end"
+    if want["after"]:
+        if not cap["text"].endswith(after_txt) or not cap["text"].startswith(f"epics planned in {win['name']}"):
+            bad.append(f"{tag}: the Planned caption is {cap['text']!r}, the recount says {want['after']} planned after the release end")
+        seen["after>0"] += 1
+    elif "after release end" in cap["text"] or cap["text"] != f"epics planned in {win['name']}":
+        bad.append(f"{tag}: the Planned caption is {cap['text']!r} but nothing is planned after the release end (or one cycle is shown)")
+    else:
+        seen["after==0"] += 1
+    # ---- the table opened to the epics
+    ex = ch.js(EXPAND_JS)
+    if not ex:
+        if es and any(_live(e, win, cal, st["asof"]) for e in es):
+            bad.append(f"{tag}: no Projects table although epics are live")
         return
-    res["pod_seen"]["node_idle>0"] += idle > 0
-    res["pod_seen"]["node_wip>0"] += wip > 0
-    want_idle = f"{idle} idle {'pod' if idle == 1 else 'pods'}" if idle else None
-    want_wip = f"{wip} {'pod' if wip == 1 else 'pods'} with more than {POD_LEVEL} epics In Progress" if wip else None
-    for what, w, present in (("idle", want_idle, "idle pod" in facts), ("wip", want_wip, "epics In Progress" in facts)):
-        if (w and w not in facts) or (not w and present):
-            bad.append(f"{tag}: the facts line '{facts}' should {'say ' + repr(w) if w else 'not mention ' + what + ' pods'}")
+    exp = lists_expected(data, es, st, win, cal)
+    got = {}
+    for L in ex["lists"]:
+        key = (L["project"], L["team"], "*" if L["pod"] is None else ("" if L["pod"] == "No Pod Label" else L["pod"].lower()))
+        got[key] = L
+    if set(got) != set(exp):
+        bad.append(f"{tag}: the rows that open to epics differ from the recount: {sorted(set(got) ^ set(exp))[:3]}")
+    else:
+        for key, es_ in exp.items():
+            L = got[key]
+            seen["lists"] += 1
+            seen["list_pod" if L["pod"] is not None else "list_team"] += 1
+            seen["list_nopod" if L["pod"] == "No Pod Label" else "list_other"] += 1
+            if L["hdr"] != ["Jira", "Summary", "Planned", "Week", "Status", "Flags"] or not L["caption"]:
+                bad.append(f"{tag}: the epic list header is {L['hdr']}")
+            if not L["shown"]:
+                bad.append(f"{tag}: Expand All left the list of {key} hidden")
+            rows = {r["key"]: r for r in L["rows"]}
+            if len(rows) != len(L["rows"]) or set(rows) != {e["k"] for e in es_}:
+                bad.append(f"{tag}: the list of {key} shows {sorted(rows)[:4]} ({len(L['rows'])}), the recount {sorted(e['k'] for e in es_)[:4]} ({len(es_)})")
+                continue
+            if L["epicsCell"].replace(",", "") != str(len(es_)):
+                bad.append(f"{tag}: the row of {key} counts {L['epicsCell']} under Epics in Release, its list holds {len(es_)}")
+            dd = [r["cells"][1][:10] if r["cells"][1] != "–" else "9999" for r in L["rows"]]
+            if dd != sorted(dd):
+                bad.append(f"{tag}: the list of {key} is not in planned-date order: {dd[:5]}")
+            for e in es_:
+                r = rows[e["k"]]
+                summ, planned, week, status, flags = r["cells"]
+                d = planned_date(e, cal)
+                if (r["href"] or "").rsplit("/", 1)[-1] != e["k"] or "/browse/" not in (r["href"] or ""):
+                    bad.append(f"{tag}: {e['k']} is not a link to its Jira page: {r['href']}")
+                if summ != re.sub(r"\s+", " ", e["t"]).strip():
+                    bad.append(f"{tag}: {e['k']} summary {summ!r}")
+                if (planned[:10] if d else planned) != (d or "–"):
+                    bad.append(f"{tag}: {e['k']} planned {planned!r}, the recount {d}")
+                if week != week_label(e, data, st["release"], cal):
+                    bad.append(f"{tag}: {e['k']} week {week!r}, the recount {week_label(e, data, st['release'], cal)!r}")
+                if status != e["s"] or flags != epic_flags(e, st["asof"], cal):
+                    bad.append(f"{tag}: {e['k']} status/flags {status!r} / {flags!r}, the recount {e['s']!r} / {epic_flags(e, st['asof'], cal)!r}")
+                seen["flag_overdue"] += "overdue" in flags
+                seen["flag_blocked"] += "Flagged" in flags
+                seen["flag_nodate"] += "no planned date" in flags
+    # every pod row, and every team row without pod rows, has the arrow; a team with pod rows lists pods, not epics
+    pods_rows = [x for x in ex["expandable"] if x["lvl"] == "pod"]
+    if any(not x["hasEpics"] for x in pods_rows) or any(x["lvl"] == "team" and x["hasEpics"] != x["ctl"].startswith("cye-") for x in ex["expandable"]):
+        bad.append(f"{tag}: a pod or team arrow does not control its epic list: {[x for x in ex['expandable'] if x['lvl'] != 'project'][:3]}")
+    if not ex["allShown"]:
+        bad.append(f"{tag}: Expand All leaves a row hidden")
+    col = ch.js(COLLAPSE_JS)
+    if col and col["shown"] != ["project"] * col["shown"].count("project"):
+        bad.append(f"{tag}: Collapse All leaves rows other than the projects: {col['shown'][:6]}")
+    # the default state: one project selected opens to its teams (team rows shown, no pod or epic row); otherwise one row per project
+    h0 = st["hidden0"]
+    shown0 = collections.Counter(x["lvl"] for x in h0 if not x["hidden"])
+    if len(st["projects"]) == 1:
+        if shown0["pod"] or shown0["epics"]:
+            bad.append(f"{tag}: one project selected must open to its teams only: {dict(shown0)}")
+    elif shown0["team"] or shown0["pod"] or shown0["epics"]:
+        bad.append(f"{tag}: several projects selected must show one row per project: {dict(shown0)}")
 
 
 # ----------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -334,6 +585,8 @@ def act_oracle(data: dict, st: dict) -> dict:
     asof = st["asof"]
     hi = _days(asof, SOON_DAYS)
     cal = {s["n"]: s["end"] for s in data["sprints"]}
+    win = window_of(data, st["release"], st["dc"])
+    P = {e["k"] for e in scope if (d := planned_date(e, cal)) and win["start"] <= d <= win["end"]}      # the population of the Pod health tiles: epics planned in the selected cycles
     by_team: dict = collections.defaultdict(list)                  # (project, team) -> the team's epics under the filters (every status)
     for e in scope:
         for t in _teams(e):
@@ -358,15 +611,15 @@ def act_oracle(data: dict, st: dict) -> dict:
                     out[(p, t, "")] = n
         return out
 
-    is_ns = lambda e: e["s"] in NS_STATUSES and (lambda d: bool(d) and asof <= d <= hi)(planned_date(e, cal))     # noqa: E731
-    in_flight = lambda e: e["s"] in N_FLIGHT                                                                      # noqa: E731
+    is_ns = lambda e: e["k"] in P and e["s"] in NS_STATUSES and (lambda d: bool(d) and asof <= d <= hi)(planned_date(e, cal))     # noqa: E731
+    in_flight = lambda e: e["k"] in P and e["s"] in N_FLIGHT                                                      # noqa: E731
     ns = [e for e in scope if is_ns(e)]
     flight = [e for e in scope if in_flight(e)]
     nopod = [e for e in flight if not _pods(e)]
     # 2. Pods To Level
     level_rows, flagged, ends, multi = {}, [], set(), 0
     for (p, t), es in by_team.items():
-        pods = sorted(k for k in team_pods[(p, t)] if any(k in _pods(e) and e["s"] != "Done" for e in es))
+        pods = sorted(k for k in team_pods[(p, t)] if any(k in _pods(e) and e["s"] != "Done" and e["k"] in P for e in es))
         if len(pods) < 2:
             continue
         multi += 1
@@ -381,7 +634,7 @@ def act_oracle(data: dict, st: dict) -> dict:
                     ends.add((p, k))
     # 3. Waiting Dependents Due Soon
     by_key = {e["k"]: e for e in data["epics"]}
-    in_scope = {e["k"] for e in scope}
+    in_scope = P                                                   # the provider is an epic planned in the selected cycles
     items, groups = {}, {}
     for a, b in {(d[0], d[1]) for d in data["deps"]}:
         prov = by_key.get(b)

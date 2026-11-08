@@ -108,7 +108,8 @@ def test_pod_labels_use_the_release_planning_rule_case_insensitively():
 def test_pod_patterns_are_read_from_the_release_planning_configuration(tmp_path, monkeypatch):
     rx = BD.pod_patterns()
     assert set(rx) == set(BD.PROJECTS) and all(v for v in rx.values())
-    assert rx["WFM"] == BD.POD_DEFAULT_RX                                            # no configuration for the project: the plain pattern
+    monkeypatch.setattr(BD, "PROJECTS", ["ZZNOCFG"])                                  # a project with no release planning configuration: the plain pattern
+    assert BD.pod_patterns() == {"ZZNOCFG": BD.POD_DEFAULT_RX}
 
 
 def test_pods_group_case_insensitively_with_the_first_spelling_and_count_an_epic_once_per_pod():
@@ -169,7 +170,7 @@ def bare_reserved(jql: str) -> list:
 
 
 def test_a_reserved_project_key_is_quoted_and_every_other_key_is_left_alone():
-    assert BD.JQL_RESERVED_KEYS == ["INT"] and BD.PROJECTS[-1] == "INT" and BD.PROJECTS[:6] == ["PMN", "CXCO", "CXSUP", "CXWFM", "WFM", "CXINT"]
+    assert BD.JQL_RESERVED_KEYS == ["INT"] and BD.PROJECTS[-1] == "INT" and BD.PROJECTS[:5] == ["PMN", "CXCO", "CXSUP", "CXWFM", "CXINT"] and BD.PRODUCTS == ["WFM", "EEM", "ESP"]
     assert BD.pkey("INT") == '"INT"' and BD.pkey("CXINT") == "CXINT" and BD.pkey("PMN") == "PMN"
     assert BD.pkeys(["PMN", "INT", "CXCROSS"]) == 'PMN, "INT", CXCROSS'
     assert BD.pkeys(["PMN", "CXCO"]) == "PMN, CXCO"                                    # the other projects' queries are byte-identical to before
@@ -279,3 +280,10 @@ def test_the_sandbox_build_gets_its_own_title_and_a_banner_and_keeps_the_page_ot
 def test_the_sandbox_build_writes_other_files_than_the_live_ones():
     assert len({BD.OUT, BD.OUT_ARTIFACT, BD.OUT_SANDBOX, BD.OUT_SANDBOX_ARTIFACT}) == 4
     assert "sandbox" in BD.OUT_SANDBOX.name and "sandbox" in BD.OUT_SANDBOX_ARTIFACT.name
+
+
+def test_the_sandbox_banner_is_added_before_the_usage_bundle_is_inlined():
+    """The usage bundle holds strings with the page's own header markup; the banner step asserts exactly one header, so it has to run first."""
+    src = (HERE / "build_dashboard.py").read_text()
+    body = src[src.index("def render(data"):src.index("def main()")]
+    assert body.index("sandbox_fragment(fragment") < body.index("usage_bundle.inline_into(fragment")
