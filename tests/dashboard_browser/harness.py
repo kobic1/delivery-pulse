@@ -350,7 +350,7 @@ def _(t: T):
     ch.goto(url)
     kit.wait_ready(ch, 15)
     t.check(not ch.console_errors(), f"no uncaught page errors: {ch.console_errors()[:2]}")
-    for h in ("h-attn", "h-burnup", "h-eff", "h-ai", "h-bugs", "h-cfb", "h-deps", "h-capview", "h-cx", "h-nfr", "h-cycles", "h-analysis"):
+    for h in ("h-attn", "h-burnup", "h-eff", "h-ai", "h-bugs", "h-cfb", "h-deps", "h-capview", "h-cx", "h-nfr", "h-cycles", "h-analysis", "h-ftenable"):
         n = ch.js(f"(()=>{{const h=document.getElementById({h!r}); const s=h&&(h.closest('section')||h.parentElement); return s?s.innerText.length:-1}})()")
         t.check(n and n > 150, f"section {h} has content ({n} characters)")
     for sel, what in (("#capz-svg svg rect", "capitalization bars"), ("#bug-table table", "open bugs table"), ("#cfb-table table, #cfb-table .tablewrap", "CFB table"), (".bcard", "dependency cards"), ("#cx-body table", "CXCROSS table")):

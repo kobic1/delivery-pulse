@@ -555,6 +555,65 @@ a.cl:hover > rect.hit, a.cl:focus > rect.hit { fill:rgba(2,90,251,.07); }
 footer.f { padding-block:0 96px; color:var(--muted); font-size:var(--t-cap); line-height:1.6; }
 footer.f b { color:var(--ink); }
 #usage-note { margin-top:20px; max-width:80ch; } #usage-note p { margin:0; } #usage-what { margin:4px 0 0; padding-left:18px; }
+/* FT Enablement: the calendar of feature-toggle enablement events (the block FTC at the end of the script) */
+#ftc { --ft-red:#B3261E; --ft-red-ink:#7A1712; --ft-red-tint:#FDECEA; }
+#ftc [hidden] { display:none !important; }
+.ftbar { display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; margin:12px 0 10px; }
+.ftbar .chips, .ftpanel .chips { display:flex; flex-wrap:wrap; gap:6px; }
+.ftbar .seg { display:inline-flex; flex-wrap:nowrap; }
+.ftnav { display:inline-flex; align-items:center; gap:6px; }
+.ftbar input[type=search] { flex:1 1 200px; max-width:300px; min-width:0; }
+.ftcount { display:inline-block; min-width:1.5em; margin-left:6px; padding:0 5px; border-radius:99px; background:var(--blue-ink); color:#fff; font-size:var(--t-xs); font-weight:600; text-align:center; font-variant-numeric:tabular-nums; }
+.ftpanel { display:flex; flex-wrap:wrap; gap:12px 28px; align-items:flex-start; padding:12px 14px; margin:0 0 12px; border:1px solid var(--line); border-radius:var(--radius-s); background:var(--panel); }
+.ftpanel .fg { min-width:0; display:flex; flex-direction:column; gap:5px; }
+.ftpanel button.chip .n { color:var(--muted); font-size:var(--t-xs); font-variant-numeric:tabular-nums; margin-left:3px; }
+.ftmonth { font-size:var(--t-sub); font-weight:600; min-width:9.5ch; text-align:center; font-variant-numeric:tabular-nums; }
+.ftnext { margin:0 0 10px; padding:0; display:flex; flex-wrap:wrap; gap:4px 12px; align-items:center; }
+.ftnext .ftmatch { margin-left:auto; }
+.ftnext .when { color:var(--muted); }
+.ftcal { border:1px solid var(--line); border-radius:var(--radius-s); overflow:hidden; background:var(--bg); }
+.ftdow, .ftwk { display:grid; grid-template-columns:repeat(7, minmax(0, 1fr)); }
+.ftdow div { padding:6px 8px; font-size:var(--t-xs); font-weight:600; color:var(--muted); border-bottom:1px solid var(--line); }
+.ftday { min-height:96px; padding:3px 5px 6px; border-right:1px solid var(--line-soft); border-bottom:1px solid var(--line-soft); display:flex; flex-direction:column; gap:3px; min-width:0; cursor:pointer; }
+.ftday:nth-child(7n) { border-right:0; }
+.ftday.out { background:var(--panel); } .ftday.out .ftdn { opacity:.55; } .ftday.we { background:var(--panel); }
+.ftday.sel { box-shadow:inset 0 0 0 2px var(--blue-ink); }
+.ftdn button { border:0; background:transparent; font:inherit; font-size:var(--t-xs); color:var(--muted); border-radius:99px; padding:1px 7px; min-width:26px; cursor:pointer; font-variant-numeric:tabular-nums; }
+.ftday.today .ftdn button { background:var(--blue-ink); color:#fff; font-weight:600; }
+.ftev { display:flex; align-items:center; gap:5px; width:100%; border:1.5px solid transparent; border-radius:5px; padding:2px 6px; font:inherit; font-size:var(--t-xs); line-height:1.35; text-align:left; cursor:pointer; min-width:0; color:var(--ink); background:transparent; }
+.ftev > span:last-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+.ftev .mk, .ftbadge .mk { flex:none; width:1.1em; text-align:center; }
+.ftev.on { box-shadow:0 0 0 2px var(--blue-ink); }
+.ft-done { background:var(--panel); color:var(--ink); } .ft-appr { background:var(--ft-red); color:#fff; font-weight:500; }
+.ft-ready { background:var(--ft-red-tint); color:var(--ft-red-ink); border-color:var(--ft-red); } .ft-tent { color:var(--ft-red-ink); border-color:var(--ft-red); border-style:dashed; }
+.ft-hold { background:#FFF6E5; color:#6B4A00; border-color:#C77700; border-style:solid; } .ft-rollback { background:var(--ink); color:#fff; border-color:var(--ink); }
+.ftmore { font-size:var(--t-xs); color:var(--muted); padding:0 4px; }
+.ftdots { display:none; }
+.ftbadge { display:inline-flex; align-items:center; gap:5px; border:1.5px solid transparent; border-radius:5px; padding:1px 8px; font-size:var(--t-xs); }
+.ftrel { font-weight:600; background:var(--ink); color:#fff; border-radius:5px; padding:1px 7px; font-size:var(--t-xs); }
+.fttgt { font-weight:600; overflow-wrap:anywhere; }
+.ftchg { font-size:var(--t-xs); color:var(--muted); font-variant-numeric:tabular-nums; }
+.ftlist { border:1px solid var(--line); border-radius:var(--radius-s); overflow:hidden; }
+.ftlg { padding:7px 14px; background:var(--panel); border-bottom:1px solid var(--line-soft); font-weight:600; display:flex; gap:10px; align-items:baseline; }
+.ftlg .sm { font-weight:400; color:var(--muted); font-size:var(--t-xs); }
+.ftli { display:grid; grid-template-columns:3.6rem minmax(0, 1fr) 12.5rem 8.5rem; gap:4px 12px; align-items:center; padding:8px 14px; border:0; border-bottom:1px solid var(--line-soft); width:100%; background:transparent; font:inherit; text-align:left; cursor:pointer; color:var(--ink); }
+.ftli > * { justify-self:start; min-width:0; } .ftli .ftbadge { white-space:nowrap; } .ftli .ftchg { overflow-wrap:anywhere; }
+.ftli.on { box-shadow:inset 3px 0 0 var(--blue-ink); }
+.ftdetail { margin-top:12px; border:1px solid var(--line); border-radius:var(--radius-s); padding:12px 16px 14px; }
+.ftdetail .ftd { border-top:1px solid var(--line-soft); padding-top:10px; margin-top:10px; }
+.ftdetail .ftd:first-of-type { border-top:0; margin-top:6px; padding-top:0; }
+.ftdetail .row { display:flex; flex-wrap:wrap; gap:6px 8px; align-items:center; }
+.ftdetail dl { margin:8px 0 0; display:grid; grid-template-columns:auto minmax(0, 1fr); gap:3px 12px; font-size:var(--t-cap); }
+.ftdetail dt { color:var(--muted); } .ftdetail dd { margin:0; overflow-wrap:anywhere; }
+.ftraw { font-size:var(--t-xs); color:var(--muted); margin:6px 0 0; overflow-wrap:anywhere; }
+.ftlegend { margin:10px 0 0; display:flex; flex-wrap:wrap; gap:6px 16px; color:var(--muted); font-size:var(--t-xs); }
+.ftlegend > span { display:inline-flex; align-items:center; gap:6px; }
+@media (max-width:700px) {
+  .ftday { min-height:60px; } .ftev, .ftmore { display:none; }
+  .ftdots { display:flex; flex-wrap:wrap; gap:3px; } .ftdot { width:9px; height:9px; border-radius:50%; background:var(--ft-red); }
+  .ftdot.d-done { background:var(--muted); opacity:.6; } .ftdot.d-tent { background:transparent; border:1.5px dashed var(--ft-red); } .ftdot.d-ready { background:var(--ft-red-tint); border:1.5px solid var(--ft-red); }
+  .ftli { grid-template-columns:auto minmax(0, 1fr); } .ftli .ftbadge, .ftli .ftchg { grid-column:2; justify-self:start; }
+}
 .uv { margin-top:56px; padding-top:20px; padding-bottom:8px; border-top:1px solid var(--line); }
 .uvlink { position:absolute; right:0; top:0; z-index:1; height:calc(100% - 1px); display:flex; align-items:center; padding:0 12px; background:var(--bg); border-left:1px solid var(--line); font-size:var(--t-cap); font-weight:500; color:var(--blue-ink); text-decoration:none; } .uvlink:hover { background:var(--panel); } .uvlink:focus-visible { outline:2px solid var(--blue-ink); outline-offset:-2px; } .uvlink[hidden] { display:none; } .secnav.hasuv ul { padding-right:84px; }
 .uvhead { display:flex; flex-wrap:wrap; align-items:center; gap:10px; } .uvhead h2 { margin:0 auto 0 0; font-size:var(--t-title); font-weight:600; display:flex; align-items:center; gap:10px; }
@@ -606,7 +665,7 @@ footer.f b { color:var(--ink); }
   <div class="st-row">
     <h2 class="st-h"><span class="rel" id="st-rel"></span><span class="rest" id="st-rest"></span><span class="state" id="st-state" hidden>In Progress</span></h2>
   </div>
-  <nav class="secnav" id="secnav" aria-label="Report sections"><ul id="seclist"><li><a href="#h-attn" data-jump="h-attn" tabindex="0">Needs Attention</a></li><li><a href="#h-burnup" data-jump="h-burnup" tabindex="-1">Delivery</a></li><li><a href="#h-eff" data-jump="h-eff" tabindex="-1">Efficiency</a></li><li><a href="#h-bugs" data-jump="h-bugs" tabindex="-1">Quality</a></li><li><a href="#h-deps" data-jump="h-deps" tabindex="-1">Dependencies</a></li><li><a href="#h-nfr" data-jump="h-nfr" tabindex="-1">NFRs</a></li><li><a href="#h-cx" data-jump="h-cx" tabindex="-1">CXCROSS</a></li><li><a href="#h-capview" data-jump="h-capview" tabindex="-1">Capabilities</a></li><li><a href="#h-cycles" data-jump="h-cycles" tabindex="-1">Cycles</a></li><li><a href="#h-analysis" data-jump="h-analysis" tabindex="-1">Release Analysis</a></li></ul><a class="uvlink" id="uv-link" href="#usageview" hidden>Usage</a><span class="sechint" aria-hidden="true">Alt + ↑ ↓: previous or next section</span></nav>
+  <nav class="secnav" id="secnav" aria-label="Report sections"><ul id="seclist"><li><a href="#h-attn" data-jump="h-attn" tabindex="0">Needs Attention</a></li><li><a href="#h-burnup" data-jump="h-burnup" tabindex="-1">Delivery</a></li><li><a href="#h-eff" data-jump="h-eff" tabindex="-1">Efficiency</a></li><li><a href="#h-bugs" data-jump="h-bugs" tabindex="-1">Quality</a></li><li><a href="#h-deps" data-jump="h-deps" tabindex="-1">Dependencies</a></li><li><a href="#h-nfr" data-jump="h-nfr" tabindex="-1">NFRs</a></li><li><a href="#h-cx" data-jump="h-cx" tabindex="-1">CXCROSS</a></li><li><a href="#h-capview" data-jump="h-capview" tabindex="-1">Capabilities</a></li><li><a href="#h-cycles" data-jump="h-cycles" tabindex="-1">Cycles</a></li><li><a href="#h-analysis" data-jump="h-analysis" tabindex="-1">Release Analysis</a></li><li><a href="#h-ftenable" data-jump="h-ftenable" tabindex="-1">Release Calendar</a></li></ul><a class="uvlink" id="uv-link" href="#usageview" hidden>Usage</a><span class="sechint" aria-hidden="true">Alt + ↑ ↓: previous or next section</span></nav>
   <div class="kpis" id="kpis"></div>
 
   <section class="sec n attn" id="attn" aria-labelledby="h-attn">
@@ -837,6 +896,13 @@ footer.f b { color:var(--ink); }
     <div class="dq" id="dq"></div>
   </section>
 
+  </section>
+
+  <section class="sec x ft" id="ft-sec" aria-labelledby="h-ftenable">
+    <div class="seclabel">Feature Toggle Enablement</div>
+    <h2 id="h-ftenable" tabindex="-1">Release Calendar</h2>
+    <div class="sub" id="ft-sub">Feature-toggle enablement events of the R&amp;D Release Management calendar.</div>
+    <div id="ftc"></div>
   </section>
 
   <div id="anchor-spacer" aria-hidden="true" style="height:0"></div>
@@ -4838,7 +4904,7 @@ if (DATA.schema != null && DATA.schema !== PAGE_SCHEMA) {      // a payload from
 // ---- the Section Strip: jump links scroll with script (the address hash holds the filters); a scrollspy marks the section being read.
 // Anchors are the section elements (Delivery Cycle Governance and Release Analysis are sections too, and their sub-blocks keep them lit). The reading line is the bottom of the sticky stack + 30% of the rest of the window.
 // An anchor counts as passed when it touches the region above the reading line or has scrolled above the window; the current item is the last passed anchor in page order. No scroll handler.
-const PRODUCT_HIDDEN = ["h-nfr", "h-cx", "h-capview", "h-cycles", "h-analysis"];                  // the sections a product view does not have
+const PRODUCT_HIDDEN = ["h-nfr", "h-cx", "h-capview", "h-cycles", "h-analysis", "h-ftenable"];                  // the sections a product view does not have
 if (PRODUCT !== "cxone") {                                       // the strip entry goes and the section is hidden before the strip reads its links; the sections stay in the page (their renderers are skipped in updateCore)
   PRODUCT_HIDDEN.forEach(id => {
     const a = document.querySelector(`#seclist a[data-jump="${id}"]`); if (a && a.parentElement) a.parentElement.remove();
@@ -4980,6 +5046,135 @@ window.addEventListener("resize", () => {                     // charts are draw
     if (w !== lastVW) { lastVW = w; renderBurnup(); renderBugs(); renderCfb(); renderEfficiency(); renderAdoption(); tipPass(); }
   }, 150);
 });
+// ---------------------------------------------------------------- FT Enablement (a self-contained block: the calendar of feature-toggle enablement events)
+// The events are read from the R&D Release Management calendar (Confluence Team Calendars) when the page is built (program_dashboard/ft_calendar.py) and are part of the page like the other build-time data:
+// the Refresh button cannot update them (the connector the page uses reaches Jira only), the next rebuild does. A month calendar and a list, filters for release, status, region and cluster, and a find box that
+// matches the cluster, the region, the change number and the title. Nothing is sent anywhere.
+const FTC = (() => {
+  const DATA = /*__FT_EVENTS__*/null;
+  const host = document.getElementById("ftc"), sub = document.getElementById("ft-sub");
+  if (!host) return {};
+  const e = x => String(x).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+  if (!DATA || !Array.isArray(DATA.events) || !DATA.events.length) { host.innerHTML = '<div class="empty">The release calendar is not part of this build of the page.</div>'; return {}; }
+  const EV = DATA.events.map((x, i) => ({...x, id: i, k: x.k || [], g: x.g || []}));
+  const ST = {done: {label: "Done", mk: "✓", means: "Deployed"}, appr: {label: "Approved", mk: "●", means: "Approved by CAB and scheduled"}, ready: {label: "Ready for CAB", mk: "◐", means: "Change request created, ready for CAB"}, tent: {label: "Tentative", mk: "○", means: "Planned, not yet approved by CAB"}};
+  const FL = {hold: {label: "On hold", mk: "‖"}, rollback: {label: "Rolled back", mk: "↺"}, rescheduling: {label: "Rescheduling", mk: "↻"}};
+  const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"], WDL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"], MOS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const pad = n => String(n).padStart(2, "0"), ymd = d => d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+  const parse = s => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+  const dayDiff = (a, b) => Math.round((parse(a) - parse(b)) / 864e5);
+  const fmtDay = s => { const d = parse(s); return `${WDL[d.getDay()]} ${d.getDate()} ${MOS[d.getMonth()]} ${d.getFullYear()}`; };
+  const TODAY = ilDate(Date.now()), FIRST = EV.reduce((a, x) => x.d < a ? x.d : a, "9999"), LAST = EV.reduce((a, x) => x.d > a ? x.d : a, "0000");
+  const clamp = d => (d < FIRST ? FIRST : d > LAST ? LAST : d).slice(0, 7);
+  const RELS = [...new Set(EV.map(x => x.r))].sort(), STK = Object.keys(ST);
+  const RG_ORDER = ["NA", "EU", "UK", "AU", "JP", "JO", "KR", "CA", "ZA", "AE", "Beta", "C clusters"];
+  const RGS = [...new Set(EV.flatMap(x => x.g))].sort((a, b) => (RG_ORDER.indexOf(a) + 1 || 99) - (RG_ORDER.indexOf(b) + 1 || 99) || a.localeCompare(b));
+  const regionOf = c => /^(LO|B|M)\d+$/.test(c) ? "Beta" : /^C\d+$/.test(c) ? "C clusters" : c.slice(0, 2);
+  const CLS = [...new Set(EV.flatMap(x => x.k))].sort((a, b) => (RG_ORDER.indexOf(regionOf(a)) + 1 || 99) - (RG_ORDER.indexOf(regionOf(b)) + 1 || 99) || a.localeCompare(b, "en", {numeric: true}));
+  const S = {view: "month", month: clamp(TODAY), rel: new Set(), st: new Set(), rg: new Set(), cl: "", q: "", time: "up", sel: null, selId: null};
+  const cls = x => x.f === "hold" ? "ft-hold" : x.f === "rollback" ? "ft-rollback" : "ft-" + x.s;
+  const mark = x => x.f && FL[x.f] ? FL[x.f].mk : ST[x.s].mk;
+  const stText = x => x.f && FL[x.f] ? `${FL[x.f].label} (${ST[x.s].label.toLowerCase()})` : ST[x.s].label;
+  const short = x => x.k.length >= 5 ? `${x.k.find(c => !/^C\d+$/.test(c)) || ""} (${x.k.length} clusters)`.trim() : x.t;      // a long cluster list is counted on the chip; the details keep the full text
+  const label = x => `${x.r} · ${short(x)}`;
+  const matches = x => (!S.rel.size || S.rel.has(x.r)) && (!S.st.size || S.st.has(x.s)) && (!S.rg.size || x.g.some(g => S.rg.has(g))) && (!S.cl || x.k.includes(S.cl)) &&
+    (!S.q || [x.raw, x.c, x.t, x.n, x.r, x.k.join(" "), x.g.join(" ")].join(" ").toLowerCase().includes(S.q.toLowerCase()));
+  const vis = () => EV.filter(matches);
+  const nFilters = () => S.rel.size + S.st.size + S.rg.size + (S.cl ? 1 : 0);
+  const byDay = list => { const m = new Map(); list.forEach(x => { if (!m.has(x.d)) m.set(x.d, []); m.get(x.d).push(x); }); return m; };
+  const rel = n => n === 0 ? "today" : n === 1 ? "tomorrow" : n === -1 ? "yesterday" : n > 0 ? `in ${n} days` : `${-n} days ago`;
+  const chipBtn = (attr, val, text, n, on) => `<button type="button" class="chip${on ? " on" : ""}" ${attr}="${e(val)}" aria-pressed="${on}">${e(text)}<span class="n">${n}</span></button>`;
+  host.innerHTML = `<div class="ftbar" id="ft-bar">
+      <span class="seg chips" role="group" aria-label="View"><button type="button" class="chip" id="ft-vm">Month</button><button type="button" class="chip" id="ft-vl">List</button></span>
+      <span class="ftnav" id="ft-gn"><button type="button" class="btn" id="ft-pv" aria-label="Previous month">◄</button><span class="ftmonth" id="ft-mo" aria-live="polite"></span><button type="button" class="btn" id="ft-nx" aria-label="Next month">►</button><button type="button" class="btn" id="ft-td">Today</button></span>
+      <span class="seg chips" id="ft-gt" role="group" aria-label="Show" hidden><button type="button" class="chip" id="ft-tu">Upcoming</button><button type="button" class="chip" id="ft-ta">All</button></span>
+      <input type="search" id="ft-q" aria-label="Find a cluster, region or CHG number" placeholder="Find cluster, region or CHG" autocomplete="off">
+      <button type="button" class="btn" id="ft-fb" aria-expanded="false" aria-controls="ft-fp">Filters<span class="ftcount" id="ft-fc" hidden></span></button>
+      <button type="button" class="linkbtn" id="ft-clr" hidden>Clear</button>
+    </div>
+    <div class="ftpanel" id="ft-fp" hidden>
+      <div class="fg"><span class="lbl" id="ft-lr">Release</span><div class="chips" id="ft-rel" role="group" aria-labelledby="ft-lr"></div></div>
+      <div class="fg"><span class="lbl" id="ft-ls">Status</span><div class="chips" id="ft-st" role="group" aria-labelledby="ft-ls"></div></div>
+      <div class="fg"><span class="lbl" id="ft-lg">Region</span><div class="chips" id="ft-rg" role="group" aria-labelledby="ft-lg"></div></div>
+      <div class="fg"><label class="lbl" for="ft-cl">Cluster</label><select id="ft-cl"><option value="">All clusters</option>${RG_ORDER.concat(RGS.filter(g => !RG_ORDER.includes(g))).filter(g => CLS.some(c => regionOf(c) === g)).map(g => `<optgroup label="${e(g)}">${CLS.filter(c => regionOf(c) === g).map(c => `<option value="${e(c)}">${e(c)}</option>`).join("")}</optgroup>`).join("")}</select></div>
+    </div>
+    <p class="ftnext" id="ft-next" aria-live="polite"></p><div id="ft-view"></div><div class="ftdetail" id="ft-detail" aria-live="polite" hidden></div>
+    <div class="ftlegend" id="ft-legend"></div>`;
+  const $ = id => document.getElementById(id);
+  const stamp = DATA.asOf ? new Date(DATA.asOf) : null;
+  if (sub) sub.textContent = `${EV.length} events, releases ${RELS[0]} to ${RELS[RELS.length - 1]}${stamp && !isNaN(stamp) ? ", as of " + stamp.toLocaleString("en-GB", {timeZone: "Asia/Jerusalem", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit"}) + " (Israel time)" : ""}. Refresh does not update them; each rebuild of the page does.`;
+  const LEG = {done: "deployed", appr: "approved by CAB", ready: "ready for CAB", tent: "planned, not approved yet"};
+  $("ft-legend").innerHTML = STK.map(k => `<span><span class="ftbadge ft-${k}"><span class="mk" aria-hidden="true">${ST[k].mk}</span>${ST[k].label}</span>${LEG[k]}</span>`).join("") + `<span>Red "Enable" events of the R&amp;D Release Management calendar</span>`;
+  function chips() {
+    $("ft-rel").innerHTML = RELS.map(r => chipBtn("data-rel", r, r, EV.filter(x => x.r === r).length, S.rel.has(r))).join("");
+    $("ft-st").innerHTML = STK.map(k => chipBtn("data-st", k, ST[k].label, EV.filter(x => x.s === k).length, S.st.has(k))).join("");
+    $("ft-rg").innerHTML = RGS.map(g => chipBtn("data-rg", g, g, EV.filter(x => x.g.includes(g)).length, S.rg.has(g))).join("");
+  }
+  const tip = x => [`${x.r} \u00B7 ${x.t.length > 40 ? short(x) : x.t} \u00B7 ${stText(x)}`, x.raw, x.c ? `Change ${x.c}` : "", x.g.length ? `Region ${x.g.join(", ")}` : "", x.n ? `Notes: ${x.n}` : ""].filter(Boolean).join("\n");      // the dashboard's own tooltip (data-tip): bold first line, readable, opens on hover and on keyboard focus, Esc closes it
+  const dayChip = x => `<button type="button" class="ftev ${cls(x)}${S.selId === x.id ? " on" : ""}" data-id="${x.id}" data-tip="${e(tip(x))}" aria-label="${e(`${x.r} ${short(x)}, ${stText(x)}, ${fmtDay(x.d)}`)}"><span class="mk" aria-hidden="true">${mark(x)}</span><span>${e(label(x))}</span></button>`;
+  function monthView() {
+    const [y, m] = S.month.split("-").map(Number), start = new Date(y, m - 1, 1 - new Date(y, m - 1, 1).getDay()), map = byDay(vis());
+    $("ft-mo").textContent = `${MOS[m - 1]} ${y}`;
+    let h = `<div class="ftcal"><div class="ftdow">${WD.map(d => `<div>${d}</div>`).join("")}</div>`;
+    for (let w = 0; w < 6; w++) {
+      const ws = new Date(start); ws.setDate(start.getDate() + w * 7); if (w >= 5 && ws.getMonth() !== m - 1) break;
+      h += `<div class="ftwk">`;
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(ws); d.setDate(ws.getDate() + i); const k = ymd(d), evs = map.get(k) || [];
+        h += `<div class="ftday${d.getMonth() !== m - 1 ? " out" : ""}${i >= 5 ? " we" : ""}${k === TODAY ? " today" : ""}${S.sel === k ? " sel" : ""}" data-cell="${k}"><div class="ftdn"><button type="button" data-day="${k}" aria-label="${e(fmtDay(k))}, ${evs.length} event${evs.length === 1 ? "" : "s"}">${d.getDate()}</button></div>${evs.slice(0, 3).map(dayChip).join("")}${evs.length > 3 ? `<span class="ftmore">+${evs.length - 3} more</span>` : ""}<div class="ftdots" aria-hidden="true">${evs.map(x => `<span class="ftdot d-${x.s}"></span>`).join("")}</div></div>`;
+      }
+      h += `</div>`;
+    }
+    $("ft-view").innerHTML = h + `</div>`;
+  }
+  function listView() {
+    let list = vis().sort((a, b) => a.d < b.d ? -1 : a.d > b.d ? 1 : a.id - b.id);
+    if (S.time === "up") list = list.filter(x => x.d >= TODAY);
+    if (!list.length) { $("ft-view").innerHTML = `<div class="empty">${S.time === "up" ? "No upcoming events match the filters. Switch to All to see past ones." : "No events match the filters."}</div>`; return; }
+    let h = `<div class="ftlist">`;
+    byDay(list).forEach((evs, k) => {
+      h += `<div class="ftlg"><span>${e(fmtDay(k))}</span><span class="sm">${rel(dayDiff(k, TODAY))}</span></div>` + evs.map(x => `<button type="button" class="ftli${S.selId === x.id ? " on" : ""}" data-id="${x.id}"><span class="ftrel">${e(x.r)}</span><span class="fttgt">${e(x.t)}</span><span class="ftbadge ${cls(x)}"><span class="mk" aria-hidden="true">${mark(x)}</span>${e(stText(x))}</span><span class="ftchg">${e(x.c)}</span></button>`).join("");
+    });
+    $("ft-view").innerHTML = h + `</div>`;
+  }
+  function nextUp() {
+    const up = vis().filter(x => x.d >= TODAY && x.s !== "done").sort((a, b) => a.d < b.d ? -1 : a.d > b.d ? 1 : a.id - b.id)[0];
+    const note = nFilters() || S.q ? `<span class="when ftmatch">${vis().length} of ${EV.length} events match</span>` : "";
+    $("ft-next").innerHTML = (!up ? `<span class="ftnext-none when">No upcoming events match.</span>` : `<span class="lbl">Next Up</span><b>${e(fmtDay(up.d))}</b><span class="when">${rel(dayDiff(up.d, TODAY))}</span><span class="ftrel">${e(up.r)}</span><span class="fttgt">${e(short(up))}</span><span class="ftbadge ${cls(up)}"><span class="mk" aria-hidden="true">${mark(up)}</span>${e(stText(up))}</span>${up.c ? `<span class="ftchg">${e(up.c)}</span>` : ""}`) + note;
+  }
+  function detail() {
+    const d = $("ft-detail"), day = S.selId != null ? EV[S.selId].d : S.sel, evs = S.selId != null ? [EV[S.selId]] : S.sel ? (byDay(vis()).get(S.sel) || []) : [];
+    d.hidden = !day; if (!day) { d.innerHTML = ""; return; }
+    d.innerHTML = `<b>${e(fmtDay(day))}</b> <span class="cap">${rel(dayDiff(day, TODAY))}${evs.length > 1 ? ` · ${evs.length} events` : ""}</span>` + (evs.length ? evs.map(x => `<div class="ftd"><div class="row"><span class="ftrel">${e(x.r)}</span><span class="fttgt">${e(x.t)}</span><span class="ftbadge ${cls(x)}"><span class="mk" aria-hidden="true">${mark(x)}</span>${e(stText(x))}</span></div>
+      <dl><dt>Meaning</dt><dd>${e(ST[x.s].means)}</dd>${x.g.length ? `<dt>Region</dt><dd>${e(x.g.join(", "))}</dd>` : ""}${x.c ? `<dt>Change</dt><dd>${e(x.c)} <button type="button" class="linkbtn" data-copy="${e(x.c)}">Copy</button></dd>` : ""}${x.n ? `<dt>Notes</dt><dd>${e(x.n)}</dd>` : ""}</dl><p class="ftraw">${e(x.raw)}</p></div>`).join("") : `<p class="cap">No events on this day match the filters.</p>`);
+  }
+  function draw() {
+    $("ft-vm").classList.toggle("on", S.view === "month"); $("ft-vl").classList.toggle("on", S.view === "list"); $("ft-vm").setAttribute("aria-pressed", S.view === "month"); $("ft-vl").setAttribute("aria-pressed", S.view === "list");
+    $("ft-gn").hidden = S.view !== "month"; $("ft-gt").hidden = S.view !== "list";
+    $("ft-tu").classList.toggle("on", S.time === "up"); $("ft-ta").classList.toggle("on", S.time === "all"); $("ft-tu").setAttribute("aria-pressed", S.time === "up"); $("ft-ta").setAttribute("aria-pressed", S.time === "all");
+    const n = nFilters(); $("ft-fc").hidden = !n; $("ft-fc").textContent = n; $("ft-clr").hidden = !(n || S.q);
+    withAnchor(() => { S.view === "month" ? monthView() : listView(); nextUp(); detail(); }, "#ft-bar");      // the last section of the page: a shorter view (the List after the Month) would shorten the page and pull the reader up, so the toolbar is held where it is (the page's own anchor, with blank room at the end)
+  }
+  const shift = n => { const [y, m] = S.month.split("-").map(Number), d = new Date(y, m - 1 + n, 1); S.month = d.getFullYear() + "-" + pad(d.getMonth() + 1); draw(); };
+  const flip = (set, v) => { set.has(v) ? set.delete(v) : set.add(v); chips(); draw(); };
+  host.addEventListener("click", ev => {
+    const cell = ev.target.closest("[data-cell]"), t = ev.target.closest("button") || (cell && cell.querySelector("[data-day]")); if (!t) return;
+    if (t.dataset.rel) flip(S.rel, t.dataset.rel); else if (t.dataset.st) flip(S.st, t.dataset.st); else if (t.dataset.rg) flip(S.rg, t.dataset.rg);
+    else if (t.dataset.copy) { const v = t.dataset.copy; try { navigator.clipboard.writeText(v).then(() => { t.textContent = "Copied"; }, () => { t.textContent = v; }); } catch (x) { t.textContent = v; } }
+    else if (t.dataset.id != null) { S.selId = +t.dataset.id; S.sel = EV[S.selId].d; draw(); }
+    else if (t.dataset.day) { S.sel = t.dataset.day; S.selId = null; draw(); }
+    else if (t.id === "ft-vm") { S.view = "month"; draw(); } else if (t.id === "ft-vl") { S.view = "list"; draw(); }
+    else if (t.id === "ft-tu") { S.time = "up"; draw(); } else if (t.id === "ft-ta") { S.time = "all"; draw(); }
+    else if (t.id === "ft-fb") { const p = $("ft-fp"); p.hidden = !p.hidden; t.setAttribute("aria-expanded", !p.hidden); }
+    else if (t.id === "ft-clr") { S.rel.clear(); S.st.clear(); S.rg.clear(); S.cl = ""; S.q = ""; $("ft-cl").value = ""; $("ft-q").value = ""; chips(); draw(); }
+    else if (t.id === "ft-pv") shift(-1); else if (t.id === "ft-nx") shift(1);
+    else if (t.id === "ft-td") { S.month = clamp(TODAY); S.sel = TODAY; S.selId = null; draw(); }
+  });
+  $("ft-cl").addEventListener("change", ev => { S.cl = ev.target.value; draw(); });
+  $("ft-q").addEventListener("input", ev => { S.q = ev.target.value.trim(); draw(); });
+  chips(); draw();
+  return {};
+})();
 // ---------------------------------------------------------------- usage statistics (a self-contained block: nothing above it knows about it; it wraps saveState, listens on the document and is told by refresh() and the Section Strip)
 // What it does: when the published page can resolve the `db` and `user` capabilities and the viewer has an id (a pseudonymous token, never a name or an e-mail), it counts, per visit, which sections are read, which controls are used,
 // which Jira links are followed (by section only) and how long the page is in real use, and keeps one small record per person at usage/<id>. Everything recorded comes from the fixed lists in USAGE_VOC; anything else is dropped.

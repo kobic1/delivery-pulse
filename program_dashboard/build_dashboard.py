@@ -40,7 +40,8 @@ sys.path.insert(0, str(HERE.parent / "dashboards"))     # reuse the weekly email
 import edct_from_jira as E  # noqa: E402
 sys.path.insert(0, str(HERE))
 import product_releases as PR
-import usage_bundle  # noqa: E402
+import usage_bundle
+import ft_calendar  # noqa: E402
 import importlib.util as _ilu  # noqa: E402
 _spec = _ilu.spec_from_file_location("release_planning_model", HERE.parent / "release_planning" / "model.py")
 RPM = _ilu.module_from_spec(_spec)                       # the release planning report's own pod rule (classify / pod_labels), reused rather than copied
@@ -1128,6 +1129,7 @@ def render(data: dict) -> None:
     if SANDBOX:                                                                              # the banner goes in BEFORE the usage bundle: its strings contain the page's own header markup, which the banner step counts
         fragment = sandbox_fragment(fragment, data["build"])
     fragment = usage_bundle.inline_into(fragment, usage_calendar(data))                     # the browser port of the usage report (the owner-only Usage view)
+    fragment = ft_calendar.inline_into(fragment, HERE / "build" / "ft_events.json")
     out_artifact.write_text(fragment, encoding="utf-8")
 
     head = ""

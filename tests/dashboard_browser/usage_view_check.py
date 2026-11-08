@@ -165,7 +165,7 @@ def _(t: T):
     t.check(ch.js("document.getElementById('secnav').classList.contains('hasuv')") is False, "the strip reserves room for a Usage link nobody sees")
     ch = load(owner=True)
     t.check(ch.js("document.getElementById('uv-link').hidden") is False, "the owner does not see the Usage link")
-    t.check(ch.js("document.querySelectorAll('#seclist a').length") == 10, "the Usage link joined the section list the scrollspy and the usage counters read")
+    t.check(ch.js("document.querySelectorAll('#seclist a').length") == 11, "the Usage link joined the section list the scrollspy and the usage counters read")
     box = ch.js("(() => { const l = document.getElementById('uv-link').getBoundingClientRect(), n = document.getElementById('secnav').getBoundingClientRect(); return [Math.round(n.right - l.right), l.top >= n.top - 1 && l.bottom <= n.bottom + 1]; })()")
     t.check(box == [0, True], f"the Usage link is not at the right end of the strip: {box}")
     t.check(not reads(ch), "the page read the records before the owner opened the view")

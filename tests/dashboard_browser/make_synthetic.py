@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import datetime as dt
+import re
 import json
 import random
 import sys
@@ -854,7 +855,26 @@ def render_page(data: dict, template: Path = LIVE_TEMPLATE) -> str:
     assert fragment.count("/*__DATA__*/null") == 1
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "program_dashboard"))
     import usage_bundle                                                              # the browser port of the usage report, inlined the same way the build does
-    return usage_bundle.inline_into(fragment.replace("/*__DATA__*/null", payload))
+    import ft_calendar                                                                # the FT enablement events: fictitious ones, around the fixture's day
+    page = usage_bundle.inline_into(fragment.replace("/*__DATA__*/null", payload))
+    return ft_calendar.inline_into(page, payload=ft_sample(data))
+
+
+def ft_sample(data: dict) -> dict:
+    """A fictitious FT enablement calendar around today (clusters, change numbers and releases are made up): past and upcoming events of every status, a flag, a long cluster list and a 27.x event."""
+    today = il_today()
+    rows = [(-20, "done", "", "26.3", "EU2, EU3", "CHG9000001"), (-9, "done", "", "26.3", "NA1 (C6, C8, C9, C13, C18, C19)", "CHG9000002"), (-2, "done", "", "26.4", "M35", "CHG9000003"),
+            (3, "appr", "", "26.4", "CA1", "CHG9000004"), (3, "appr", "", "26.4", "ZA1", "CHG9000005"), (3, "tent", "", "26.4", "EU2", "CHG9000006"), (3, "tent", "", "26.4", "EU3", "CHG9000007"),
+            (6, "ready", "", "26.4", "B2, B32", "CHG9000008"), (7, "tent", "", "26.4", "UK2 - LO27", "CHG9000009"), (7, "appr", "hold", "26.4", "AU2", "CHG9000010"),
+            (14, "tent", "", "26.4", "NA1 (C28, C33, C36, C54, C55, C56)", "CHG9000011"), (40, "tent", "", "27.1", "M35", "")]
+    ev = []
+    for off, s, f, r, t, c in rows:
+        ks = list(dict.fromkeys(re.findall(r"\b(?:(?:NA|EU|UK|AU|JP|JO|KR|CA|ZA|AE)\d|LO\d+|B\d+|M\d+|C\d+)\b", t)))
+        gs = list(dict.fromkeys(("Beta" if re.match(r"^(LO|B|M)\d+$", k) else k[:2]) for k in ks if not re.match(r"^C\d+$", k))) or ["C clusters"]
+        title = f"Enable {r} FTs on {t} {c}".strip() if r != "27.1" else f"{r} FT Enablement on {t}"
+        ev.append({"d": (today + dt.timedelta(days=off)).isoformat(), "s": s, "f": f, "r": r, "t": t, "c": c, "n": "", "k": ks, "g": gs, "raw": title})
+    return {"asOf": dt.datetime.now(IL).isoformat(timespec="minutes"), "events": ev}
+
 
 
 def main() -> int:
