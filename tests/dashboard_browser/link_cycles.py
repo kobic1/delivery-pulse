@@ -549,7 +549,9 @@ def _(t: T):
 
     def ns(rows):
         return {(r["cells"][0] if r["rep"] else "*"): int(r["cells"][2]) for r in rows if r["th"] == "Team Seed Ns"}
-    t.check(ns(allc["nsSoon"]) == {"*": 5, "Pod-Ns-A": 2, "Pod-Ns-B": 1, "No Pod Label": 2}, f"not-started due soon in Team Seed Ns: {ns(allc['nsSoon'])} (today, +7, the later date, the Target Sprint alone and the Stretch epic count; +8, the later date outside, In Progress, Done and overdue do not)")
+    t.check(ns(allc["nsSoon"]) == {"*": 5, "Pod-Ns-A": 2, "Pod-Ns-B": 1, "No Pod Label": 2}, f"not-started due soon in Team Seed Ns: {ns(allc['nsSoon'])} (today, +7, a due date inside the window over a later Target Sprint, the Target Sprint alone and the Stretch epic count; +8, a past due date over a Target Sprint inside the window, In Progress, Done and overdue do not)")
+    pd = ch.js("(() => { const sl = sprintList(); return DATA.epics.filter(e => (e.tm || []).includes('Team Seed Ns') && e.ts).map(e => { const s = sl.find(x => x.n === e.ts); return [e.dd || null, s ? s.end : null, plannedDue(e)]; }); })()") or []
+    t.check(len(pd) >= 3 and all(p == (dd or te) for dd, te, p in pd) and any(dd and te and dd != te for dd, te, _ in pd), f"the planned date is the due date, and the Target Sprint end only without one (due date, sprint end, planned): {pd}")
     lvl = {}
     for r in allc["level"]:
         lvl.setdefault(r["th"], {})[r["cells"][1]] = (int(r["cells"][2]), r["cells"][4])
@@ -572,14 +574,15 @@ def _(t: T):
 
 # --------------------------------------------------------------------------------------------- the suite must fail on a seeded defect
 MUTANTS = [
-    ("a due date on the end day is left out (<= becomes <)", '(duedate is EMPTY OR duedate <= "${hi}")', '(duedate is EMPTY OR duedate < "${hi}")'),
-    ("a Target Sprint that ends after the window is no longer excluded", "(${CY_TS} is EMPTY OR ${CY_TS} not in (${after}))", "(${CY_TS} is EMPTY)"),
+    ("a due date on the end day is left out (<= becomes <)", '(duedate >= "${lo}" AND duedate <= "${hi}")', '(duedate >= "${lo}" AND duedate < "${hi}")'),
+    ("a Target Sprint is used even when the epic has a due date", " OR (duedate is EMPTY AND ${CY_TS} in (${nm}))", " OR ${CY_TS} in (${nm})"),
+    ("a due date on the start day is left out (>= becomes >)", '(duedate >= "${lo}" AND duedate <= "${hi}")', '(duedate > "${lo}" AND duedate <= "${hi}")'),
     ("'more than 3' becomes '3 or more'", "const wip = pods.filter(p => p.inProg.length > CY.podWip);", "const wip = pods.filter(p => p.inProg.length >= CY.podWip);"),
     ("Validation counted in the wip tile (threshold, list and sub line)", "p.inProg = p.epics.filter(cyWipEpic);", "p.inProg = p.epics.filter(e => CLASS.flight.includes(e.s));"),
     ("Idle Pods ignores the selected cycle", "p.planned = p.epics.filter(e => ps.has(e)).length;", "p.planned = p.epics.filter(e => e.due).length;"),
     ("the in-progress union link drops the project guard", "arg.map(p => `(${cyPodClause(p)})`).join(\" OR \")", "arg.map(p => `(labels in (${p.sp.map(q).join(\", \")}))`).join(\" OR \")"),
     ("Not-started due soon counts 8 days instead of 7", "e.due <= cyAdd(CY.asOf, CY.next);\nconst cyTeamNodes", "e.due <= cyAdd(CY.asOf, CY.next + 1);\nconst cyTeamNodes"),
-    ("Not-started due soon uses the due date instead of the later date", "cls(e.s) === \"notStarted\" && !!e.due && e.due >= CY.asOf && e.due <= cyAdd(CY.asOf, CY.next);", "cls(e.s) === \"notStarted\" && !!e.dd && e.dd >= CY.asOf && e.dd <= cyAdd(CY.asOf, CY.next);"),
+    ("Not-started due soon uses the due date alone instead of the planned date", "cls(e.s) === \"notStarted\" && !!e.due && e.due >= CY.asOf && e.due <= cyAdd(CY.asOf, CY.next);", "cls(e.s) === \"notStarted\" && !!e.dd && e.dd >= CY.asOf && e.dd <= cyAdd(CY.asOf, CY.next);"),
         ("Pods To Level flags from 30% instead of 40%", "levelSpread: 0.40,", "levelSpread: 0.30,"),
     ("Pods To Level flags from 50% instead of 40%", "levelSpread: 0.40,", "levelSpread: 0.50,"),
     ("Pods To Level ignores the minimum of 5 in-progress", "const flagged = total >= MIN_N && spread >= CY.levelSpread - 1e-9;", "const flagged = spread >= CY.levelSpread - 1e-9;"),

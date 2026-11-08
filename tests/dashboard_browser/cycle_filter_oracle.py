@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Delivery Cycle filter oracle: the header filter (Cycle 1, Cycle 2) and what it changes, recounted independently in Python and compared with the page.
 
-The filter changes the Delivery burnup, the Cycles section and the Epics Delivered and Forecast Epics tiles only. A cycle holds the epics whose planned date (the later of the due date and the Target Sprint end) falls in it:
+The filter changes the Delivery burnup, the Cycles section and the Epics Delivered and Forecast Epics tiles only. A cycle holds the epics whose planned date (the due date, else the Target Sprint end; the burnup alone keeps the later of the due date and the Target Sprint end) falls in it:
 Delivery Cycle 1 on or before the end of W6 (release start + 48 days; earlier dates included), Delivery Cycle 2 from the next day to the release end. An epic with no planned date,
 or planned after the release end, is in neither cycle and counts only when every cycle is shown. This file spells the rule again, on purpose, and never imports it from the page.
 
@@ -119,12 +119,15 @@ class Recount:
         teams = set(teams)
         self.sel = [e for e in data["epics"] if e["p"] in projects and rel in e["fv"] and (not teams or teams & set(e.get("tm") or [NO_TEAM]))]
 
-    def planned(self, e):
+    def planned(self, e):                                   # the burnup's rule: the later of the due date and the Target Sprint end
         ts, dd = self.sprint_end.get(e.get("ts")), e.get("dd")
         return max(dd, ts) if dd and ts else (dd or ts)
 
+    def planned_due(self, e):                               # the Cycles section's rule: the due date; the Target Sprint end only when there is no due date
+        return e.get("dd") or self.sprint_end.get(e.get("ts"))
+
     def cycle(self, e):
-        p = self.planned(e)
+        p = self.planned_due(e)
         if not p:
             return None
         return 1 if day(p) <= self.w6 else 2 if day(p) <= self.end else None
@@ -191,17 +194,17 @@ class Recount:
 
     def cycles_tiles(self):
         lo, hi, _n = self.window()
-        pl = [e for e in self.sel if self.planned(e) and lo <= day(self.planned(e)) <= hi]
+        pl = [e for e in self.sel if self.planned_due(e) and lo <= day(self.planned_due(e)) <= hi]
         nd = lambda e: e["s"] != "Done"
-        over = [e for e in pl if nd(e) and day(self.planned(e)) < self.asof]
-        nxt = [e for e in pl if nd(e) and self.asof <= day(self.planned(e)) <= self.asof + dt.timedelta(days=7)]
+        over = [e for e in pl if nd(e) and day(self.planned_due(e)) < self.asof]
+        nxt = [e for e in pl if nd(e) and self.asof <= day(self.planned_due(e)) <= self.asof + dt.timedelta(days=7)]
         return {"planned": len(pl), "done": sum(1 for e in pl if not nd(e)), "overdue": len(over), "next": len(nxt), "flagged": sum(1 for e in pl if nd(e) and e.get("fl"))}
 
     def after_count(self):
-        return sum(1 for e in self.sel if self.planned(e) and day(self.planned(e)) > self.end)
+        return sum(1 for e in self.sel if self.planned_due(e) and day(self.planned_due(e)) > self.end)
 
     def nodue(self, project: str):
-        return sum(1 for e in self.sel if e["p"] == project and e["s"] in ("In Progress", "Validation") and not self.planned(e))
+        return sum(1 for e in self.sel if e["p"] == project and e["s"] in ("In Progress", "Validation") and not self.planned_due(e))
 
 
 # --------------------------------------------------------------------------------------------- pages
@@ -1300,7 +1303,7 @@ def _(t: T):
 
 # --------------------------------------------------------------------------------------------- 5: seeded defects
 # the epics of the ticked cycles by their planned date (the rule the burnup no longer applies): what a defect that narrows the burnup's population would use
-KEEP_JS = 'e => { const p = plannedLater(e), w = DATA.windows[rel], m = !p ? null : p <= cyAdd(w[0], 48) ? "1" : p <= w[1] ? "2" : null; return dc.all || (m !== null && dc.shown.includes(m)); }'
+KEEP_JS = 'e => { const p = plannedDue(e), w = DATA.windows[rel], m = !p ? null : p <= cyAdd(w[0], 48) ? "1" : p <= w[1] ? "2" : null; return dc.all || (m !== null && dc.shown.includes(m)); }'
 MUTANTS = [
     ("Cycles ignores the filter", "dcs = dcState(), shown = cycles.filter(x => dcs.shown.includes(x.id.slice(2)));", "dcs = dcState(), shown = cycles;"),
     ("After Release End is shown with one cycle", "const after = M.dcAll ? M.epics.filter(", "const after = true ? M.epics.filter("),

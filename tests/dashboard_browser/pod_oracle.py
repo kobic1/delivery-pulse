@@ -10,7 +10,7 @@ The page counts pods with podRegistry / cyPodsOf / cyPodFig. This module counts 
   * the four proactive tiles (act_oracle below): Not-Started Epics Due Within 7 Days, Waiting Dependents Due Soon, Pods To Level, In-Progress Epics Without a Pod Label, with their lists.
 
 The window of the selected cycles is spelled here again from the release window and the ticked cycles (window_of), never read from the page, so a section that shows the wrong cycles is caught; the section's
-five headline tiles and the banner are recounted the same way (epic_tiles). The only things taken from the page are its filters, the as-of date and the planned date of each epic (plannedLater; the Target
+five headline tiles and the banner are recounted the same way (epic_tiles). The only things taken from the page are its filters, the as-of date and the planned date of each epic (plannedDue; the due date, else the Target
 Sprint calendar is proven by the other kinds of link_cycles.py).
 `check_pods` compares the printed tiles and the two lists opened in turn; `check_node` compares the facts line and the strip of a detail view.
 """
@@ -325,10 +325,8 @@ def _pods(e: dict) -> set:
 
 
 def planned_date(e: dict, calendar: dict):
-    """The later of the due date and the end of the Target Sprint when both exist, else the one that exists (a Target Sprint outside the calendar counts as none)."""
-    ts = calendar.get(e.get("ts"))
-    dd = e.get("dd")
-    return max(dd, ts) if dd and ts else (dd or ts)
+    """The due date; the end of the Target Sprint only when there is no due date (a Target Sprint outside the calendar counts as none)."""
+    return e.get("dd") or calendar.get(e.get("ts"))
 
 
 def act_oracle(data: dict, st: dict) -> dict:
