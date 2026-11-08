@@ -643,7 +643,7 @@ def b_fail() -> list[str]:
         drive(ch, 1.5)
         if stops and len(log(ch)) != n1:
             bad.append(f"{name}: more calls after the visit should have stopped: {n1} -> {len(log(ch))}")
-        if not ch.js("document.querySelectorAll('#seclist a').length === 11"):
+        if not ch.js("document.querySelectorAll('#seclist a').length === 10"):
             bad.append(f"{name}: the page does not work")
         bad.extend(f"{name}: {e}" for e in errors(ch))
         return ch, log(ch)

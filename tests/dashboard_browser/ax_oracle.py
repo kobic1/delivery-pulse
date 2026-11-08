@@ -98,7 +98,7 @@ SNAP_JS = r"""(() => {
     return {week: tx(c[0]), created: tx(c[1]), createdHref: hr(c[1].querySelector('a')), resolved: tx(c[2]), resolvedHref: hr(c[2].querySelector('a')), open: tx(c[3])}; });
   const marks = q('#bug-chart a.cl, #bug-chart g.cl').map(a => ({href: hr(a), tip: a.getAttribute('data-tip')}));
   const table = q('#bug-table tbody tr').map(tr => { const c = [...tr.children];
-    return {label: tx(c[0]), cells: c.slice(1, 6).map(td => ({text: tx(td), href: hr(td.querySelector('a'))})), trend: tx(c[6])}; });
+    return {label: tx(c[0]), level: tr.classList.contains('total') ? 'total' : tr.dataset.lvl, par: tr.dataset.par || '', hidden: tr.hidden, cells: c.slice(1, 6).map(td => ({text: tx(td), href: hr(td.querySelector('a'))})), trend: tx(c[6])}; });
   const radios = id => q('#' + id + ' input').map(i => ({value: i.value, checked: i.checked, on: i.parentElement.classList.contains('on')}));
   const g = document.getElementById('g-ax'), rb = document.getElementById('f-reset');
   return {tiles, head, subText: tx(sub), subLinks: q('a', sub).map(a => ({t: tx(a), href: hr(a)})), series, marks, table,
@@ -175,11 +175,20 @@ def recount(data: dict, projects, teams, pri, cfb: str, ax: str) -> dict:
     # the table: one row per selected project that has bugs at all, then All Selected; the 2-week trend is open now against open at the end of the day 13 days ago
     then = asof - dt.timedelta(days=13)
     rows = []
-    for p in [x for x in data["projects"] if x in projects and any(b["p"] == x for b in data["bugs"])] + [None]:
-        sel = [b for b in pool if p is None or b["p"] == p]
+    def row_of(label, p, team, sel, level):
         o = [b for b in sel if opn(b)]
         n_then = sum(1 for b in sel if day(b["cr"]) < then and (opn(b) or (b.get("rd") and day(b["rd"]) >= then)))
-        rows.append({"label": p or "All Selected", "p": p, "open": {b["k"] for b in o}, "by": {k: {b["k"] for b in o if b.get("pr") == k} for k in PRIORITIES}, "d": len(o) - n_then})
+        return {"label": label, "p": p, "team": team, "level": level, "open": {b["k"] for b in o}, "by": {k: {b["k"] for b in o if b.get("pr") == k} for k in PRIORITIES}, "d": len(o) - n_then}
+    for p in [x for x in data["projects"] if x in projects and any(b["p"] == x for b in data["bugs"])] + [None]:
+        sel = [b for b in pool if p is None or b["p"] == p]
+        rows.append(row_of(p or "All Selected", p, None, sel, "project" if p else "total"))
+        if p is None:
+            continue
+        # one row per team with an open bug now or two weeks ago (a bug carries one team; none is "(No Team)"), alphabetical, (No Team) last: the recount of the team level, no pod level
+        tm = lambda b: b.get("tm") or "(No Team)"
+        teams = {tm(b) for b in sel if opn(b) or (day(b["cr"]) < then and b.get("rd") and day(b["rd"]) >= then)}
+        for t_ in sorted(teams, key=lambda x: (x == "(No Team)", x.lower())):
+            rows.append(row_of(t_, p, t_, [b for b in sel if tm(b) == t_], "team"))
     return {"asof": asof, "pool": pool, "open": open_now, "p12": p12, "created4": created4, "resolved4": resolved4, "series": series, "peak": peak, "net": net, "thin": thin,
             "last4": last4, "rows": rows}
 
@@ -330,27 +339,32 @@ def check_view(F: dict, which: str, projects, teams, pri, cfb: str, ax: str, ext
                 out.append(f"{tag} the chart has no '{kind}' mark for the week {d}")
                 continue
             J_.link(f"chart mark {kind} {d}", got[1], w[field], got[0], ax if links else None)
-    # the table by project and priority
-    rows = {r["label"]: r for r in s["table"]}
-    exp_labels = [r["label"] for r in R["rows"]]
-    if [r["label"] for r in s["table"]] != exp_labels:
-        out.append(f"{tag} the table rows are {[r['label'] for r in s['table']]}, expected {exp_labels}")
+    # the table by project, team and priority: a project row, its team rows (hidden until the project is opened), the total row last
+    exp_rows = [(r["level"], r["label"]) for r in R["rows"]]
+    if [(r["level"], r["label"]) for r in s["table"]] != exp_rows:
+        out.append(f"{tag} the table rows are {[(r['level'], r['label']) for r in s['table']]}, expected {exp_rows}")
     else:
-        for er in R["rows"]:
-            row = rows[er["label"]]
+        for er, row in zip(R["rows"], s["table"]):
+            what = f"{er['label']}" if er["level"] != "team" else f"{er['p']} / {er['label']}"
             for k, c in zip(PRIORITIES, row["cells"][:4]):
                 if er["by"][k] or num(c["text"]) is not None and c["href"]:
-                    J_.link(f"table {er['label']} {k}", c["href"], er["by"][k], c["text"], ax if links else None)
+                    J_.link(f"table {what} {k}", c["href"], er["by"][k], c["text"], ax if links else None)
                 if (num(c["text"]) or 0) != len(er["by"][k]):
-                    out.append(f"{tag} table {er['label']} {k}: {c['text']}, the recount gives {len(er['by'][k])}")
+                    out.append(f"{tag} table {what} {k}: {c['text']}, the recount gives {len(er['by'][k])}")
             tot = row["cells"][4]
-            J_.link(f"table {er['label']} Total", tot["href"], er["open"], tot["text"], ax if links else None)
+            J_.link(f"table {what} Total", tot["href"], er["open"], tot["text"], ax if links else None)
             if (num(tot["text"]) or 0) != len(er["open"]):
-                out.append(f"{tag} table {er['label']} Total: {tot['text']}, the recount gives {len(er['open'])}")
+                out.append(f"{tag} table {what} Total: {tot['text']}, the recount gives {len(er['open'])}")
             d = er["d"]
             want = ("▲ +" if d > 0 else "▼ −" if d < 0 else "") + f"{abs(d)}"
             if not row["trend"].startswith(want):
-                out.append(f"{tag} table {er['label']} trend '{row['trend']}', expected it to start with '{want}'")
+                out.append(f"{tag} table {what} trend '{row['trend']}', expected it to start with '{want}'")
+            if er["level"] == "team":
+                tm = er["team"]
+                for c in row["cells"][:5]:
+                    if c["href"] and ((tm == "(No Team)" and "cf[10098] is EMPTY" not in (jql_of(c["href"]) or "")) or (tm != "(No Team)" and f'cf[10098] in ("{tm}")' not in (jql_of(c["href"]) or ""))):
+                        out.append(f"{tag} table {what}: a link does not carry the team clause: {(jql_of(c['href']) or '')[:200]}")
+                        break
     if links and J_.n < 90:
         out.append(f"{tag} only {J_.n} links were judged (the check is blind)")
     s["judged"] = J_.n
@@ -817,6 +831,9 @@ MUTANTS = [
     ("a CFB regression: Yes and No swapped in the bug filter", [('(state.cfb === "all" || (state.cfb === "yes") === !!b.cfb))', '(state.cfb === "all" || (state.cfb === "no") === !!b.cfb))')], [cfb_problems]),
     ("a CFB regression: the control no longer sets the state", [('document.getElementById("f-cfb").onchange = e => { state.cfb = e.target.value;', 'document.getElementById("f-cfb").onchange = e => { state.cfb = "all";')], [behaviour_problems]),
     ("a CFB regression: the CFB link clause dropped", [('if (state.cfb !== "all") jql += ` AND ${state.cfb === "yes" ? CFB_Q() : NOT_CFB_Q()}`;', '')], [cfb_problems]),
+    ("a team row linking to its whole project (the team clause dropped from the link)", [("jiraBugs({projects: p ? [p] : undefined, ...(t ? {teams: new Set([t])} : {}), extra:", "jiraBugs({projects: p ? [p] : undefined, extra:")], [numbers_problems]),
+    ("a team row with the trend of its project", [("(!t || teamOf(b) === t) && utc(b.cr) < then", "utc(b.cr) < then")], [numbers_problems]),
+    ("a team row that leaves out the bugs with no team", [("const teams = new Set(all.filter(b => b.p === p && (isOpenBug(b) || (utc(b.cr) < then && b.rd && utc(b.rd) >= then))).map(teamOf));", "const teams = new Set(all.filter(b => b.p === p && b.tm && (isOpenBug(b) || (utc(b.cr) < then && b.rd && utc(b.rd) >= then))).map(teamOf));")], [numbers_problems]),
     ("a keyboard regression: the group redrawn without its focus", [('document.getElementById("f-ax").onchange = e => { state.ax = e.target.value; update({hold: holdSel(e.target)}); };', 'document.getElementById("f-ax").onchange = e => { state.ax = e.target.value; update(); document.activeElement.blur(); };')], [keyboard_problems]),
 ]
 

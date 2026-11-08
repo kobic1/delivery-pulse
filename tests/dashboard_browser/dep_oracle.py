@@ -556,6 +556,23 @@ def _(t: T):
     t.check(not (cx & prov(page)), "a CXCO provider is counted with PMN and CXCO selected")
 
 
+@SUITE.test("direction_the_quick_filter_has_no_caption_and_no_hint_and_keeps_its_two_labels_and_every_chip")
+def _(t: T):
+    """The caption "Quick Filter" and the sentence "Filters the board and table, not the tiles." are gone (what the filter does not change stays in How this is calculated, "Board and table");
+    the group is named for screen readers; Relationship and Needs Attention (pick any) and the eight chips remain and still filter."""
+    F = fixture()
+    load(F["url"], "r=27.1")
+    ch = ctx.chrome
+    s = ch.js("""(() => { const g = document.getElementById('g-dep'), tx = e => e ? e.textContent.replace(/\\s+/g, ' ').trim() : '';
+      return {text: tx(g), role: g.getAttribute('role'), name: g.getAttribute('aria-label'), caption: !!document.getElementById('lbl-dp'), hint: g.querySelectorAll('.hintline').length, rel: tx(document.getElementById('lbl-dpr')),
+              att: tx(document.getElementById('lbl-da')), chips: g.querySelectorAll('label.chip input').length, page: tx(document.body)}; })()""")
+    t.check("Quick Filter" not in s["text"] and not s["caption"], f"the caption is gone: {s['text'][:60]!r}")
+    t.check("Filters the board and table, not the tiles" not in s["page"] and s["hint"] == 0, "the hint sentence is gone")
+    t.check(s["role"] == "group" and bool(s["name"]), f"the group is named for screen readers: {s['role']} / {s['name']!r}")
+    t.check(s["rel"] == "Relationship" and s["att"] == "Needs Attention (pick any)" and s["chips"] == 8, f"the labels and the eight chips stay: {s['rel']!r}, {s['att']!r}, {s['chips']}")
+    t.check("not the figures" in ch.js("document.getElementById('dep-cap').textContent"), "the how-it-works text still says the filter does not change the figures")
+
+
 # --------------------------------------------------------------------------------------------- seeded defects
 def _mutant(src: str, old: str, new: str, name: str) -> Path:
     assert src.count(old) == 1, f"the seeding anchor for '{name}' is not in the template exactly once (found {src.count(old)}): the mutation test would be blind"

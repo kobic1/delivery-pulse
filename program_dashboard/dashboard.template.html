@@ -170,11 +170,10 @@ button.btn.multi[aria-pressed="true"]::before { content:"\2713\00a0"; color:var(
 .seg .chip:first-child { border-radius:var(--radius-s) 0 0 var(--radius-s); margin-left:0; }
 .seg .chip:last-child { border-radius:0 var(--radius-s) var(--radius-s) 0; }
 #g-dep { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:8px 14px; align-items:center; }
-#g-dep > .lbl, #g-dep > .hintline { grid-column:1 / -1; }
 #g-dep .depgrp { display:contents; }
 #g-dep .dlbl { font-size:var(--t-xs); font-weight:600; color:var(--muted); }
 #g-dep .dlbl .muted { font-weight:400; }
-.periodbar.changed > #lbl-dp::before { content:"\25CF "; color:var(--blue-ink); white-space:pre; }
+.periodbar.changed > .depgrp:first-child > .dlbl::before { content:"\25CF "; color:var(--blue-ink); white-space:pre; }      /* the group has no title of its own: the marker that it is changed sits before its first label */
 @media (max-width:640px) { #g-dep { grid-template-columns:minmax(0,1fr); gap:6px; } }
 @media (max-width:1240px) { #f-dp { flex-wrap:wrap; gap:6px; } #f-dp .chip, #f-dp .chip:first-child, #f-dp .chip:last-child { margin-left:0; border-radius:var(--radius-s); } }      /* eight chips: they wrap before the row can overflow */
 #f-cl .chip { max-width:100%; overflow-wrap:anywhere; text-align:left; }
@@ -479,7 +478,7 @@ td a { text-decoration:none; border-bottom:1px dotted #7C8794; }
 .bq { font-size:var(--t-xs); color:var(--muted); margin-top:2px; font-style:italic; }
 .cypods tr.cyproject th, .cypods tr.cyproject td { background:#F2F0EB; font-weight:700; }
 .cypods tr.cyteam th, .cypods tr.cyteam td { background:#FAF9F6; font-weight:600; }
-.cypods tr.cypod th { font-weight:400; }
+.cypods tr.cypod th, .cypods tr.cycap th { font-weight:400; }
 .cypods .cysub { font-weight:400; }
 .cypods tr[hidden] { display:none; }
 .cyname-wrap { display:inline-flex; align-items:center; gap:2px; }
@@ -494,6 +493,8 @@ td a { text-decoration:none; border-bottom:1px dotted #7C8794; }
 .cyepl th, .cyepl td { padding:4px 8px; text-align:left; vertical-align:top; white-space:normal; overflow-wrap:anywhere; border-bottom:1px solid var(--line-soft); background:transparent; }
 .cyepl thead th { font-size:var(--t-xs); color:var(--muted); font-weight:600; }
 .cyepl th[scope="row"] { font-weight:400; white-space:nowrap; }
+.cytgl .xtc::before { content:"\25B8"; }
+.cytgl[aria-expanded="true"] .xtc::before { content:"\25BE"; }
 .capctl { display:flex; flex-wrap:wrap; gap:6px 12px; }
 .capfs { border:0; margin:0; padding:0; min-width:0; }
 .capfs legend { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }     /* the group name is read aloud; the chips say what they are */
@@ -605,7 +606,7 @@ footer.f b { color:var(--ink); }
   <div class="st-row">
     <h2 class="st-h"><span class="rel" id="st-rel"></span><span class="rest" id="st-rest"></span><span class="state" id="st-state" hidden>In Progress</span></h2>
   </div>
-  <nav class="secnav" id="secnav" aria-label="Report sections"><ul id="seclist"><li><a href="#h-attn" data-jump="h-attn" tabindex="0">Needs Attention</a></li><li><a href="#h-burnup" data-jump="h-burnup" tabindex="-1">Delivery</a></li><li><a href="#h-eff" data-jump="h-eff" tabindex="-1">Efficiency</a></li><li><a href="#h-ai" data-jump="h-ai" tabindex="-1">AI Adoption</a></li><li><a href="#h-bugs" data-jump="h-bugs" tabindex="-1">Quality</a></li><li><a href="#h-deps" data-jump="h-deps" tabindex="-1">Dependencies</a></li><li><a href="#h-nfr" data-jump="h-nfr" tabindex="-1">NFRs</a></li><li><a href="#h-cx" data-jump="h-cx" tabindex="-1">CXCROSS</a></li><li><a href="#h-capview" data-jump="h-capview" tabindex="-1">Capabilities</a></li><li><a href="#h-cycles" data-jump="h-cycles" tabindex="-1">Cycles</a></li><li><a href="#h-analysis" data-jump="h-analysis" tabindex="-1">Release Analysis</a></li></ul><a class="uvlink" id="uv-link" href="#usageview" hidden>Usage</a><span class="sechint" aria-hidden="true">Alt + ↑ ↓: previous or next section</span></nav>
+  <nav class="secnav" id="secnav" aria-label="Report sections"><ul id="seclist"><li><a href="#h-attn" data-jump="h-attn" tabindex="0">Needs Attention</a></li><li><a href="#h-burnup" data-jump="h-burnup" tabindex="-1">Delivery</a></li><li><a href="#h-eff" data-jump="h-eff" tabindex="-1">Efficiency</a></li><li><a href="#h-bugs" data-jump="h-bugs" tabindex="-1">Quality</a></li><li><a href="#h-deps" data-jump="h-deps" tabindex="-1">Dependencies</a></li><li><a href="#h-nfr" data-jump="h-nfr" tabindex="-1">NFRs</a></li><li><a href="#h-cx" data-jump="h-cx" tabindex="-1">CXCROSS</a></li><li><a href="#h-capview" data-jump="h-capview" tabindex="-1">Capabilities</a></li><li><a href="#h-cycles" data-jump="h-cycles" tabindex="-1">Cycles</a></li><li><a href="#h-analysis" data-jump="h-analysis" tabindex="-1">Release Analysis</a></li></ul><a class="uvlink" id="uv-link" href="#usageview" hidden>Usage</a><span class="sechint" aria-hidden="true">Alt + ↑ ↓: previous or next section</span></nav>
   <div class="kpis" id="kpis"></div>
 
   <section class="sec n attn" id="attn" aria-labelledby="h-attn">
@@ -685,6 +686,7 @@ footer.f b { color:var(--ink); }
     <div class="cap" id="bug-cap"></div>
     <div id="bug-data"></div>
     <h3 class="sub3" id="h-bugtable">Open Bugs by Project and Priority</h3>
+    <div id="bug-tglbar"></div>
     <div class="tablewrap" id="bug-table"></div>
   </section>
 
@@ -718,7 +720,7 @@ footer.f b { color:var(--ink); }
     <div class="seclabel">Dependencies <span class="state" id="dep-state" hidden>In Progress</span></div>
     <h2 id="h-deps" tabindex="-1">Open Dependencies by Planned Sprint</h2>
     <div class="kpis five" id="dep-kpis"></div>
-    <div class="periodbar depfilter" id="g-dep"><span class="lbl" id="lbl-dp">Quick Filter</span>
+    <div class="periodbar depfilter" id="g-dep" role="group" aria-label="Filter the dependencies">
       <div class="depgrp"><span class="dlbl" id="lbl-dpr">Relationship</span>
         <div class="chips seg" id="f-dp" role="radiogroup" aria-labelledby="lbl-dpr">
           <label class="chip"><input type="radio" name="f-dp" value="all"> All <span class="cnt" data-k="all"></span></label>
@@ -733,7 +735,6 @@ footer.f b { color:var(--ink); }
           <label class="chip"><input type="checkbox" value="unplanned"> Not Planned <span class="cnt" data-k="unplanned"></span></label>
           <label class="chip"><input type="checkbox" value="gap"> Schedule Gaps <span class="cnt" data-k="gap"></span></label>
         </div></div>
-      <span class="hintline">Filters the board and table, not the tiles.</span>
     </div>
     <div id="dep-cap"></div>
     <div id="dep-body"></div>
@@ -978,7 +979,7 @@ function readParams(h) {
   { const t = list("dp") || [];      // dp=<relationship>|<attention>|...: one relationship (the first wins), any attention flags; an old single value (dp=overdue, dp=epics) still reads
     const rel = t.find(x => DEP_REL.includes(x)); if (rel) state.depRel = rel;
     DEP_ATT.forEach(k => { if (t.includes(k)) state.depAtt.add(k); }); }
-  if (["category", "commitment", "capability", "team"].includes(h.get("nt"))) state.nfrTab = h.get("nt");
+  if (["category", "commitment", "capability", "team", "pod"].includes(h.get("nt"))) state.nfrTab = h.get("nt");
   if (["committed", "notset", "stretch"].includes(h.get("cx"))) state.cx = h.get("cx");
   if (h.get("cpg") === "release") state.cap.by = "release";
   if (h.get("cpm") === "count") state.cap.measure = "count";                  // (an older link with ct= or cs=, the tab and status of the removed detail views, is not read: the page opens as it is)
@@ -2197,12 +2198,13 @@ function renderBugs() {
     left: `${{no: "Accessibility bugs are excluded, as in the weekly email.", all: "Accessibility bugs are included.", yes: "Only accessibility bugs are counted."}[state.ax]} ${bugNoDateNote()}`,
     know: `Follows Projects and Teams. The Release filter does not apply. The Priority and CFB filters below apply here only. Links use Jira's own dates, so a bug at the edge of a day can differ by one.`,
     more: [
-      ["The chart", `values are printed on top of each bar and on the line; every bar and point also has its value on hover. A narrow card scrolls the chart sideways.`]
+      ["The chart", `values are printed on top of each bar and on the line; every bar and point also has its value on hover. A narrow card scrolls the chart sideways.`],
+      ["Team rows", `a project row of the table opens into its teams: the Team Name of the bug, or (No Team) when it has none. A team row counts that team's bugs the way the project row counts the project's, and its Trend compares that team's open bugs today with 14 days ago. Bugs carry no pod label, so the table has no pod level.`]
     ]}));
   }
   const clear = () => { legend.innerHTML = ""; cap.innerHTML = ""; document.getElementById("bug-data").innerHTML = ""; };
   if (!state.projects.size) {
-    kpiCards(kpis, ["Open Bugs", "Open P1 and P2", "Created, Last 4 Weeks", "Resolved, Last 4 Weeks", "Net Backlog Change"].map(l => ({v: "–", l, s: "No project is selected"}))); clear(); document.getElementById("bug-table").innerHTML = "";
+    kpiCards(kpis, ["Open Bugs", "Open P1 and P2", "Created, Last 4 Weeks", "Resolved, Last 4 Weeks", "Net Backlog Change"].map(l => ({v: "–", l, s: "No project is selected"}))); clear(); document.getElementById("bug-table").innerHTML = ""; document.getElementById("bug-tglbar").innerHTML = "";
     el.innerHTML = `<div class="empty">${whyEmpty("bugs")}</div>`; return;
   }
   const bugs = backlogBugs(), open = bugs.filter(isOpenBug);
@@ -2284,27 +2286,82 @@ function noPriNote(open) {                                      // the total cou
   const none = open.filter(b => !PRIORITIES.includes(b.pr));
   return none.length ? `<div class="cap">${tlink(none.length, jiraBugs({extra: `${OPEN_BUG_JQL} AND (priority not in (${PRIORITIES.join(", ")}) OR priority is EMPTY)`}), `${nn(none.length, "open bug", "open bugs")} with no P1 to P4 priority`)} open ${none.length === 1 ? "bug has" : "bugs have"} no P1 to P4 priority and ${none.length === 1 ? "is" : "are"} counted in the Total only.</div>` : "";
 }
+// ---------------------------------------------------------------- expandable Project > Team (> Pod) tables
+// The look and the behaviour of the Delivery Cycles table (.cypods, one chevron button per row, Expand All and Collapse All) for the Quality and Capabilities tables. The Cycles table keeps its own code.
+// A node is {id, level: project | team | pod, name, project, team, kids, parent, list, virtual?, spellings?}; the table that calls xtTable decides what a node counts (cells) and where its numbers link.
+// The open rows of a table are kept in memory by the table's id, so a filter change that redraws the page keeps them; before the first click a table with one selected project opens that project, as the Cycles table does.
+const XT_OPEN = new Map();
+const xtSlug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 28) || "x";
+const xtWhat = n => n.level === "cap" ? `Capability ${n.key} in ${n.project}` : n.level === "project" ? `project ${n.name}` : n.level === "team" ? `team ${n.name} in ${n.project}` : `pod ${n.name} in ${n.team}, ${n.project}`;
+function xtNodes() {                                                // a builder: add(level, name, parent, fields) makes a node with an id that is unique in the table
+  const used = new Set();
+  return {add(level, name, parent, fields = {}) {
+    const base = (parent ? parent.id + "." : "") + xtSlug(name); let id = base, k = 2; while (used.has(id)) id = `${base}-${k++}`; used.add(id);
+    const n = {id, level, name, parent: parent || null, kids: [], ...fields}; if (parent) parent.kids.push(n); return n; }};
+}
+const xtOpenSet = (tid, roots) => XT_OPEN.get(tid) || new Set(state.projects.size === 1 ? roots.filter(n => n.kids.length).map(n => n.id) : []);
+// o: {id, roots (the project nodes, kids nested), cls (more table classes), caption, heads (the <th> cells after the first one, as HTML), first (the first heading), cells(n) (the <td> cells of a node), tail (rows after the nodes, in the body), foot (true: the tail goes in the foot of the table)}.
+// Returns {bar, table}: the Expand All and Collapse All buttons (empty when no row has anything under it) and the table.
+function xtTable(o) {
+  const open = xtOpenSet(o.id, o.roots), order = [], dfs = n => { order.push(n); n.kids.forEach(dfs); }; o.roots.forEach(dfs);
+  const shown = n => !n.parent || (open.has(n.parent.id) && shown(n.parent)), rid = n => `xtr-${o.id}-${n.id}`;
+  const row = n => {
+    const on = open.has(n.id), what = xtWhat(n);
+    const tgl = n.kids.length ? `<button type="button" class="linkbtn cytgl" data-xtact="tgl" data-xttable="${esc(o.id)}" data-xtval="${esc(n.id)}" data-what="${esc(what)}" aria-expanded="${on}" aria-controls="${n.kids.map(k => esc(rid(k))).join(" ")}" aria-label="${on ? "Collapse" : "Expand"} ${esc(what)}"><span class="chev xtc" aria-hidden="true"></span></button>` : `<span class="cytgl-gap" aria-hidden="true"></span>`;
+    return `<tr class="cy${n.level}" id="${esc(rid(n))}" data-id="${esc(n.id)}" data-par="${esc(n.parent ? n.parent.id : "")}" data-lvl="${n.level}"${shown(n) ? "" : " hidden"}>` +
+      `<th scope="row"><span class="cyname-wrap" style="padding-left:${({project: 0, team: 22, pod: 44, cap: 22})[n.level]}px">${tgl}<span class="xtname">${n.nameHtml || esc(n.name)}</span></span>${n.note ? `<div class="cysub" style="padding-left:${22 + 24}px">${n.note}</div>` : ""}</th>${o.cells(n)}</tr>`;
+  };
+  const bar = order.some(n => n.kids.length) ? `<div class="cyfrow cytogglebar"><button type="button" class="btn link" data-xtact="expall" data-xttable="${esc(o.id)}">Expand All</button><button type="button" class="btn link" data-xtact="colall" data-xttable="${esc(o.id)}">Collapse All</button></div>` : "";
+  return {bar, table: `<table class="cypods ${o.cls || ""}" id="xt-${esc(o.id)}" data-xt="${esc(o.id)}"><caption class="sr">${esc(o.caption)} Each project and team row that has rows under it can be expanded or collapsed.</caption>` +
+    `<thead><tr><th scope="col">${o.first}</th>${o.heads}</tr></thead><tbody>${order.map(row).join("")}${o.foot ? "" : o.tail || ""}</tbody>${o.foot ? `<tfoot>${o.tail || ""}</tfoot>` : ""}</table>`, ids: order.map(n => n.id)};
+}
+function xtApply(tid) {                                              // DOM only: which rows are shown and which arrows are open; the clicked row stays where it is
+  const table = document.getElementById("xt-" + tid); if (!table) return;
+  const open = XT_OPEN.get(tid) || new Set(), rows = [...table.querySelectorAll("tbody tr[data-id]")], byId = new Map(rows.map(r => [r.dataset.id, r]));
+  rows.forEach(r => {                                                // rows are in tree order: a parent is decided before its children
+    const par = r.dataset.par, pr = par ? byId.get(par) : null;
+    r.hidden = !!pr && (pr.hidden || !open.has(par));
+    const b = r.querySelector(".cytgl");
+    if (b) { const on = open.has(r.dataset.id); b.setAttribute("aria-expanded", String(on)); b.setAttribute("aria-label", `${on ? "Collapse" : "Expand"} ${b.dataset.what}`); }
+  });
+}
+document.addEventListener("click", ev => {
+  const b = ev.target.closest && ev.target.closest("[data-xtact]"); if (!b) return;
+  const tid = b.dataset.xttable, table = document.getElementById("xt-" + tid); if (!table) return;
+  const rows = [...table.querySelectorAll("tbody tr[data-id]")], ids = rows.filter(r => r.querySelector(".cytgl")).map(r => r.dataset.id);
+  const cur = new Set(XT_OPEN.get(tid) || rows.filter(r => r.querySelector('.cytgl[aria-expanded="true"]')).map(r => r.dataset.id));
+  const act = b.dataset.xtact, id = b.dataset.xtval;
+  if (act === "expall") ids.forEach(i => cur.add(i)); else if (act === "colall") cur.clear(); else cur.has(id) ? cur.delete(id) : cur.add(id);
+  XT_OPEN.set(tid, cur); xtApply(tid);
+});
 function renderBugTable(open) {
   const projects = projectsAll.filter(p => state.projects.has(p) && DATA.bugs.some(b => b.p === p));
-  const cell = (n, extra, p, pri) => n ? tlink(n, jiraBugs({projects: p ? [p] : undefined, extra: `${OPEN_BUG_JQL}${extra ? " AND " + extra : ""}`}), `${nn(n, `open ${pri ? pri + " " : ""}bug`, `open ${pri ? pri + " " : ""}bugs`)}, ${p || "All Selected"}`) : `<span class="muted">0</span>`;
+  const bar = document.getElementById("bug-tglbar");
+  // a row is a project, or one team of a project (a bug carries one team, Team Name; none is "(No Team)"). Bugs carry no pod label, so there is no pod level here.
+  const cell = (n, extra, p, pri, t) => n ? tlink(n, jiraBugs({projects: p ? [p] : undefined, ...(t ? {teams: new Set([t])} : {}), extra: `${OPEN_BUG_JQL}${extra ? " AND " + extra : ""}`}), `${nn(n, `open ${pri ? pri + " " : ""}bug`, `open ${pri ? pri + " " : ""}bugs`)}, ${p || "All Selected"}${t ? ", " + t : ""}`) : `<span class="muted">0</span>`;
   // Trend, 2 weeks: open bugs today against open bugs at the end of the day 14 days ago, by the chart's own rule (created before it and open by status today, or closed on or after it)
-  const all = backlogBugs(), then = asOfDay() - 13 * DAY, thenIso = iso(then);
-  const openThen = p => all.filter(b => (!p || b.p === p) && utc(b.cr) < then && (isOpenBug(b) || (b.rd && utc(b.rd) >= then))).length;
-  const trend = (n, p) => {
-    const t0 = openThen(p), d = n - t0, col = d > 0 ? "var(--red)" : d < 0 ? "#007C58" : "var(--muted)", sym = d > 0 ? "▲ +" : d < 0 ? "▼ −" : "";
+  const all = backlogBugs(), then = asOfDay() - 13 * DAY, thenIso = iso(then), teamOf = b => b.tm || NO_TEAM;
+  const openThen = (p, t) => all.filter(b => (!p || b.p === p) && (!t || teamOf(b) === t) && utc(b.cr) < then && (isOpenBug(b) || (b.rd && utc(b.rd) >= then))).length;
+  const trend = (n, p, t) => {
+    const t0 = openThen(p, t), d = n - t0, col = d > 0 ? "var(--red)" : d < 0 ? "#007C58" : "var(--muted)", sym = d > 0 ? "▲ +" : d < 0 ? "▼ −" : "";
     // the cell is only the symbol and the change; the two counts it comes from sit in the hover text and the screen-reader text (today's count is the linked Total beside it)
     const word = d > 0 ? "more open bugs" : d < 0 ? "fewer open bugs" : "no change";
     return `<td class="n">${tipFocus(`<b style="color:${col}" aria-hidden="true">${sym || ""}${Math.abs(d).toLocaleString("en-US")}</b><span class="sr">${word}${d ? ": " + Math.abs(d).toLocaleString("en-US") : ""}</span>`, `${t0.toLocaleString("en-US")} open on ${thenIso}, ${n.toLocaleString("en-US")} open now`, `${word}${d ? ": " + Math.abs(d).toLocaleString("en-US") : ""}`)}</td>`;
   };
-  const row = (label, list, p, cls_ = "") => {
-    const byP = k => list.filter(b => b.pr === k).length;
-    return `<tr class="${cls_}"><th scope="row">${label}</th>` + PRIORITIES.map(k => `<td class="n">${cell(byP(k), `priority = ${k}`, p, k)}</td>`).join("") +
-      `<td class="n">${cell(list.length, "", p)}</td>${trend(list.length, p)}</tr>`;
-  };
-  const rows = projects.map(p => row(p, open.filter(b => b.p === p), p)).join("") + row("All Selected", open, undefined, "total");
-  document.getElementById("bug-table").innerHTML = projects.length
-    ? `<table><caption class="sr">Open bugs by project and priority, with the change in open bugs over the last two weeks</caption><thead><tr><th>Project</th>${PRIORITIES.map(k => `<th class="n">${k}</th>`).join("")}<th class="n">Total</th><th class="n">${tipFocus("Trend, 2 Weeks", `Change in open bugs since ${shortDate(then)}\n▲ more open bugs, ▼ fewer.`)}</th></tr></thead><tbody>${rows}</tbody></table>` + noPriNote(open)
-    : `<div class="empty">${whyEmpty("bugs")}</div>`;
+  const cells = (list, p, t) => { const byP = k => list.filter(b => b.pr === k).length;
+    return PRIORITIES.map(k => `<td class="n">${cell(byP(k), `priority = ${k}`, p, k, t)}</td>`).join("") + `<td class="n">${cell(list.length, "", p, undefined, t)}</td>${trend(list.length, p, t)}`; };
+  const nb = xtNodes(), roots = projects.map(p => {
+    const pn = nb.add("project", p, null, {project: p, list: open.filter(b => b.p === p)});
+    // the teams with an open bug now or two weeks ago (the Trend column needs both), alphabetical, (No Team) last
+    const teams = new Set(all.filter(b => b.p === p && (isOpenBug(b) || (utc(b.cr) < then && b.rd && utc(b.rd) >= then))).map(teamOf));
+    [...teams].sort(byTeamName).forEach(t => nb.add("team", t, pn, {project: p, team: t, list: pn.list.filter(b => teamOf(b) === t)}));
+    return pn; });
+  const x = xtTable({id: "bugs", roots, cls: "bugxt", caption: "Open bugs by project and team and priority, with the change in open bugs over the last two weeks.", first: "Project and Team",
+    heads: `${PRIORITIES.map(k => `<th class="n" scope="col">${k}</th>`).join("")}<th class="n" scope="col">Total</th><th class="n" scope="col">${tipFocus("Trend, 2 Weeks", `Change in open bugs since ${shortDate(then)}\n▲ more open bugs, ▼ fewer.`)}</th>`,
+    cells: n => cells(n.list, n.project, n.team),
+    tail: `<tr class="total"><th scope="row">All Selected</th>${cells(open, undefined, undefined)}</tr>`});
+  bar.innerHTML = projects.length ? x.bar : "";
+  document.getElementById("bug-table").innerHTML = projects.length ? x.table + noPriNote(open) : `<div class="empty">${whyEmpty("bugs")}</div>`;
 }
 
 // ---------------------------------------------------------------- customer-found bugs
@@ -2793,9 +2850,21 @@ function renderCapabilities() {
   const capQ = `issuetype = Capability AND status != Removed AND fixVersion = ${q(rel)}${lv.clause ? " AND " + lv.clause : ""}`;
   const stClause = st => st === "Other Status" ? `status not in (${CAP_STATUSES.map(q).join(", ")})` : `status = ${q(st)}`;
   const nc = (n, extra, tip, projs) => n ? tlink(n, href(`project in (${pkeys(projs)}) AND ${capQ}${extra ? " AND " + extra : ""}`), tip) : `<span class="muted">0</span>`;
-  const rowA = (label, list, projs, tot) => `<tr${tot ? ' class="total"' : ""}><th scope="row">${esc(label)}</th>` + cols.map(st => { const n = list.filter(c => st === "Other Status" ? !known.has(c.s) : c.s === st).length;
-      return `<td class="n">${nc(n, stClause(st), `${nn(n, `${st} Capability`, `${st} Capabilities`)}${tot ? "" : " of " + label}${lvNote ? "\n" + lvNote.trim() : ""}`, projs)}</td>`; }).join("") + `<td class="n">${nc(list.length, "", `${nn(list.length, "Capability", "Capabilities")}${tot ? "" : " of " + label}${lvNote ? "\n" + lvNote.trim() : ""}`, projs)}</td></tr>`;
-  const bodyA = selProj.map(p => rowA(p, caps.filter(c => c.p === p), [p], false)).join("") + rowA("All Selected Projects (Each Capability Once)", caps, selProj, true);
+  const aCells = (list, label, projs, tot) => cols.map(st => { const n = list.filter(c => st === "Other Status" ? !known.has(c.s) : c.s === st).length;
+      return `<td class="n">${nc(n, stClause(st), `${nn(n, `${st} Capability`, `${st} Capabilities`)}${tot ? "" : " of " + label}${lvNote ? "\n" + lvNote.trim() : ""}`, projs)}</td>`; }).join("") + `<td class="n">${nc(list.length, "", `${nn(list.length, "Capability", "Capabilities")}${tot ? "" : " of " + label}${lvNote ? "\n" + lvNote.trim() : ""}`, projs)}</td>`;
+  // The Capability Status Summary is an expandable table: a project row opens into the Capabilities it counts, by key, each with the facts the payload holds (status, Commitment Level, fix versions, child epics and how many are Done).
+  // A Capability row counts itself once, in its own status column and in the Total, and links to that one Capability under the same filters; the Capabilities under a project are exactly its Total.
+  const kidsOfCap = new Map(); (DATA.capEpics || []).forEach(r => { if (!kidsOfCap.has(r[5])) kidsOfCap.set(r[5], []); kidsOfCap.get(r[5]).push(r); });
+  const an = xtNodes(), aRoots = selProj.map(p => {
+    const pn = an.add("project", p, null, {project: p, list: caps.filter(c => c.p === p)});
+    pn.list.slice().sort((x, y) => keyCmp(x.k, y.k)).forEach(c => { const ke = kidsOfCap.get(c.k) || [], dn = ke.filter(r => r[2] === "Done").length;
+      an.add("cap", c.k, pn, {project: p, key: c.k, list: [c], cap: c, nameHtml: `<a href="${BASE}/browse/${esc(c.k)}" target="_blank" rel="noopener" ${tipAttr(`${c.k}\n${shortText(c.t, 120)}\n${c.s}`, "x")} aria-label="${esc(c.k + ", " + shortText(c.t, 120))}. Opens in Jira.">${esc(c.k)}</a> ${esc(shortText(c.t || "–", 90))}`,
+        note: `${esc(c.s || "–")} · Commitment Level ${esc(c.cl || "–")} · Fix version ${esc((c.fv || []).join(", ") || "–")} · ${nn(ke.length, "child epic", "child epics")}${ke.length ? `, ${dn} Done` : ""}`}); });
+    return pn; });
+  const ax = xtTable({id: "capstat", roots: aRoots, cls: "captable matrix", caption: `Capabilities with fix version ${rel} by status, one row per project of the Capability; a project row opens into its Capabilities.`, first: "Project and Capability",
+    heads: `${cols.map(c => `<th class="n" scope="col">${c}</th>`).join("")}<th class="n" scope="col">Total</th>`,
+    cells: n => n.level === "cap" ? cols.map(st => `<td class="n">${(st === "Other Status" ? !known.has(n.cap.s) : n.cap.s === st) ? nc(1, `key = ${n.key}`, `${n.key}, ${st}${lvNote ? "\n" + lvNote.trim() : ""}`, [n.project]) : ""}</td>`).join("") + `<td class="n">${nc(1, `key = ${n.key}`, `${n.key}${lvNote ? "\n" + lvNote.trim() : ""}`, [n.project])}</td>` : aCells(n.list, n.name, [n.project], false),
+    tail: `<tr class="total"><th scope="row">All Selected Projects (Each Capability Once)</th>${aCells(caps, "", selProj, true)}</tr>`});
   // Table B: every child epic of those Capabilities
   const inSet = new Set(capKeys), kids = (DATA.capEpics || []).filter(e => inSet.has(e[5]));
   const byP = new Map(); kids.forEach(e => { if (!byP.has(e[1])) byP.set(e[1], []); byP.get(e[1]).push(e); });
@@ -2804,30 +2873,60 @@ function renderCapabilities() {
   const hasOth = kids.some(e => bst(e) === "oth"), bcols = [["ns", "Not Started"], ["ip", "In Progress"], ["val", "Validation"], ["done", "Done"]].concat(hasOth ? [["oth", "Other Status"]] : []);
   const kidQ = `parent in (${capKeys.join(", ")}) AND issuetype = Epic AND status != Removed`;
   const bClause = k => k === "ns" ? `status in (${CLASS.notStarted.map(q).join(", ")})` : k === "ip" ? `status = "In Progress"` : k === "val" ? "status = Validation" : k === "done" ? "status = Done" : `status not in (${[...CLASS.notStarted, "In Progress", "Validation", "Done"].map(q).join(", ")})`;
-  const nb = (n, projLine, extra, tip) => n ? tlink(n, href(`${kidQ}${projLine ? " AND " + projLine : ""}${extra ? " AND " + extra : ""}`), tip + parentNote(caps.length)) : `<span class="muted">0</span>`;
-  const rowB = (label, list, projLine, tot) => `<tr${tot ? ' class="total"' : ""}><th scope="row">${esc(label)}</th>` + bcols.map(([k, nm]) => { const n = list.filter(e => bst(e) === k).length;
-      return `<td class="n">${nb(n, projLine, bClause(k), `${n.toLocaleString("en-US")} ${nm} child ${epicWord(n)}${tot ? "" : " in " + label}`)}</td>`; }).join("") +
-    `<td class="n">${nb(list.length, projLine, "", `${nn(list.length, "child epic", "child epics")}${tot ? "" : " in " + label}`)}</td><td class="n">${list.length >= MIN_N ? pct(list.filter(e => bst(e) === "done").length, list.length) + "%" : "–"}</td></tr>`;
-  const bodyB = rowsP.map(p => rowB(p, byP.get(p), `project = ${pkey(p)}`, false)).join("") + rowB("All Projects", kids, "", true);
+  // Table B is an expandable Project > Team > Pod table. A Capability has no team or pod; its child epics do, through the page's own epic records (DATA.epics, by key): the teams `tm`, the pod labels `pl`.
+  // A child epic that has no record there (no release fix version, so the page never read it, or a project the page does not track) has no team: it is counted in its project row, and in a project the page tracks
+  // it sits in one "team unknown" row that opens a query for exactly that (no release fix version). An epic with several teams or pods is under each of them; the project and the "All Projects" rows count it once.
+  const nb = (n, projLine, extra, tip, cap) => { if (!n) return `<span class="muted">0</span>`; if (projLine === false) return n.toLocaleString("en-US");
+    const u = href(`${kidQ}${projLine ? " AND " + projLine : ""}${extra ? " AND " + extra : ""}`);
+    if (cap && u && u.length > CY_URL_MAX) { try { console.warn(`Delivery Pulse: link dropped, the URL is ${u.length} characters (the limit is ${CY_URL_MAX}):`, tip.split("\n")[0]); } catch (e) { /* no console */ } return n.toLocaleString("en-US"); }
+    return tlink(n, u, tip + parentNote(caps.length)); };
+  const bCells = (list, projLine, label, tot, cap) => bcols.map(([k, nm]) => { const n = list.filter(e => bst(e) === k).length;
+      return `<td class="n">${nb(n, projLine, bClause(k), `${n.toLocaleString("en-US")} ${nm} child ${epicWord(n)}${tot ? "" : " in " + label}`, cap)}</td>`; }).join("") +
+    `<td class="n">${nb(list.length, projLine, "", `${nn(list.length, "child epic", "child epics")}${tot ? "" : " in " + label}`, cap)}</td><td class="n">${list.length >= MIN_N ? pct(list.filter(e => bst(e) === "done").length, list.length) + "%" : "–"}</td>`;
+  const recs = new Map(DATA.epics.map(e => [e.k, e])), R = cyLabelOk() ? podRegistry() : null, bn = xtNodes(), noRel = `(fixVersion is EMPTY OR fixVersion not in (${DATA.releases.map(q).join(", ")}))`;
+  const plOf = e => [...new Set((recs.get(e[0]).pl || []).map(l => l.toLowerCase()))];
+  const roots = rowsP.map(P => {
+    const list = byP.get(P), pn = bn.add("project", P, null, {project: P, list});
+    if (!projectsAll.includes(P)) return pn;
+    const known = list.filter(e => recs.has(e[0])), unk = list.filter(e => !recs.has(e[0])), tms = e => teamsOf(recs.get(e[0]));
+    [...new Set(known.flatMap(tms))].sort(byTeamName).forEach(T => {
+      const te = known.filter(e => tms(e).includes(T)), tn = bn.add("team", T, pn, {project: P, team: T, list: te});
+      if (!R) return;
+      const keys = new Map(); te.forEach(e => plOf(e).forEach(k => { if (!keys.has(k)) keys.set(k, []); keys.get(k).push(e); }));
+      if (!keys.size) return;                                      // a team with no pod has no pod level, and no lone No Pod Label row, as in the Cycles table
+      [...keys].map(([k, es]) => ({es, r: R.reg.get(k)})).sort((x, y) => x.r.name.localeCompare(y.r.name, "en", {sensitivity: "base", numeric: true}))
+        .forEach(({es, r}) => bn.add("pod", r.name, tn, {project: P, team: T, list: es, spellings: [...r.spellings].sort()}));
+      const none = te.filter(e => !plOf(e).length);
+      if (none.length) bn.add("pod", "No Pod Label", tn, {project: P, team: T, list: none, virtual: true, spellings: []});
+    });
+    if (unk.length) bn.add("team", "Team Unknown", pn, {project: P, list: unk, unknown: true, whole: unk.every(e => !e[3].length), note: "No release fix version, so the page holds no team for them."});
+    return pn; });
+  const bLabel = n => n.level === "project" ? n.name : n.level === "team" ? `${n.name}, ${n.project}` : `${n.name}, ${n.team}, ${n.project}`;
+  const bLine = n => n.unknown ? (n.whole ? `project = ${pkey(n.project)} AND ${noRel}` : false) : cyNodeClause(n);        // the project, team and pod clause of a row, as the Cycles table builds it
+  const bx = xtTable({id: "capkids", roots, cls: "captable matrix", caption: `All child epics of the Capabilities with fix version ${rel}, by project of the epic, its team and its pod, and status.`, first: "Project, Team and Pod",
+    heads: `${bcols.map(([, nm]) => `<th class="n" scope="col">${nm}</th>`).join("")}<th class="n" scope="col">Total</th><th class="n" scope="col">% Done</th>`,
+    cells: n => bCells(n.list, bLine(n), bLabel(n), false, n.level !== "project"),
+    tail: `<tr class="total"><th scope="row">All Projects</th>${bCells(kids, "", "", true)}</tr>`});
   const outside = kids.filter(e => !projectsAll.includes(e[1]));
   sub.innerHTML = `${caps.length ? tlink(caps.length, href(`project in (${pkeys(selProj)}) AND ${capQ}`), `${nn(caps.length, "Capability", "Capabilities")} with fix version ${rel}${lvNote ? "\n" + lvNote.trim() : ""}`) : "0"} ${caps.length === 1 ? "Capability carries" : "Capabilities carry"} fix version ${esc(rel)}, with ${kids.length ? tlink(kids.length.toLocaleString("en-US"), href(kidQ), `${nn(kids.length, "child epic", "child epics")}${parentNote(caps.length)}`) : "0"} child ${kids.length === 1 ? "epic" : "epics"} under ${caps.length === 1 ? "it" : "them"}.${followsRow(["Release", "Projects", "Commitment Level"], ["Teams"])}`;
   const noCapScope = scopeOf(rel).filter(needsCap), capEx = scopeOf(rel).filter(e => !e.cp && capExempt(e)), nScope = scopeOf(rel).length;
   host.innerHTML = `<a class="skip" href="#h-cycles" data-skip="h-cycles">Skip to Delivery Cycle Governance</a>` +
     (!caps.length ? `<div class="empty">${capsAll.length ? "No Commitment Level is selected. Choose at least one in the Capabilities filter above the tables." : `No Capability of the selected projects has fix version ${esc(rel)}.`}</div>` :
-    `<div class="cyblock"><h3>Capability Status Summary</h3><div class="cymeta">One row per project of the Capability; one with several fix versions counts under each.</div><div class="scrollcue">Scrolls sideways</div>` +
-      `<div class="tablewrap" tabindex="0" role="region" aria-label="Capability status summary, scrolls sideways when it does not fit"><table class="captable matrix"><caption class="sr">Capabilities with fix version ${esc(rel)} by status, one row per project of the Capability</caption><thead><tr><th scope="col">Project</th>${cols.map(c => `<th class="n" scope="col">${c}</th>`).join("")}<th class="n" scope="col">Total</th></tr></thead><tbody>${bodyA}</tbody></table></div></div>` +
-    `<div class="cyblock"><h3>Child Epics of These Capabilities</h3><div class="cymeta">Child epics of the ${caps.length} Capabilities, any project or fix version.${outside.length ? ` ${tlink(outside.length, href(`${kidQ} AND project not in (${pkeys(projectsAll)})`), `${nn(outside.length, "child epic", "child epics")} in other projects${parentNote(caps.length)}`)} sit outside the projects on this page.` : ""}</div><div class="scrollcue">Scrolls sideways</div>` +
-      `<div class="tablewrap" tabindex="0" role="region" aria-label="Child epics of these Capabilities, scrolls sideways when it does not fit"><table class="captable matrix"><caption class="sr">All child epics of the Capabilities with fix version ${esc(rel)}, by project of the epic and status</caption><thead><tr><th scope="col">Project</th>${bcols.map(([, nm]) => `<th class="n" scope="col">${nm}</th>`).join("")}<th class="n" scope="col">Total</th><th class="n" scope="col">% Done</th></tr></thead><tbody>${bodyB}</tbody></table></div></div>`);
+    `<div class="cyblock"><h3>Capability Status Summary</h3><div class="cymeta">One row per project of the Capability; one with several fix versions counts under each. Open a project for its Capabilities.</div>${ax.bar}<div class="scrollcue">Scrolls sideways</div>` +
+      `<div class="tablewrap" tabindex="0" role="region" aria-label="Capability status summary by project and Capability, scrolls sideways when it does not fit">${ax.table}</div></div>` +
+    `<div class="cyblock"><h3>Child Epics of These Capabilities</h3><div class="cymeta">Child epics of the ${caps.length} Capabilities, any project or fix version.${outside.length ? ` ${tlink(outside.length, href(`${kidQ} AND project not in (${pkeys(projectsAll)})`), `${nn(outside.length, "child epic", "child epics")} in other projects${parentNote(caps.length)}`)} sit outside the projects on this page.` : ""}</div>${bx.bar}<div class="scrollcue">Scrolls sideways</div>` +
+      `<div class="tablewrap" tabindex="0" role="region" aria-label="Child epics of these Capabilities by project, team and pod, scrolls sideways when it does not fit">${bx.table}</div></div>`);
   const exTxt = capEx.length ? `; ${tlink(capEx.length, jira({extra: `parent is EMPTY AND ${CAP_EXEMPT_IN}`}), capExemptTip(capEx.length))} more ${capEx.length === 1 ? "is" : "are"} exempt by Issue Category` : "";
   dq.innerHTML = nScope ? `${noCapScope.length ? `${tlink(noCapScope.length, jira({extra: NO_CAP_JQL}), `${nn(noCapScope.length, "epic", "epics")} in scope with no Capability parent\nNot counting epics exempt by Issue Category.`)} of ${nScope.toLocaleString("en-US")} epics ${noCapScope.length === 1 ? "has" : "have"} no Capability parent` : "Every epic that needs a Capability has one"}${exTxt}.` : "";
   defsEl.innerHTML = defs(howBody({id: "cap",
     bl: `Use this to see how far the Capabilities planned for ${esc(rel)} have progressed, and how much of their child epics is Done.`,
     defs: [
-      ["Capability Status Summary", `Capabilities of the selected projects (the project of the Capability) whose Fix Version is ${esc(rel)}, by status.`],
+      ["Capability Status Summary", `Capabilities of the selected projects (the project of the Capability) whose Fix Version is ${esc(rel)}, by status. A project row opens into its Capabilities, by key, each with its status, Commitment Level, fix versions and child epics (and how many are Done); a dash means the field is empty. The Capabilities under a project are its Total.`],
       ["Required release", `the Capability's Fix Version, taken as its required release. This is an owner assumption, not verified.`],
       ["Commitment Level", `the Jira field of that name on a Capability (not the Commitment Type of an epic). Not Set means the field is empty.`],
       ["Child Epics", `every non-Removed epic whose parent is one of those Capabilities, whatever its own project or fix version.`],
       ["Not Started", `New, In Definition, Ready for Dev or Candidate. A status that fits none shows as Other Status.`],
+      ["Team and pod rows", `a Capability has no team or pod, so a child epic takes its teams and pod labels from its own epic record. A pod is one label of a project, spellings that differ only in case are one pod, and an epic with no pod label is in No Pod Label. An epic with several teams or pods is under each of them; the project and All Projects rows count it once. A child epic with no release fix version has no record on this page, so it sits in one Team Unknown row of its project; a project this page does not track has no team rows.`],
       ["% Done", `Done child epics over all child epics, for 5 or more epics.`]
     ],
     left: `Removed Capabilities and epics. CXCROSS Capabilities have their own section. An epic whose Issue Category is ${esc(CAP_EXEMPT.join(", "))} needs no Capability and is not flagged for a missing parent.`,
@@ -3191,7 +3290,7 @@ function renderCx() {
 const NFR_Q = `(labels = ${NFR_LABEL} OR cf[10139] in (${NFR_CATEGORIES.map(q).join(", ")}))`;
 const NFR_CAT_IN = `cf[10139] in (${NFR_CATEGORIES.map(q).join(", ")})`;
 const NFR_KNOWN_STATUS = () => [...CLASS.done, ...CLASS.flight, ...CLASS.notStarted];
-const NFR_TABS = [["project", "By Project"], ["category", "By Category"], ["commitment", "By Commitment"], ["capability", "By Capability"], ["team", "By Team"]];
+const NFR_TABS = [["project", "By Project"], ["category", "By Category"], ["commitment", "By Commitment"], ["capability", "By Capability"], ["team", "By Team"], ["pod", "By Pod"]];
 function nfrSelect(tab, viaKey) {                                       // switching tabs keeps the tab bar where it is
   state.nfrTab = tab; saveState(); withAnchor(() => { syncControls(); renderNfr(); }, "#nfr-tabs");     // the filter summary line above may change height, so it is updated inside the anchored step
   const b = document.getElementById("nt-" + tab); if (b) { b.focus({preventScroll: true}); if (viaKey) { b.scrollIntoView({block: "nearest", inline: "nearest"}); anchorUserAt = performance.now(); } }
@@ -3240,13 +3339,13 @@ function renderNfr() {
       ["Target-scope share", `Committed NFR epics over the target scope, the Forecast Epics number. It uses a different population from the headline count.`]
     ],
     left: `Removed epics, and epics owned by CXCROSS.`,
-    know: `An epic with several fix versions counts in each release, so totals across releases do not add up. ${isProv(rel) ? `${esc(rel)} is still running, so these counts can still change. ` : ""}By Team counts an epic under each team it lists; the total row counts each epic once.`,
+    know: `An epic with several fix versions counts in each release, so totals across releases do not add up. ${isProv(rel) ? `${esc(rel)} is still running, so these counts can still change. ` : ""}By Team counts an epic under each team it lists and By Pod under each pod label it carries; the total row counts each epic once.`,
     this: ["This selection", `${N.toLocaleString("en-US")} NFR epics, ${esc(commitTxt)}, projects ${state.projects.size === projectsAll.length ? "all" : esc([...state.projects].join(", "))}${state.teams.size ? ", teams " + esc([...state.teams].join(", ")) : ""}, data as of ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}.`],
     more: [
       ["Headline count", `every NFR epic under the page filters (Release, Projects, Teams), out of all epics under those filters.`],
       ["Target-scope share, detail", `the target scope is the Committed and Not Set epics that were in the release on the first day of W1 (the target so far before W1), under the Projects and Teams filters. A share needs a target scope of 5 or more.`],
       ["Status", `Not Started is New, In Definition, Ready for Dev or Candidate. In Progress, Validation and Done are the statuses of those names. Done is the status named Done, not Jira's Done category. A status that fits none shows as Other Status. In Definition counts as Not Started because that status is unmaintained. The workflow of some projects is not documented, so the mapping can differ there.`],
-      ["Tabs", `each tab regroups the same NFR epics. By Capability uses the epic's parent Capability. No team is compared with another.`]
+      ["Tabs", `each tab regroups the same NFR epics. By Capability uses the epic's parent Capability. By Pod names each pod with its project and combines spellings that differ only in case; an epic with no pod label is in the No Pod Label row. No team or pod is compared with another.`]
     ]}));
   if (noProj) { host.innerHTML = `<div class="empty">${whyEmpty("epics")}</div>`; return; }
   if (!N) { host.innerHTML = `<div class="empty">${scope.length ? "No NFR epic in this selection." : whyEmpty("epics")}</div>`; return; }
@@ -3273,6 +3372,15 @@ function renderNfr() {
     const keys = [...by.keys()].sort((a, b) => capName(a).localeCompare(capName(b), "en", {sensitivity: "base"}) || keyCmp(a, b));
     panel = tbl("NFR epics by parent Capability, in alphabetical order, with status counts", "Capability", keys.map(k => row(capName(k), by.get(k), `${NFR_Q} AND parent = ${k}`, {labelHtml: `<a href="${BASE}/browse/${esc(k)}" target="_blank" rel="noopener" ${tipAttr(`${k}\n${capName(k)}\n${nn(by.get(k).length, "NFR epic", "NFR epics")} in ${rel}`, "x")} aria-label="${esc(k + ", " + shortText(capName(k), 80))}. Opens in Jira.">${esc(shortText(capName(k), 80))}</a>`})).join("") +
       (nfr.some(e => !e.cp) ? row("No Capability", nfr.filter(e => !e.cp), `${NFR_Q} AND parent is EMPTY`) : ""), totRow("All NFR Epics (Each Epic Once)"), true);
+  } else if (tab === "pod") {
+    // pods as the Cycles section knows them: one pod label per project, spellings combined without regard to case (cyPodsOf); the label of a row names the project; an epic with several pod labels is under each pod, once per pod
+    if (!cyLabelOk()) panel = `<div class="notice">The pod labels are not in this build.</div>`;
+    else {
+      const pods = cyPodsOf(nfr), none = nfr.filter(e => !(e.pl || []).length);
+      const noneQ = [...state.projects].map(P => { const c = cyNoPodQ(P); return `(project = ${pkey(P)}${c ? " AND " + c : ""})`; }).join(" OR ");        // each project by its own pod labels, as the Cycles tile of epics without a pod label does
+      panel = tbl("NFR epics by pod, in alphabetical order, each pod named with its project; an epic that carries several pod labels counts under each of them", "Pod", pods.map(pd => row(`${pd.name} (${pd.project})`, pd.epics, `${NFR_Q} AND ${cyPodClause(pd)}`, {projects: [pd.project]})).join("") +
+        (none.length ? row("No Pod Label", none, `${NFR_Q} AND (${noneQ})`) : ""), totRow("All Selected (Each Epic Once)"), true);
+    }
   } else {
     const by = new Map(); nfr.forEach(e => (e.tm && e.tm.length ? e.tm : [NO_TEAM]).forEach(tm => { if (!by.has(tm)) by.set(tm, []); by.get(tm).push(e); }));
     const names = [...by.keys()].sort((a, b) => a === NO_TEAM ? 1 : b === NO_TEAM ? -1 : a.localeCompare(b, "en", {sensitivity: "base"}));

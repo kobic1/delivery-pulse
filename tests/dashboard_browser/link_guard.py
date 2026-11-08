@@ -72,7 +72,7 @@ def views(full: bool, data: dict) -> list[str]:
     rels = data["releases"] if full else ["26.4", "27.1"]
     psets = ["", "p=PMN", "p=PMN|CXCO", "p=INT"] + (["p=CXWFM|WFM|CXINT|INT"] if full else [])
     out = [f"r={r}&{p}".rstrip("&") for r in rels for p in psets]                     # the Cycles section follows the Delivery Cycle filter: both ticked (the default) shows both cycles combined
-    facets = ["dc=1", "dc=2", "p=PMN&dc=2", "cy=DC2", "p=PMN&ct=pmn&cs=late", "ax=yes", "ax=all", "cfb=yes", "g=week", "g=quarter", "cg=quarter", "dp=all", "dp=overdue", "dp=gap", "dp=blocking", "p=PMN&dp=blocking", "dp=blockedby", "nt=capability", "nt=team", "cx=committed", "cpg=release", "cpm=count", "clx=Stretch|~notset", "clx=Committed|Target", "clx=Committed|Stretch|Target"]
+    facets = ["dc=1", "dc=2", "p=PMN&dc=2", "cy=DC2", "ax=yes", "ax=all", "cfb=yes", "g=week", "g=quarter", "cg=quarter", "dp=all", "dp=overdue", "dp=gap", "dp=blocking", "p=PMN&dp=blocking", "dp=blockedby", "nt=capability", "nt=team", "nt=pod", "cx=committed", "cpg=release", "cpm=count", "clx=Stretch|~notset", "clx=Committed|Target", "clx=Committed|Stretch|Target"]
     out += [f"r=27.1&{f}" for f in facets]
     teams = sorted({t for e in data["epics"] for t in (e.get("tm") or [])})                   # every team ticked: the longest queries (team clauses and sprint names together)
     allt = "t=" + "|".join(urllib.parse.quote(t) for t in teams)

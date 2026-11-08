@@ -264,6 +264,10 @@ class Gen:
         for p in ("EXA", "EXB"):
             for i in range(4):
                 cap_epics.append([self.key(p), p, r.choice(["New", "Done"]), [CURRENT] if i % 2 else [], "Product - Other", r.choice([k for k, c in cap_list.items() if c["p"] == p])])
+        for p in ("PMN", "CXWFM"):                                                         # child epics of a tracked project with no release fix version: the page holds no record, so no team and no pod for them (the "team unknown" row of the Capabilities table)
+            host = sorted(k for k, c in cap_list.items() if c["p"] == p and CURRENT in c["fv"]) or sorted(k for k, c in cap_list.items() if c["p"] == p)
+            for i in range(3):
+                cap_epics.append(["%s-%d" % (p, 98001 + 3 * ("PMN", "CXWFM").index(p) + i), p, ["New", "In Progress", "Done"][i], [], "Product - Other", host[i % len(host)]])      # keys from a range of their own, so no other record moves
         cap_nofv = [c for c in cap_list.values() if not c["fv"] and c["s"] != "Removed"]
         for n, k in enumerate(sorted(cap_list)):                                          # Commitment Level of every Capability: a fixed cycle (no random draw, so no other record moves); three levels and empty
             cap_list[k]["cl"] = CAP_LEVELS[n % len(CAP_LEVELS)]
