@@ -1278,7 +1278,7 @@ def _(t: T):
     b2 = r2["before"]
     t.check(b2["capRows"] == a1["capRows"] and b2["e_status"] and b2["e_status"].get("edct") == 6, "a reload shows the refreshed Capitalization rows and the cycle time as soon as it loads (before any refresh)")
     t.check(b2["edctAt"] == a1["edctAt"] and b2["capAt"] == a1["capAt"], "with the stored refresh times, not newer ones")
-    t.check(f"refreshed {il_label(a1['edctAt'])}" in b2["effNote"] and f"refreshed {il_label(a1['capAt'])}" in b2["capNote"] and il_label(min(a1["edctAt"], a1["capAt"])) in b2["raNote"], f"the notes show the stored refresh times -> {b2['effNote']!r} {b2['raNote']!r}")
+    t.check(b2["effNote"] == "" and f"refreshed {il_label(a1['capAt'])}" in b2["capNote"] and il_label(min(a1["edctAt"], a1["capAt"])) in b2["raNote"], f"the notes show the stored refresh times -> {b2['effNote']!r} {b2['raNote']!r}")
     t.check(r2["calls"] and all(c["jql"] for c in r2["calls"]) and len(r2["calls"]) == 1 and r2["after"]["capRows"] == a1["capRows"], f"the connector answered nothing (denied; {len(r2['calls'])} attempt): the data on the page is the stored one")
     t.check(not r2["errors"], f"no uncaught page errors: {r2['errors'][:2]}")
     t.check(b2["keep"]["edct"] == b1["keep"]["edct"], "an epic that already had a cycle time keeps it")
@@ -1294,7 +1294,7 @@ def _(t: T):
         r2 = _reload()
         t.check(r2["before"]["capRows"] == orig["capRows"] and r2["before"]["e_status"].get("edct") is None and r2["before"]["edctAt"] is None and r2["before"]["capAt"] is None, f"{label}: the stored values are not applied")
         t.check(ctx.chrome.js("localStorage.getItem('dp.slowData')") is None, f"{label}: the key was removed")
-        t.check("not refreshed yet" in r2["before"]["effNote"] and "not refreshed yet" in r2["before"]["capNote"], f"{label}: the notes say not refreshed yet -> {r2['before']['effNote']!r}")
+        t.check(r2["before"]["effNote"] == "" and "not refreshed yet" in r2["before"]["capNote"], f"{label}: the notes say not refreshed yet -> {r2['before']['effNote']!r}")
 
 
 @SUITE.test("stored_limited_tier_a_corrupt_value_is_ignored_without_errors")
