@@ -3771,7 +3771,7 @@ const CY_KPI = {
     return {c: "cy2", l: tipFocus("Idle Pods", `Pods with no epic planned in ${c.name}.\n${CY_POD_LIMIT}`),
       ...(cyPodState(fig) || {v: n ? cyPodBtn("idle", n, `${nn(n, "idle pod", "idle pods")} in ${rel}`) : "0", s: `of ${fig.pods.length} ${plural(fig.pods.length, "pod", "pods")} in ${rel} with no epic planned in ${c.name}`})}; },
   wip: ({c, fig}) => { const n = fig.wip.length, rel = state.release, L = CY.podWip;
-    return {c: "cy2", l: tipFocus(`Pods With More Than ${L} Epics In Progress`, `Pods with more than ${L} epics in status In Progress, planned in ${c.name}.\nValidation is not counted. ${L} is a reference level, not a rule.`),
+    return {c: "cy2", l: tipFocus(`Pods With More Than ${L} Epics In Progress`, `Pods with more than ${L} epics in status In Progress\nPlanned in ${c.name}. Validation is not counted.\n${L} is a reference level, not a rule.`),
       ...(cyPodState(fig) || {v: n ? cyPodBtn("wip", n, `${nn(n, "pod", "pods")} with more than ${L} epics In Progress in ${rel}`) : "0",
         s: n ? `${cyNum(fig.wipEpics, `In Progress in the ${nn(n, "pod", "pods")} with more than ${L}`, `Planned in ${c.name}, ${rel}. Validation is not counted.`, "podWip", null, c, fig.wip)} ${epicWord(fig.wipEpics.length)} in status In Progress in these pods` : `no pod has more than ${L} epics in status In Progress`})}; },
   nsSoon: ({c, act}) => { const n = act.ns.length, rel = state.release, to = cyAdd(CY.asOf, CY.next);
