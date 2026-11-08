@@ -1598,7 +1598,7 @@ function w6Model(rel, w1) {
   const within = list.filter(e => { const d = planned(e); return d && d <= w6; }), none = list.filter(e => !planned(e));
   // the same set in JQL, in the form of the Delivery Cycles links (real sprint names only): the planned date, the later of the two, exists and is on or before W6 end
   CY_SPR = cySprints();
-  const all = cyNames(() => true), win = `(${cyPlan(null, w6)})`;
+  const all = cyNames(() => true), win = `(${cyPlanLater(null, w6)})`;
   const J = extra => jira({commit: new Set(["Committed"]), extra});
   return {w6, list, within, none, done: within.filter(e => cls(e.s) === "done"), open: within.filter(e => cls(e.s) !== "done"),
     hrefs: {all: J(""), within: J(win), done: J(`${win} AND status = Done`), open: J(`${win} AND status != Done`), none: J(`duedate is EMPTY${all ? ` AND (${CY_TS} is EMPTY OR ${CY_TS} not in (${all}))` : ""}`)}};
@@ -3310,7 +3310,7 @@ function renderNfr() {
 // A view of the dashboard's own epics: the selected release under the Release, Projects, Teams and Delivery Cycle filters. The section has no filter of its own: it follows the Delivery Cycle filter and a banner says which cycles it shows
 // (one cycle selected: that cycle; Both cycles, the default: both combined, an epic planned in either counts once). The cycles are derived from the Jira release window,
 // not configured: Delivery Cycle 1 runs from the release start to the end of W6 (start + 48 days, the boundary of the Epic Delivery marker), Delivery Cycle 2 from the next day to the release end.
-// An epic belongs to the cycle that holds its planned date (the later of its due date and the end of its Target Sprint, otherwise the one it has). Groups are the Epic Teams of the selected epics, in
+// An epic belongs to the cycle that holds its planned date (its due date; the end of its Target Sprint only when it has no due date). Groups are the Epic Teams of the selected epics, in
 // alphabetical order; an optional pod grouping (pods pull, git-ignored configuration) can replace them. Facts only: no verdict, no colour for a group, no ranking, no share under 5 items.
 const CY = {stale: 30, next: 7, podWip: 3, levelSpread: 0.40, asOf: ""};          // podWip: a reference level chosen by the owner (more than this many epics in-progress in one pod), not a program rule. levelSpread: a team is uneven when its busiest and lightest pods differ by this share of the team's in-progress epics (owner's level; the minimum sample is MIN_N)
 const CY_DAY = s => Math.round(utc(s) / DAY);
@@ -3336,10 +3336,15 @@ const plural = (n, one, many) => n === 1 ? one : many;
 const cySlug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "team";
 const CY_RAW_OK = () => !!DATA.eb;                              // Flagged and the bugs under epics come from the planning pull
 
-// the planned date of an epic: the later of the due date and the end of its Target Sprint when it has both, otherwise the one it has
+// the burnup's planned date (the Cycles section uses plannedDue): the later of the due date and the end of its Target Sprint when it has both, otherwise the one it has
 function plannedLater(e) {
   const t = sprintList().find(s => s.n === e.ts), ts = t ? t.end : null;
   return e.dd && ts ? (e.dd > ts ? e.dd : ts) : (e.dd || ts);
+}
+// the planned date of an epic in the Cycles section: the due date; the end of its Target Sprint only when it has no due date (a Target Sprint the calendar does not know counts as none)
+function plannedDue(e) {
+  if (e.dd) return e.dd;
+  const t = sprintList().find(s => s.n === e.ts); return t ? t.end : null;
 }
 function cyCycles(rel = state.release) {
   const w = DATA.windows && DATA.windows[rel]; if (!w) return null;
@@ -3355,7 +3360,7 @@ function cySpan(sel) {
     from: multi ? "the release start date" : "the cycle start date"};
 }
 // ---- the Delivery Cycle filter (filter bar): the Delivery burnup, this section and the Epics Delivered and Forecast Epics tiles (deliveryTiles); every other section and tile keeps its numbers.
-// A cycle holds the epics whose planned date (the later of the due date and the Target Sprint end, plannedLater) falls in it: Delivery Cycle 1 on or before the end of W6 (earlier dates, such as carry-over, included: the rule of the
+// A cycle holds the epics whose planned date (the due date, else the Target Sprint end, plannedDue) falls in it: Delivery Cycle 1 on or before the end of W6 (earlier dates, such as carry-over, included: the rule of the
 // burnup's Delivery Cycle 1 line), Delivery Cycle 2 from W7 to the release end. An epic with no planned date, or planned after the release end (the Cycles section's "in no cycle"), is in neither cycle: it counts only when every cycle is shown.
 // A release shorter than W6 has Delivery Cycle 1 only; a stored choice that names a cycle the release does not have falls back to the cycles it has.
 const DC_NAME = id => `Delivery Cycle ${id}`;
@@ -3394,8 +3399,8 @@ function podRegistry() {
 const podSpellingsClause = sp => `labels in (${[...sp].sort().map(q).join(", ")})`;
 
 // ---- Delivery Cycles links: every number opens a QUERY that Jira recalculates (the owner's rule), never a list of issue keys.
-// The planned date of an epic is the later of its due date and the end of its Target Sprint (cf[12697], a sprint-name string). Only the REAL sprint names of the calendar are used, and each list is the shorter side
-// (the names ending after a date, or on or after it); a Target Sprint the calendar does not know counts as no Target Sprint, as in plannedLater. The links carry the page's own filters (jira({})) plus the row's project, team and pod.
+// The planned date of an epic in the Cycles section is its due date, else the end of its Target Sprint (cf[12697], a sprint-name string). Only the REAL sprint names of the calendar are used, and each list is the shorter side
+// (the names ending after a date, or on or after it); a Target Sprint the calendar does not know counts as no Target Sprint, as in plannedDue. The links carry the page's own filters (jira({})) plus the row's project, team and pod.
 const CY_URL_MAX = 6000;                                       // Jira's front door rejects URLs of about 10 KB; above this a number is shown as plain text, not as a link
 const CY_TS = "cf[12697]", CY_FLAG = "cf[10021] is not EMPTY";
 function cySprints() {                                         // the sprint names Jira knows: the calendar's real ones (and any the epics carry now, after a Refresh)
@@ -3408,7 +3413,10 @@ const cyUp = hi => { const after = cyNames(s => s.end > hi);   // the planned da
   return `(duedate is EMPTY OR duedate <= "${hi}")` + (after ? ` AND (${CY_TS} is EMPTY OR ${CY_TS} not in (${after}))` : ""); };
 const cyLow = (lo, hi) => { const nm = lo == null ? cyNames(s => s.end <= hi) : cyNames(s => s.end >= lo);       // on or after lo; with no lo, there is a planned date (cyUp bounds it)
   return `(${lo == null ? `duedate <= "${hi}"` : `duedate >= "${lo}"`}${nm ? ` OR ${CY_TS} in (${nm})` : ""})`; };
-const cyPlan = (lo, hi) => `${cyUp(hi)} AND ${cyLow(lo, hi)}`;                 // planned date in [lo, hi]; lo null: any planned date up to hi
+const cyPlanLater = (lo, hi) => `${cyUp(hi)} AND ${cyLow(lo, hi)}`;            // the burnup's rule (the later of the two): planned date in [lo, hi]; lo null: any planned date up to hi
+// The Cycles section's rule: the due date; the Target Sprint end only when there is no due date. Planned date in [lo, hi]; lo null: any planned date up to hi.
+const cyPlan = (lo, hi) => { const nm = cyNames(s => s.end <= hi && (lo == null || s.end >= lo));
+  return `(${lo == null ? `duedate <= "${hi}"` : `(duedate >= "${lo}" AND duedate <= "${hi}")`}${nm ? ` OR (duedate is EMPTY AND ${CY_TS} in (${nm}))` : ""})`; };
 const cyNoDueQ = () => { const all = cyNames(() => true);
   return `status in (${CLASS.flight.map(q).join(",")}) AND duedate is EMPTY` + (all ? ` AND (${CY_TS} is EMPTY OR ${CY_TS} not in (${all}))` : ""); };
 const cyMin = (a, b) => a < b ? a : b;
@@ -3450,11 +3458,11 @@ function cyQ(kind, g, c, arg) {
     case "week": w = span(arg[0], arg[1]); break;
     case "weekDone": w = span(arg[0], arg[1], " AND status = Done"); break;
     case "weekOpen": w = span(arg[0], arg[1], ` AND ${ND}`); break;
-    case "after": { const after = cyNames(s => s.end > E); w = `(duedate > "${E}"${after ? ` OR ${CY_TS} in (${after})` : ""})`; break; }
+    case "after": { const after = cyNames(s => s.end > E); w = `(duedate > "${E}"${after ? ` OR (duedate is EMPTY AND ${CY_TS} in (${after}))` : ""})`; break; }
     case "concerns": {                                                                           // the union of the facts listed in Epics with Flags, as one query
       const bits = [CY_FLAG];
-      if (late >= S) bits.push(`(${cyUp(late)})`);
-      if (win[0] <= win[1]) bits.push(`(${cyUp(win[1])} AND ${cyLow(win[0], win[1])}${NS})`);
+      if (late >= S) bits.push(`(${cyPlan(S, late)})`);
+      if (win[0] <= win[1]) bits.push(`(${cyPlan(win[0], win[1])}${NS})`);
       w = `((${cyPlan(S, E)} AND ${ND} AND (${bits.join(" OR ")}))${A >= S ? ` OR (${cyPlan(null, cyAdd(S, -1))} AND ${ND})` : ""}${!CYM || CYM.dcAll ? ` OR (${cyNoDueQ()})` : ""})`; break;
     }
     case "podEpics": w = cyPodClause(arg); break;                                                // a pod's epics in the release (arg: the pod of cyPodsOf)
@@ -3485,7 +3493,7 @@ function cyBuild() {
   const dcs = dcState(), shown = cycles.filter(x => dcs.shown.includes(x.id.slice(2)));      // the cycles the Delivery Cycle filter leaves in: the section shows all of them together
   const c = cySpan(shown);
   const bugsOf = k => ((DATA.eb || {})[k] || []).map(([bk, bs, pr]) => ({k: bk, s: bs, pr, o: isOpenBug({s: bs}) ? 1 : 0}));
-  let eps = scopeOf(state.release).map(e => ({k: e.k, t: e.t, s: e.s, p: e.p, pl: e.pl || [], due: plannedLater(e), dd: e.dd || null, ts: e.ts || null, fl: !!e.fl, rd: e.rd || null, edct: e.edct, vl: e.vl, tm: teamsOf(e), cp: e.cp || null, cat: e.cat, bugs: bugsOf(e.k)}));
+  let eps = scopeOf(state.release).map(e => ({k: e.k, t: e.t, s: e.s, p: e.p, pl: e.pl || [], due: plannedDue(e), dd: e.dd || null, ts: e.ts || null, fl: !!e.fl, rd: e.rd || null, edct: e.edct, vl: e.vl, tm: teamsOf(e), cp: e.cp || null, cat: e.cat, bugs: bugsOf(e.k)}));
   // The hierarchy: Project > Team (under its project) > Pod (under its team). Every node holds the DISTINCT epics it counts (an epic with two teams or several pods is under each, once per node).
   const nodes = [], byId = new Map(), used = new Set(), R = cyLabelOk() ? podRegistry() : null;
   const uid = (parent, name) => { const base = (parent ? parent + "." : "") + cySlug(name).slice(0, 28); let id = base, k = 2; while (used.has(id)) id = `${base}-${k++}`; used.add(id); return id; };
@@ -3550,7 +3558,7 @@ const cyPodBtn = (kind, n, what) => { const on = CY_PODLIST === kind;
   return `<button type="button" class="linkbtn" data-cyact="pods" data-cyval="${kind}" data-what="${esc(what)}" aria-expanded="${on}" aria-controls="cy-podlist" aria-label="${esc(`${what}, ${on ? "hide" : "show"} the list`)}">${n.toLocaleString("en-US")}</button>`; };
 
 // ---- the four 'act now' tiles of the Pods block: forward-looking lists the teams can act on today. Each is built from the hierarchy of cyBuild (Project > Team > Pod) over the epics of the selected release under the page filters.
-//   nsSoon: not started (CLASS.notStarted) with a planned date from the as-of day to CY.next days later (plannedLater, the later of due date and Target Sprint end), whatever the cycle.
+//   nsSoon: not started (CLASS.notStarted) with a planned date from the as-of day to CY.next days later (plannedDue, the due date else the Target Sprint end), whatever the cycle.
 //   level: teams with two or more pods whose in-progress epics (CLASS.flight) are spread unevenly (CY.levelSpread of the team's in-progress epics, at least MIN_N of them).
 //   wait: open dependencies (depModel) whose provider is an epic of the scope and whose waiting item is planned (the Dependencies rule: due date first) from the as-of day to CY.next days later.
 //   noPod: in-progress with no pod label (podLabelsOf, as stored in pl).
@@ -3679,7 +3687,7 @@ function cyEpicTable(list, c, caption) {
   const bugRow = e => { const b = [...(e.bugs || [])].sort((p, q) => (p.o ? 0 : 1) - (q.o ? 0 : 1) || keyCmp(p.k, q.k));
     return `<tr class="cybugrow" id="cybug-${esc(e.k)}"${cyBugsOpen.has(e.k) ? "" : " hidden"}><td colspan="7"><div class="stickyin"><div class="cysub">Bugs under ${esc(e.k)} (type Bug, Removed excluded) · ${tlink("Open in Jira", href(`parent = ${e.k} AND issuetype = Bug AND status != Removed`), `${nn(b.length, "bug", "bugs")} under ${e.k}, open or closed`)}</div>` +
       b.map(x => `<div class="cybug"><a href="${BASE}/browse/${esc(x.k)}" target="_blank" rel="noopener" ${tipAttr(`${x.k}\n${x.s}${x.pr ? ", " + x.pr : ""}`, "x")} aria-label="${esc(x.k)}. Opens in Jira.">${esc(x.k)}</a> <span class="cysub">${esc(x.pr || "No priority")} · ${esc(x.s)}${x.o ? "" : " · closed"}</span></div>`).join("") + "</div></td></tr>"; };
-  const viaTs = e => e.ts && e.due && (!e.dd || e.due !== e.dd) ? `<div class="cysub">from the Target Sprint end</div>` : "";
+  const viaTs = e => !e.dd && e.ts && e.due ? `<div class="cysub">from the Target Sprint end</div>` : "";
   const rows = list.slice().sort((a, b) => (a.due || "9999").localeCompare(b.due || "9999") || keyCmp(a.k, b.k)).map(e => `<tr><th scope="row">${cyKey(e)}</th><td class="title">${esc(e.t)}</td>` +
     `<td>${e.due || "–"}${viaTs(e)}${cyLate(e) ? `<div class="cysub">${cyDaysLate(e)} ${cyDaysLate(e) === 1 ? "day" : "days"} overdue${cyStale(e) ? `, stale (more than ${CY.stale} days)` : ""}</div>` : ""}</td>` +
     `<td>${week(e)}</td><td class="n">${edct(e)}</td><td>${bugs(e)}</td><td>${esc(e.s)}${e.fl && !cyDone(e) ? ` · ${tipFocus("Flagged", "Flagged as blocked in Jira (the Flagged field is set)")}` : ""}</td></tr>${(e.bugs || []).length ? bugRow(e) : ""}`).join("");
@@ -3869,7 +3877,7 @@ function cyDefs() {
     bl: `Use this to spot work that will miss its cycle. A number opens the matching epics in Jira; the six Pods tiles open lists in the page.`,
     defs: [
       ["Delivery Cycle 1 and 2", `Cycle 1 runs from the release start to the end of W6. Cycle 2 runs from W7 to the release end. The Delivery Cycle filter at the top of the page picks which of them the section shows: one cycle, or both combined.`],
-      ["Planned date", `the later of the due date and the Target Sprint end. If only one exists, that one. If neither, the epic is not planned.`],
+      ["Planned date", `the due date. Only when an epic has no due date, the end of its Target Sprint. If neither, the epic is not planned. When both exist and differ, the due date is used and the Target Sprint is ignored.`],
       ["Planned", `epics whose planned date is in the selected Delivery Cycles. With both selected, that is every epic planned from the release start to the release end, each counted once.`],
       ["Done", `planned epics with the status Done.`],
       ["Overdue", `planned in the selected Delivery Cycles, before the as-of date, and not Done.`],
@@ -3877,7 +3885,7 @@ function cyDefs() {
       ["Flagged", `planned in the selected Delivery Cycles, not Done, and flagged as blocked in Jira (the Flagged field is set).`],
       ["Idle Pods", `pods that have at least one epic in ${esc(state.release)} and no epic planned in the selected Delivery Cycles, under the Release, Projects and Teams filters.`],
       [`Pods with more than ${CY.podWip} epics In Progress`, `pods with more than ${CY.podWip} epics in the status In Progress in ${esc(state.release)}, counted over the whole release, not the selected Delivery Cycles. Validation is not counted here, unlike the other In-Progress figures of this section, which count In Progress and Validation. The level ${CY.podWip} is a reference chosen by the owner, not a program rule.`],
-      [`Not-started epics due within ${CY.next} days`, `epics in Candidate, New, In Definition or Ready for Dev whose planned date is from the as-of date up to ${CY.next} days later; the later date counts (the later of the due date and the Target Sprint end). Any cycle, under the same filters.`],
+      [`Not-started epics due within ${CY.next} days`, `epics in Candidate, New, In Definition or Ready for Dev whose planned date (the due date, else the Target Sprint end) is from the as-of date up to ${CY.next} days later. Any cycle, under the same filters.`],
       ["Waiting dependents due soon", `open dependencies, neither end Done, where an epic of ${esc(state.release)} blocks an item of any issue type that is planned from the as-of date up to ${CY.next} days later (the due date first, else the Target Sprint end). Each waiting item counts once.`],
       ["Pods to level", `for each team with at least two pods, the in-progress epics of each pod. A team is flagged when its busiest and lightest pods differ by ${Math.round(CY.levelSpread * 100)}% or more of the team's in-progress epics (teams with at least ${MIN_N} in-progress). The tile counts those two pods. A pod takes part when it has an epic in ${esc(state.release)} that is not Done.`],
       ["In-progress epics without a pod label", `epics In Progress or Validation in ${esc(state.release)} with no pod label, out of all in-progress epics. The share shows from ${MIN_N} in-progress epics.`]
@@ -3894,7 +3902,7 @@ function cyDefs() {
       ["Epics with Flags", `one row per epic with at least one of these facts, in planned-date order: overdue (with the number of days), planned in the next ${CY.next} days and still not started (New, In Definition, Ready for Dev or Candidate), flagged as blocked in Jira, carried over, in-progress with no planned date. A flag is a fact about dates or a Jira field, not a rating.`],
       ["Dates", `A cycle includes its first and last day. Due next ${CY.next} days covers ${CY.next + 1} calendar days: the as-of date and the ${CY.next} days after it. An epic planned on the as-of date is not yet overdue. Weeks in the weekly view run seven days from the start of the selected cycles: the cycle start date, or the release start date when both are selected.`],
       ["Shares", `a percentage next to a count appears only for 5 or more epics.`],
-      ["Other planned-date rules", `The dependency board uses a different rule: there the due date wins over the Target Sprint. The burnup's Delivery Cycle 1 line counts Committed epics only, with any planned date up to the cycle end; this section counts planned dates inside the selected cycles and shows earlier ones as carry-over, so the two numbers can differ. A Target Sprint that the sprint calendar does not know counts as no Target Sprint.`],
+      ["Other planned-date rules", `The dependency board uses the same rule as this section: the due date wins over the Target Sprint. The burnup's Delivery Cycle 1 line uses a different one: the later of the due date and the Target Sprint end. It counts Committed epics only, with any planned date up to the cycle end; this section counts planned dates inside the selected cycles and shows earlier ones as carry-over, so the two numbers can differ. A Target Sprint that the sprint calendar does not know counts as no Target Sprint.`],
       ["Hierarchy", `Project, then Team (the Epic Team field; an epic with several teams counts under each, one with none under (No Team)), then Pod. Names are in alphabetical order, never ordered by progress. Each row counts its own epics once; an epic with several teams or pods appears under each, and the last row counts each epic once. A pod used by epics of two teams is listed under both, with that team's epics only. A team with no pod label on any epic has no pod rows.`],
       ["Pods", `a label names a pod when it matches the pod pattern of the epic's project, without regard to case. The default pattern is the text "pod" anywhere in the label. An epic with several pod labels counts under each pod once; an epic with none is under No Pod Label. Pods come from epic labels only, and many epics have none, so a pod's epic count can be too low: a pod can look idle, or stay at ${CY.podWip} or fewer, only because its epics carry no label. Limits: a pod label without the pattern text is not detected; a typo that contains it counts; a label that contains the text but is not a pod cannot be told apart. Distinct pod labels per project: ${cyPodRows()}.`],
       ["Links", `every number opens a Jira search, not a saved list of epics, except the Pods tiles: they open lists in the page, and each epic count in a list opens a Jira search; the waiting items open the exact items counted, because Jira cannot search for them. Jira finds the epics again when you open a link, so its list can differ from the page. A link too long for Jira shows as a plain number.`],

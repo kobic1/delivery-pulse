@@ -568,8 +568,8 @@ class Gen:
         add("ns_0", ns, ["Pod-Ns-A"], "Ready for Dev", 0)                                     # in: today
         add("ns_7", ns, ["Pod-Ns-A"], "New", 7)                                               # in: the last day
         add("ns_8", ns, ["Pod-Ns-A"], "New", 8)                                               # out: one day after
-        add("ns_later_in", ns, ["Pod-Ns-B"], "In Definition", -5, s1)                         # in: the due date is past, the Target Sprint ends at +6, the later date counts
-        add("ns_later_out", ns, ["Pod-Ns-B"], "Candidate", 3, s2)                             # out: the due date is inside, the Target Sprint ends at +27, the later date counts
+        add("ns_later_in", ns, ["Pod-Ns-B"], "In Definition", -5, s1)                         # out: the due date is past; the Target Sprint (ends at +6) is ignored because there is a due date
+        add("ns_later_out", ns, ["Pod-Ns-B"], "Candidate", 3, s2)                             # in: the due date is inside; the Target Sprint (ends at +27) is ignored because there is a due date
         add("ns_ts_only", ns, None, "Ready for Dev", None, s1)                                # in: the Target Sprint alone, no pod label
         add("ns_in_progress", ns, None, "In Progress", 0)                                     # out: not a not-started status
         add("ns_done", ns, None, "Done", 0)                                                   # out: Done
