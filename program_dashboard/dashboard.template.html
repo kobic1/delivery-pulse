@@ -4177,6 +4177,28 @@ function fitSticky() {
   root.setProperty("--stick", `calc(${FH + nh}px + env(safe-area-inset-top, 0px) + 8px)`);
   STICK = FH + nh + 8;
 }
+// Frozen headers, part 2. Inside its box a header is sticky in CSS, but a box with nothing to scroll (an expandable table collapsed to a few rows) or a box the page scrolls away takes the header with it.
+// So the header also follows the page: while the top of the box is above the sticky stack it moves down by that distance, never past the end of the box (the footer rows of a table stay below it).
+let headRaf = 0;
+function followHeads() {
+  headRaf = 0;
+  document.querySelectorAll(".tablewrap.tall, .tablewrap.freeze, details.vd .tablewrap").forEach(box => {
+    const head = box.querySelector("table > thead"), ths = head ? head.querySelectorAll("th") : [];
+    if (!ths.length) return;
+    let dy = 0;
+    if (box.offsetParent) {
+      const r = box.getBoundingClientRect(), foot = box.querySelector("table > tfoot");
+      dy = Math.round(Math.max(0, Math.min(STICK - r.top, r.height - head.offsetHeight - (foot ? foot.offsetHeight : 0))));
+    }
+    if ((Number(box.dataset.headDy) || 0) === dy) return;
+    box.dataset.headDy = dy;
+    ths.forEach(th => { th.style.transform = dy ? `translateY(${dy}px)` : ""; });
+  });
+}
+const followHeadsSoon = () => { if (!headRaf) headRaf = requestAnimationFrame(followHeads); };
+window.addEventListener("scroll", followHeadsSoon, {passive: true});
+window.addEventListener("resize", followHeadsSoon);
+document.addEventListener("click", followHeadsSoon, true);        // a table opens or closes: the box changes height
 // ---- Projects: Click = only this project (Single); Shift, Cmd or Ctrl-click, or the Multi-Select toggle, adds and removes (multi-select mode). There is no empty selection.
 let projRove = null, projHintDone = false;                        // the first-use hint next to Multi-Select goes once a second project has been picked (this session only)
 const projOrder = () => projectsAll.filter(p => state.projects.has(p));

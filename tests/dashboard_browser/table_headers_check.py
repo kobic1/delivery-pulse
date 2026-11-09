@@ -102,5 +102,65 @@ def _(t: T):
     t.check(bool(bad), "the check passed on a page without the frozen-header boxes: it is blind")
 
 
+FOLLOW = """(async (state) => {
+  const click = sel => document.querySelectorAll(sel).forEach(b => b.click());
+  click(state === 'collapsed' ? '[data-xtact=colall], [data-cyact=colall]' : '[data-xtact=expall], [data-cyact=expall]');
+  await new Promise(r => setTimeout(r, 200));
+  const out = [];
+  for (const box of document.querySelectorAll('.tablewrap.tall, .tablewrap.freeze, details.vd .tablewrap')) {
+    const t = box.querySelector('table'); if (!t || !box.offsetParent || t.querySelectorAll('tbody tr:not([hidden])').length < 4) continue;
+    const head = t.querySelector('thead'), foot = t.querySelector('tfoot'), fh = foot ? foot.offsetHeight : 0;
+    const r0 = box.getBoundingClientRect(); if (r0.height < head.offsetHeight + fh + 120) continue;
+    const inner = box.scrollHeight > box.clientHeight + 1;
+    window.scrollTo(0, window.scrollY + r0.top - STICK + Math.min(120, Math.floor(r0.height / 3)));
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 60))));
+    const r = box.getBoundingClientRect(), h = head.querySelector('th').getBoundingClientRect();
+    const want = Math.min(STICK, r.bottom - head.offsetHeight - fh);
+    out.push({name: t.id || t.className, inner, boxTop: Math.round(r.top), stick: STICK, headTop: Math.round(h.top), want: Math.round(want), shown: h.bottom > 0 && h.top < innerHeight});
+  }
+  return out; })"""
+
+
+@SUITE.test("headers_follow_the_page_under_the_sticky_bars_when_tables_are_collapsed_or_expanded")
+def _(t: T):
+    url = page()
+    ch = ctx.chrome
+    for vp in ((1400, 800), (390, 800)):
+        for state in ("collapsed", "expanded"):
+            ch.cmd("Emulation.setTimezoneOverride", timezoneId="Asia/Jerusalem")
+            ch.viewport(*vp, mobile=vp[0] < 500)
+            ch.goto(url + "#r=27.1")
+            assert kit.wait_ready(ch), "the page did not draw: " + str(ch.console_errors()[:2])
+            time.sleep(0.8)
+            rows = ch.js(f"{FOLLOW}({state!r})")
+            t.check(len(rows) >= 4, f"{vp[0]}px {state}: only {len(rows)} long tables were measured, the check is blind")
+            if state == "collapsed":
+                t.check(any(not x["inner"] for x in rows), f"{vp[0]}px collapsed: every box still scrolls inside, so the case of a table with nothing to scroll was never measured")
+            bad = [x for x in rows if abs(x["headTop"] - x["want"]) > 3 or not x["shown"]]
+            t.check(not bad, f"{vp[0]}px {state}: {len(bad)} of {len(rows)} headers are not at the sticky bars after the page scrolled: {bad[:3]}")
+            t.note(f"{vp[0]}px {state}: " + ", ".join(f"{x['name'][:14]}={'in' if x['inner'] else 'flat'}" for x in rows[:8]))
+
+
+@SUITE.test("selftest_the_follow_check_fails_when_the_headers_do_not_follow_the_page")
+def _(t: T):
+    src = ctx.template.read_text(encoding="utf-8")
+    marker = "function followHeads() {\n  headRaf = 0;"
+    if marker not in src:
+        raise kit.Skip("this template has no header-follow code to take out")
+    with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False, encoding="utf-8") as f:
+        f.write(src.replace(marker, marker + " return;"))
+    url = page(Path(f.name))
+    Path(f.name).unlink()
+    ch = ctx.chrome
+    ch.cmd("Emulation.setTimezoneOverride", timezoneId="Asia/Jerusalem")
+    ch.viewport(1400, 800, mobile=False)
+    ch.goto(url + "#r=27.1")
+    assert kit.wait_ready(ch)
+    time.sleep(0.8)
+    rows = ch.js(f"{FOLLOW}('collapsed')")
+    bad = [x for x in rows if abs(x["headTop"] - x["want"]) > 3 or not x["shown"]]
+    t.check(bool(bad), "the check passed with the header-follow code switched off: it is blind")
+
+
 if __name__ == "__main__":
     sys.exit(kit.cli(SUITE, __doc__))
