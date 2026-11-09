@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Mutations of the fictitious export: does the port still equal the Python report when the data makes the signals fire?
 
-The 14 scenarios of fixtures.py never flag every signal. Here the demo export is changed in the ways that make S0 (fewer people), S1 (a surge of new people), S3/S4 (a section or control dropped or newly
+The scenarios of fixtures.py never flag every signal. Here the demo export is changed in the ways that make S0 (fewer people), S1 (a surge of new people), S3/S4 (a section or control dropped or newly
 used), S5 (page errors), S6 (old page versions), S7 (stale or pruned records, dropped keys), S8/S9 (snapshot and stale data) fire, each under four threshold sets (show-all, defaults, min group 1 and 10),
 plus an export with duplicates, a round page and an unknown schema, and one with a calendar. For each the aggregate (every number) AND the whole page must equal Python's.
 

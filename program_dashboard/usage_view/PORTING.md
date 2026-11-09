@@ -28,7 +28,7 @@ recording health, how it is measured), computed in the browser from the `usage` 
 5. **Globals.** `set_min_group(n)` changes `MIN_USERS` and `SMALL` for the run, exactly like Python (module-level `let`).
 6. **Out of scope:** `demo_*`, `text_report`, the CLI (`main`, `parse_as_of`, `load_thresholds`), `coverage_text` (used by text_report only; port it only if `html_report` reaches it). The style sheet `CSS`
    already exists in the bundle (injected from Python): use it as the Python does.
-7. **Quality bar = the oracle.** `python3 tests/dashboard_browser/usage_port/port_check.py --stage STAGE [--only SCENARIO]` compares against the Python report on 14 fictitious scenarios (see its header). Work
+7. **Quality bar = the oracle.** `python3 tests/dashboard_browser/usage_port/port_check.py --stage STAGE [--only SCENARIO]` compares against the Python report on 20 fictitious scenarios (see its header). Work
    until your stage is equal on ALL scenarios; a comparison that is not equal is a bug in the port, never a reason to change the oracle or the tests. Fix the root cause: do not special-case a scenario.
 8. No commits, no pushes, no edits outside your own files (plus scratch files in the scratchpad). Do not run the full browser suites. Report: what is done, the exact commands you ran and their last lines, and
    every place where the Python behaviour could not be matched or looked wrong.

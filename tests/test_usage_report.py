@@ -1541,6 +1541,176 @@ def test_the_donut_sits_in_the_device_card_keeps_its_anatomy_and_the_table_is_be
     assert "u_synthetic" not in h
 
 
+# ------------------------------------------------------------------------------------------------ this week so far against the same days last week
+def nov(n: int) -> dt.date:
+    return dt.date(2026, 11, n)                                                              # Sunday 1, 8, 15 ...; Wednesday 4, 11; Saturday 7, 14
+
+
+ANCHOR = [(dt.date(2026, 10, 20), v2(s=60))]                                                  # one old session, so the data starts well before the previous window
+
+
+def wtd_at(people: list, ref: dt.date, mod=UR, anchor: bool = True, **kw):
+    """The aggregate of people = [[(day, session), ...], ...] read on `ref` at 10:00 (Israel time); show-all minimums unless th is given. A person is the index in the list: the anchor person comes last."""
+    visits = list(people) + ([ANCHOR] if anchor else [])
+    t = dt.datetime.combine(ref, dt.time(10, 0), tzinfo=IL)
+    kw.setdefault("th", mod.load_thresholds(None, base=mod.SHOW_ALL))
+    return mod.aggregate([person(i, v) for i, v in enumerate(visits)], as_of=t, now=t, **kw)
+
+
+def on(*days, make=lambda: v2(s=60)) -> list:
+    return [(nov(d), make()) for d in days]
+
+
+def _wednesday_people() -> list:
+    """Wednesday 11 Nov. Sunday 8 to Wednesday 11: people 0, 1, 5, 6 (visits: 1 + 2 + 1 + 1 = 5; a session on Thursday 12 is after the data day). Sunday 1 to Wednesday 4: people 0, 1, 2 (visits 2 + 1 + 1 = 4);
+    Thursday 5 and Saturday 7 are the same week but not the same days."""
+    return [on(1, 4, 8), on(3, 9, 11), on(4), on(5), on(7), on(11), on(10), on(12)]
+
+
+def test_week_so_far_on_a_wednesday_counts_the_same_weekdays_and_a_person_once():
+    w = wtd_at(_wednesday_people(), nov(11))["wtd"]
+    assert (w["state"], w["n"], w["data_from"], w["rules_changed"]) == ("ok", 3, None, False)
+    assert [w[k].isoformat() for k in ("cur_lo", "cur_hi", "prev_lo", "prev_hi")] == ["2026-11-08", "2026-11-11", "2026-11-01", "2026-11-04"]
+    assert w["people"] == {"cur": 4, "prev": 3, "raw_cur": 4, "raw_prev": 3, "diff": 1, "pct": 33}                # person 0 is in both windows, and twice in the previous one: counted once
+    assert w["visits"] == {"cur": 5, "prev": 4, "raw_cur": 5, "raw_prev": 4, "diff": 1, "pct": 25}
+    assert wtd_at(_wednesday_people(), nov(11))["counts"]["future_sessions"] == 1
+    assert UR.wtd_title(w) == "This week so far (Sun 8 Nov to Wed 11 Nov, today still in progress) against the same days last week (Sun 1 Nov to Wed 4 Nov)"
+    assert UR.wtd_rows(w) == [("Active people", "4", "3", "+1, +33%"), ("Visits", "5", "4", "+1, +25%")]
+
+
+def test_week_so_far_on_a_sunday_is_one_day_against_one_day():
+    people = [on(1, 8), on(1, 2), on(8, 8)]                                                       # Sunday 8: people 0 and 2, 3 visits; Sunday 1: people 0 and 1, 2 visits (Monday 2 is not the same day)
+    w = wtd_at(people, nov(8))["wtd"]
+    assert (w["state"], w["n"]) == ("ok", 0) and w["cur_lo"] == w["cur_hi"] == nov(8) and w["prev_lo"] == w["prev_hi"] == nov(1)
+    assert w["people"]["raw_cur"] == w["people"]["raw_prev"] == 2 and w["people"]["diff"] == 0 and w["people"]["pct"] is None
+    assert (w["visits"]["raw_cur"], w["visits"]["raw_prev"], w["visits"]["diff"], w["visits"]["pct"]) == (3, 2, 1, 50)
+    assert UR.wtd_title(w) == "This week so far (Sun 8 Nov, today still in progress) against the same days last week (Sun 1 Nov)"
+    assert UR.wtd_rows(w) == [("Active people", "2", "2", "0"), ("Visits", "3", "2", "+1, +50%")]
+
+
+def test_week_so_far_on_a_saturday_is_the_whole_week_against_the_whole_week():
+    people = [on(1, 14), on(7), on(7, 7), on(8, 9)]                                              # Sunday 8 to Saturday 14: people 0 and 3, 3 visits; Sunday 1 to Saturday 7: people 0, 1, 2, 4 visits
+    w = wtd_at(people, nov(14))["wtd"]
+    assert (w["state"], w["n"]) == ("ok", 6) and (w["cur_lo"], w["cur_hi"], w["prev_lo"], w["prev_hi"]) == (nov(8), nov(14), nov(1), nov(7))
+    assert UR.wtd_rows(w) == [("Active people", "2", "3", "-1, -33%"), ("Visits", "3", "4", "-1, -25%")]
+    w = wtd_at([on(14), on(7), on(7, 7)], nov(14))["wtd"]                                        # 1 person and 1 visit against 2 people and 3 visits
+    assert UR.wtd_rows(w) == [("Active people", "1", "2", "-1, -50%"), ("Visits", "1", "3", "-2, -67%")]
+
+
+def test_data_that_starts_inside_the_previous_window_is_partial_and_says_from_which_day():
+    w = wtd_at([on(3, 10), on(4, 11)], nov(11), anchor=False)["wtd"]                             # the data starts on Tuesday 3 Nov: Sunday 1 and Monday 2 have no data
+    assert w["state"] == "partial" and w["data_from"] == nov(3)
+    assert (w["people"]["raw_prev"], w["visits"]["raw_prev"], w["people"]["diff"]) == (2, 2, 0)    # the numbers are still given
+    assert UR.wtd_title(w).endswith("against the same days last week (Sun 1 Nov to Wed 4 Nov; data starts 3 Nov)")
+
+
+def test_a_previous_window_without_a_session_is_no_baseline_and_prints_no_difference():
+    a = wtd_at([on(9), on(10)], nov(11), anchor=False)                                           # the data starts on Monday 9 Nov
+    w = a["wtd"]
+    assert w["state"] == "no_baseline" and w["data_from"] == nov(9) and w["people"]["diff"] is None and w["visits"]["diff"] is None
+    assert UR.wtd_title(w).endswith("(Sun 1 Nov to Wed 4 Nov; data starts 9 Nov)")
+    assert UR.wtd_rows(w) == [("Active people", "2", "not enough data", ""), ("Visits", "2", "not enough data", "")]
+    w = wtd_at([on(5), on(9)], nov(11))["wtd"]                                                   # data from 20 Oct, but nobody on Sunday 1 to Wednesday 4
+    assert w["state"] == "no_baseline" and w["data_from"] is None
+    assert UR.wtd_title(w).endswith("(Sun 1 Nov to Wed 4 Nov; no visit recorded in those days)")
+
+
+def test_a_sunday_with_nothing_recorded_yet_says_so_and_draws_no_table():
+    a = wtd_at([on(1, 7), on(2)], nov(8))
+    w = a["wtd"]
+    assert w["state"] == "no_current" and w["people"]["diff"] is None
+    assert UR.wtd_title(w) == "This week so far (Sun 8 Nov, today still in progress): no visit recorded yet."
+    h = UR.html_report(a)
+    assert 'id="wtd"' in h and 'id="wtd-table"' not in h and "no visit recorded yet." in h
+    assert "This week so far (Sun 8 Nov, today still in progress): no visit recorded yet." in UR.text_report(a)
+
+
+def test_when_the_data_day_is_before_the_weeks_first_session_the_week_so_far_is_zero_people():
+    w = wtd_at([on(2), on(3), on(11)], nov(10))["wtd"]                                           # Tuesday 10 Nov; the first session of the week is on Wednesday 11: after the data day
+    assert w["state"] == "ok" and w["n"] == 2 and (w["cur_hi"], w["prev_hi"]) == (nov(10), nov(3))
+    assert (w["people"]["raw_cur"], w["people"]["raw_prev"], w["people"]["diff"], w["people"]["pct"]) == (0, 2, -2, 100)
+    assert (w["visits"]["raw_cur"], w["visits"]["raw_prev"], w["visits"]["diff"]) == (0, 2, -2)
+    assert UR.wtd_rows(w)[0] == ("Active people", "0", "2", "-2, -100%")
+
+
+def test_v1_and_v2_visits_and_glance_visits_all_count_and_a_change_of_recording_rules_is_noted():
+    v1 = lambda: sess(s=60)
+    glance = lambda: v2(s=2, vs=8, g=1)
+    newer = lambda: v2(s=60)
+    a = wtd_at([on(2, make=v1) + on(9, make=glance), on(3, make=v1) + on(10, make=newer)], nov(11), anchor=False)
+    w = a["wtd"]
+    assert w["state"] == "partial"                                                                # the data starts on Monday 2 Nov
+    assert (w["people"]["raw_cur"], w["people"]["raw_prev"], w["visits"]["raw_cur"], w["visits"]["raw_prev"]) == (2, 2, 2, 2)    # a glance visit is a visit; a v1 session is a visit
+    assert w["rules_changed"] is True
+    assert UR.WTD_RULES_NOTE in UR.text_report(a) and UR.e(UR.WTD_RULES_NOTE) in UR.html_report(a)
+    for make in (v1, newer):                                                                      # the same rules on both sides: no note
+        a = wtd_at([on(2, 9, make=make), on(3, 10, make=make)], nov(11), anchor=False)
+        assert a["wtd"]["rules_changed"] is False and UR.e(UR.WTD_RULES_NOTE) not in UR.html_report(a)
+
+
+def _crowd(prev: int, cur: int, extra_prev_visits: int = 0) -> list:
+    """`prev` people with a visit on Monday 2 Nov, the first `cur` of them also on Monday 9 Nov; the first person has `extra_prev_visits` more visits on Tuesday 3."""
+    people = [on(2, 9) if i < cur else on(2) for i in range(prev)]
+    people[0] = people[0] + on(*([3] * extra_prev_visits))
+    return people
+
+
+def test_a_group_under_the_minimum_prints_the_guard_and_no_difference_and_a_percentage_needs_a_previous_figure_of_twenty():
+    th = UR.load_thresholds(None)
+    a = wtd_at(_crowd(7, 3, 1), nov(11), th=th)                                                   # default minimums: 3 people now (3 visits), 7 people before (8 visits)
+    w = a["wtd"]
+    assert (w["people"]["cur"], w["people"]["prev"], w["people"]["diff"]) == (UR.SMALL, 7, None)
+    assert (w["visits"]["cur"], w["visits"]["prev"], w["visits"]["diff"]) == (UR.SMALL, 8, None)
+    assert UR.wtd_rows(w) == [("Active people", UR.SMALL, "7", "change not shown"), ("Visits", UR.SMALL, "8", "change not shown")] and "<5 users  vs  7  (change not shown)" in UR.text_report(a)
+    assert "&lt;5 users" in re.search(r'<table id="wtd-table".*?</table>', UR.html_report(a), re.S).group(0)
+    w = wtd_at(_crowd(25, 20), nov(11), th=th)["wtd"]                                             # 20 people against 25: the previous figure reaches 20, a percentage prints
+    assert (w["people"]["diff"], w["people"]["pct"], w["visits"]["diff"], w["visits"]["pct"]) == (-5, 20, -5, 20)
+    assert UR.wtd_rows(w)[0] == ("Active people", "20", "25", "-5, -20%")
+    w = wtd_at(_crowd(8, 6), nov(11), th=th)["wtd"]                                               # 6 against 8: both printed, the previous figure is under 20: the sign and the number only
+    assert UR.wtd_rows(w)[0] == ("Active people", "6", "8", "-2") and w["people"]["pct"] is None
+
+
+def test_the_week_so_far_block_sits_after_the_weekly_chart_and_before_the_daily_one_and_in_the_text_after_the_weekly_lines():
+    a = wtd_at(_wednesday_people(), nov(11))
+    h = UR.html_report(a)
+    assert h.count('id="wtd"') == 1 and h.index('id="growth"') < h.index('id="wtd"') < h.index('id="p-days"')
+    assert h.index('id="wtd"') < h.index('<summary>Show data</summary>', h.index('id="p-weeks"'))      # inside the weekly panel, before its table
+    assert '<tr><th scope="row">Active people</th><td class="n">4</td><td class="n">3</td><td class="n">+1, +33%</td></tr>' in h
+    assert '<tr><th scope="row">Visits</th><td class="n">5</td><td class="n">4</td><td class="n">+1, +25%</td></tr>' in h
+    assert "the block under the weekly chart" in h                                               # and the measure text says what the block is
+    t = UR.text_report(a)
+    assert t.index("Weekly people") < t.index("This week so far (Sun 8 Nov to Wed 11 Nov") < t.index("Do people come back?")
+    assert "  Active people  4  vs  3  (+1, +33%)\n  Visits         5  vs  4  (+1, +25%)\n" in t
+
+
+def test_the_week_so_far_block_states_facts_only_and_names_nobody():
+    for ref, people in ((nov(11), _wednesday_people()), (nov(8), [on(1, 8), on(1)]), (nov(11), _crowd(7, 3))):
+        a = wtd_at(people, ref)
+        block = re.search(r'<div class="wtd" id="wtd">.*?</div>', UR.html_report(a), re.S).group(0)
+        words = _text(block) + " " + UR.text_report(a).split("This week so far")[1].split("Do people come back?")[0]
+        assert not re.search(r"\b(grow\w*|declin\w*|fall\w*|drop\w*|good|bad|better|worse|improv\w*|strong|weak|healthy)\b", words, re.I), words
+        assert "u_synthetic" not in words
+
+
+def check_week_to_date(mod):
+    """The previous window is the same weekdays (not the whole week); data starting inside it is partial; a withheld figure has no difference; a percentage needs a previous figure of 20 (the report's own minimum); no verdict word."""
+    w = wtd_at(_wednesday_people(), nov(11), mod)["wtd"]
+    assert (w["state"], w["people"]["raw_prev"], w["visits"]["raw_prev"], w["people"]["diff"], w["visits"]["diff"]) == ("ok", 3, 4, 1, 1)
+    assert wtd_at([on(3, 10), on(4, 11)], nov(11), mod, anchor=False)["wtd"]["state"] == "partial"
+    a = wtd_at(_crowd(7, 3, 1), nov(11), mod, th=mod.load_thresholds(None))
+    assert a["wtd"]["people"]["cur"] == mod.SMALL and a["wtd"]["people"]["diff"] is None and a["wtd"]["visits"]["diff"] is None
+    th = mod.load_thresholds(None)
+    assert wtd_at(_crowd(8, 6), nov(11), mod, th=th)["wtd"]["people"]["pct"] is None
+    assert wtd_at(_crowd(25, 20), nov(11), mod, th=th)["wtd"]["people"]["pct"] == 20
+    for ref, people in ((nov(11), _wednesday_people()), (nov(11), [on(5), on(9)])):
+        title = mod.wtd_title(wtd_at(people, ref, mod)["wtd"])
+        assert not re.search(r"\b(grow\w*|declin\w*|fall\w*|good|bad|better|worse)\b", title, re.I), title
+
+
+def test_the_week_so_far_check_passes_on_the_real_report():
+    check_week_to_date(UR)
+
+
 # ------------------------------------------------------------------------------------------------ seeded-defect self-tests: the same checks must catch a report with one defect put in
 SEEDED = [
     ("partition complement leak (only cells are guarded, not what subtraction reveals)", [("            if rem < MIN_USERS:\n                vis = [n for n in mine if n not in out_hidden and cells[n] > 0]", "            if False:\n                vis = [n for n in mine if n not in out_hidden and cells[n] > 0]")],
@@ -1577,6 +1747,11 @@ SEEDED = [
     ("a withheld class drawn at its real size in the donut", [("[(k, DONUT_HATCH_DEG, True) for k in hidden]", "[(k, 360.0 * dc[\"people\"][k] / (dc[\"n\"] + 40) + 6.0, True) for k in hidden]")], check_the_donut_geometry_and_labels),
     ("a blocklisted word in the page (who)", [("Wording: say readers of a section, reach and people active.", "Wording: say people who read a section, reach and people active.")],
      check_the_blocklisted_words_are_absent),
+    ("the previous window is the whole previous week, not the same weekdays", [("    prev_rows = [r for r in m.visits(prev_lo) if r[\"day\"] <= prev_hi]", "    prev_rows = list(m.visits(prev_lo))")], check_week_to_date),
+    ("data that starts inside the previous window is called a full comparison", [("    elif m.data_start and m.data_start > prev_lo:\n        state = \"partial\"", "    elif False:\n        state = \"partial\"")], check_week_to_date),
+    ("a difference printed against a withheld figure", [("and SMALL not in (sc, sp)", "and True")], check_week_to_date),
+    ("a percentage on a previous figure under the minimum denominator", [("pct_of(abs(d), prev_val, th) if d else None", "rnd(100 * abs(d) / prev_val) if d and prev_val else None")], check_week_to_date),
+    ("a verdict word in the week-so-far sentence", [("today still in progress) against the same days last week (", "today still in progress) a decline against the same days last week (")], check_week_to_date),
 ]
 
 

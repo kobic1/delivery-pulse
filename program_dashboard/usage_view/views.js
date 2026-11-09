@@ -595,6 +595,36 @@ function daily_view(m) {
 }
 
 
+function week_to_date(m) {
+  const th = m.th;
+  const cur = m.cur, ref = m.ref;
+  const n = d_diff(ref, cur);
+  const prev_lo = d_add(cur, -7);
+  const prev_hi = d_add(prev_lo, n);
+  const cur_rows = m.visits(cur);
+  const prev_rows = m.visits(prev_lo).filter((r) => r.day <= prev_hi);
+  const cur_p = m.active(cur), prev_p = new Set(prev_rows.map((r) => r.u));
+  let state;
+  if (!cur_rows.length && n === 0) state = "no_current";
+  else if (!prev_rows.length) state = "no_baseline";
+  else if (m.data_start && m.data_start > prev_lo) state = "partial";
+  else state = "ok";
+
+  function metric(cur_val, prev_val) {
+    const sc = g(cur_p.size, cur_val), sp = g(prev_p.size, prev_val);
+    const d = (state === "ok" || state === "partial") && sc !== SMALL && sp !== SMALL ? cur_val - prev_val : null;
+    return {cur: sc, prev: sp, raw_cur: cur_val, raw_prev: prev_val, diff: d, pct: d ? pct_of(Math.abs(d), prev_val, th) : null};
+  }
+
+  const mix = (rows) => new Set(rows.map((r) => r.v2 ? "v2" : "v1"));
+  const same_mix = (x, y) => x.size === y.size && [...x].every((k) => y.has(k));
+  return {state: state, ref: ref, n: n, cur_lo: cur, cur_hi: ref, prev_lo: prev_lo, prev_hi: prev_hi,
+          data_from: m.data_start && m.data_start > prev_lo ? m.data_start : null,
+          people: metric(cur_p.size, prev_p.size), visits: metric(cur_rows.length, prev_rows.length),
+          rules_changed: cur_rows.length > 0 && prev_rows.length > 0 && !same_mix(mix(cur_rows), mix(prev_rows))};
+}
+
+
 // ------------------------------------------------------------------------------------------------------------ the aggregate
 function aggregate(bodies, opts) {
   // opts: {today, as_of, now, demo, since, audience, calendar (the RAW calendar JSON or null), th, stats}; dates are ISO strings, as_of and now ISO datetimes with offset
@@ -645,7 +675,7 @@ function aggregate(bodies, opts) {
     history_days: m.first_day ? d_diff(ref, m.first_day) + 1 : 0, data_start: m.data_start, provisional_first: m.provisional_first, first_week: m.first_week,
     compared: comp, signals: sig, weeks: growth_accounting(m), growth: growth_verdict(m), habit: habit_view(m), retention: retention_view(m),
     window: {weeks: wk.length, lo: wk.length ? wk[0] : null, hi: wk_hi, label: wk.length ? `${d_label(wk[0])} to ${d_label(wk_hi)}` : ""},
-    sections: sections_view(m, wk), controls: controls_view(m, wk), use: use_view(m, wk), health: health_view(m), daily: daily_view(m), audience: aud,
+    sections: sections_view(m, wk), controls: controls_view(m, wk), use: use_view(m, wk), health: health_view(m), daily: daily_view(m), wtd: week_to_date(m), audience: aud,
     stats: stats || {}, counts: m.counts, model: m,
   };
 }

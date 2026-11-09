@@ -84,10 +84,37 @@ def _young(bodies: list, ref: dt.date, days: int) -> list:
     return out
 
 
+def wtd_bodies(people: list) -> list:
+    """Fictitious records built by hand for the week-so-far block: people = [[(day, session), ...], ...]. A session with a v2 marker is a v2 session (week key 'S<Sunday>'), one without is a v1 session (ISO week key)."""
+    out = []
+    for i, visits in enumerate(people):
+        w: dict = {}
+        for n, (day, sess) in enumerate(visits):
+            key = UR.sunday_key(day) if UR.is_v2(sess) else UR.iso_week_key(day)
+            w.setdefault(key, {}).setdefault(day.isoformat(), {})[f"s{i:03d}x{n:02d}"[:8]] = sess
+        days = [x for x, _ in visits]
+        out.append({"u": f"u_synthetic_{i + 1:03d}", "v": 2 if any(UR.is_v2(x) for _, x in visits) else 1, "first": min(days).isoformat(), "last": max(days).isoformat(), "w": w})
+    return out
+
+
+def _wtd_people(more: int = 0) -> list:
+    """Wednesday 11 Nov 2026 as the data day. Sunday 1 to Wednesday 4 Nov: 6 people with a v1 session (one of them twice; a seventh person on Thursday 5 is not the same days). Sunday 8 to Wednesday 11: 3 people with a v2 session,
+    one of them a glance visit and one twice (`more` adds people with a v2 session on Tuesday 10). One person has an old v1 session from 20 Oct, so the data starts well before the previous window."""
+    nov = lambda n: dt.date(2026, 11, n)
+    v1 = lambda: {"s": 60, "d": "l"}
+    v2 = lambda s=60, **kw: {"s": s, "vs": max(s, 10), "lv": 0, "fa": 0, "d": "m", **kw}
+    people = [[(nov(1), v1()), (nov(4), v1())] + ([(nov(8), v2()), (nov(10), v2())] if i == 0 else [(nov(9), v2(2, g=1))] if i == 1 else [(nov(11), v2())] if i == 2 else [(nov(10), v2())] if i < 3 + more else []) for i in range(6)]
+    people.append([(nov(5), v1())])
+    people.append([(dt.date(2026, 10, 20), v1())])
+    return people
+
+
 def scenarios() -> dict:
     sa = dict(UR.SHOW_ALL)
     d = UR.demo_bodies
     sunday = dt.date(2026, 10, 25)
+    sat, wed, sun2 = dt.date(2026, 10, 31), dt.date(2026, 11, 4), dt.date(2026, 11, 8)
+    at = lambda day, h=10: dict(today=day, as_of=dt.datetime(day.year, day.month, day.day, h, 0, tzinfo=IL), now=dt.datetime(day.year, day.month, day.day, h, 30, tzinfo=IL))
     return {
         "demo_showall": dict(bodies=d(REF), today=REF, th=_thresholds(sa), demo=True),
         "demo_default": dict(bodies=d(REF), today=REF, th=_thresholds(None), demo=True),
@@ -103,6 +130,13 @@ def scenarios() -> dict:
         "seed3_default_stale_export": dict(bodies=d(REF, seed=3), today=REF + dt.timedelta(days=4), th=_thresholds(None), as_of=NOW),
         "sunday_ref": dict(bodies=d(sunday), today=sunday, th=_thresholds(sa), as_of=dt.datetime(2026, 10, 25, 9, 0, tzinfo=IL), now=dt.datetime(2026, 10, 25, 9, 30, tzinfo=IL)),
         "mid_v2_rollover": dict(bodies=d(REF, v2_from=6), today=REF, th=_thresholds(None)),
+        "wtd_saturday_showall": dict(bodies=d(sat), th=_thresholds(sa), **at(sat, 20)),
+        "wtd_partial_wednesday_showall": dict(bodies=_young(d(wed), wed, 9), th=_thresholds(sa), **at(wed)),
+        "wtd_hand_default": dict(bodies=wtd_bodies(_wtd_people()), th=_thresholds(None), **at(dt.date(2026, 11, 11))),
+        "wtd_hand_default_five": dict(bodies=wtd_bodies(_wtd_people(2)), th=_thresholds(None), **at(dt.date(2026, 11, 11))),
+        "wtd_hand_showall": dict(bodies=wtd_bodies(_wtd_people()), th=_thresholds(sa), **at(dt.date(2026, 11, 11))),
+        "wtd_hand_sunday_showall": dict(bodies=wtd_bodies(_wtd_people()), th=_thresholds(sa), **at(sun2)),
+        "wtd_hand_no_current_showall": dict(bodies=wtd_bodies([[(dt.date(2026, 11, 2), {"s": 60}), (dt.date(2026, 11, 7), {"s": 60})], [(dt.date(2026, 11, 3), {"s": 30})]]), th=_thresholds(sa), **at(sun2)),
     }
 
 
