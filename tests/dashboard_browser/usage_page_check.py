@@ -1,6 +1,6 @@
 """The "Delivery Pulse Usage" page (program_dashboard/usage_report.py, built here from its fictitious --demo data, from an empty export and from a v1-only export) in headless Chrome at 1400 and 390 px.
 
-Asserted: no console error; no sideways scroll (also with every "Show data" open: a wide table scrolls inside its own box); the Demo data banner and the stale-export warning of the demo; the coverage ribbon is visible near the top, short, and not inside a details
+Asserted: the week-so-far block sits in the weekly panel with the report's own sentence and rows and fits at both widths; no console error; no sideways scroll (also with every "Show data" open: a wide table scrolls inside its own box); the Demo data banner and the stale-export warning of the demo; the coverage ribbon is visible near the top, short, and not inside a details
 element; the headings in order (one h1, then h2, no level skipped); the page is graph first (key figures with sparklines, a weekly and a daily chart, bars for sections and controls, the day-and-hour map, the cohort grid): every chart is a role=img
 with a label that holds its numbers, every svg is named or hidden, and every chart sits in a unit with a "Show data" disclosure holding a table; a guarded row is a hatched stub that prints '<5 users', draws no length and no number; the page has no 'What changed' section and no chips while the stale-export banner stays; no user id anywhere; text contrast of at least 4.5:1 (3:1 for large text) with every disclosure open; every details element is a keyboard stop; bars stack their label above the bar at 390 px; the page uses no script; the empty state says
 "No usage recorded yet" and shows no chart. The page is an Artifact fragment; the test wraps it the way kit.wrap does.
@@ -204,6 +204,24 @@ def _(t: T):
         t.check("Too early" not in k and "Not comparable" not in k and "Recording rules changed" not in k and "<5 users" not in k, f"{w}: no empty scorecard: {k[:200]!r}")
         t.check(ch.js("document.querySelector('#kpi-people .fig').innerText") == "1" and ch.js("document.querySelector('#kpi-device .fig').innerText").startswith("Desktop 50%") and "Device split of 2 visits: Desktop 50%, Phone 50%" in ch.js("document.querySelector('#kpi-device svg').getAttribute('aria-label')"), f"{w}: the numbers of the data to date")
         t.check("Data starts" in ch.js("document.getElementById('kpi-note').innerText") and "so far" in ch.js("document.getElementById('kpi-note').innerText").lower(), f"{w}: one line says why there is no comparison")
+    ctx.chrome.viewport(1400, 900)
+
+
+@SUITE.test("usage_page_week_so_far_block_sits_in_the_weekly_panel_with_its_sentence_and_figures_and_fits_the_width")
+def _(t: T):
+    for kind in ("demo", "live1"):
+        a = (UR.aggregate(UR.demo_bodies(REF), as_of=AS_OF, now=NOW, demo=True, calendar=UR.parse_calendar(UR.demo_calendar(REF))) if kind == "demo"
+             else UR.aggregate(live1_bodies(), as_of=NOW, now=NOW, th={**UR.THRESHOLDS, "min_group": 1}))
+        title, rows = UR.wtd_title(a["wtd"]), UR.wtd_rows(a["wtd"])
+        for w in (1400, 390):
+            ch = open_at(w, kind)
+            t.check(ch.js("!!document.querySelector('#p-weeks #wtd')"), f"{kind} {w}: the block is inside the weekly panel")
+            t.check(ch.js("document.querySelector('#wtd .cap').innerText") == title, f"{kind} {w}: the sentence is not {title!r}")
+            got = ch.js("[...document.querySelectorAll('#wtd-table tbody tr')].map(r => [...r.children].map(c => c.innerText))")
+            t.check(got == [[n, c, p_, d or "-"] for n, c, p_, d in rows], f"{kind} {w}: the rows {got} against {rows}")
+            t.check(ch.js("(() => { const b = document.getElementById('wtd').getBoundingClientRect(), p = document.getElementById('p-weeks').getBoundingClientRect(); return b.left >= p.left - 1 && b.right <= p.right + 1; })()"), f"{kind} {w}: the block fits the panel")
+            t.check(ch.js("document.documentElement.scrollWidth - document.documentElement.clientWidth") <= 0, f"{kind} {w}: sideways scroll")
+            t.check(ch.js("document.getElementById('wtd').compareDocumentPosition(document.getElementById('p-days')) & Node.DOCUMENT_POSITION_FOLLOWING") > 0, f"{kind} {w}: before the daily chart")
     ctx.chrome.viewport(1400, 900)
 
 

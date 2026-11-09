@@ -731,13 +731,60 @@ function _chart_days(a) {
 }
 
 
+function _day_label(d) {
+  return `${dt_strftime(d, "%a")} ${d_label(d)}`;
+}
+
+
+function _day_range(lo, hi) {
+  return lo === hi ? _day_label(lo) : `${_day_label(lo)} to ${_day_label(hi)}`;
+}
+
+
+const WTD_RULES_NOTE = "Visits are not comparable: the page's recording rules changed between these two periods (glance visits are only recorded by the newer page).";
+
+
+function wtd_title(w) {
+  // The sentence above the week-so-far figures (text and page).
+  if (w["state"] === "no_current") return `This week so far (${_day_range(w['cur_lo'], w['cur_hi'])}, today still in progress): no visit recorded yet.`;
+  const note = w["data_from"] ? `; data starts ${d_label(w['data_from'])}` : (w["state"] === "no_baseline" ? "; no visit recorded in those days" : "");
+  return `This week so far (${_day_range(w['cur_lo'], w['cur_hi'])}, today still in progress) against the same days last week (${_day_range(w['prev_lo'], w['prev_hi'])}${note})`;
+}
+
+
+function wtd_delta(r, state) {
+  // '+3, +12%': the difference with its sign (and a percentage when the previous figure allows one); empty when there is no baseline, 'change not shown' when a figure is withheld.
+  const d = r["diff"];
+  if (d === null) return (state === "no_baseline" || state === "no_current") ? "" : "change not shown";
+  if (d === 0) return "0";
+  const sg = d > 0 ? "+" : "-";
+  return `${sg}${pyfmt(Math.abs(d), ",")}` + (r["pct"] !== null ? `, ${sg}${r['pct']}%` : "");
+}
+
+
+function wtd_rows(w) {
+  // [(measure, this week so far, same days last week, difference)] as printed.
+  return [["people", "Active people"], ["visits", "Visits"]].map(([key, name]) => [name, fmt_n(w[key]["cur"]), w["state"] === "no_baseline" ? "not enough data" : fmt_n(w[key]["prev"]), wtd_delta(w[key], w["state"])]);
+}
+
+
+function _wtd_block(w) {
+  // This week so far against the same days last week: under the weekly people chart.
+  if (w["state"] === "no_current") return `<div class="wtd" id="wtd"><p class="cap2">${e(wtd_title(w))}</p></div>`;
+  const trs = wtd_rows(w).map(([n_, c_, p_, dl]) => `<tr><th scope="row">${e(n_)}</th><td class="n">${e(c_)}</td><td class="n">${e(p_)}</td><td class="n">${dl ? e(dl) : "-"}</td></tr>`).join("");
+  const note = w["rules_changed"] ? `<p class="cap2">${e(WTD_RULES_NOTE)}</p>` : "";
+  return (`<div class="wtd" id="wtd"><p class="cap">${e(wtd_title(w))}</p><table id="wtd-table" class="two"><thead><tr><th scope="col">Measure</th><th scope="col" class="n">This week so far</th>`
+          + `<th scope="col" class="n">Same days last week</th><th scope="col" class="n">Difference</th></tr></thead><tbody>${trs}</tbody></table>${note}</div>`);
+}
+
+
 function _trend(a) {
   const gv = a["growth"], dv = a["daily"];
   const rows = a["weeks"];
   const cap_w = `Distinct people with a visit in each Sunday-to-Saturday week, ${rows[0]['label']} to ${rows[rows.length - 1]['label']}.`;
   const has_band = a["compared"] && a["compared"]["raw_hi"] !== null && a["compared"]["raw_hi"] !== undefined;
   const leg = _legend([["ln", "Complete week"], ["hb", "Incomplete week"]].concat(MIN_USERS > 1 ? [["hg", SMALL]] : []).concat(has_band ? [["bd", "Usual range"]] : []).concat([["tk", "Calendar event"]]));
-  const week = panel("People active per week", cap_w, _chart_weeks(a) + leg + `<p class="verdict" id="growth"><b>Is adoption growing?</b> ${e(gv["text"])}</p>`, show_data(_week_table(a)), "p-weeks");
+  const week = panel("People active per week", cap_w, _chart_weeks(a) + leg + `<p class="verdict" id="growth"><b>Is adoption growing?</b> ${e(gv["text"])}</p>` + _wtd_block(a["wtd"]), show_data(_week_table(a)), "p-weeks");
   const cap_d = `Distinct people per day, ${d_label(dv['days'][0]['day'])} to ${d_label(dv['days'][dv['days'].length - 1]['day'])}.`;
   const leg_d = _legend([["hb", "Today so far"], ["we", "Friday, Saturday"]].concat(MIN_USERS > 1 ? [["hg", SMALL]] : []));
   const mk = dv["marks"].map(([d, label]) => `<li>${d_label(d)}: ${e(label)}</li>`).join("");

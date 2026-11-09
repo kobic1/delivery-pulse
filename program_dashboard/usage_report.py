@@ -1440,6 +1440,39 @@ def daily_view(m: Model) -> dict:
     return {"days": days, "marks": marks, "workweek": ww, "events": event_windows(m, per), "note": calendar_note(m)}
 
 
+def week_to_date(m: Model) -> dict:
+    """This week so far against the same weekdays of the previous Sunday-to-Saturday week, from the same rows and the same guards as the weekly figures (all sessions are visits, glance visits included; a person is active with one session).
+    The current window is the Sunday to `ref` (the day of the data, still in progress); the previous window is the same weekdays one week earlier. state: 'ok'; 'partial' (the data starts after the previous window starts: `data_from`);
+    'no_baseline' (no session in the previous window); 'no_current' (a Sunday with nothing recorded yet). A difference is given only when both figures are printed (not withheld) and a percentage only when the previous figure reaches min_den."""
+    th = m.th
+    cur, ref = m.cur, m.ref
+    n = (ref - cur).days
+    prev_lo = cur - dt.timedelta(days=7)
+    prev_hi = prev_lo + dt.timedelta(days=n)
+    cur_rows = m.visits(cur)
+    prev_rows = [r for r in m.visits(prev_lo) if r["day"] <= prev_hi]
+    cur_p, prev_p = m.active(cur), {r["u"] for r in prev_rows}
+    if not cur_rows and n == 0:
+        state = "no_current"
+    elif not prev_rows:
+        state = "no_baseline"
+    elif m.data_start and m.data_start > prev_lo:
+        state = "partial"
+    else:
+        state = "ok"
+
+    def metric(cur_val: int, prev_val: int) -> dict:
+        sc, sp = g(len(cur_p), cur_val), g(len(prev_p), prev_val)
+        d = cur_val - prev_val if state in ("ok", "partial") and SMALL not in (sc, sp) else None
+        return {"cur": sc, "prev": sp, "raw_cur": cur_val, "raw_prev": prev_val, "diff": d, "pct": pct_of(abs(d), prev_val, th) if d else None}
+
+    mix = lambda rows: {"v2" if r["v2"] else "v1" for r in rows}
+    return {"state": state, "ref": ref, "n": n, "cur_lo": cur, "cur_hi": ref, "prev_lo": prev_lo, "prev_hi": prev_hi,
+            "data_from": m.data_start if m.data_start and m.data_start > prev_lo else None,
+            "people": metric(len(cur_p), len(prev_p)), "visits": metric(len(cur_rows), len(prev_rows)),
+            "rules_changed": bool(cur_rows) and bool(prev_rows) and mix(cur_rows) != mix(prev_rows)}
+
+
 # ------------------------------------------------------------------------------------------------------------ the aggregate
 def aggregate(bodies: list, today: dt.date | None = None, as_of: dt.datetime | None = None, now: dt.datetime | None = None, demo: bool = False, since: dt.date | None = None,
               audience: int | None = None, calendar: dict | None = None, th: dict | None = None, stats: dict | None = None) -> dict:
@@ -1480,7 +1513,7 @@ def aggregate(bodies: list, today: dt.date | None = None, as_of: dt.datetime | N
         "history_days": (ref - m.first_day).days + 1 if m.first_day else 0, "data_start": m.data_start, "provisional_first": m.provisional_first, "first_week": m.first_week,
         "compared": comp, "signals": sig, "weeks": growth_accounting(m), "growth": growth_verdict(m), "habit": habit_view(m), "retention": retention_view(m),
         "window": {"weeks": len(wk), "lo": wk[0] if wk else None, "hi": min(wk[-1] + dt.timedelta(days=6), ref) if wk else None, "label": f"{d_label(wk[0])} to {d_label(min(wk[-1] + dt.timedelta(days=6), ref))}" if wk else ""},
-        "sections": sections_view(m, wk), "controls": controls_view(m, wk), "use": use_view(m, wk), "health": health_view(m), "daily": daily_view(m), "audience": aud,
+        "sections": sections_view(m, wk), "controls": controls_view(m, wk), "use": use_view(m, wk), "health": health_view(m), "daily": daily_view(m), "wtd": week_to_date(m), "audience": aud,
         "stats": stats or {}, "counts": m.counts, "model": m,
     }
 
@@ -1682,6 +1715,11 @@ def text_report(a: dict) -> str:
         tag = {"provisional": "  (provisional: data starts mid-week)", "in_progress": "  (so far this week, not comparable)"}.get(w["status"], "")
         extra = "" if w["new"] is None else f"  new {fmt_n(w['new'])}, returning after a gap {fmt_n(w['reactivated'])}, lapsed {fmt_n(w['lapsed'])}"
         add(f"  {w['label']:<7} {fmt_n(w['active']):>9}{tag}{extra}")
+    add("\n" + wtd_title(a["wtd"]))
+    for name, c_, p_, dl in wtd_rows(a["wtd"]):
+        add(f"  {name:<15}{c_}  vs  {p_}" + (f"  ({dl})" if dl else ""))
+    if a["wtd"]["rules_changed"]:
+        add("  " + WTD_RULES_NOTE)
     h = a["habit"]
     add("\nDo people come back?")
     for key, label in (("w1", "week 1"), ("w4", "week 4")):
@@ -1847,6 +1885,7 @@ details.vd > summary:focus-visible, a:focus-visible { outline:2px solid var(--bl
 .sub .st { font-size:var(--t-cap); font-weight:600; margin:0 0 6px; }
 .verdict { margin:10px 0 0; padding:8px 12px; background:var(--panel); border-radius:var(--radius-s); font-size:var(--t-cap); }
 .verdict b { font-weight:600; }
+.wtd { margin:12px 0 0; }
 .leg { display:flex; flex-wrap:wrap; gap:2px 14px; margin:8px 0 0; font-size:var(--t-xs); color:var(--muted); list-style:none; padding:0; }
 .leg li { display:flex; align-items:center; gap:6px; }
 .sw { display:inline-block; width:14px; height:10px; flex:none; }
@@ -2597,12 +2636,57 @@ def _chart_days(a: dict) -> str:
     return chart_img(inner, summary, "plot", "--ph:200px")
 
 
+def _day_label(d: dt.date) -> str:
+    return f"{d:%a} {d_label(d)}"
+
+
+def _day_range(lo: dt.date, hi: dt.date) -> str:
+    return _day_label(lo) if lo == hi else f"{_day_label(lo)} to {_day_label(hi)}"
+
+
+WTD_RULES_NOTE = "Visits are not comparable: the page's recording rules changed between these two periods (glance visits are only recorded by the newer page)."
+
+
+def wtd_title(w: dict) -> str:
+    """The sentence above the week-so-far figures (text and page)."""
+    if w["state"] == "no_current":
+        return f"This week so far ({_day_range(w['cur_lo'], w['cur_hi'])}, today still in progress): no visit recorded yet."
+    note = f"; data starts {d_label(w['data_from'])}" if w["data_from"] else "; no visit recorded in those days" if w["state"] == "no_baseline" else ""
+    return f"This week so far ({_day_range(w['cur_lo'], w['cur_hi'])}, today still in progress) against the same days last week ({_day_range(w['prev_lo'], w['prev_hi'])}{note})"
+
+
+def wtd_delta(r: dict, state: str) -> str:
+    """'+3, +12%': the difference with its sign (and a percentage when the previous figure allows one); empty when there is no baseline, 'change not shown' when a figure is withheld."""
+    d = r["diff"]
+    if d is None:
+        return "" if state in ("no_baseline", "no_current") else "change not shown"
+    if d == 0:
+        return "0"
+    sg = "+" if d > 0 else "-"
+    return f"{sg}{abs(d):,}" + (f", {sg}{r['pct']}%" if r["pct"] is not None else "")
+
+
+def wtd_rows(w: dict) -> list:
+    """[(measure, this week so far, same days last week, difference)] as printed."""
+    return [(name, fmt_n(w[key]["cur"]), "not enough data" if w["state"] == "no_baseline" else fmt_n(w[key]["prev"]), wtd_delta(w[key], w["state"])) for key, name in (("people", "Active people"), ("visits", "Visits"))]
+
+
+def _wtd_block(w: dict) -> str:
+    """This week so far against the same days last week: under the weekly people chart."""
+    if w["state"] == "no_current":
+        return f'<div class="wtd" id="wtd"><p class="cap2">{e(wtd_title(w))}</p></div>'
+    trs = "".join(f'<tr><th scope="row">{e(n_)}</th><td class="n">{e(c_)}</td><td class="n">{e(p_)}</td><td class="n">{e(dl) if dl else "-"}</td></tr>' for n_, c_, p_, dl in wtd_rows(w))
+    note = f'<p class="cap2">{e(WTD_RULES_NOTE)}</p>' if w["rules_changed"] else ""
+    return (f'<div class="wtd" id="wtd"><p class="cap">{e(wtd_title(w))}</p><table id="wtd-table" class="two"><thead><tr><th scope="col">Measure</th><th scope="col" class="n">This week so far</th>'
+            f'<th scope="col" class="n">Same days last week</th><th scope="col" class="n">Difference</th></tr></thead><tbody>{trs}</tbody></table>{note}</div>')
+
+
 def _trend(a: dict) -> str:
     gv, dv = a["growth"], a["daily"]
     rows = a["weeks"]
     cap_w = f"Distinct people with a visit in each Sunday-to-Saturday week, {rows[0]['label']} to {rows[-1]['label']}."
     leg = _legend([("ln", "Complete week"), ("hb", "Incomplete week")] + ([("hg", SMALL)] if MIN_USERS > 1 else []) + ([("bd", "Usual range")] if a["compared"] and a["compared"].get("raw_hi") is not None else []) + [("tk", "Calendar event")])
-    week = panel("People active per week", cap_w, _chart_weeks(a) + leg + f'<p class="verdict" id="growth"><b>Is adoption growing?</b> {e(gv["text"])}</p>', show_data(_week_table(a)), "p-weeks")
+    week = panel("People active per week", cap_w, _chart_weeks(a) + leg + f'<p class="verdict" id="growth"><b>Is adoption growing?</b> {e(gv["text"])}</p>' + _wtd_block(a["wtd"]), show_data(_week_table(a)), "p-weeks")
     cap_d = f"Distinct people per day, {d_label(dv['days'][0]['day'])} to {d_label(dv['days'][-1]['day'])}."
     leg_d = _legend([("hb", "Today so far"), ("we", "Friday, Saturday")] + ([("hg", SMALL)] if MIN_USERS > 1 else []))
     mk = "".join(f"<li>{d_label(d)}: {e(label)}</li>" for d, label, _ in dv["marks"])
@@ -3085,7 +3169,7 @@ def _measure_block(a: dict | None = None) -> str:
             '<p class="cap">The published Delivery Pulse page counts, for each person with an id, which sections they read, which filters and buttons they use, which Jira links they follow (by section only), how long the page is open in front of them and in use, '
             'their screen size, the page version, how fresh the data was, the hour a visit opened and page errors. It records no names, e-mail addresses, issue keys, project, team or pod names or search text. People that are signed out or hold view-only access, that open an offline copy, '
             'or whose browser blocks the page&#39;s storage are not counted, so these are counts of people with an id, not of all visitors. A visit that is only looked at for 5 seconds or more is recorded as a glance; a visit with input or 30 seconds or more is an engaged visit. '
-            f'Weeks run Sunday to Saturday and count as complete once Saturday has passed. {e(guard_note("Any figure that rests on fewer than {n} people shows {g}."))} Weeks before the first record show "before the data starts", not zero. '
+            f'Weeks run Sunday to Saturday and count as complete once Saturday has passed; the block under the weekly chart compares this week to date with the same weekdays of the week before. {e(guard_note("Any figure that rests on fewer than {n} people shows {g}."))} Weeks before the first record show "before the data starts", not zero. '
             'This page is a snapshot of an export, not a live view.</p></details></section>')
 
 

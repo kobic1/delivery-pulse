@@ -203,6 +203,7 @@ def _(t: T):
     levels = [lvl for _, lvl in heads]
     t.check(all(b - a <= 1 for a, b in zip(levels, levels[1:])), f"a heading level is skipped inside the view: {levels}")
     t.check("Delivery Pulse Usage" in shadow_text(ch) and "Key figures" in shadow_text(ch) and "Recording health" in shadow_text(ch), "the report lacks its sections")
+    t.check(ch.js(f"!!{SHADOW}.querySelector('#p-weeks #wtd #wtd-table') && {SHADOW}.querySelector('#wtd .cap').innerText.startsWith('This week so far')") is True, "the week-so-far block is not in the weekly panel of the view")
     t.check(ch.js(f"{SHADOW}.querySelector('style') && !{SHADOW}.querySelector('title, meta, link')") is True, "the shadow root holds the report's own style and no head elements")
     outside = ch.js(f"getComputedStyle({SHADOW}.querySelector('h1')).fontSize")
     t.check(outside == "20px", f"the report's own style does not apply inside the view (h1 font size {outside})")

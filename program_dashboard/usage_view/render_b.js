@@ -606,7 +606,7 @@ function _measure_block(a = null) {
         + '<p class="cap">The published Delivery Pulse page counts, for each person with an id, which sections they read, which filters and buttons they use, which Jira links they follow (by section only), how long the page is open in front of them and in use, '
         + 'their screen size, the page version, how fresh the data was, the hour a visit opened and page errors. It records no names, e-mail addresses, issue keys, project, team or pod names or search text. People that are signed out or hold view-only access, that open an offline copy, '
         + 'or whose browser blocks the page&#39;s storage are not counted, so these are counts of people with an id, not of all visitors. A visit that is only looked at for 5 seconds or more is recorded as a glance; a visit with input or 30 seconds or more is an engaged visit. '
-        + `Weeks run Sunday to Saturday and count as complete once Saturday has passed. ${e(guard_note("Any figure that rests on fewer than {n} people shows {g}."))} Weeks before the first record show "before the data starts", not zero. `
+        + `Weeks run Sunday to Saturday and count as complete once Saturday has passed; the block under the weekly chart compares this week to date with the same weekdays of the week before. ${e(guard_note("Any figure that rests on fewer than {n} people shows {g}."))} Weeks before the first record show "before the data starts", not zero. `
         + 'This page is a snapshot of an export, not a live view.</p></details></section>');
 }
 
