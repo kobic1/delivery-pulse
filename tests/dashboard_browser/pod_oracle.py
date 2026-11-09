@@ -3,13 +3,13 @@
 The page counts pods with podRegistry / cyPodsOf / cyPodFig. This module counts them again from the BAKED epics, in plain Python, from the definitions the owner decided and nothing else:
 
   * a POD is one pod label per project, compared without regard to case; an epic with several labels counts once under each pod; an epic with no label is in no pod;
-  * Pods Without Planned Epics (tile id idle): pods that carry at least one epic of the release (under the page's Release, Projects and Teams filters) and have NO epic planned in the selected Delivery Cycles (the Delivery Cycle filter:
+  * Idle Pods (tile id idle): pods that carry at least one epic of the release (under the page's Release, Projects and Teams filters) and have NO epic planned in the selected Delivery Cycles (the Delivery Cycle filter:
     one cycle, or both combined = the release start to the release end);
-  * Pods Over 3 Epics (tile id wip): more than POD_LEVEL epics whose status is In Progress (N_WIP, Validation NOT counted: the owner's decision for this tile and its list only) among the epics PLANNED IN THE
-    SELECTED CYCLES (the Planned tile's epics), and the number of those epics, each once. Every other active figure (Busiest and Lightest Pods, Active Epics Without Pod, the release bars) keeps N_FLIGHT = In Progress or Validation ("active");
-    all six Pods tiles count only the epics planned in the selected cycles (the pods themselves, for Pods Without Planned Epics, are the pods of the release);
-  * the four proactive tiles (act_oracle below): Not Started Due Soon, Waiting Items Due Soon, Busiest and Lightest Pods, Active Epics Without Pod, with their lists;
-  * Took Over 7 Days (long_tile): the Done epics planned in the selected cycles that have a cycle time (EDCT) and are outside CT_EXCLUDED; of them, those with a cycle time MORE than LONG_DAYS;
+  * Pods With More Than 3 Epics in Progress (tile id wip): more than POD_LEVEL epics whose status is In Progress (N_WIP, Validation NOT counted: the owner's decision for this tile and its list only) among the epics PLANNED IN THE
+    SELECTED CYCLES (the Planned tile's epics), and the number of those epics, each once. Every other in-progress figure (Pods With Uneven Workload, In-Progress Epics Without a Pod Label, the release bars) keeps N_FLIGHT = In Progress or Validation ("in progress");
+    all six Pods tiles count only the epics planned in the selected cycles (the pods themselves, for Idle Pods, are the pods of the release);
+  * the four proactive tiles (act_oracle below): Not Started Due in 7 Days, Dependencies Due in 7 Days, Pods With Uneven Workload, In-Progress Epics Without a Pod Label, with their lists;
+  * Took Over 10 Days (long_tile): the Done epics planned in the selected cycles that have a cycle time (EDCT) and are outside CT_EXCLUDED; of them, those with a cycle time MORE than LONG_DAYS;
   * the pod filter (pod_scope): with exactly one project selected, an epic passes when it carries any chosen pod (or has no pod label and No Pod Label is chosen); every figure is recounted over the epics that pass, and
     only the chosen pods are pods (an epic with two pods, one chosen, is in the chosen pod only).
 
@@ -29,11 +29,11 @@ import math
 import re
 
 N_FLIGHT = ("In Progress", "Validation")             # the other active figures of the page (CLASS.flight)
-N_WIP = ("In Progress",)                         # the one tile Pods With More Than 3 Epics In Progress: Validation is not counted
+N_WIP = ("In Progress",)                         # the one tile Pods With More Than 3 Epics in Progress: Validation is not counted
 POD_LEVEL = 3                                    # the page's CY.podWip, the owner's reference level; spelled here on purpose, not read from the page
-EPIC_IDS = ["planned", "done", "long", "overdue", "next", "flagged"]     # the six headline tiles, in order: Took Over 7 Days is third
-ACT_IDS = ["nsSoon", "wait", "level", "noPod", "idle", "wip"]     # the six tiles of #cy-kpis2, in order: the four proactive ones first, then Pods Without Planned Epics and Pods Over 3 Epics
-LONG_DAYS = 7                                    # the page's CY.longCycle: Took Over 7 Days counts a cycle time MORE than this (strictly); spelled here on purpose
+EPIC_IDS = ["planned", "done", "long", "overdue", "next", "flagged"]     # the six headline tiles, in order: Took Over 10 Days is third
+ACT_IDS = ["nsSoon", "wait", "level", "noPod", "idle", "wip"]     # the six tiles of #cy-kpis2, in order: the four proactive ones first, then Idle Pods and Pods With More Than 3 Epics in Progress
+LONG_DAYS = 10                                    # the page's CY.longCycle: Took Over 10 Days counts a cycle time MORE than this (strictly); spelled here on purpose
 CT_EXCLUDED = ("maintenance", "sow")             # the Issue Categories Cycle Time per Release leaves out (the page's AI_EXCLUDED_CATEGORIES), compared without regard to case; spelled here on purpose
 NO_POD = "~none"                                 # the token of the No Pod Label chip in the address (pd=...)
 
@@ -150,34 +150,34 @@ def epic_tiles(epics: list, asof: str, win: dict, calendar: dict) -> dict:
 
 
 def check_long(res: dict, st: dict, es: list, win: dict, cal: dict, tag: str) -> None:
-    """The Took Over 7 Days tile against long_tile: the number, its sub line (the population and the share from MIN_SAMPLE), the label, the link (exactly the keys counted, nothing when 0) and the first hover block."""
+    """The Took Over 10 Days tile against long_tile: the number, its sub line (the population and the share from MIN_SAMPLE), the label, the link (exactly the keys counted, nothing when 0) and the first hover block."""
     bad, seen = res["pod_bad"], res["pod_seen"]
     got, w = st.get("long"), long_tile(es, st["asof"], win, cal)
     if not got:
-        bad.append(f"{tag}: there is no Took Over 7 Days tile")
+        bad.append(f"{tag}: there is no Took Over 10 Days tile")
         return
     n, m = len(w["keys"]), w["pop"]
     seen["long>0"] += n > 0
     seen["long==0"] += n == 0
     seen["long_nopop"] += m == 0
     if got["l"] != f"Took Over {LONG_DAYS} Days" or got["v"].replace(",", "") != str(n):
-        bad.append(f"{tag}: the Took Over 7 Days tile prints {got['l']!r} {got['v']!r}, the recount is {n}")
+        bad.append(f"{tag}: the Took Over 10 Days tile prints {got['l']!r} {got['v']!r}, the recount is {n}")
     share = f" ({jround(100 * n / m)}%)" if m >= MIN_SAMPLE else ""
     want_s = f"of {m} Done {'epic' if m == 1 else 'epics'}{share}" if m else ("no Done epic has a cycle time to count" if w["done"] else "no epic is Done yet")
     if got["s"] != want_s:
-        bad.append(f"{tag}: the Took Over 7 Days sub line is {got['s']!r}, the recount is {want_s!r} ({n} of {m} with a cycle time, {w['done']} Done)")
+        bad.append(f"{tag}: the Took Over 10 Days sub line is {got['s']!r}, the recount is {want_s!r} ({n} of {m} with a cycle time, {w['done']} Done)")
     if n:
         keys = _key_in(got["href"] or "")
         if keys != w["keys"] and (got["href"] or w["keys"]):
-            bad.append(f"{tag}: the Took Over 7 Days link finds {sorted(keys)[:3]} ({len(keys)}), the recount is {sorted(w['keys'])[:3]} ({len(w['keys'])})")
+            bad.append(f"{tag}: the Took Over 10 Days link finds {sorted(keys)[:3]} ({len(keys)}), the recount is {sorted(w['keys'])[:3]} ({len(w['keys'])})")
         first = (got["tip"] or "").split("\n")
         want_tip = f"{n} Done {'epic' if n == 1 else 'epics'} planned in {win['name']} took more than {LONG_DAYS} days."
         if first[0] != want_tip or "Cycle time as in the Efficiency section." not in first[1:2]:
-            bad.append(f"{tag}: the Took Over 7 Days hover is {first[:2]}, expected {want_tip!r} and the Efficiency line")
+            bad.append(f"{tag}: the Took Over 10 Days hover is {first[:2]}, expected {want_tip!r} and the Efficiency line")
         if n > 3 and not re.search(r"exact", got["tip"] or "", re.I):
             bad.append(f"{tag}: a key list of {n} epics does not say it is an exact list")
     elif got["href"]:
-        bad.append(f"{tag}: the Took Over 7 Days number is 0 and still a link")
+        bad.append(f"{tag}: the Took Over 10 Days number is 0 and still a link")
 
 
 def figures(epics: list, due: dict, cycle: dict) -> dict:
@@ -571,12 +571,12 @@ def check_page(res: dict, data: dict, st, exp_st, tag: str, ch) -> None:
 
 
 # ----------------------------------------------------------------------------------------------------------------------------------------------------------------
-# The four proactive tiles: Not Started Due Soon, Waiting Items Due Soon, Busiest and Lightest Pods, Active Epics Without Pod.
+# The four proactive tiles: Not Started Due in 7 Days, Dependencies Due in 7 Days, Pods With Uneven Workload, In-Progress Epics Without a Pod Label.
 # Recounted from the baked payload in plain Python with the definitions the owner decided, spelled here on purpose (never read from the page):
 NS_STATUSES = ("Candidate", "New", "In Definition", "Ready for Dev")
 SOON_DAYS = 7                                    # the page's CY.next
-LEVEL_SPREAD = 0.40                              # the page's CY.levelSpread: (busiest - lightest) / the team's active epics
-MIN_SAMPLE = 5                                   # the page's MIN_N: a team is evaluated from this many active epics
+LEVEL_SPREAD = 0.40                              # the page's CY.levelSpread: (busiest - lightest) / the team's in-progress epics
+MIN_SAMPLE = 5                                   # the page's MIN_N: a team is evaluated from this many in-progress epics
 LEVEL_WORDS = {"busiest": "Busiest", "lightest": "Lightest", "between": "In between"}
 
 LIST2_JS = r"""((kind) => {
@@ -622,8 +622,8 @@ def _scope(data: dict, st: dict) -> list:
 
 
 def long_tile(es: list, asof: str, win: dict, cal: dict) -> dict:
-    """Took Over 7 Days from the baked epics: the Done epics planned in the selected cycles that have a cycle time (the EDCT) and whose Issue Category is not one Cycle Time per Release leaves out (the population);
-    of them, those whose cycle time is MORE than LONG_DAYS (strictly: exactly 7 is not over)."""
+    """Took Over 10 Days from the baked epics: the Done epics planned in the selected cycles that have a cycle time (the EDCT) and whose Issue Category is not one Cycle Time per Release leaves out (the population);
+    of them, those whose cycle time is MORE than LONG_DAYS (strictly: exactly 10 is not over)."""
     done = [e for e in es if e["s"] == "Done" and (d := planned_date(e, cal)) and win["start"] <= d <= win["end"]]
     pop = [e for e in done if e.get("edct") is not None and (e.get("cat") or "").lower() not in CT_EXCLUDED]
     return {"done": len(done), "pop": len(pop), "keys": {e["k"] for e in pop if e["edct"] > LONG_DAYS}}
@@ -678,7 +678,7 @@ def act_oracle(data: dict, st: dict) -> dict:
     ns = [e for e in scope if is_ns(e)]
     flight = [e for e in scope if in_flight(e)]
     nopod = [e for e in flight if not _pods(e)]
-    # 2. Pods To Level
+    # 2. Pods With Uneven Workload
     level_rows, flagged, ends, multi = {}, [], set(), 0
     for (p, t), es in by_team.items():
         pods = sorted(k for k in team_pods[(p, t)] if any(k in _pods(e) and e["s"] != "Done" and e["k"] in P for e in es))
@@ -694,7 +694,7 @@ def act_oracle(data: dict, st: dict) -> dict:
                 level_rows[(p, t, k)] = (v, int(100 * v / total + 0.5), LEVEL_WORDS[role])
                 if role != "between":
                     ends.add((p, k))
-    # 3. Waiting Dependents Due Soon
+    # 3. Dependencies, Due in 7 Days
     by_key = {e["k"]: e for e in data["epics"]}
     by_key.update({e["k"]: e for e in scope})                      # a provider planned in the cycles is read as the pod filter leaves it (only its chosen pods)
     in_scope = P                                                   # the provider is an epic planned in the selected cycles
@@ -765,15 +765,17 @@ def check_act(res: dict, data: dict, st: dict, tag: str, ch) -> None:
     s = T["wait"]["s"]
     if X["wait_items"] and s != f"{X['wait_pod']} wait on an epic with a pod label":
         bad.append(f"{tag}: wait sub-line '{s}', the recount is {X['wait_pod']} with a pod label")
+    if not X["wait_items"] and not re.fullmatch(r"No items blocking others due till \d{4}-\d{2}-\d{2}", s):
+        bad.append(f"{tag}: wait zero sub-line is '{s}'")
     s = T["level"]["s"]
-    if X["level_pods"] and s != f"in {len(X['flagged'])} of {X['multi']} {'team' if X['multi'] == 1 else 'teams'} with two or more pods":
+    if X["level_pods"] and s != f"in {len(X['flagged'])} of {X['multi']} {'team' if X['multi'] == 1 else 'teams'}, one pod has far more epics than another":
         bad.append(f"{tag}: level sub-line '{s}', the recount is {len(X['flagged'])} of {X['multi']} teams")
     s = T["noPod"]["s"]
     share = f" ({int(100 * X['nopod'] / X['flight'] + 0.5)}%)" if X["flight"] >= MIN_SAMPLE else ""
-    if X["flight"] and s != f"of {X['flight']} active {'epic' if X['flight'] == 1 else 'epics'}{share}":
+    if X["flight"] and s != f"of {X['flight']} {'epic' if X['flight'] == 1 else 'epics'} in progress{share}":
         bad.append(f"{tag}: noPod sub-line '{s}', the recount is {X['nopod']} of {X['flight']}{share}")
-    if not X["flight"] and s != "no active epic":
-        bad.append(f"{tag}: the noPod sub-line with no active epic is '{s}'")
+    if not X["flight"] and s != "no epic in progress":
+        bad.append(f"{tag}: the noPod sub-line with no epic in progress is '{s}'")
     # ---- the lists
     for kind in ("nsSoon", "wait", "level", "noPod"):
         got = ch.js(LIST2_JS + f"({json.dumps(kind)})")
@@ -809,7 +811,7 @@ def _check_ns(bad, X, got, tag):
 
 
 def _check_level(bad, X, got, tag):
-    if got["hdr"] != ["Team", "Project", "Pod", "Active Epics", "Share of Team's Active Epics", "Position"]:
+    if got["hdr"] != ["Team", "Project", "Pod", "Epics in Progress", "Share of Team's Epics in Progress", "Position"]:
         bad.append(f"{tag}: the level header is {got['hdr']}")
     rows = {}
     for r in got["rows"]:
@@ -823,11 +825,11 @@ def _check_level(bad, X, got, tag):
     for r in got["rows"]:                                           # a count of 0 has no link; above 0 it is a Jira query
         n = _num(r["cells"][2])
         if bool(n) != bool(r["hrefs"]):
-            bad.append(f"{tag}: level row {r['th']} / {r['cells'][1]} has {n} active epics and {len(r['hrefs'])} links")
+            bad.append(f"{tag}: level row {r['th']} / {r['cells'][1]} has {n} in-progress epics and {len(r['hrefs'])} links")
 
 
 def _check_nopod(bad, X, got, tag):
-    if got["hdr"] != ["Team", "Project", "Without Pod Label", "Active", "Share Without"]:
+    if got["hdr"] != ["Team", "Project", "Without Pod Label", "In Progress", "Share Without"]:
         bad.append(f"{tag}: the noPod header is {got['hdr']}")
     rows = {}
     for r in got["rows"]:

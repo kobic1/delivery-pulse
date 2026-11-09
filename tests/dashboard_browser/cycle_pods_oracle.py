@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""The Cycles section's Took Over 7 Days tile and its Filter by Pod chips, against independent recounts.
+"""The Cycles section's Took Over 10 Days tile and its Filter by Pod chips, against independent recounts.
 
-Took Over 7 Days (third headline tile): the Done epics planned in the selected Delivery Cycles that have a cycle time (the EDCT of the Efficiency section) and are outside the Issue Categories Cycle Time per
-Release leaves out (Maintenance, SOW); of them, those with a cycle time MORE than 7 days (strictly: exactly 7 is not over). The number opens the exact keys (a cycle time is not a Jira field); the sub line prints the
-population and the share (from 5 epics). The recount is pod_oracle.long_tile (plain Python over the baked epics); the fixture holds epics of known cycle times (7, 8, 0, 9, 12), one with no cycle time, two in the
+Took Over 10 Days (third headline tile): the Done epics planned in the selected Delivery Cycles that have a cycle time (the EDCT of the Efficiency section) and are outside the Issue Categories Cycle Time per
+Release leaves out (Maintenance, SOW); of them, those with a cycle time MORE than 10 days (strictly: exactly 10 is not over). The number opens the exact keys (a cycle time is not a Jira field); the sub line prints the
+population and the share (from 5 epics). The recount is pod_oracle.long_tile (plain Python over the baked epics); the fixture holds epics of known cycle times (10, 11, 0, 12, 15), one with no cycle time, two in the
 excluded categories, an In Progress epic that carries a 30, a Done epic of another release, and epics of Cycle 2, all in 'Team Seed Lng', in the closed release 26.4 so the running release's burnup does not move (make_synthetic.proactive_epics, case 5), so the boundary and the population are
 also asserted by hand, not only by the recount. Two Done epics with NO cycle time are added by make_synthetic.long_cycle_extras to the payload of this suite only ("long" in link_cycles.page): in the stock fixture they
 would put a fifth line into the Cycle Time per Release hover and break the word budget of link_guard.py.
@@ -33,9 +33,9 @@ import make_synthetic as MS                                                     
 import pod_oracle as PO                                                             # noqa: E402
 from kit import ctx, T                                                              # noqa: E402
 
-SUITE = kit.Suite("Delivery Pulse Cycles: Took Over 7 Days and Filter by Pod")
-LNG = "r=26.4&p=PMN&t=Team%20Seed%20Lng"                                            # the fixed Took Over 7 Days cases (one team of PMN, in the closed release 26.4)
-HEADLINE = ["Planned", "Done", "Took Over 7 Days", "Overdue", "Due Next 7 Days", "Flagged"]
+SUITE = kit.Suite("Delivery Pulse Cycles: Took Over 10 Days and Filter by Pod")
+LNG = "r=26.4&p=PMN&t=Team%20Seed%20Lng"                                            # the fixed Took Over 10 Days cases (one team of PMN, in the closed release 26.4)
+HEADLINE = ["Planned", "Done", "Took Over 10 Days", "Overdue", "Due Next 7 Days", "Flagged"]
 
 STATE_JS = r"""(() => {
   const txt = n => n ? n.textContent.replace(/\s+/g, ' ').trim() : null, bar = document.getElementById('g-cypod'), lbl = bar.querySelector('.lbl');
@@ -178,7 +178,7 @@ def _(t: T):
     data, st = load("r=27.1")
     t.check(st["headline"] == ["planned", "done", "long", "overdue", "next", "flagged"], f"the headline strip is {st['headline']}")
     t.check(st["labels1"] == HEADLINE, f"the headline labels are {st['labels1']}")
-    t.check(st["labels2"] == ["Not Started Due Soon", "Waiting Items Due Soon", "Busiest and Lightest Pods", "Active Epics Without Pod", "Pods Without Planned Epics", "Pods Over 3 Epics"], f"the Pods labels are {st['labels2']}")
+    t.check(st["labels2"] == ["Not Started, Due in 7 Days", "Dependencies, Due in 7 Days", "Pods With Uneven Workload", "In-Progress Epics Without a Pod Label", "Idle Pods", "Pods With More Than 3 Epics in Progress"], f"the Pods labels are {st['labels2']}")
     t.check(st["heading"] == "Pods in Delivery Cycles 1 and 2", f"the Pods heading is {st['heading']!r}")
     t.check(st["bodyHeads"] == ["Planned and Done by Week", "Projects, Teams and Pods"], f"the page-level headings are {st['bodyHeads']}")
 
@@ -188,25 +188,25 @@ LNG_KEYS_JS = "(() => Object.fromEntries(DATA.epics.filter(e => /^Fixed case lng
 
 @SUITE.test("long_the_boundary_and_the_population_by_hand")
 def _(t: T):
-    """Known cycle times in one team: 7 is not over, 8 is; 0 is a cycle time; no cycle time, Maintenance and SOW are not in the population; an In Progress epic that carries a 30 and a Done epic of 27.2 are not counted;
-    Cycle 2 holds one over and one exactly 7. Asserted by hand, then the page's key link must open exactly the epics named here."""
+    """Known cycle times in one team: 10 is not over, 11 is; 0 is a cycle time; no cycle time, Maintenance and SOW are not in the population; an In Progress epic that carries a 30 and a Done epic of 27.2 are not counted;
+    Cycle 2 holds one over and one exactly 10. Asserted by hand, then the page's key link must open exactly the epics named here."""
     for h, pop, over in (
-        (LNG, ["lng_7", "lng_8", "lng_0", "lng_9", "lng_12_feature", "lng_nopod_8", "lng_dc2_8", "lng_dc2_7"], ["lng_8", "lng_9", "lng_12_feature", "lng_nopod_8", "lng_dc2_8"]),
-        (LNG + "&dc=1", ["lng_7", "lng_8", "lng_0", "lng_9", "lng_12_feature", "lng_nopod_8"], ["lng_8", "lng_9", "lng_12_feature", "lng_nopod_8"]),
-        (LNG + "&dc=2", ["lng_dc2_8", "lng_dc2_7"], ["lng_dc2_8"]),
+        (LNG, ["lng_10", "lng_11", "lng_0", "lng_12", "lng_15_feature", "lng_nopod_11", "lng_dc2_11", "lng_dc2_10"], ["lng_11", "lng_12", "lng_15_feature", "lng_nopod_11", "lng_dc2_11"]),
+        (LNG + "&dc=1", ["lng_10", "lng_11", "lng_0", "lng_12", "lng_15_feature", "lng_nopod_11"], ["lng_11", "lng_12", "lng_15_feature", "lng_nopod_11"]),
+        (LNG + "&dc=2", ["lng_dc2_11", "lng_dc2_10"], ["lng_dc2_11"]),
     ):
         data, st = load(h, "long")
         keys = ctx.chrome.js(LNG_KEYS_JS)
         L = st["long"]
         share = f" ({PO.jround(100 * len(over) / len(pop))}%)" if len(pop) >= 5 else ""
-        t.check(L["v"] == str(len(over)) and L["l"] == "Took Over 7 Days", f"#{h}: the tile prints {L['l']!r} {L['v']!r}, by hand {len(over)}")
+        t.check(L["v"] == str(len(over)) and L["l"] == "Took Over 10 Days", f"#{h}: the tile prints {L['l']!r} {L['v']!r}, by hand {len(over)}")
         t.check(L["s"] == f"of {len(pop)} Done epics{share}", f"#{h}: the sub line is {L['s']!r}, by hand 'of {len(pop)} Done epics{share}'")
         href = ctx.chrome.js("(() => { const a = document.querySelector('#cy-kpis1 [data-kpi=\"long\"] .v a'); return a ? [a.getAttribute('href'), a.getAttribute('data-tip')] : null; })()")
         t.check(bool(href), f"#{h}: the number is not a link")
         if href:
             t.check(PO._key_in(href[0]) == {keys[n] for n in over}, f"#{h}: the link opens {sorted(PO._key_in(href[0]))[:3]}, by hand {sorted(keys[n] for n in over)[:3]}")
             first = href[1].split("\n")
-            t.check(first[0] == f"{len(over)} Done {'epic' if len(over) == 1 else 'epics'} planned in {'Delivery Cycles 1 and 2' if h == LNG else 'Delivery Cycle ' + h[-1]} took more than 7 days." and first[1] == "Cycle time as in the Efficiency section.",
+            t.check(first[0] == f"{len(over)} Done {'epic' if len(over) == 1 else 'epics'} planned in {'Delivery Cycles 1 and 2' if h == LNG else 'Delivery Cycle ' + h[-1]} took more than 10 days." and first[1] == "Cycle time as in the Efficiency section.",
                     f"#{h}: the hover is {first[:2]}")
             t.check(len(re.findall(r"\bwords\b", href[1])) == 0 and ((len(over) > 3) == bool(re.search(r"Exact list of \d+ issues", href[1]))), f"#{h}: the exact-list line: {href[1]!r}")
     # the zero cases and the sub lines that have nothing to count
@@ -225,7 +225,7 @@ def _(t: T):
     r = LC.sweep(kinds=("long", "variant"), hashes=views)
     t.check(not r["pod_bad"], f"{len(r['pod_bad'])} differences from the independent recount, e.g. {r['pod_bad'][:3]}")
     seen = r["pod_seen"]
-    t.check(seen["long>0"] > 0 and seen["long==0"] > 0, f"the recount never reached both a non-empty and an empty Took Over 7 Days ({dict(seen)})")
+    t.check(seen["long>0"] > 0 and seen["long==0"] > 0, f"the recount never reached both a non-empty and an empty Took Over 10 Days ({dict(seen)})")
     t.check(not r["errors"] and not r["skipped"], f"errors {r['errors'][:2]} skipped {r['skipped'][:2]}")
 
 
@@ -399,14 +399,15 @@ def _(t: T):
       const hov = [...document.querySelectorAll('#cy-sec [data-tip]')].map(e => e.getAttribute('data-tip')).join('\\n');
       const lists = []; document.querySelectorAll('#cy-kpis2 [data-cyact="pods"]').forEach(b => { b.click(); lists.push(document.getElementById('cy-podlist').textContent); b.click(); });
       return document.getElementById('cy-sec').textContent + '\\n' + hov + '\\n' + lists.join('\\n'); })()""")
-    for gone in ("Idle Pods", "Pods To Level", "Pods to level", "Waiting Dependents", "Waiting dependents", "Not-Started Epics", "Not-started epics", "Pod health", "Weekly Plan vs. Actual", "of them stale", "Stale",
-                 "In-Progress", "in-progress", "In-progress", "Without a Pod Label", "without a pod label,", "Pods With More Than", "run --add-planning", "Dependents Due"):
+    for gone in ("Pods To Level", "Pods to level", "Waiting Dependents", "Waiting dependents", "Not-Started Epics", "Not-started epics", "Pod health", "Weekly Plan vs. Actual", "of them stale", "Stale",
+                 "Active epics", "active epics", "Active Epics", "Active:", "Active epic", "no active epic", "Pods Over", "Pods over", "Busiest and Lightest Pods", "Busiest and lightest pods", "Waiting Items Due Soon", "Waiting items due soon",
+                 "Not Started Due Soon", "Not started due soon", "Pods Without Planned Epics", "Pods without planned epics,", "run --add-planning", "Dependents Due"):
         t.check(gone not in txt, f"the retired wording {gone!r} is still in the Cycles section")
-    for said in ("Took Over 7 Days", "Took over 7 days", "Active: status In Progress or Validation.", "Overdue more than 30 days", "Planned and Done by Week", "Pods Without Planned Epics", "Pods over 3 epics", "Busiest and lightest pods",
-                 "Active epics without pod", "Not started due soon", "Waiting items due soon", "Filter by Pod", "Showing Delivery Cycles 1 and 2 combined"):
+    for said in ("Took Over 10 Days", "Took over 10 days", "In progress: status In Progress or Validation.", "Overdue more than 30 days", "Planned and Done by Week", "Idle Pods", "Pods with more than 3 epics in progress", "Pods with uneven workload",
+                 "In-progress epics without a pod label", "Not started, due in 7 days", "Dependencies, due in 7 days", "Filter by Pod", "Showing Delivery Cycles 1 and 2 combined"):
         t.check(said in txt, f"the new wording {said!r} is not in the Cycles section")
-    t.check("Done epics planned in the selected Delivery Cycles whose cycle time is more than 7 days; cycle time as in Efficiency." in txt, "the definition of Took over 7 days does not give its rule")
-    t.check("epics in Maintenance and SOW are left out, as in Cycle Time per Release" in txt, "the definition of Took over 7 days does not name the excluded Issue Categories")
+    t.check("Done epics planned in the selected Delivery Cycles whose cycle time is more than 10 days; cycle time as in Efficiency." in txt, "the definition of Took over 10 days does not give its rule")
+    t.check("epics in Maintenance and SOW are left out, as in Cycle Time per Release" in txt, "the definition of Took over 10 days does not name the excluded Issue Categories")
 
 
 @SUITE.test("long_six_tiles_lay_out_cleanly_at_1400_1100_760_and_390")
@@ -437,13 +438,13 @@ def _(t: T):
 MUT_VIEWS = ["r=26.4&p=PMN&t=Team%20Seed%20Lng", "r=27.1&p=PMN&pd=pod-lvl-a2|~none", "r=26.4&p=PMN&dc=2&pd=pod-lng-a|pod-lng-b", "r=27.1&p=PMN&pd=pod-ns-a|pod-wip-four"]
 MUT_VARIANT = ["r=27.1&p=PMN&pd=pod-seed-twoa", "r=27.1&p=PMN&pd=pod-seed-case|pod-seed-four"]
 LONG_MUTANTS = [
-    ("7 days counts as took over (>= instead of >)", "const cyLong = e => cyCtPop(e) && e.ed > CY.longCycle;", "const cyLong = e => cyCtPop(e) && e.ed >= CY.longCycle;"),
-    ("the threshold constant is 8", "longCycle: 7,", "longCycle: 8,"),
+    ("10 days counts as took over (>= instead of >)", "const cyLong = e => cyCtPop(e) && e.ed > CY.longCycle;", "const cyLong = e => cyCtPop(e) && e.ed >= CY.longCycle;"),
+    ("the threshold constant is 8", "longCycle: 10,", "longCycle: 11,"),
     ("the excluded Issue Categories are counted", "const cyCtPop = e => cyDone(e) && !e.ex && e.ed != null;", "const cyCtPop = e => cyDone(e) && e.ed != null;"),
     ("an epic that is not Done counts with its cycle time", "const cyCtPop = e => cyDone(e) && !e.ex && e.ed != null;", "const cyCtPop = e => !e.ex && e.ed != null;"),
     ("an epic with no cycle time is in the population", "const cyCtPop = e => cyDone(e) && !e.ex && e.ed != null;", "const cyCtPop = e => cyDone(e) && !e.ex;"),
     ("the share is out of every Done epic, not the population", "const n = s.long.length, m = s.ctPop.length;", "const n = s.long.length, m = s.done.length;"),
-    ("the link opens the whole population, not the epics over 7 days", "tlink(n, cyKeyIn(s.long.map(e => e.k)),", "tlink(n, cyKeyIn(s.ctPop.map(e => e.k)),"),
+    ("the link opens the whole population, not the epics over 10 days", "tlink(n, cyKeyIn(s.long.map(e => e.k)),", "tlink(n, cyKeyIn(s.ctPop.map(e => e.k)),"),
     ("the cycle time is read from the calendar days, not the EDCT", "ed: cycleOf(e), ex: cycleExcluded(e)", "ed: e.cal === undefined ? cycleOf(e) : e.cal, ex: cycleExcluded(e)"),
     ("the share shows under 5 epics", "of ${m.toLocaleString(\"en-US\")} Done ${epicWord(m)}${cyShare(n, m)}", "of ${m.toLocaleString(\"en-US\")} Done ${epicWord(m)} (${pct(n, m)}%)"),
 ]
@@ -452,7 +453,7 @@ POD_MUTANTS = [
     ("No Pod Label never passes", ": state.pods.has(CY_NOPOD))", ": false)"),
     ("the headline tiles ignore the pod filter", "const planned = M.planned(), x = {s: cyStats(planned, M.carry()),", "const planned = M.planned(), x = {s: cyStats(M.every.filter(e => e.due && e.due >= M.c.start && e.due <= M.c.end), M.carry()),"),
     ("the weekly table ignores the pod filter", "const c = M.c, planned = M.planned(), W = dcWeeks(state.release)", "const c = M.c, planned = M.every.filter(e => e.due && e.due >= M.c.start && e.due <= M.c.end), W = dcWeeks(state.release)"),
-    ("Pods Without Planned Epics lists the pods of an epic that were not chosen", "const pods = cyPodsOf(epics).filter(p => !cyPodsOn() || state.pods.has(p.key)), ps = new Set(planned);", "const pods = cyPodsOf(epics), ps = new Set(planned);"),
+    ("Idle Pods lists the pods of an epic that were not chosen", "const pods = cyPodsOf(epics).filter(p => !cyPodsOn() || state.pods.has(p.key)), ps = new Set(planned);", "const pods = cyPodsOf(epics), ps = new Set(planned);"),
     ("the pod rows of the table hold the pods of an epic that were not chosen", " || (cyPodsOn() && !state.pods.has(k))) return; seen.add(k);", ") return; seen.add(k);"),
     ("the Jira links ignore the chosen pods", "[cyNodeClause(g), cyPodFilterQ(), w].filter(Boolean)", "[cyNodeClause(g), w].filter(Boolean)"),
     ("the total row and the row links ignore the chosen pods", "extra: [n.level === \"pod\" ? podSpellingsClause(n.spellings) : \"\", cyPodFilterQ()].filter(Boolean).join(\" AND \")", "extra: n.level === \"pod\" ? podSpellingsClause(n.spellings) : \"\""),
@@ -540,7 +541,7 @@ def _(t: T):
     src = ctx.template.read_text(encoding="utf-8")
     for i, (what, old, new) in enumerate(LONG_MUTANTS):
         tmp = mutated(src, i, what, old, new)
-        t.check(sweep_caught(tmp, ("long",), MUT_VIEWS[:1] + ["r=26.4&p=PMN&t=Team%20Seed%20Lng&dc=1", "r=26.4&p=PMN&t=Team%20Seed%20Lng&dc=2", "r=26.4&p=PMN&pd=pod-lng-solo-a", "r=27.1"]) > 0, f"the Took Over 7 Days recount did not notice the seeded defect: {what}")
+        t.check(sweep_caught(tmp, ("long",), MUT_VIEWS[:1] + ["r=26.4&p=PMN&t=Team%20Seed%20Lng&dc=1", "r=26.4&p=PMN&t=Team%20Seed%20Lng&dc=2", "r=26.4&p=PMN&pd=pod-lng-solo-a", "r=27.1"]) > 0, f"the Took Over 10 Days recount did not notice the seeded defect: {what}")
     for i, (what, old, new) in enumerate(POD_MUTANTS):
         tmp = mutated(src, 100 + i, what, old, new)
         a = sweep_caught(tmp, ("stock",), MUT_VIEWS[1:] + ["r=27.1&p=PMN|CXCO"])

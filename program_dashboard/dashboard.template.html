@@ -3517,7 +3517,7 @@ function renderNfr() {
 // not configured: Delivery Cycle 1 runs from the release start to the end of W6 (start + 48 days, the boundary of the Epic Delivery marker), Delivery Cycle 2 from the next day to the release end.
 // An epic belongs to the cycle that holds its planned date (its due date; the end of its Target Sprint only when it has no due date). Groups are the Epic Teams of the selected epics, in
 // alphabetical order; an optional pod grouping (pods pull, git-ignored configuration) can replace them. Facts only: no verdict, no colour for a group, no ranking, no share under 5 items.
-const CY = {stale: 30, next: 7, longCycle: 7, podWip: 3, levelSpread: 0.40, asOf: ""};          // longCycle: a Done epic took long when its cycle time is MORE than this many days (strictly). podWip: a reference level chosen by the owner (more than this many epics In Progress in one pod), not a program rule. levelSpread: a team is uneven when its busiest and lightest pods differ by this share of the team's active epics (owner's level; the minimum sample is MIN_N)
+const CY = {stale: 30, next: 7, longCycle: 10, podWip: 3, levelSpread: 0.40, asOf: ""};          // longCycle: a Done epic took long when its cycle time is MORE than this many days (strictly). podWip: a reference level chosen by the owner (more than this many epics In Progress in one pod), not a program rule. levelSpread: a team is uneven when its busiest and lightest pods differ by this share of the team's in-progress epics (owner's level; the minimum sample is MIN_N)
 const CY_DAY = s => Math.round(utc(s) / DAY);
 const cyAdd = (s, n) => iso(utc(s) + n * DAY);
 let CYM = null;                                                // the model of the last render: the cycle set (sel) as one window (c), epics, groups
@@ -3623,7 +3623,7 @@ const cyMax = (a, b) => a > b ? a : b;
 const cyPodSp = p => [...((podRegistry().per[p]) || [])].sort();
 const cyPodClause = p => `project = ${pkey(p.project)} AND labels in (${p.sp.map(q).join(", ")})`;      // one pod: the project and every spelling its epics use
 const CY_FLIGHT = `status in (${CLASS.flight.map(q).join(", ")})`;
-const CY_WIP_STATUS = "In Progress";                                    // the one status the Pods Over N Epics tile counts (Validation is not counted, the owner's decision for that tile and its list only: every other active figure keeps CLASS.flight)
+const CY_WIP_STATUS = "In Progress";                                    // the one status the Pods With More Than N Epics in Progress tile counts (Validation is not counted, the owner's decision for that tile and its list only: every other in-progress figure keeps CLASS.flight)
 const CY_WIP_CLAUSE = `status = ${q(CY_WIP_STATUS)}`;
 const cyWipEpic = e => e.s === CY_WIP_STATUS;
 const cyNoPodQ = p => { const sp = cyPodSp(p); return sp.length ? `(labels is EMPTY OR labels not in (${sp.map(q).join(",")}))` : ""; };
@@ -3719,7 +3719,7 @@ function cyBuild() {
 }
 const byTeamName = (a, b) => a === NO_TEAM ? 1 : b === NO_TEAM ? -1 : a.localeCompare(b, "en", {sensitivity: "base"});
 
-// Took Over 7 Days: the Done epics planned in the selected cycles that have a cycle time (cycleOf, the EDCT of the Efficiency section) and are outside the Issue Categories Cycle Time per Release leaves out (cycleExcluded); of them, those with a cycle time MORE than CY.longCycle days.
+// Took Over 10 Days: the Done epics planned in the selected cycles that have a cycle time (cycleOf, the EDCT of the Efficiency section) and are outside the Issue Categories Cycle Time per Release leaves out (cycleExcluded); of them, those with a cycle time MORE than CY.longCycle days.
 const cyCtPop = e => cyDone(e) && !e.ex && e.ed != null;
 const cyLong = e => cyCtPop(e) && e.ed > CY.longCycle;
 function cyStats(planned, carry) {
@@ -3752,9 +3752,9 @@ const cyPodBtn = (kind, n, what) => { const on = CY_PODLIST === kind;
 
 // ---- the four 'act now' tiles of the Pods block: forward-looking lists the teams can act on today. Each is built from the hierarchy of cyBuild (Project > Team > Pod) over the epics planned in the selected cycles (the Planned tile's epics, cyPh) under the page filters.
 //   nsSoon: not started (CLASS.notStarted) with a planned date from the as-of day to CY.next days later (plannedDue, the due date else the Target Sprint end), inside the selected cycles.
-//   level: teams with two or more pods whose active epics (CLASS.flight: In Progress or Validation) are spread unevenly (CY.levelSpread of the team's active epics, at least MIN_N of them).
+//   level: teams with two or more pods whose in-progress epics (CLASS.flight: In Progress or Validation) are spread unevenly (CY.levelSpread of the team's in-progress epics, at least MIN_N of them).
 //   wait: open dependencies (depModel) whose provider is an epic planned in the selected cycles and whose waiting item is planned (the Dependencies rule: due date first) from the as-of day to CY.next days later.
-//   noPod: active (In Progress or Validation) with no pod label (podLabelsOf, as stored in pl).
+//   noPod: in progress (In Progress or Validation) with no pod label (podLabelsOf, as stored in pl).
 const cyInFlight = e => CLASS.flight.includes(e.s);
 const cyNsSoon = e => cls(e.s) === "notStarted" && !!e.due && e.due >= CY.asOf && e.due <= cyAdd(CY.asOf, CY.next);
 const cyPh = e => CYM.pset.has(e);                                // the population of the Pods tiles: planned in the selected cycles
@@ -3835,28 +3835,28 @@ const CY_KPI = {
   flagged: ({s, c}) => ({c: "cy", v: !CY_RAW_OK() ? "–" : cyNumT(s.flag, `${nn(s.flag.length, "planned epic", "planned epics")} flagged as blocked in Jira\nThe Flagged field is set; not Done.`, "flag", null, c), l: "Flagged",
     s: !CY_RAW_OK() ? "flag data is not in this build" : s.flagCarry.length ? `${cyNum(s.flagCarry, "flagged as blocked in Jira, in carry-over", "The Flagged field is set; not Done; planned before the cycle start.", "flagCarry", null, c)} more in carry-over` : "planned epics, not Done"}),
   idle: ({c, fig}) => { const n = fig.idle.length, rel = state.release;
-    return {c: "cy2", l: tipFocus("Pods Without Planned Epics", `Pods of ${rel} with no epic planned in ${c.name}.\nNo pod label means no pod, so a pod can look idle.\nOpens a list below`),
+    return {c: "cy2", l: tipFocus("Idle Pods", `Pods of ${rel} with no epic planned in ${c.name}.\nNo pod label means no pod, so a pod can look idle.\nOpens a list below`),
       ...(cyPodState(fig) || {v: n ? cyPodBtn("idle", n, `${nn(n, "pod", "pods")} without planned epics in ${rel}`) : "0", s: `of ${fig.pods.length} ${plural(fig.pods.length, "pod", "pods")} in ${rel}`})}; },
   wip: ({c, fig}) => { const n = fig.wip.length, rel = state.release, L = CY.podWip;
-    return {c: "cy2", l: tipFocus(`Pods Over ${L} Epics`, `Pods with more than ${L} epics In Progress, planned in ${c.name}.\nValidation excluded. ${L} is a reference, not a rule.\nOpens a list below`),
+    return {c: "cy2", l: tipFocus(`Pods With More Than ${L} Epics in Progress`, `Pods with more than ${L} epics In Progress, planned in ${c.name}.\nValidation excluded. ${L} is a reference, not a rule.\nOpens a list below`),
       ...(cyPodState(fig) || {v: n ? cyPodBtn("wip", n, `${nn(n, "pod", "pods")} with more than ${L} epics In Progress in ${rel}`) : "0",
         s: n ? `${cyNum(fig.wipEpics, `In Progress in the ${nn(n, "pod", "pods")} with more than ${L}`, `Planned in ${c.name}, ${rel}. Validation is not counted.`, "podWip", null, c, fig.wip)} ${epicWord(fig.wipEpics.length)} In Progress in these pods` : `no pod has more than ${L} epics In Progress`})}; },
   nsSoon: ({c, act}) => { const n = act.ns.length, rel = state.release, to = cyAdd(CY.asOf, CY.next);
-    return {c: "cy2", l: tipFocus("Not Started Due Soon", `Not started epics planned in ${c.name}, due in the next ${CY.next} days (${cyWindow()}).\nOpens a list below`),
+    return {c: "cy2", l: tipFocus(`Not Started, Due in ${CY.next} Days`, `Not started epics planned in ${c.name}, due in the next ${CY.next} days (${cyWindow()}).\nOpens a list below`),
       v: n ? cyPodBtn("nsSoon", n, `${nn(n, "not started epic", "not started epics")} due in the next ${CY.next} days in ${rel}`) : "0",
       s: n ? `${cyLn(act.nsRfd, `not started, Ready for Dev, planned ${cyWindow()}`, "nsSoonRfd", null, c)} of them Ready for Dev` : `none planned ${CY.asOf} to ${to}`}; },
   wait: ({c, act}) => { const n = act.wait.items.size, to = cyAdd(CY.asOf, CY.next);
-    return {c: "cy2", l: tipFocus("Waiting Items Due Soon", `Items due in the next ${CY.next} days that wait on an epic planned in ${c.name}.\nOpens a list below`),
+    return {c: "cy2", l: tipFocus(`Dependencies, Due in ${CY.next} Days`, `Items due in the next ${CY.next} days that depend on an epic planned in ${c.name}.\nOpens a list below`),
       v: n ? cyPodBtn("wait", n, `${nn(n, "waiting item", "waiting items")} due within ${CY.next} days`) : "0",
-      s: n ? `${act.wait.withPod} wait on an epic with a pod label` : `no item waiting on an epic is due ${CY.asOf} to ${to}`}; },
+      s: n ? `${act.wait.withPod} wait on an epic with a pod label` : `No items blocking others due till ${to}`}; },
   level: ({c, act}) => { const L = act.level, n = L.n;
-    return {c: "cy2", l: tipFocus("Busiest and Lightest Pods", `Busiest and lightest pod of each team whose pods differ by ${Math.round(CY.levelSpread * 100)}% or more of the team's active epics.\nOpens a list below`),
+    return {c: "cy2", l: tipFocus("Pods With Uneven Workload", `Pods of each team with uneven workload: busiest and lightest differ by ${Math.round(CY.levelSpread * 100)}% or more of the team's epics in progress.\nOpens a list below`),
       ...(!cyLabelsReady() ? {v: "–", s: "pod labels are not in this build"} : {v: n ? cyPodBtn("level", n, `${nn(n, "busiest or lightest pod", "busiest and lightest pods")}`) : "0",
-        s: n ? `in ${L.flagged.length} of ${L.multi} ${plural(L.multi, "team", "teams")} with two or more pods` : L.multi ? `none of ${L.multi} ${plural(L.multi, "team", "teams")} with two or more pods is uneven` : "no team has two or more pods"})}; },
+        s: n ? `in ${L.flagged.length} of ${L.multi} ${plural(L.multi, "team", "teams")}, one pod has far more epics than another` : L.multi ? `none of ${L.multi} ${plural(L.multi, "team", "teams")} with two or more pods is uneven` : "no team has two or more pods"})}; },
   noPod: ({c, act}) => { const n = act.noPod.length, m = act.flight.length;
-    return {c: "cy2", l: tipFocus("Active Epics Without Pod", `Active epics (In Progress or Validation) planned in ${c.name} with no pod label.\nOpens a list below`),
-      ...(!cyLabelsReady() ? {v: "–", s: "pod labels are not in this build"} : {v: n ? cyPodBtn("noPod", n, `${nn(n, "active epic", "active epics")} without a pod label`) : "0",
-        s: m ? `of ${cyLn(act.flight, "active", "flightIn", null, c)} active ${epicWord(m)}${cyShare(n, m)}` : "no active epic"})}; },
+    return {c: "cy2", l: tipFocus("In-Progress Epics Without a Pod Label", `Epics In Progress or Validation planned in ${c.name} with no pod label.\nOpens a list below`),
+      ...(!cyLabelsReady() ? {v: "–", s: "pod labels are not in this build"} : {v: n ? cyPodBtn("noPod", n, `${nn(n, "in-progress epic", "in-progress epics")} without a pod label`) : "0",
+        s: m ? `of ${cyLn(act.flight, "in progress", "flightIn", null, c)} ${epicWord(m)} in progress${cyShare(n, m)}` : "no epic in progress"})}; },
 };
 const CY_STRIP = {headline: ["planned", "done", "long", "overdue", "next", "flagged"], pods: ["nsSoon", "wait", "level", "noPod", "idle", "wip"]};
 const cyTiles = (view, x) => CY_STRIP[view].map(id => ({...CY_KPI[id](x), id}));
@@ -3990,20 +3990,20 @@ function cyDefs() {
       ["Overdue", `planned in the selected Delivery Cycles, before the as-of date, and not Done.`],
       [`Due next ${CY.next} days`, `planned in the selected Delivery Cycles, not Done, from the as-of date up to ${CY.next} days later.`],
       ["Flagged", `planned in the selected Delivery Cycles, not Done, and flagged as blocked in Jira (the Flagged field is set).`],
-      ["Active", `status In Progress or Validation.`],
-      ["Pods without planned epics", `pods that have at least one epic in ${esc(state.release)} and no epic planned in the selected Delivery Cycles, under the Release, Projects and Teams filters (and the chosen pods, when pods are chosen).`],
-      [`Pods over ${CY.podWip} epics`, `pods with more than ${CY.podWip} epics in the status In Progress, among the epics of ${esc(state.release)} planned in the selected Delivery Cycles. Validation is not counted here, unlike the other active figures of this section, which count In Progress and Validation. The level ${CY.podWip} is a reference chosen by the owner, not a program rule.`],
-      ["Not started due soon", `epics in Candidate, New, In Definition or Ready for Dev whose planned date (the due date, else the Target Sprint end) is from the as-of date up to ${CY.next} days later, and inside the selected Delivery Cycles.`],
-      ["Waiting items due soon", `open dependencies, neither end Done, where an epic of ${esc(state.release)} planned in the selected Delivery Cycles blocks an item of any issue type that is planned from the as-of date up to ${CY.next} days later (the due date first, else the Target Sprint end). Each waiting item counts once.`],
-      ["Busiest and lightest pods", `for each team with at least two pods, the active epics of each pod. A team is flagged when its busiest and lightest pods differ by ${Math.round(CY.levelSpread * 100)}% or more of the team's active epics (teams with at least ${MIN_N} active). The tile counts those two pods. A pod takes part when it has an epic planned in the selected Delivery Cycles that is not Done.`],
-      ["Active epics without pod", `active epics planned in the selected Delivery Cycles with no pod label, out of all active epics planned in them. The share shows from ${MIN_N} active epics.`]
+      ["In progress", `status In Progress or Validation.`],
+      ["Idle pods", `pods that have at least one epic in ${esc(state.release)} and no epic planned in the selected Delivery Cycles, under the Release, Projects and Teams filters (and the chosen pods, when pods are chosen).`],
+      [`Pods with more than ${CY.podWip} epics in progress`, `pods with more than ${CY.podWip} epics in the status In Progress, among the epics of ${esc(state.release)} planned in the selected Delivery Cycles. Validation is not counted here, unlike the other in-progress figures of this section, which count In Progress and Validation. The level ${CY.podWip} is a reference chosen by the owner, not a program rule.`],
+      [`Not started, due in ${CY.next} days`, `epics in Candidate, New, In Definition or Ready for Dev whose planned date (the due date, else the Target Sprint end) is from the as-of date up to ${CY.next} days later, and inside the selected Delivery Cycles.`],
+      [`Dependencies, due in ${CY.next} days`, `open dependencies, neither end Done, where an epic of ${esc(state.release)} planned in the selected Delivery Cycles blocks an item of any issue type that is planned from the as-of date up to ${CY.next} days later (the due date first, else the Target Sprint end). Each waiting item counts once.`],
+      ["Pods with uneven workload", `for each team with at least two pods, the epics in progress of each pod. A team is flagged when its busiest and lightest pods differ by ${Math.round(CY.levelSpread * 100)}% or more of its epics in progress, and it has at least ${MIN_N}. The tile counts those two pods. A pod takes part when it has an epic planned in the selected Delivery Cycles that is not Done.`],
+      ["In-progress epics without a pod label", `epics in progress planned in the selected Delivery Cycles with no pod label, out of all epics in progress planned in them. The share shows from ${MIN_N} epics in progress.`]
     ],
     left: `Removed epics. Epics with no planned date, or planned after the release end, are in no cycle.`,
-    know: `The section has one filter of its own, Filter by Pod, shown when exactly one project is selected; it narrows every tile and table of the section to the chosen pods, and the banner then says so. Apart from it, it follows the Release, Projects, Teams and Delivery Cycle filters, and the banner under the heading says which cycles it shows. With Both cycles selected (the default) it shows both combined: an epic planned in either counts once, and the epics planned after the release end are counted in the caption of the Planned tile. With one cycle selected it shows that cycle only and leaves those epics out. The Epics in Release column does not follow the Delivery Cycle filter. The Pods tiles count the epics planned in the selected cycles, as the Planned tile does; Pods Without Planned Epics lists the pods of the release that have none. The as-of date is the date of the data, shown at the top of the page. No team or person is ranked or scored. The Pods tiles are facts about the plan, not a verdict on people, and are not ranked.`,
+    know: `The section has one filter of its own, Filter by Pod, shown when exactly one project is selected; it narrows every tile and table of the section to the chosen pods, and the banner then says so. Apart from it, it follows the Release, Projects, Teams and Delivery Cycle filters, and the banner under the heading says which cycles it shows. With Both cycles selected (the default) it shows both combined: an epic planned in either counts once, and the epics planned after the release end are counted in the caption of the Planned tile. With one cycle selected it shows that cycle only and leaves those epics out. The Epics in Release column does not follow the Delivery Cycle filter. The Pods tiles count the epics planned in the selected cycles, as the Planned tile does; Idle Pods lists the pods of the release that have none. The as-of date is the date of the data, shown at the top of the page. No team or person is ranked or scored. The Pods tiles are facts about the plan, not a verdict on people, and are not ranked.`,
     this: ["This release", `${esc(state.release)}: ${esc(win[0].name)} ${win[0].start} to ${win[0].end}${win[1] ? `; ${esc(win[1].name)} ${win[1].start} to ${win[1].end}` : ""}. Shown now: ${esc(c.name)}, ${c.start} to ${c.end}. As-of date ${esc(CY.asOf)}.`],
     more: [
       [`Overdue more than ${CY.stale} days`, `more than ${CY.stale} days overdue, counted over planned and carry-over epics together. The figure under Overdue counts planned epics only.`],
-      ["Filter by Pod", `shown only when exactly one project is selected. Choose one or several pods (or No Pod Label): an epic stays when it carries any chosen pod. Every tile, list, table and Jira link of this section counts only those epics; Pods Without Planned Epics lists only the chosen pods. Pods are matched without regard to case. Changing the project clears the choice. All Pods, Show All Pods and Reset Filters clear it.`],
+      ["Filter by Pod", `shown only when exactly one project is selected. Choose one or several pods (or No Pod Label): an epic stays when it carries any chosen pod. Every tile, list, table and Jira link of this section counts only those epics; Idle Pods lists only the chosen pods. Pods are matched without regard to case. Changing the project clears the choice. All Pods, Show All Pods and Reset Filters clear it.`],
       ["Carry-over", `not Done, with a planned date before the first selected cycle starts (with both selected, before the release start). Shown only once that cycle has started.`],
       ["Planned and Done by Week", `one table for the epics planned in the selected Delivery Cycles, under the Release, Projects and Teams filters. Weeks are numbered as in the burnup: W1 starts 7 days after the release start, the end of W6 is 48 days after it, and the end of W12 is the release end. Cycle 1 shows W1 to W6, Cycle 2 shows W7 to W12, both cycles show W1 to W12. The first seven days of the release belong to Cycle 1 but are not a numbered week: a Before W1 row appears only when epics are planned in them, so the rows add up to the Planned tile. Epics planned after the release end are in the Planned caption, not in a row. % Done: Done over Planned, shown from ${MIN_N} planned epics, a dash under that. Result: All Done or a count Not Done for a week that has ended, Current Week, Upcoming, or a dash for a week with no planned epic. It states what the dates show; it is not a rating.`],
       ["Dates", `A cycle includes its first and last day. Due next ${CY.next} days covers ${CY.next + 1} calendar days: the as-of date and the ${CY.next} days after it. An epic planned on the as-of date is not yet overdue. Weeks run seven days each, from W1 as described under Planned and Done by Week.`],
@@ -4044,19 +4044,19 @@ function cyListNs(c) {
     [["Team"], ["Pod"], ["Project"], ["Epics", 1]], body);
 }
 function cyListLevel(c) {
-  const L = CY_ACT.level, what = `Busiest and lightest pods in ${state.release}`, pc = Math.round(CY.levelSpread * 100);
+  const L = CY_ACT.level, what = `Pods with uneven workload in ${state.release}`, pc = Math.round(CY.levelSpread * 100);
   const body = L.flagged.map(x => x.rows.map(r => { const es = r.k.epics.filter(cyPodFlight);
-    return `<tr><th scope="row">${esc(x.t.name)}</th><td>${esc(x.t.project)}</td><td>${esc(r.k.name)}</td><td class="n">${cyLn(es, `active, ${r.k.name} in ${x.t.name}`, "flightIn", r.k, c)}</td><td class="n">${Math.round(100 * r.n / x.total)}%</td>` +
+    return `<tr><th scope="row">${esc(x.t.name)}</th><td>${esc(x.t.project)}</td><td>${esc(r.k.name)}</td><td class="n">${cyLn(es, `in progress, ${r.k.name} in ${x.t.name}`, "flightIn", r.k, c)}</td><td class="n">${Math.round(100 * r.n / x.total)}%</td>` +
       `<td>${r.role === "busiest" ? "Busiest" : r.role === "lightest" ? "Lightest" : "In between"}</td></tr>`; }).join("")).join("");
-  return cyActTable(what, `${esc(what)}: ${L.flagged.length} of ${L.multi} ${plural(L.multi, "team", "teams")} with two or more pods. A team is flagged when its busiest and lightest pods differ by ${pc}% or more of the team's active epics (teams with at least ${MIN_N} active). ` +
-    `Counted over epics planned in ${esc(c.name)}; pods are known only through epic labels, so a count is a lower bound.`, [["Team"], ["Project"], ["Pod"], ["Active Epics", 1], ["Share of Team's Active Epics", 1], ["Position"]], body);
+  return cyActTable(what, `${esc(what)}: ${L.flagged.length} of ${L.multi} ${plural(L.multi, "team", "teams")} with two or more pods. A team is flagged when its busiest and lightest pods differ by ${pc}% or more of the team's epics in progress (teams with at least ${MIN_N} epics in progress). ` +
+    `Counted over epics planned in ${esc(c.name)}; pods are known only through epic labels, so a count is a lower bound.`, [["Team"], ["Project"], ["Pod"], ["Epics in Progress", 1], ["Share of Team's Epics in Progress", 1], ["Position"]], body);
 }
 function cyListNoPod(c) {
-  const A = CY_ACT, what = `Active epics without a pod label in ${state.release}`;
+  const A = CY_ACT, what = `In-progress epics without a pod label in ${state.release}`;
   const body = A.noPodRows.map(({t, es}) => { const fl = t.epics.filter(cyPodFlight);
-    return `<tr><th scope="row">${esc(t.name)}</th><td>${esc(t.project)}</td><td class="n">${cyLn(es, `active, no pod label, ${t.name}`, "noPodFlight", t, c)}</td><td class="n">${cyLn(fl, `active, ${t.name}`, "flightIn", t, c)}</td><td class="n">${fl.length >= MIN_N ? pct(es.length, fl.length) + "%" : "–"}</td></tr>`; }).join("");
-  return cyActTable(what, `${esc(what)}: ${cyLn(A.noPod, "active, no pod label", "podNoneFlight", null, c)} of ${cyLn(A.flight, "active", "flightIn", null, c)} active epics, by team. An epic with several teams appears under each. A share needs at least ${MIN_N} active epics.`,
-    [["Team"], ["Project"], ["Without Pod Label", 1], ["Active", 1], ["Share Without", 1]], body);
+    return `<tr><th scope="row">${esc(t.name)}</th><td>${esc(t.project)}</td><td class="n">${cyLn(es, `in progress, no pod label, ${t.name}`, "noPodFlight", t, c)}</td><td class="n">${cyLn(fl, `in progress, ${t.name}`, "flightIn", t, c)}</td><td class="n">${fl.length >= MIN_N ? pct(es.length, fl.length) + "%" : "–"}</td></tr>`; }).join("");
+  return cyActTable(what, `${esc(what)}: ${cyLn(A.noPod, "in progress, no pod label", "podNoneFlight", null, c)} of ${cyLn(A.flight, "in progress", "flightIn", null, c)} epics in progress, by team. An epic with several teams appears under each. A share needs at least ${MIN_N} epics in progress.`,
+    [["Team"], ["Project"], ["Without Pod Label", 1], ["In Progress", 1], ["Share Without", 1]], body);
 }
 function cyListWait() {
   const W = CY_ACT.wait, to = cyAdd(CY.asOf, CY.next), what = `Waiting items due in the next ${CY.next} days in ${state.release}`, n = W.items.size;

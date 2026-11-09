@@ -543,7 +543,7 @@ class Gen:
         return {"bugs": res, "templates": len(RCA_TEMPLATES), "tpl": [h53(norm_text(t)) for t in RCA_TEMPLATES], "allOpen": len(open_cfb) + 5,
                 "allOpenByProject": {**{p: sum(1 for b in open_cfb if b["p"] == p) for p in projects or BASE_PROJECTS}, "EXA": 3, "EXB": 2}, "pulledAt": il_stamp(self.generated_day, 0, 36)}
 
-    # ---- the four proactive Pods KPIs (Not-Started Epics Due Within 7 Days, Waiting Dependents Due Soon, Pods To Level, In-Progress Epics Without a Pod Label): FIXED cases, no random draw, fictitious
+    # ---- the four proactive Pods KPIs (Not Started, Due in 7 Days; Dependencies, Due in 7 Days; Pods With Uneven Workload; In-Progress Epics Without a Pod Label): FIXED cases, no random draw, fictitious
     # team and pod names, every date relative to the AS-OF day (the generated day, which is what the page calls today). Keys start at 96001, clear of the random counter and of the 97xxx far ends.
     # The first 27.1 sprint ends on as-of + 6 (the release started 23 days before `today`, as-of is today - 2) and the second on as-of + 27: the 'later date counts' cases rely on both ends.
     def proactive_epics(self, epics, by_rel, used_ts):
@@ -557,7 +557,7 @@ class Gen:
         def add(name, team, labels, status, dd=None, ts=None, c="Committed", nf=False, fv=None, ct=5, cat=None, cal=None, since=None) -> str:
             n[0] += 1
             k = f"PMN-{n[0]}"
-            ws = self.windows[fv[0]][0] if since is not None else None                         # since: a closed release (the Took Over 7 Days cases): dd is then a day count from ITS start, and the epic was resolved 40 days after it
+            ws = self.windows[fv[0]][0] if since is not None else None                         # since: a closed release (the Took Over 10 Days cases): dd is then a day count from ITS start, and the epic was resolved 40 days after it
             e = {"k": k, "p": "PMN", "t": f"Fixed case {name}", "s": status, "fv": list(fv or [CURRENT]), "c": c, "tm": [team], "ai": False, "m": None, "rd": None,
                  "cr": self.d((ws if ws else asof) - dt.timedelta(days=60 if not ws else 10)), "cat": cat, "ad": {(fv or [CURRENT])[0]: self.d(ws if ws else asof - dt.timedelta(days=22))}, "ts": ts["n"] if ts else None,
                  "dd": self.d((ws if ws else asof) + dt.timedelta(days=dd)) if dd is not None else None, "ud": self.d(asof)}
@@ -608,7 +608,7 @@ class Gen:
         add("lvl_i2_done_a", "Team Seed Lvl I", ["Pod-Lvl-I2"], "Done", PLAN)
         add("lvl_i2_done_b", "Team Seed Lvl I", ["Pod-Lvl-I2"], "Done", PLAN)
 
-        # 2b. Pods With More Than 3 Epics In Progress counts the status In Progress only (Validation is not counted). One team of four pods, all planned at as-of + 10, balanced for Pods To Level (4, 4, 5, 4 in-progress: spread 1 of 17, not flagged,
+        # 2b. Pods With More Than 3 Epics in Progress counts the status In Progress only (Validation is not counted). One team of four pods, all planned at as-of + 10, balanced for Pods With Uneven Workload (4, 4, 5, 4 in-progress: spread 1 of 17, not flagged,
         # so no other Pods tile moves): exactly 4 In Progress is over the level; 3 In Progress + 1 Validation, 3 + 2 and 4 Validation only are NOT (they were over the level while Validation counted).
         # Stretch epics are in the Cycles section like any other but outside the target scope, so the burnup, the release bars and the scope arithmetic of the other suites (cycle_filter_oracle's shrunk scope) do not move.
         team("Team Seed Wip", [("Pod-Wip-Four", 4, 0, 0), ("Pod-Wip-Mix1", 3, 1, 0), ("Pod-Wip-Mix2", 3, 2, 0), ("Pod-Wip-Val", 0, 4, 0)], c="Stretch")
@@ -633,26 +633,26 @@ class Gen:
         for i in range(2):
             add(f"np2_none{i}", "Team Seed Np Small", None, "In Progress", PLAN)                    # two in-progress, none labelled: no share under 5
 
-        # 5. Took Over 7 Days (the Cycles headline tile): Done epics planned in the selected cycles whose cycle time (EDCT) is MORE than 7 days, among those that have one and are outside the Issue Categories that
+        # 5. Took Over 10 Days (the Cycles headline tile): Done epics planned in the selected cycles whose cycle time (EDCT) is MORE than 10 days, among those that have one and are outside the Issue Categories that
         # Cycle Time per Release leaves out (Maintenance, SOW). They live in the CLOSED release 26.4 (every date counted from its start, resolved 40 days after it), so no Done epic is added to the running release: the burnup
         # of 27.1 and the label geometry that other suites check do not move. All Stretch, one team, two pods and no pod.
-        # Cycle 1 (planned at start + 10): 7 days (not over: the boundary; its calendar days are 9, which the tile must not read), 8 (over), 0 (a cycle time of 0 is a cycle time), 9 (over, other pod), 12 in another Issue
+        # Cycle 1 (planned at start + 10): 10 days (not over: the boundary; its calendar days are 12, which the tile must not read), 11 (over), 0 (a cycle time of 0 is a cycle time), 12 (over, other pod), 15 in another Issue
         # Category (over), 8 with no pod (over), Maintenance 20 and SOW 20 (left out; the Done epics with NO cycle time are in long_cycle_extras, not here), an In Progress epic that carries a 30 (not Done), and a Done
         # epic of 26.3 (outside the release). Cycle 2 (start + 60): 8 (over) and 7 (not).
         lng, R = "Team Seed Lng", ["26.4"]
-        add("lng_7", lng, ["Pod-Lng-A"], "Done", 10, c="Stretch", ct=7, cal=9, fv=R, since=1)
-        add("lng_8", lng, ["Pod-Lng-A"], "Done", 10, c="Stretch", ct=8, fv=R, since=1)
+        add("lng_10", lng, ["Pod-Lng-A"], "Done", 10, c="Stretch", ct=10, cal=12, fv=R, since=1)
+        add("lng_11", lng, ["Pod-Lng-A"], "Done", 10, c="Stretch", ct=11, fv=R, since=1)
         add("lng_0", lng, ["Pod-Lng-A"], "Done", 10, c="Stretch", ct=0, fv=R, since=1)
-        add("lng_9", lng, ["Pod-Lng-B"], "Done", 10, c="Stretch", ct=9, fv=R, since=1)
-        add("lng_12_feature", lng, ["Pod-Lng-B"], "Done", 10, c="Stretch", ct=12, cat="Product - Feature work", fv=R, since=1)
-        add("lng_nopod_8", lng, None, "Done", 10, c="Stretch", ct=8, fv=R, since=1)
+        add("lng_12", lng, ["Pod-Lng-B"], "Done", 10, c="Stretch", ct=12, fv=R, since=1)
+        add("lng_15_feature", lng, ["Pod-Lng-B"], "Done", 10, c="Stretch", ct=15, cat="Product - Feature work", fv=R, since=1)
+        add("lng_nopod_11", lng, None, "Done", 10, c="Stretch", ct=11, fv=R, since=1)
         add("lng_maint_20", lng, ["Pod-Lng-B"], "Done", 10, c="Stretch", ct=20, cat="Maintenance", fv=R, since=1)
         add("lng_sow_20", lng, ["Pod-Lng-B"], "Done", 10, c="Stretch", ct=20, cat="SOW", fv=R, since=1)
         k_open = add("lng_open_30", lng, ["Pod-Lng-A"], "In Progress", 10, c="Stretch", fv=R, since=1)
         next(e for e in epics if e["k"] == k_open)["edct"] = 30                                  # not Done: its cycle time is not read
         add("lng_other_release", lng, ["Pod-Lng-A"], "Done", 10, c="Stretch", ct=30, fv=["26.3"], since=1)
-        add("lng_dc2_8", lng, ["Pod-Lng-A"], "Done", 60, c="Stretch", ct=8, fv=R, since=1)
-        add("lng_dc2_7", lng, ["Pod-Lng-A"], "Done", 61, c="Stretch", ct=7, fv=R, since=1)
+        add("lng_dc2_11", lng, ["Pod-Lng-A"], "Done", 60, c="Stretch", ct=11, fv=R, since=1)
+        add("lng_dc2_10", lng, ["Pod-Lng-A"], "Done", 61, c="Stretch", ct=10, fv=R, since=1)
         # a pod whose only Done epic is not in the population because it is in the Maintenance Issue Category (the sub line has nothing to count)
         add("lng_solo_maint_20", "Team Seed Lng Solo", ["Pod-Lng-Solo-B"], "Done", 10, c="Stretch", ct=20, cat="Maintenance", fv=R, since=1)
         self.fixed = keys
@@ -832,10 +832,10 @@ def canarify(data: dict) -> dict:
 
 
 def long_cycle_extras(data: dict) -> None:
-    """Two Done epics of the closed release 26.4 with NO cycle time (no EDCT yet), added to a copy of the payload by the Took Over 7 Days suite (cycle_pods_oracle.py). They are not in the stock fixture on purpose: a Done epic with no
+    """Two Done epics of the closed release 26.4 with NO cycle time (no EDCT yet), added to a copy of the payload by the Took Over 10 Days suite (cycle_pods_oracle.py). They are not in the stock fixture on purpose: a Done epic with no
     EDCT adds a fifth line to the Cycle Time per Release hover (\"The link lists N Done epics: M of them have no EDCT yet\"), which the word budget of link_guard.py does not allow, and every other suite would
     meet it. 'lng_no_ct' is in the same team and pod as the fixed cases (Team Seed Lng, Pod-Lng-B); 'lng_solo_no_ct' is the only Done epic of its pod (the sub line has nothing to count)."""
-    src = next(e for e in data["epics"] if e["t"] == "Fixed case lng_9")
+    src = next(e for e in data["epics"] if e["t"] == "Fixed case lng_12")
     n = 96200
     for name, team, pod in (("lng_no_ct", "Team Seed Lng", "Pod-Lng-B"), ("lng_solo_no_ct", "Team Seed Lng Solo", "Pod-Lng-Solo-A")):
         n += 1
