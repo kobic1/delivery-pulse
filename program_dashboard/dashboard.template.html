@@ -2716,7 +2716,7 @@ const GAP_RULE = "A schedule gap: provider X blocks dependent Y, and X is planne
 
 // ---- the open dependency pairs in view (the dependent or the provider is in the scope of the selected release)
 const DEP_CX = "CXCROSS";                                       // CXCROSS items have their own section; they are never "external" here (neither Blocked by External nor Blocking External)
-const isCx = r => r.p === DEP_CX || (r.cp || "").startsWith("CXCROSS-");      // a CXCROSS item (the project, compared as a whole key) or an epic that delivers a CXCROSS capability (the CXCROSS section's own test)
+const isCx = r => r.p === DEP_CX || (r.cp || "").startsWith("CXCROSS-");      // a CXCROSS item (the project, compared as a whole key) or an epic that delivers a capability owned by CXCROSS (the CXCROSS section also counts capabilities of other projects that sit under a CXCROSS Initiative; this chip does not)
 function depModel() {
   const rel = state.release, scope = scopeOf(rel), inScope = new Set(scope.map(e => e.k));
   const map = new Map(DATA.epics.map(e => [e.k, e])), deps = DATA.deps || [];
@@ -3252,9 +3252,12 @@ const CX_TYPES = {all: ["All", null], committed: ["Committed", "Committed"], not
 const cxPass = e => state.cx === "all" || commitOf(e) === CX_TYPES[state.cx][1];
 const cxCommit = () => state.cx === "all" ? new Set(COMMIT) : new Set([CX_TYPES[state.cx][1]]);
 const cxJira = (o = {}) => jira({commit: cxCommit(), ...o});
+// A Capability is a CXCROSS one when it is a CXCROSS issue, or when it sits under a CXCROSS Initiative (not Removed) whatever its own project is.
+const cxIni = (H, c) => { const p = H[c] && H[c].par, I = p && H[p]; return !!(I && I.s !== "Removed" && p.startsWith("CXCROSS")); };
+const isCxCap = (H, c) => !!c && (c.startsWith("CXCROSS") || cxIni(H, c));
 function cxModel() {
   const H = DATA.hier || {}, rel = state.release, scope = scopeOf(rel).filter(cxPass);
-  const all = scope.filter(e => e.cp && e.cp.startsWith("CXCROSS")), removedCap = c => H[c] && H[c].s === "Removed";
+  const all = scope.filter(e => isCxCap(H, e.cp)), removedCap = c => H[c] && H[c].s === "Removed";
   const epics = all.filter(e => !removedCap(e.cp)), leftOut = all.length - epics.length;
   const byCap = new Map(); epics.forEach(e => { if (!byCap.has(e.cp)) byCap.set(e.cp, []); byCap.get(e.cp).push(e); });
   const iniOf = c => { const p = H[c] && H[c].par; return p && H[p] && H[p].s !== "Removed" ? p : null; };
@@ -3269,7 +3272,7 @@ function cxModel() {
   const mism = epics.filter(mismatch);
   const noFv = [...byCap.keys()].filter(c => H[c] && !["Done", "Removed"].includes(H[c].s) && !(H[c].fv || []).length);
   const unsch = [...byCap.keys()].filter(c => H[c] && !["Done", "Removed"].includes(H[c].s) && (H[c].fv || []).length && !versionsOf(H[c].fv).rel.length && versionsOf(H[c].fv).unsched);
-  const allCx = Object.keys(H).filter(k => H[k].ty === "Capability" && k.startsWith("CXCROSS"));
+  const allCx = Object.keys(H).filter(k => H[k].ty === "Capability" && isCxCap(H, k));
   const withEpicsEver = new Set(DATA.epics.filter(e => e.cp).map(e => e.cp));
   const noEpics = allCx.filter(c => !removedCap(c) && !byCap.has(c));
   return {H, rel, scope, all, epics, leftOut, byCap, groups, order, iniOf, mism, noFv, unsch, noneEver: noEpics.filter(c => !withEpicsEver.has(c)), noneHere: noEpics.filter(c => withEpicsEver.has(c)),
@@ -3280,7 +3283,7 @@ function renderCx() {
   const host = document.getElementById("cx-body"), kp = document.getElementById("cx-kpis"); if (!host) return;
   document.getElementById("cx-state").hidden = !isRunning(state.release);
   const M = cxModel(), H = M.H, rel = M.rel, ep = M.epics, noProj = !state.projects.size, asOf = asOfDay();
-  const cxEver = DATA.epics.filter(e => e.cp && e.cp.startsWith("CXCROSS")), cxByP = new Map(); cxEver.forEach(e => cxByP.set(e.p, (cxByP.get(e.p) || 0) + 1));
+  const cxEver = DATA.epics.filter(e => isCxCap(H, e.cp)), cxByP = new Map(); cxEver.forEach(e => cxByP.set(e.p, (cxByP.get(e.p) || 0) + 1));
   const cxTop = [...cxByP.entries()].sort((a, b) => b[1] - a[1])[0] ? [...cxByP.entries()].sort((a, b) => b[1] - a[1])[0][0] : "no project";
   const capKeys = [...M.byCap.keys()], par = caps => `parent in (${caps.join(", ")})`;
   const latestOf = c => { const r = versionsOf((H[c] || {}).fv).rel; return r.length ? r[r.length - 1] : null; };
@@ -3309,7 +3312,7 @@ function renderCx() {
   document.getElementById("cx-cap").innerHTML = defs(howBody({id: "cx",
     bl: `Use this to see, for each CXCROSS Capability, how far each project's epics have progressed and which projects are behind the required fix version.`,
     defs: [
-      ["Population", `epics whose parent Capability is in CXCROSS, in ${esc(rel)}, under the Projects and Teams filters and this section's own Commitment Type choice (All by default).`],
+      ["Population", `epics whose parent Capability is in CXCROSS or sits under a CXCROSS Initiative, in ${esc(rel)}, under the Projects and Teams filters and this section's own Commitment Type choice (All by default).`],
       ["Cell", `one project's epics under one Capability, shown as Done / total. It opens those epics in Jira.`],
       ["Required Fix Version", `the Fix Version on the CXCROSS Capability, taken as the required release. This is an owner assumption, not verified.`],
       ["Behind Required Fix Version", `a cell is marked when an open epic is planned later than the Capability, or is still open although the Capability's latest release version has ended.`]
@@ -3325,7 +3328,7 @@ function renderCx() {
     ]}));
   if (noProj) { host.innerHTML = `<div class="empty">${whyEmpty("epics")}</div>`; document.getElementById("cx-none").innerHTML = ""; document.getElementById("cx-dq").innerHTML = ""; return; }
   if (!ep.length) {
-    const other = scopeOf(M.rel).filter(e => e.cp && e.cp.startsWith("CXCROSS")).length;
+    const other = scopeOf(M.rel).filter(e => isCxCap(H, e.cp)).length;
     host.innerHTML = `<div class="empty">${state.cx !== "all" && other ? `No epic with Commitment Type ${esc(CX_TYPES[state.cx][0])} has a CXCROSS parent in ${esc(rel)}; ${other} ${epicWord(other)} of other types ${other === 1 ? "does" : "do"}. Choose All or another type.` : M.scope.length ? "No epic in this selection has a CXCROSS parent." : whyEmpty("epics")}</div>`;
   }
   else {
