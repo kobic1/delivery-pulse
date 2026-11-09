@@ -409,7 +409,7 @@ def check_page(res: dict, data: dict, st, exp_st, tag: str, ch) -> None:
     if st["firstHeadings"][:7] != ["seclabel", "h-cycles", "cy-banner", "cy-kpis1", "cy-pods", "cy-body", "cy-cap"]:
         bad.append(f"{tag}: the top of the section is {st['firstHeadings']}")
     blk = [x for x in (st["ovBlock"] or []) if x != "DIV.scrollcue"]                                    # (the page adds the scroll cue itself)
-    if st["ovBlock"] and blk != ["H3.", "DIV.cyfrow cytogglebar", "DIV.tablewrap"]:
+    if st["ovBlock"] and blk != ["H3.", "DIV.cyfrow cytogglebar", "DIV.tablewrap freeze"]:      # the table sits in the frozen-header box
         bad.append(f"{tag}: the Projects table block is {st['ovBlock']} (heading, Expand/Collapse bar, table; no paragraph, no Find box)")
     if st["ovBlock"] and sorted(set(st["toggles"])) != ["tgl"]:
         bad.append(f"{tag}: the table has controls other than the row arrows: {sorted(set(st['toggles']))}")
