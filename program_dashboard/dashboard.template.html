@@ -315,7 +315,7 @@ svg text { font-family:inherit; }
 .stickyin { position:sticky; left:0; width:calc(var(--wrapw, 100%) - 24px); max-width:100%; white-space:normal; }
 @media (max-width:760px) {
   .cxtable th:first-child, .nfrtable th:first-child { min-width:150px; position:sticky; left:0; background:var(--bg); z-index:2; box-shadow:1px 0 0 var(--line); }
-  .cxtable thead th:first-child, .nfrtable thead th:first-child { z-index:3; }
+  .tablewrap .cxtable thead th:first-child, .tablewrap .nfrtable thead th:first-child { z-index:3; }      /* above the sticky first cell of the rows (z-index 2) and above .tablewrap.tall thead th (1), which comes later and is as specific */
   .nfrtable tfoot th:first-child { background:var(--panel); }
 }
 /* The sticky filter bar must not push the page when one of its own controls takes focus, so <html> has no scroll padding.
@@ -476,7 +476,7 @@ td a { text-decoration:none; border-bottom:1px dotted #7C8794; }
 .bt2 { font-size:var(--t-cap); margin-top:2px; overflow-wrap:anywhere; }
 .bm { font-size:var(--t-xs); color:var(--muted); margin-top:2px; }
 .bq { font-size:var(--t-xs); color:var(--muted); margin-top:2px; font-style:italic; }
-.cypods tr.cyproject th, .cypods tr.cyproject td { background:#F2F0EB; font-weight:700; }
+.cypods tr.cyproject th, .cypods tr.cyproject td, .cypods tr.cyini th, .cypods tr.cyini td { background:#F2F0EB; font-weight:700; }
 .cypods tr.cyteam th, .cypods tr.cyteam td { background:#FAF9F6; font-weight:600; }
 .cypods tr.cypod th, .cypods tr.cycap th { font-weight:400; }
 .cypods .cysub { font-weight:400; }
@@ -495,6 +495,7 @@ td a { text-decoration:none; border-bottom:1px dotted #7C8794; }
 .cyepl th[scope="row"] { font-weight:400; white-space:nowrap; }
 .cytgl .xtc::before { content:"\25B8"; }
 .cytgl[aria-expanded="true"] .xtc::before { content:"\25BE"; }
+.cytgl[aria-expanded="true"] > .chev.xtc { transform:none; }      /* the glyph already changes with the state: the general rule that turns the Cycles chevron by 90 degrees must not turn it again */
 .capctl { display:flex; flex-wrap:wrap; gap:6px 12px; }
 .capfs { border:0; margin:0; padding:0; min-width:0; }
 .capfs legend { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }     /* the group name is read aloud; the chips say what they are */
@@ -2358,27 +2359,32 @@ function noPriNote(open) {                                      // the total cou
 // The open rows of a table are kept in memory by the table's id, so a filter change that redraws the page keeps them; before the first click a table with one selected project opens that project, as the Cycles table does.
 const XT_OPEN = new Map();
 const xtSlug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 28) || "x";
-const xtWhat = n => n.level === "cap" ? `Capability ${n.key} in ${n.project}` : n.level === "project" ? `project ${n.name}` : n.level === "team" ? `team ${n.name} in ${n.project}` : `pod ${n.name} in ${n.team}, ${n.project}`;
+const XT_SEEN = new Map();                                          // the rows of a table that opens expanded that have been drawn before: a row that is new (a filter brought it in) opens, one the reader closed stays closed
+const xtWhat = n => n.what ? n.what : n.level === "cap" ? `Capability ${n.key} in ${n.project}` : n.level === "project" ? `project ${n.name}` : n.level === "team" ? `team ${n.name} in ${n.project}` : `pod ${n.name} in ${n.team}, ${n.project}`;
 function xtNodes() {                                                // a builder: add(level, name, parent, fields) makes a node with an id that is unique in the table
   const used = new Set();
   return {add(level, name, parent, fields = {}) {
     const base = (parent ? parent.id + "." : "") + xtSlug(name); let id = base, k = 2; while (used.has(id)) id = `${base}-${k++}`; used.add(id);
     const n = {id, level, name, parent: parent || null, kids: [], ...fields}; if (parent) parent.kids.push(n); return n; }};
 }
-const xtOpenSet = (tid, roots) => XT_OPEN.get(tid) || new Set(state.projects.size === 1 ? roots.filter(n => n.kids.length).map(n => n.id) : []);
-// o: {id, roots (the project nodes, kids nested), cls (more table classes), caption, heads (the <th> cells after the first one, as HTML), first (the first heading), cells(n) (the <td> cells of a node), tail (rows after the nodes, in the body), foot (true: the tail goes in the foot of the table)}.
+function xtOpenSet(tid, roots, expanded) {
+  if (!expanded) return XT_OPEN.get(tid) || new Set(state.projects.size === 1 ? roots.filter(n => n.kids.length).map(n => n.id) : []);
+  const cur = XT_OPEN.get(tid) || new Set(), seen = XT_SEEN.get(tid) || new Set(), walk = n => { if (n.kids.length && !seen.has(n.id)) { seen.add(n.id); cur.add(n.id); } n.kids.forEach(walk); };
+  roots.forEach(walk); XT_OPEN.set(tid, cur); XT_SEEN.set(tid, seen); return cur;
+}
+// o: {id, roots (the project nodes, kids nested), cls (more table classes), caption, about (the sentence after the caption, about which rows open), expanded (true: every row with rows under it opens at first, and a new one opens too), heads (the <th> cells after the first one, as HTML), first (the first heading), cells(n) (the <td> cells of a node), tail (rows after the nodes, in the body), foot (true: the tail goes in the foot of the table)}.
 // Returns {bar, table}: the Expand All and Collapse All buttons (empty when no row has anything under it) and the table.
 function xtTable(o) {
-  const open = xtOpenSet(o.id, o.roots), order = [], dfs = n => { order.push(n); n.kids.forEach(dfs); }; o.roots.forEach(dfs);
+  const open = xtOpenSet(o.id, o.roots, o.expanded), order = [], dfs = n => { order.push(n); n.kids.forEach(dfs); }; o.roots.forEach(dfs);
   const shown = n => !n.parent || (open.has(n.parent.id) && shown(n.parent)), rid = n => `xtr-${o.id}-${n.id}`;
   const row = n => {
     const on = open.has(n.id), what = xtWhat(n);
     const tgl = n.kids.length ? `<button type="button" class="linkbtn cytgl" data-xtact="tgl" data-xttable="${esc(o.id)}" data-xtval="${esc(n.id)}" data-what="${esc(what)}" aria-expanded="${on}" aria-controls="${n.kids.map(k => esc(rid(k))).join(" ")}" aria-label="${on ? "Collapse" : "Expand"} ${esc(what)}"><span class="chev xtc" aria-hidden="true"></span></button>` : `<span class="cytgl-gap" aria-hidden="true"></span>`;
     return `<tr class="cy${n.level}" id="${esc(rid(n))}" data-id="${esc(n.id)}" data-par="${esc(n.parent ? n.parent.id : "")}" data-lvl="${n.level}"${shown(n) ? "" : " hidden"}>` +
-      `<th scope="row"><span class="cyname-wrap" style="padding-left:${({project: 0, team: 22, pod: 44, cap: 22})[n.level]}px">${tgl}<span class="xtname">${n.nameHtml || esc(n.name)}</span></span>${n.note ? `<div class="cysub" style="padding-left:${22 + 24}px">${n.note}</div>` : ""}</th>${o.cells(n)}</tr>`;
+      `<th scope="row"><span class="cyname-wrap" style="padding-left:${({project: 0, ini: 0, team: 22, pod: 44, cap: 22})[n.level]}px">${tgl}<span class="xtname">${n.nameHtml || esc(n.name)}</span></span>${n.note ? `<div class="cysub" style="padding-left:${22 + 24}px">${n.note}</div>` : ""}</th>${o.cells(n)}</tr>`;
   };
   const bar = order.some(n => n.kids.length) ? `<div class="cyfrow cytogglebar"><button type="button" class="btn link" data-xtact="expall" data-xttable="${esc(o.id)}">Expand All</button><button type="button" class="btn link" data-xtact="colall" data-xttable="${esc(o.id)}">Collapse All</button></div>` : "";
-  return {bar, table: `<table class="cypods ${o.cls || ""}" id="xt-${esc(o.id)}" data-xt="${esc(o.id)}"><caption class="sr">${esc(o.caption)} Each project and team row that has rows under it can be expanded or collapsed.</caption>` +
+  return {bar, table: `<table class="cypods ${o.cls || ""}" id="xt-${esc(o.id)}" data-xt="${esc(o.id)}"><caption class="sr">${esc(o.caption)} ${o.about || "Each project and team row that has rows under it can be expanded or collapsed."}</caption>` +
     `<thead><tr><th scope="col">${o.first}</th>${o.heads}</tr></thead><tbody>${order.map(row).join("")}${o.foot ? "" : o.tail || ""}</tbody>${o.foot ? `<tfoot>${o.tail || ""}</tfoot>` : ""}</table>`, ids: order.map(n => n.id)};
 }
 function xtApply(tid) {                                              // DOM only: which rows are shown and which arrows are open; the clicked row stays where it is
@@ -3261,9 +3267,11 @@ function cxModel() {
   const epics = all.filter(e => !removedCap(e.cp)), leftOut = all.length - epics.length;
   const byCap = new Map(); epics.forEach(e => { if (!byCap.has(e.cp)) byCap.set(e.cp, []); byCap.get(e.cp).push(e); });
   const iniOf = c => { const p = H[c] && H[c].par; return p && H[p] && H[p].s !== "Removed" ? p : null; };
+  // The groups: the Capabilities with epics here, under the Initiative they sit under. A Removed or unknown Initiative is the group "" (No Initiative), last. Groups by Initiative title, Capabilities by title, then key.
+  const titleCmp = (a, b) => ((H[a] || {}).t || "").localeCompare((H[b] || {}).t || "", "en", {sensitivity: "base"}) || keyCmp(a, b);
   const groups = new Map(); [...byCap.keys()].forEach(c => { const g = iniOf(c) || ""; if (!groups.has(g)) groups.set(g, []); groups.get(g).push(c); });
-  const order = [...groups.keys()].sort((a, b) => a === "" ? 1 : b === "" ? -1 : keyCmp(a, b));
-  order.forEach(g => groups.get(g).sort(keyCmp));
+  const order = [...groups.keys()].sort((a, b) => a === "" ? 1 : b === "" ? -1 : titleCmp(a, b));
+  order.forEach(g => groups.get(g).sort(titleCmp));
   const mismatch = e => {                                          // an open epic planned later than the latest release of its Capability
     if (cls(e.s) === "done") return false;
     const ev = versionsOf(e.fv).rel, cv = versionsOf((H[e.cp] || {}).fv).rel;
@@ -3314,6 +3322,7 @@ function renderCx() {
     defs: [
       ["Population", `epics whose parent Capability is in CXCROSS or sits under a CXCROSS Initiative, in ${esc(rel)}, under the Projects and Teams filters and this section's own Commitment Type choice (All by default).`],
       ["Cell", `one project's epics under one Capability, shown as Done / total. It opens those epics in Jira.`],
+      ["Initiative group", `Capabilities are grouped under their Initiative; a group row adds up its Capabilities.`],
       ["Required Fix Version", `the Fix Version on the CXCROSS Capability, taken as the required release. This is an owner assumption, not verified.`],
       ["Behind Required Fix Version", `a cell is marked when an open epic is planned later than the Capability, or is still open although the Capability's latest release version has ended.`]
     ],
@@ -3338,14 +3347,39 @@ function renderCx() {
       const why = [x.bh.some(({w}) => w.a) ? "planned in a later release than the Capability" : "", x.bh.some(({w}) => w.b) ? "the Capability's latest release has ended" : ""].filter(Boolean).join("; "), listed = (behind ? x.bh.map(({e}) => e) : x.l).map(e => e.k);
       const tip = [`${r.c} · ${p}: ${d} of ${x.l.length} Done`, statusLine(x.l), ...(behind ? [`Behind Required Fix Version ${versionText(r.C.fv)}: ${nn(x.bh.length, "epic", "epics")}, ${why}`] : []), `${listed.slice(0, 3).join(", ")}${listed.length > 3 ? ` and ${listed.length - 3} more` : ""}`].join("\n");
       return `<td class="cxc"><a href="${cxJira({extra: `parent = ${r.c} AND project = ${pkey(p)}`}) || "#"}" target="_blank" rel="noopener" ${tipAttr(tip, "x")} aria-label="${esc(`${r.c}, ${p}: ${d} of ${x.l.length} Done${behind ? ", Behind Required Fix Version" : ""}`)}. Opens in Jira.">${d}/${x.l.length}</a> ${dots(x.l)}${behind ? `<div class="bhd">${flagHtml("warn", "Behind")}</div>` : ""}</td>`; };
-    const body = rows.map(r => { const ini = r.ini ? `${r.ini} ${shortText((H[r.ini] || {}).t, 60)}` : "No Initiative";
-      return `<tr><th scope="row"><a href="${BASE}/browse/${esc(r.c)}" target="_blank" rel="noopener" ${tipAttr(`${r.c}\n${r.C.t || ""}\n${r.C.s || "status unknown"} · Initiative: ${r.ini ? r.ini + " " + ((H[r.ini] || {}).t || "") : "none"}`, "x")} aria-label="${esc(r.c + ", " + shortText(r.C.t, 80))}. Opens in Jira.">${esc(shortText(r.C.t, 80))}</a><div class="sub1" title="${esc(r.c + " · " + ini)}"><a href="${BASE}/browse/${esc(r.c)}" target="_blank" rel="noopener" aria-label="${esc(r.c)}. Opens in Jira.">${esc(r.c)}</a> · ${r.ini ? `<a href="${BASE}/browse/${esc(r.ini)}" target="_blank" rel="noopener" aria-label="${esc(r.ini)}, ${esc((H[r.ini] || {}).t || "")}. Opens in Jira.">${esc(r.ini)}</a> ${esc(shortText((H[r.ini] || {}).t, 60))}` : "No Initiative"}</div></th>${projects.map(p => cell(r, p)).join("")}<td class="fvc">${r.L ? esc(versionText(r.C.fv)) : `<span class="flag info"><svg class="ic" viewBox="0 0 12 12" aria-hidden="true">${FLAG_ICON.info}</svg>No Required Fix Version</span>${(r.C.fv || []).length ? `<div class="muted">${esc(versionText(r.C.fv))}</div>` : ""}`}</td></tr>`; }).join("");
-    const n = (v, h, tip) => v ? tlink(v, h, tip) : `<span class="muted">0</span>`;
-    const foot = `<tfoot><tr><th scope="row">Epics</th>${projects.map(p => { const l = epicsByProj.get(p); return `<td class="cxc n">${n(l.length, cxJira({projects: [p], extra: par(capKeys)}), `${nn(l.length, `${p} epic`, `${p} epics`)} under CXCROSS Capabilities${parentNote(capKeys.length)}`)}</td>`; }).join("")}<td></td></tr>` +
+    // The table is grouped by Initiative: one expandable row per Initiative (an Initiative that is Removed or unknown is the group "No Initiative", last), its Capabilities under it, the same rows as before.
+    // A group row adds up the cells of its Capabilities: the epics under all of them, per project. Every epic sits under one Capability, so it counts once, and the footer is the sum of the groups.
+    const rowOf = new Map(rows.map(r => [r.c, r])), nb = xtNodes(), iniLbl = g => g ? `${g} ${shortText((H[g] || {}).t, 60)}` : "No Initiative";
+    const roots = M.order.map(g => { const I = H[g] || {}, rs = M.groups.get(g).map(c => rowOf.get(c));
+      const gn = nb.add("ini", g || "No Initiative", null, {key: g, rs, what: g ? `Initiative ${iniLbl(g)}` : "No Initiative",
+        nameHtml: g ? `<a href="${BASE}/browse/${esc(g)}" target="_blank" rel="noopener" ${tipAttr(`${g}\n${I.t || ""}\n${I.s || "status unknown"}`, "x")} aria-label="${esc(g + ", " + shortText(I.t, 80))}. Opens in Jira.">${esc(g)}</a> ${esc(shortText(I.t, 80))}` : "No Initiative",
+        note: nn(rs.length, "Capability", "Capabilities")});
+      rs.forEach(r => nb.add("cap", r.c, gn, {key: r.c, r,
+        nameHtml: `<a href="${BASE}/browse/${esc(r.c)}" target="_blank" rel="noopener" ${tipAttr(`${r.c}\n${r.C.t || ""}\n${r.C.s || "status unknown"} · Initiative: ${r.ini ? r.ini + " " + ((H[r.ini] || {}).t || "") : "none"}`, "x")} aria-label="${esc(r.c + ", " + shortText(r.C.t, 80))}. Opens in Jira.">${esc(shortText(r.C.t, 80))}</a>`,
+        note: `<a href="${BASE}/browse/${esc(r.c)}" target="_blank" rel="noopener" aria-label="${esc(r.c)}. Opens in Jira.">${esc(r.c)}</a> · ${esc(r.C.p || r.c.split("-")[0])}`}));
+      return gn; });
+    const fvCell = r => `<td class="fvc">${r.L ? esc(versionText(r.C.fv)) : `<span class="flag info"><svg class="ic" viewBox="0 0 12 12" aria-hidden="true">${FLAG_ICON.info}</svg>No Required Fix Version</span>${(r.C.fv || []).length ? `<div class="muted">${esc(versionText(r.C.fv))}</div>` : ""}`}</td>`;
+    const groupFv = g => { const v = g.rs.map(r => versionsOf(r.C.fv)), rel = [...new Set(v.flatMap(x => x.rel))].sort((x, y) => relNum(x) - relNum(y));       // the distinct required fix versions of its Capabilities
+      if (rel.length) return `<td class="fvc">${esc([...rel, ...(v.some(x => x.unsched) ? ["Unscheduled"] : [])].join(", "))}</td>`;
+      return `<td class="fvc"><span class="flag info"><svg class="ic" viewBox="0 0 12 12" aria-hidden="true">${FLAG_ICON.info}</svg>No Required Fix Version</span>${v.some(x => x.unsched) ? `<div class="muted">Unscheduled</div>` : ""}</td>`; };
+    const groupCell = (g, p) => { const cs = g.rs.filter(r => r.cells.has(p)), what = g.key ? g.key : "No Initiative";
+      if (!cs.length) return `<td class="cxc"><span class="muted">${tipFocus("–", `No ${p} epics under the Capabilities of ${iniLbl(g.key)}`)}</span></td>`;
+      const l = cs.flatMap(r => r.cells.get(p).l), d = l.filter(e => cls(e.s) === "done").length, bh = cs.filter(r => r.cells.get(p).bh.length);
+      const tip = [`${what} · ${p}: ${d} of ${l.length} Done, under ${nn(cs.length, "Capability", "Capabilities")}`, statusLine(l), ...(bh.length ? [`Behind Required Fix Version: ${nn(bh.length, "Capability cell", "Capability cells")} of ${cs.length}`] : [])].join("\n") + parentNote(g.rs.length);
+      let h = cxJira({extra: `${par(g.rs.map(r => r.c))} AND project = ${pkey(p)}`});
+      if (h && h.length > CY_URL_MAX) { try { console.warn(`Delivery Pulse: link dropped, the URL is ${h.length} characters (the limit is ${CY_URL_MAX}):`, tip.split("\n")[0]); } catch (e) { /* no console */ } h = null; }
+      const plain = `${what}, ${p}: ${d} of ${l.length} Done${bh.length ? `, ${nn(bh.length, "Capability cell", "Capability cells")} Behind Required Fix Version` : ""}`, name = esc(plain);
+      return `<td class="cxc">${h ? `<a href="${h}" target="_blank" rel="noopener" ${tipAttr(tip, h)} aria-label="${name}. Opens in Jira.">${d}/${l.length}</a>` : tipFocus(`${d}/${l.length}`, tip, plain)} ${dots(l)}${bh.length ? `<div class="bhd">${flagHtml("warn", "Behind")}</div>` : ""}</td>`; };
+    const n = (v, h, tip) => v ? tlink(v, h && h.length > CY_URL_MAX ? null : h, tip) : `<span class="muted">0</span>`;
+    const foot = `<tr><th scope="row">Epics</th>${projects.map(p => { const l = epicsByProj.get(p); return `<td class="cxc n">${n(l.length, cxJira({projects: [p], extra: par(capKeys)}), `${nn(l.length, `${p} epic`, `${p} epics`)} under CXCROSS Capabilities${parentNote(capKeys.length)}`)}</td>`; }).join("")}<td></td></tr>` +
       `<tr><th scope="row">Done</th>${projects.map(p => { const l = epicsByProj.get(p).filter(e => cls(e.s) === "done"); return `<td class="cxc n">${n(l.length, cxJira({projects: [p], kind: "done", extra: par(capKeys)}), `${nn(l.length, `Done ${p} epic`, `Done ${p} epics`)} under CXCROSS Capabilities${parentNote(capKeys.length)}`)}</td>`; }).join("")}<td></td></tr>` +
-      `<tr><th scope="row">Cells Behind</th>${projects.map(p => { const k = behindByProj.get(p), es = [...new Set(rows.flatMap(r => (r.cells.get(p) ? r.cells.get(p).bh.map(x => x.e.k) : [])))]; return `<td class="cxc n">${n(k, keyIn(es), `${nn(k, "CXCROSS item", "CXCROSS items")} where ${p} is Behind Required Fix Version`)}</td>`; }).join("")}<td></td></tr></tfoot>`;
-    host.innerHTML = `<a class="skip" href="#h-capview" data-skip="h-capview">Skip to Capability View</a><div class="scrollcue">Scrolls sideways</div><div class="tablewrap tall cxwrap" tabindex="0" role="region" aria-label="CXCROSS Capabilities by project, scrolls sideways when it does not fit"><table class="captable cxtable"><caption class="sr">CXCROSS Capabilities with epics in release ${esc(rel)}: for each project, epics done out of total, and whether the cell is Behind Required Fix Version</caption><thead><tr><th scope="col">CXCROSS Capability</th>${projects.map(p => `<th scope="col" class="cxc">${esc(p)}</th>`).join("")}<th scope="col">Required Fix Version</th></tr></thead><tbody>${body}</tbody>${foot}</table></div>` +
-      `<div class="cap">Cell = done/total epics of that project under the Capability.</div>`;
+      `<tr><th scope="row">Cells Behind</th>${projects.map(p => { const k = behindByProj.get(p), es = [...new Set(rows.flatMap(r => (r.cells.get(p) ? r.cells.get(p).bh.map(x => x.e.k) : [])))]; return `<td class="cxc n">${n(k, keyIn(es), `${nn(k, "CXCROSS item", "CXCROSS items")} where ${p} is Behind Required Fix Version`)}</td>`; }).join("")}<td></td></tr>`;
+    const x = xtTable({id: "cx", roots, expanded: true, cls: "captable cxtable", first: "Initiative and Capability", foot: true, tail: foot,
+      caption: `CXCROSS Capabilities with epics in release ${rel}, grouped by Initiative: for each project, epics done out of total, and whether the cell is Behind Required Fix Version.`, about: "Each Initiative row can be expanded or collapsed to show its Capabilities.",
+      heads: `${projects.map(p => `<th scope="col" class="cxc">${esc(p)}</th>`).join("")}<th scope="col">Required Fix Version</th>`,
+      cells: nd => nd.level === "cap" ? projects.map(p => cell(nd.r, p)).join("") + fvCell(nd.r) : projects.map(p => groupCell(nd, p)).join("") + groupFv(nd)});
+    host.innerHTML = `<a class="skip" href="#h-capview" data-skip="h-capview">Skip to Capability View</a>${x.bar}<div class="scrollcue">Scrolls sideways</div><div class="tablewrap tall cxwrap" tabindex="0" role="region" aria-label="CXCROSS Capabilities by Initiative and project, scrolls sideways when it does not fit">${x.table}</div>` +
+      `<div class="cap">Cell = done/total epics of that project under the Capability; an Initiative row adds up its Capabilities.</div>`;
   }
   // capabilities with no epics here, split
   const capRow = c => { const C = H[c] || {}, p = C.par && H[C.par] ? `${C.par}` : "No Initiative"; return `<tr><th scope="row"><a href="${BASE}/browse/${esc(c)}" target="_blank" rel="noopener" ${tipAttr(`${c}\n${C.t || ""}`, "x")}>${esc(c)}</a> ${esc(shortText(C.t, 70))}</th><td>${esc(C.s || "–")}</td><td>${esc(versionText(C.fv))}</td><td>${esc(p)}</td></tr>`; };
