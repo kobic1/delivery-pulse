@@ -404,8 +404,8 @@ details.vd details.more[open] > ul.dl { margin-top:4px; }
 
 .tablewrap { overflow-x:auto; max-width:100%; position:relative; }      /* position:relative keeps the absolutely placed .sr text inside the scrolling area, so it cannot widen the page */
 .tablewrap.tall { max-height:560px; overflow:auto; }
-.tablewrap.tall thead th { position:sticky; top:0; z-index:1; }
-.tablewrap.cxwrap { max-height:max(320px, calc(100vh - var(--stick, 0px) - 24px)); }      /* the CXCROSS list can be long: the box fits the window below the sticky stack and the header row stays in view */
+.tablewrap.tall thead th, .tablewrap.freeze thead th, details.vd .tablewrap thead th { position:sticky; top:0; z-index:1; }      /* every table that can be longer than its box keeps its header row in view; .freeze = a box that fits the window below the sticky stack */
+.tablewrap.cxwrap, .tablewrap.freeze { max-height:max(320px, calc(100vh - var(--stick, 0px) - 24px)); overflow:auto; }      /* the CXCROSS list can be long: the box fits the window below the sticky stack and the header row stays in view */
 table { border-collapse:collapse; width:100%; }
 th, td { padding:6px 10px; text-align:left; border-bottom:1px solid var(--line-soft); white-space:nowrap; }
 td.title { white-space:normal; min-width:260px; max-width:520px; }
@@ -747,7 +747,7 @@ footer.f b { color:var(--ink); }
     <div id="bug-data"></div>
     <h3 class="sub3" id="h-bugtable">Open Bugs by Project and Priority</h3>
     <div id="bug-tglbar"></div>
-    <div class="tablewrap" id="bug-table"></div>
+    <div class="tablewrap freeze" id="bug-table"></div>
   </section>
 
   <section class="sec q" aria-labelledby="h-cfb">
@@ -770,7 +770,7 @@ footer.f b { color:var(--ink); }
     <a class="skip" href="#h-deps" data-skip="h-deps">Skip to Dependencies</a>
     <div class="two">
       <div id="cfb-chart"></div>
-      <div class="tablewrap" id="cfb-table"></div>
+      <div class="tablewrap freeze" id="cfb-table"></div>
     </div>
     <div class="cap" id="cfb-cap"></div>
     <div class="cap" id="cfb-rfd"></div>
@@ -881,7 +881,7 @@ footer.f b { color:var(--ink); }
   <section class="sec plain" aria-labelledby="h-proj">
     <h3 id="h-proj" class="subh">By Project</h3>
     <div class="sub">Epics in the release.</div>
-    <div class="tablewrap" id="tbl-projects"></div>
+    <div class="tablewrap freeze" id="tbl-projects"></div>
   </section>
 
   <section class="sec plain" aria-labelledby="h-team">
@@ -2610,7 +2610,7 @@ function renderOpenCfb() {
       return `<tr><th scope="row">${keyA(b, x)}</th><td class="title">${x && x.t ? esc(x.t) : tipFocus("–", "No summary in this build\nDetail loads on the next Refresh or rebuild.", "No summary")}</td><td>${esc(b.p)}</td><td>${esc(b.s)}</td><td>${esc(b.pr || "No priority")}</td><td>${rcaCell}</td><td class="n">${r.age}</td>` +
         `<td class="n">${r.sla ? tipFocus(String(r.sla.days), `${nn(r.sla.days, "day", "days")} of SLA for ${b.k}\n${r.sla.why}`, `SLA ${r.sla.days} days`) : "–"}</td><td>${r.due || "–"}</td><td class="wrapc">${rva}</td><td>${b.rg ? "Yes" : "No"}</td><td class="n">${inc}${lk}</td></tr>` +
         (expandable ? `<tr class="cybugrow" id="ocfb-${k}"${ocfbOpen.has(b.k) ? "" : " hidden"}><td colspan="12"><div class="stickyin"><div class="cysub">Root Cause Analysis text for ${k}</div>${x.rt ? esc(x.rt) + (x.rt.length >= 320 ? "…" : "") : "The field is empty or still holds the unedited template."}</div></td></tr>` : ""); }).join("");
-    inner = `<div class="tablewrap"><table class="cytable ocfbtable"><caption class="sr">Open customer-found bugs with age, SLA and Root Cause Analysis state, in project and key order</caption><thead><tr><th scope="col">Key</th><th scope="col">Summary</th><th scope="col">Project</th><th scope="col">Status</th><th scope="col">Priority</th><th scope="col">RCA</th><th scope="col" class="n">Age (Days)</th><th scope="col" class="n">SLA Days</th><th scope="col">SLA Due Date</th><th scope="col">Required vs. Actual</th><th scope="col">Regression</th><th scope="col" class="n">Incidents</th></tr></thead><tbody>${body}</tbody></table></div>`;
+    inner = `<div class="tablewrap freeze"><table class="cytable ocfbtable"><caption class="sr">Open customer-found bugs with age, SLA and Root Cause Analysis state, in project and key order</caption><thead><tr><th scope="col">Key</th><th scope="col">Summary</th><th scope="col">Project</th><th scope="col">Status</th><th scope="col">Priority</th><th scope="col">RCA</th><th scope="col" class="n">Age (Days)</th><th scope="col" class="n">SLA Days</th><th scope="col">SLA Due Date</th><th scope="col">Required vs. Actual</th><th scope="col">Regression</th><th scope="col" class="n">Incidents</th></tr></thead><tbody>${body}</tbody></table></div>`;
   }
   host.innerHTML = `<details class="vd" id="ocfb-details"><summary>Show Open CFBs (${n})</summary>${inner}</details>`;      // collapsed until asked for; an open panel stays open while the page re-renders, for this visit only
   document.getElementById("ocfb-cap").innerHTML = ""; OCFB_HELP = [
@@ -2985,9 +2985,9 @@ function renderCapabilities() {
   host.innerHTML = `<a class="skip" href="#h-cycles" data-skip="h-cycles">Skip to Delivery Cycle Governance</a>` +
     (!caps.length ? `<div class="empty">${capsAll.length ? "No Commitment Level is selected. Choose at least one in the Capabilities filter above the tables." : `No Capability of the selected projects has fix version ${esc(rel)}.`}</div>` :
     `<div class="cyblock"><h3>Capability Status Summary</h3><div class="cymeta">One row per project of the Capability; one with several fix versions counts under each. Open a project for its Capabilities.</div>${ax.bar}<div class="scrollcue">Scrolls sideways</div>` +
-      `<div class="tablewrap" tabindex="0" role="region" aria-label="Capability status summary by project and Capability, scrolls sideways when it does not fit">${ax.table}</div></div>` +
+      `<div class="tablewrap freeze" tabindex="0" role="region" aria-label="Capability status summary by project and Capability, scrolls sideways when it does not fit">${ax.table}</div></div>` +
     `<div class="cyblock"><h3>Child Epics of These Capabilities</h3><div class="cymeta">Child epics of the ${caps.length} Capabilities, any project or fix version.${outside.length ? ` ${tlink(outside.length, href(`${kidQ} AND project not in (${pkeys(projectsAll)})`), `${nn(outside.length, "child epic", "child epics")} in other projects${parentNote(caps.length)}`)} sit outside the projects on this page.` : ""}</div>${bx.bar}<div class="scrollcue">Scrolls sideways</div>` +
-      `<div class="tablewrap" tabindex="0" role="region" aria-label="Child epics of these Capabilities by project, team and pod, scrolls sideways when it does not fit">${bx.table}</div></div>`);
+      `<div class="tablewrap freeze" tabindex="0" role="region" aria-label="Child epics of these Capabilities by project, team and pod, scrolls sideways when it does not fit">${bx.table}</div></div>`);
   const exTxt = capEx.length ? `; ${tlink(capEx.length, jira({extra: `parent is EMPTY AND ${CAP_EXEMPT_IN}`}), capExemptTip(capEx.length))} more ${capEx.length === 1 ? "is" : "are"} exempt by Issue Category` : "";
   dq.innerHTML = nScope ? `${noCapScope.length ? `${tlink(noCapScope.length, jira({extra: NO_CAP_JQL}), `${nn(noCapScope.length, "epic", "epics")} in scope with no Capability parent\nNot counting epics exempt by Issue Category.`)} of ${nScope.toLocaleString("en-US")} epics ${noCapScope.length === 1 ? "has" : "have"} no Capability parent` : "Every epic that needs a Capability has one"}${exTxt}.` : "";
   defsEl.innerHTML = defs(howBody({id: "cap",
@@ -3881,7 +3881,7 @@ function cyWeekly(M) {
   const wk = spans.find(x => x.label !== "Before W1" && CY_DAY(x.we) - CY_DAY(x.ws) === 6) || spans.find(x => x.label !== "Before W1"), DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   const dayName = d => DAYS[new Date(utc(d)).getUTCDay()];                  // the weekday of a date of the table itself, never a fixed name
   return `<div class="cyblock" id="cy-weekly"><h3>Weekly Plan vs. Actual</h3><div class="cymeta">Epics by planned week in ${esc(c.name)}.${wk ? ` Weeks run ${dayName(wk.ws)} to ${dayName(wk.we)}.` : ""}</div>` +
-    `<div class="tablewrap"><table class="cytable" id="cy-wktable"><caption class="sr">Weekly plan versus actual for ${esc(c.name)}: epics planned each week, W${lo} to W${hi}${first ? ", and the first seven days of the release before W1" : ""}</caption>` +
+    `<div class="tablewrap freeze"><table class="cytable" id="cy-wktable"><caption class="sr">Weekly plan versus actual for ${esc(c.name)}: epics planned each week, W${lo} to W${hi}${first ? ", and the first seven days of the release before W1" : ""}</caption>` +
     `<thead><tr><th scope="col">Week</th><th scope="col">Dates</th><th scope="col" class="n">Planned</th><th scope="col" class="n">Done</th><th scope="col" class="n">Not Done</th><th scope="col" class="n">% Done</th><th scope="col">Result</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
 }
 
@@ -3917,7 +3917,7 @@ function cyOverview(c, planned) {
   const tot = `<tr class="tot"><th scope="row">All Epics (Each Epic Once)</th><td></td><td class="n">${tlink(M.epics.length, jira({}), `${cyEp(M.epics.length)} in ${state.release}\nUnder the page filters.`)}</td>${cyStatCells(cyStats(planned, []), c, null)}</tr>`;
   return `<div class="cyblock"><h3>Projects, Teams and Pods</h3>` +
     `<div class="cyfrow cytogglebar"><button type="button" class="btn link" data-cyact="expall">Expand All</button><button type="button" class="btn link" data-cyact="colall">Collapse All</button></div>` +
-    `<div class="tablewrap" tabindex="0" role="region" aria-label="Projects, teams and pods for ${esc(c.name)}, scrolls sideways when it does not fit"><table class="cytable cypods" id="cy-ovtable"><caption class="sr">Projects with their teams and pods for ${esc(c.name)}: epics, planned, done, overdue and planned in the next ${CY.next} days. Each project, team and pod row can be expanded or collapsed; a pod lists its epics.</caption>` +
+    `<div class="tablewrap freeze" tabindex="0" role="region" aria-label="Projects, teams and pods for ${esc(c.name)}, scrolls sideways when it does not fit"><table class="cytable cypods" id="cy-ovtable"><caption class="sr">Projects with their teams and pods for ${esc(c.name)}: epics, planned, done, overdue and planned in the next ${CY.next} days. Each project, team and pod row can be expanded or collapsed; a pod lists its epics.</caption>` +
     `<thead><tr><th scope="col">Project, Team and Pod</th><th scope="col" class="n">${tipFocus("Teams or Pods", "A project row counts its teams; a team row counts its pods.")}</th><th scope="col" class="n">${tipFocus("Epics in Release", "Each row counts its own epics once. An epic with two teams or several pods appears under each; the last row counts it once.")}</th><th scope="col" class="n">Planned</th><th scope="col" class="n">Done</th><th scope="col" class="n">Overdue</th><th scope="col" class="n">Due Next ${CY.next} Days</th></tr></thead>` +
     `<tbody id="cy-ovbody">${order.map(rowOf).join("")}</tbody><tfoot>${tot}</tfoot></table></div></div>`;
 }
@@ -3995,12 +3995,12 @@ function cyPodTable(kind, pods) {                                // the pods beh
     return `<tr><th scope="row">${esc(p.name)}${p.sp.length > 1 ? `<div class="cysub">spellings combined: ${esc(p.sp.join(", "))}</div>` : ""}</th><td>${esc(p.project)}</td><td>${p.teams.map(esc).join(", ")}</td>` +
       `<td class="n">${tlink(n, cyQ(idle ? "podEpics" : "podWipIn", null, c, p), tip)}</td>${idle ? `<td class="n">${p.planned}</td>` : ""}</tr>`; }).join("");
   return `<div class="cymeta">${esc(what)}, alphabetical, not ranked.${idle ? "" : " Counts epics in status In Progress only; Validation is not counted."} Pods are known only through epic labels, so each count is a lower bound.</div>` +
-    `<div class="tablewrap" tabindex="0" role="region" aria-label="${esc(what)}, scrolls sideways when it does not fit"><table class="cytable cypodlist" id="cy-podtable"><caption class="sr">${esc(what)}: the project, the teams and the epics of each pod${idle ? `, and its epics planned in ${esc(c.name)}` : ""}</caption>` +
+    `<div class="tablewrap freeze" tabindex="0" role="region" aria-label="${esc(what)}, scrolls sideways when it does not fit"><table class="cytable cypodlist" id="cy-podtable"><caption class="sr">${esc(what)}: the project, the teams and the epics of each pod${idle ? `, and its epics planned in ${esc(c.name)}` : ""}</caption>` +
     `<thead><tr><th scope="col">Pod</th><th scope="col">Project</th><th scope="col">Teams</th><th scope="col" class="n">${idle ? "Epics in Release" : "Epics In Progress"}</th>${idle ? `<th scope="col" class="n">Planned in ${esc(c.name)}</th>` : ""}</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 // ---- the lists behind the four 'act now' tiles (same table pattern as the pod lists: alphabetical, never ranked; every epic count is a Jira query, the waiting items an exact list of keys)
 function cyActTable(what, note, head, body) {
-  return `<div class="cymeta">${note}</div><div class="tablewrap" tabindex="0" role="region" aria-label="${esc(what)}, scrolls sideways when it does not fit"><table class="cytable cypodlist" id="cy-podtable"><caption class="sr">${esc(what)}</caption>` +
+  return `<div class="cymeta">${note}</div><div class="tablewrap freeze" tabindex="0" role="region" aria-label="${esc(what)}, scrolls sideways when it does not fit"><table class="cytable cypodlist" id="cy-podtable"><caption class="sr">${esc(what)}</caption>` +
     `<thead><tr>${head.map(([t, n]) => `<th scope="col"${n ? ' class="n"' : ""}>${t}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
 function cyListNs(c) {
