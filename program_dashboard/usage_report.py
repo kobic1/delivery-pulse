@@ -1870,6 +1870,8 @@ section.blk > h2 { font-size:var(--t-sub); margin:0 0 8px; }
 .spark path.a { fill:#3694FC; fill-opacity:.16; stroke:none; }
 .sparkwrap { position:relative; }
 .sparkwrap .ld { position:absolute; width:7px; height:7px; margin:-3.5px 0 0 -3.5px; border-radius:50%; background:var(--blue-ink); }
+.spark path.p { fill:none; stroke:var(--blue); stroke-width:1.4; stroke-dasharray:3 3; vector-effect:non-scaling-stroke; }
+.sparkwrap .ld.pt { width:9px; height:9px; margin:-4.5px 0 0 -4.5px; background:var(--hatch-blue); outline:1px solid var(--blue-ink); outline-offset:-1px; }
 details.vd { margin:10px 0 0; }
 details.vd > summary { cursor:pointer; color:var(--blue-ink); font-size:var(--t-cap); padding:2px 0; }
 details.vd > summary:focus-visible, a:focus-visible { outline:2px solid var(--blue-ink); outline-offset:2px; }
@@ -2075,10 +2077,12 @@ def panel(title: str, caption: str, body: str, data: str = "", hid: str = "", ex
     return f'<div class="panel {extra_cls}"{i}><h3>{e(title)}</h3><p class="cap">{e(caption)}</p>{body}{data}</div>'
 
 
-def spark(vals: list, label: str) -> str:
-    """A sparkline of a weekly series (None = a week that cannot be drawn: a gap). Drawn only from 3 numbers; autoscaled (a trend shape, not a magnitude)."""
+def spark(vals: list, label: str, part: list | None = None) -> str:
+    """A sparkline of a weekly series (None = a week that cannot be drawn: a gap). Drawn from 2 points on; autoscaled (a trend shape, not a magnitude).
+    part: per week, True for an incomplete week (the provisional first week, the week in progress). A complete week is the solid line and area with a solid dot on the last one; an incomplete week is a hatched point, joined to its neighbour by a lighter dashed line (no area under it)."""
+    part = part or [False] * len(vals)
     pts = [(i, v) for i, v in enumerate(vals) if isinstance(v, (int, float)) and not isinstance(v, bool)]
-    if len(pts) < 3:
+    if len(pts) < 2:
         return '<div class="skbar" aria-hidden="true"></div>'
     lo, hi = min(v for _, v in pts), max(v for _, v in pts)
     pad = (hi - lo) * 0.12 or max(1.0, abs(hi) * 0.1)
@@ -2094,12 +2098,37 @@ def spark(vals: list, label: str) -> str:
             cur = []
     if cur:
         runs.append(cur)
-    d_l = " ".join(("M" if k == 0 else "L") + "%.2f %.2f" % xy(i, v) for run in runs for k, (i, v) in enumerate(run))
-    d_a = " ".join(" ".join(("M" if k == 0 else "L") + "%.2f %.2f" % xy(i, v) for k, (i, v) in enumerate(run)) + " L%.2f 29 L%.2f 29 Z" % (xy(run[-1][0], 0)[0], xy(run[0][0], 0)[0]) for run in runs)
-    li, lv = pts[-1]
-    lx, ly = xy(li, lv)
-    return (f'<div class="sparkwrap"><svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label="{e(label)}"><path class="a" d="{d_a}"/><path class="l" d="{d_l}"/></svg>'
-            f'<i class="ld" aria-hidden="true" style="left:{lx:.1f}%;top:{100 * ly / 30:.1f}%"></i></div>')
+    solid, dashed = [], []                                                              # the runs of complete weeks, and the segments that touch an incomplete week
+    for run in runs:
+        sub = []
+        for k, (i, v) in enumerate(run):
+            if part[i]:
+                if sub:
+                    solid.append(sub)
+                    sub = []
+                if k > 0:
+                    dashed.append((run[k - 1], (i, v)))
+                continue
+            if k > 0 and part[run[k - 1][0]]:
+                dashed.append((run[k - 1], (i, v)))
+            sub.append((i, v))
+        if sub:
+            solid.append(sub)
+    d_l = " ".join(("M" if k == 0 else "L") + "%.2f %.2f" % xy(i, v) for run in solid for k, (i, v) in enumerate(run))
+    d_a = " ".join(" ".join(("M" if k == 0 else "L") + "%.2f %.2f" % xy(i, v) for k, (i, v) in enumerate(run)) + " L%.2f 29 L%.2f 29 Z" % (xy(run[-1][0], 0)[0], xy(run[0][0], 0)[0]) for run in solid)
+    d_p = " ".join("M%.2f %.2f L%.2f %.2f" % (xy(*x) + xy(*y)) for x, y in dashed)
+    dots = ""
+    full = [(i, v) for i, v in pts if not part[i]]
+    if full:
+        lx, ly = xy(*full[-1])
+        dots += f'<i class="ld" aria-hidden="true" style="left:{lx:.1f}%;top:{100 * ly / 30:.1f}%"></i>'
+    for i, v in pts:
+        if part[i]:
+            lx, ly = xy(i, v)
+            dots += f'<i class="ld pt" aria-hidden="true" style="left:{lx:.1f}%;top:{100 * ly / 30:.1f}%"></i>'
+    pp = f'<path class="p" d="{d_p}"/>' if d_p else ""
+    return (f'<div class="sparkwrap"><svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label="{e(label)}"><path class="a" d="{d_a}"/><path class="l" d="{d_l}"/>{pp}</svg>'
+            f'{dots}</div>')
 
 
 def hbars(rows: list, scale: str = "0 to 100% of the people shown", axis: tuple = ("0", "50%", "100%")) -> tuple:
@@ -2175,6 +2204,26 @@ def _comparable_run(m: Model) -> list:
         run.append(w)
         w -= dt.timedelta(days=7)
     return sorted(run)
+
+
+def _strip_weeks(m: Model) -> list:
+    """The weeks the sparkline strips draw, oldest first, as [(week, partial)]: the comparable run (complete weeks), the provisional first week when it sits right before the run (or is the last completed week), and the week in progress when it has data,
+    all under the same recording rules. The strip is a picture only: the changes, the usual range and the baselines use complete comparable weeks and never these."""
+    run = _comparable_run(m)
+    L = m.last
+    if run:
+        rg = m.regime(L)
+        out = [(w, False) for w in run]
+        if m.provisional_first and m.first_week == run[0] - dt.timedelta(days=7) and m.regime(m.first_week) == rg:
+            out.insert(0, (m.first_week, True))
+    elif m.provisional_first and m.first_week == L and m.regime(L) is not None:
+        out = [(L, True)]
+    else:
+        return []
+    rg = m.regime(out[-1][0])
+    if m.cur in m.by_week and m.regime(m.cur) == rg and not (m.cur == m.rollover and rg == "v2"):
+        out.append((m.cur, True))
+    return out
 
 
 def kpi_period(m: Model) -> dict:
@@ -2275,7 +2324,8 @@ def device_donut(dc: dict, th=THRESHOLDS) -> tuple:
 
 
 def kpi_series(a: dict) -> dict:
-    """Weekly values of the key figures over the comparable run (the sparklines and the changes): the same period_values as the cards, one week at a time; the desktop share of the visits with a width needs 20 visits and no withheld class."""
+    """Weekly values of the key figures over the comparable run (the changes): the same period_values as the cards, one week at a time; the desktop share of the visits with a width needs 20 visits and no withheld class.
+    strip/sser: the same figures for the sparklines, which also draw the provisional first week and the week in progress (see _strip_weeks)."""
     m, th = a["model"], a["model"].th
     run = _comparable_run(m)
     grow = {w["ws"]: w for w in a["weeks"]}
@@ -2290,7 +2340,35 @@ def kpi_series(a: dict) -> dict:
         ser["min"][w] = v["min"]
         cnt_["min"][w] = v["pos"]
         ser["desk"][w] = device_card(v["dev"], th).get("desk")
-    return {"run": run, "ser": ser, "cnt": cnt_}
+    strip = _strip_weeks(m)                                                             # the same figures for the strips, with the incomplete weeks (the same guards: a group under the minimum is not a number)
+    sser = {k: {} for k in ("people", "new", "vpp", "min")}
+    for w, part in strip:
+        if not part:
+            for k in sser:
+                sser[k][w] = ser[k].get(w)
+            continue
+        v = period_values(m.visits(w), th)
+        sser["people"][w] = v["people"]
+        sser["vpp"][w] = v["vpp"]
+        sser["min"][w] = v["min"]
+        if w == m.cur and v["n"]:                                                       # in the provisional first week everyone is new by construction (as the weekly table, no figure)
+            new_n = len(m.new(w))
+            sser["new"][w] = SMALL if v["n"] < MIN_USERS else protect_partition({"new": new_n, "other": v["n"] - new_n}, v["n"])["new"]
+        else:
+            sser["new"][w] = None
+    return {"run": run, "ser": ser, "cnt": cnt_, "strip": strip, "sser": sser}
+
+
+STRIP_NOTE = "In the small weekly lines, a lighter hatched point is part of a week: the first week, which starts mid-week, or the week still in progress."
+
+
+def _strip_label(what: str, vals: list, part: list, end) -> str:
+    """The accessible name of a strip. With only complete weeks it says the weeks are comparable and ends at the card's figure; with incomplete weeks it says so (the partial first week, the week so far) and ends at the last week it draws."""
+    if not any(part):
+        return f"{what} per week, last {len(vals)} comparable weeks, ending at {end}."
+    incl = "the partial first week and the week so far" if part[0] and part[-1] else "the week so far" if part[-1] else "the partial first week"
+    tail = f", ending at {vals[-1]}" + (" (week so far)" if part[-1] else "")
+    return f"{what} per week, last {len(vals)} weeks including {incl}{tail}."
 
 
 def _delta(cur, prev, pct_ok: bool, decimals: int = 0, unit: str = "", good_up: bool | None = None) -> tuple:
@@ -2400,12 +2478,13 @@ def _kpis(a: dict) -> str:
     P = kpi_period(m)
     ks = kpi_series(a)
     run, ser, cn = ks["run"], ks["ser"], ks["cnt"]
+    strip, sser = ks["strip"], ks["sser"]
+    part = [p for _, p in strip]
     vals = period_values(P["rows"], th)
     L = m.last
     prev = L - dt.timedelta(days=7)
     week_mode = P["kind"] == "week"
     has_prev = week_mode and prev in run and L in run
-    weeks_n = len(run)
     if not week_mode:
         why = "No comparison yet: first week of data"
     elif L not in run:
@@ -2416,7 +2495,21 @@ def _kpis(a: dict) -> str:
         why = ""
     note = ("nt", why)
     so = ", so far" if P["so_far"] else ""
-    arr = lambda key: [ser[key].get(w) if isinstance(ser[key].get(w), (int, float)) and not isinstance(ser[key].get(w), bool) else None for w in run]
+    def strip_of(key):
+        """(values, incomplete flags) of a strip: an incomplete week at either end that cannot be drawn (no figure, or a group under the minimum) takes no room."""
+        vs = [sser[key].get(w) if isinstance(sser[key].get(w), (int, float)) and not isinstance(sser[key].get(w), bool) else None for w, _ in strip]
+        ps = list(part)
+        while vs and ps[0] and vs[0] is None:
+            vs.pop(0)
+            ps.pop(0)
+        while vs and ps[-1] and vs[-1] is None:
+            vs.pop()
+            ps.pop()
+        return vs, ps
+
+    def sp(key, what, end):
+        vs, ps = strip_of(key)
+        return spark(vs, _strip_label(what, vs, ps, end), ps)
     cells = []
     # 1 people active (hero)
     if vals["people"] == SMALL:
@@ -2436,7 +2529,7 @@ def _kpis(a: dict) -> str:
             den += (f"<br>{num(au['x'])} of an audience of {au['size']}" + (f" ({au['pct']}%)" if au["pct"] is not None else "") + ", a lower bound") if (au["x"] is not None and week_mode) else f"<br>Audience of {au['size']} supplied"
         else:
             den += "<br>No audience size supplied"
-        cells.append(_kpi("People active", num(vals["people"]), dl, den, spark(arr("people"), f"People active per week, last {weeks_n} comparable weeks, ending at {cur}."), hero=True, hid="kpi-people"))
+        cells.append(_kpi("People active", num(vals["people"]), dl, den, sp("people", "People active", cur), hero=True, hid="kpi-people"))
     # 2 new people
     if week_mode:
         row = next((w for w in a["weeks"] if w["ws"] == L), None)
@@ -2453,7 +2546,7 @@ def _kpis(a: dict) -> str:
     else:
         pv = ser["new"].get(prev)
         dl = _delta(new, pv, False, good_up=True) if has_prev else note
-        cells.append(_kpi("New people", num(new), dl, e(f"of {vals['people'] if vals['people'] == SMALL else _pl(vals['n'], 'person', 'people')} active{so}"), spark(arr("new"), f"New people per week, last {weeks_n} comparable weeks, ending at {new}."), hid="kpi-new"))
+        cells.append(_kpi("New people", num(new), dl, e(f"of {vals['people'] if vals['people'] == SMALL else _pl(vals['n'], 'person', 'people')} active{so}"), sp("new", "New people", new), hid="kpi-new"))
     # 3 engaged visits per active person
     v = vals["vpp"]
     if v is None:
@@ -2463,7 +2556,7 @@ def _kpis(a: dict) -> str:
     else:
         pv = ser["vpp"].get(prev)
         dl = _delta(v, pv, pv not in (None, SMALL) and cn["vpp"][prev][1] >= th["min_den"], 1, good_up=None) if has_prev else note
-        cells.append(_kpi("Engaged visits per person", num(v), dl, e(f"{_pl(vals['eng'], 'engaged visit', 'engaged visits')}, {_pl(vals['n'], 'person', 'people')}{so}"), spark(arr("vpp"), f"Engaged visits per active person per week, last {weeks_n} comparable weeks, ending at {v}."), hid="kpi-vpp"))
+        cells.append(_kpi("Engaged visits per person", num(v), dl, e(f"{_pl(vals['eng'], 'engaged visit', 'engaged visits')}, {_pl(vals['n'], 'person', 'people')}{so}"), sp("vpp", "Engaged visits per active person", v), hid="kpi-vpp"))
     # 4 median active minutes
     v = vals["min"]
     if v is None:
@@ -2473,7 +2566,7 @@ def _kpis(a: dict) -> str:
     else:
         pv = ser["min"].get(prev)
         dl = _delta(v, pv, False, 1, unit=" min", good_up=None) if has_prev else note
-        cells.append(_kpi("Median visit length", f"{num(v)}<span class=\"small\"> min</span>", dl, e(f"active minutes, {_pl(vals['pos'][0], 'engaged visit', 'engaged visits')}{so}"), spark(arr("min"), f"Median active minutes per engaged visit per week, last {weeks_n} comparable weeks, ending at {v}."), hid="kpi-min"))
+        cells.append(_kpi("Median visit length", f"{num(v)}<span class=\"small\"> min</span>", dl, e(f"active minutes, {_pl(vals['pos'][0], 'engaged visit', 'engaged visits')}{so}"), sp("min", "Median active minutes per engaged visit", v), hid="kpi-min"))
     # 5 device (twice as wide as the others: the donut and its legend sit side by side)
     dev = device_card(vals["dev"], th)
     if dev["state"] == "none":
@@ -2515,7 +2608,8 @@ def _kpis(a: dict) -> str:
         sub = P["label"][0].upper() + P["label"][1:] + ". " + _first_comparison_note(m)
     else:
         sub = "No data yet."
-    return (f'<section class="blk" id="kpis" aria-labelledby="h-kpi"><h2 id="h-kpi">Key figures</h2><p class="cap" id="kpi-note">{e(sub)}</p><p class="cap" id="device-caveat">Device is by browser window width, not device type: a narrow desktop window counts as phone.</p>'
+    strip_note = f'<p class="cap" id="strip-note">{e(STRIP_NOTE)}</p>' if any('class="ld pt"' in c for c in cells) else ""
+    return (f'<section class="blk" id="kpis" aria-labelledby="h-kpi"><h2 id="h-kpi">Key figures</h2><p class="cap" id="kpi-note">{e(sub)}</p><p class="cap" id="device-caveat">Device is by browser window width, not device type: a narrow desktop window counts as phone.</p>{strip_note}'
             f'<div class="kpis">{"".join(cells)}</div>{show_data(table)}</section>')
 
 
