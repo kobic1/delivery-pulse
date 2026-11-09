@@ -143,7 +143,9 @@ def button_problems(ch, prod):
             probs.append(f"{prod}: the setup made {counted} changes, expected {n}")
         if m["tag"] != "BUTTON" or m["txt"] != want or m["disabled"] != (n == 0):
             probs.append(f"{prod}: with {n} changes the button is <{m['tag']}> {m['txt']!r} disabled={m['disabled']}, expected {want!r} disabled={n == 0}")
-        if m["rs"]["h"] < 24 or m["rs"]["w"] < 24:
+        if n == 0 and (m["rs"]["w"] or m["rs"]["h"]):
+            probs.append(f"{prod}: with no change the button is still on the page ({m['rs']['w']} x {m['rs']['h']}px): it shows only while something is changed")
+        if n and (m["rs"]["h"] < 24 or m["rs"]["w"] < 24):
             probs.append(f"{prod}: the button target is {m['rs']['w']} x {m['rs']['h']}px, below 24 x 24")
     if not ch.js("(() => { const b = document.getElementById('f-reset'); b.focus(); return document.activeElement === b || b.disabled; })()"):
         probs.append(f"{prod}: the button cannot take focus")
@@ -166,8 +168,11 @@ def phone_problems(ch, prod):
                 probs.append(f"{prod} phone {'open' if opened else 'collapsed'} {label}: Reset Filters overlaps {m['hits'][:3]}")
             if m["side"] > 1:
                 probs.append(f"{prod} phone {label}: the page scrolls sideways by {m['side']}px")
+            shown = ch.js("getComputedStyle(document.getElementById('f-reset')).visibility") == "visible"
             if m["rs"]["h"] < 24:
                 probs.append(f"{prod} phone: the button is {m['rs']['h']}px tall")
+            if shown != bool(ch.js("Object.values(filterChanges()).filter(Boolean).length")):
+                probs.append(f"{prod} phone {label}: the button is {'seen' if shown else 'not seen'} but the page counts {ch.js('Object.values(filterChanges()).filter(Boolean).length')} changes")
     return probs
 
 
@@ -217,6 +222,26 @@ def _(t: T):
         t.check(False, p)
     t.check(not probs, f"{len(probs)} problems in all")
     t.note(f"observations: {obs[:6]}")
+
+
+@SUITE.test("reset_filters_shows_only_while_something_is_changed")
+def _(t: T):
+    """Not on the page with the default filters; there once a filter (here: Cycle 1, then the P3 priority) changes; gone again, with focus on the Release control, after it is pressed."""
+    for vp in ((FRAME, 900), (390, 800)):
+        ch, _ = load("cxone", vp)
+        shown = lambda: ch.js("(() => { const b = document.getElementById('f-reset'), s = getComputedStyle(b); return s.display !== 'none' && s.visibility !== 'hidden' && !b.hidden && b.getBoundingClientRect().width > 0; })()")
+        if vp[0] < 500:
+            ch.js("(() => { const b = document.getElementById('filterbar'); b.classList.remove('collapsed'); })()")
+        t.check(shown() is False, f"{vp[0]}px: Reset Filters is on the page with the default filters")
+        ch.js("document.querySelector('#f-dc input[value=\"1\"]').click()")
+        time.sleep(0.3)
+        t.check(shown() is True, f"{vp[0]}px: Reset Filters is missing after a filter changed")
+        ch.js("document.getElementById('f-reset').focus(); document.getElementById('f-reset').click()")
+        time.sleep(0.4)
+        t.check(shown() is False and ch.js("document.activeElement && document.activeElement.id") == "f-release", f"{vp[0]}px: after Reset Filters the button is {'still there' if shown() else 'gone'} and focus is on {ch.js('document.activeElement && document.activeElement.id')!r}, expected f-release")
+        ch.js("state.bugPri.delete('P3'); syncControls()")
+        time.sleep(0.2)
+        t.check(shown() is True, f"{vp[0]}px: Reset Filters is missing after the P3 priority changed")
 
 
 @SUITE.test("selftest_the_check_fails_on_the_old_rules")

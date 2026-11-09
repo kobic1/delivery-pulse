@@ -151,6 +151,7 @@ button.btn.multi[aria-pressed="true"]::before { content:"\2713\00a0"; color:var(
 @media (max-width:380px) { #filterbar #g-dc .seg .chip { padding:4px 6px; } }      /* 320 px: the same three joined segments, with tighter padding */
 @media (max-width:300px) { #f-dc { flex-wrap:wrap; gap:6px; } #f-dc .chip, #f-dc .chip:first-child, #f-dc .chip:last-child { margin-left:0; border-radius:var(--radius-s); } }      /* narrower than any phone in use: separate chips, like the Projects chips */
 #filterbar [hidden], .prodnote[hidden] { display:none !important; }
+@media (max-width:760px) { #filterbar .freset[hidden] { display:inline-flex !important; visibility:hidden; } }      /* phone: the button is in the flow, so its slot stays (unseen, out of the tab order) and the bar does not grow when the first filter changes */
 .prodauto { font-size:var(--t-body); }
 .prodauto b { font-weight:600; }
 .prodnote { margin:2px 0 12px; font-size:var(--t-cap); color:var(--muted); line-height:1.5; }
@@ -656,7 +657,7 @@ footer.f b { color:var(--ink); }
         </div>
       </div>
       <div class="fg hideable" id="g-dc"><span class="lbl" id="lbl-dc">Delivery Cycle</span><div class="chips seg" id="f-dc" role="radiogroup" aria-labelledby="lbl-dc" aria-describedby="f-dc-status f-dc-note"></div><span class="fnote dcstatus" id="f-dc-status"></span><span class="fnote" id="f-dc-note"></span></div>
-      <button class="btn link freset" id="f-reset" type="button" disabled>Reset Filters</button>
+      <button class="btn link freset" id="f-reset" type="button" disabled hidden>Reset Filters</button>
     </div>
   </div>
 
@@ -4183,7 +4184,7 @@ function buildFilters() {
   document.getElementById("dep-body").addEventListener("click", e => { if (!e.target.closest("[data-dpclear]")) return; state.depRel = "all"; state.depAtt = new Set(); update(); const r = document.querySelector('#f-dp input[value="all"]'); if (r) r.focus({preventScroll: true}); });
   document.getElementById("f-cx").innerHTML = Object.entries(CX_TYPES).map(([k, [n]]) => `<label class="chip"><input type="radio" name="f-cx" value="${k}"> ${n}</label>`).join("");
   document.getElementById("f-cx").onchange = e => { state.cx = e.target.value; saveState(); withAnchor(() => { syncControls(); renderCx(); }, holdSel(e.target) || "#g-cx"); };
-  document.getElementById("f-reset").onclick = e => { const hold = holdSel(e.currentTarget); resetFilters(); { const ts = document.getElementById("f-teams-search"); if (ts) ts.value = ""; } update({hold}); document.getElementById("f-release").focus({preventScroll: true}); };   // the button disables itself, so focus moves to the first control
+  document.getElementById("f-reset").onclick = e => { const hold = holdSel(e.currentTarget); resetFilters(); { const ts = document.getElementById("f-teams-search"); if (ts) ts.value = ""; } update({hold}); document.getElementById("f-release").focus({preventScroll: true}); };   // the button hides itself, so focus moves to the first control
   const fbar = document.getElementById("filterbar"), ftog = document.getElementById("f-toggle");
   fbar.classList.toggle("collapsed", window.matchMedia("(max-width:760px)").matches);
   ftog.setAttribute("aria-expanded", String(!fbar.classList.contains("collapsed")));
@@ -4277,7 +4278,7 @@ function filterChanges() {
 function syncControls() {
   const ch = filterChanges(), nCh = Object.values(ch).filter(Boolean).length;
   [["g-release", ch.release], ["g-projects", ch.projects], ["teamsel", ch.teams], ["g-dc", ch.dc], ["g-bpri", ch.bugpri], ["g-cfb", ch.cfb], ["g-cl", ch.caplevel], ["g-ax", ch.ax], ["g-gran", ch.period], ["g-cfbgrp", ch.cfbgrp], ["g-dep", ch.depfilter], ["g-cx", ch.cx]].forEach(([id, on]) => document.getElementById(id).classList.toggle("changed", on));
-  const rb = document.getElementById("f-reset"); rb.disabled = !nCh; rb.textContent = nCh ? `Reset Filters (${nCh})` : "Reset Filters";
+  const rb = document.getElementById("f-reset"); rb.disabled = !nCh; rb.hidden = !nCh; rb.textContent = nCh ? `Reset Filters (${nCh})` : "Reset Filters";
   document.getElementById("f-toggle").textContent = nCh ? `Filters (${nCh} Applied)` : "Filters";
   document.getElementById("f-release").value = state.release;
   document.querySelectorAll("#f-gran input").forEach(i => { i.checked = i.value === state.gran; i.parentElement.classList.toggle("on", i.checked); });
