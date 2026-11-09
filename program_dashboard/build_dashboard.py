@@ -357,10 +357,14 @@ def hier_record(i) -> dict:
 
 def collect_hier(j, epics, caps) -> dict:
     """The Initiative > Capability > Epic hierarchy behind the CXCROSS view: every CXCROSS issue (Initiatives,
-    Capabilities and CXCROSS-owned Epics), every Capability our epics point to, and the Initiatives above them."""
+    Capabilities and CXCROSS-owned Epics), the Capabilities of our projects under a CXCROSS Initiative, every Capability our epics point to, and the Initiatives above them."""
     hier = {}
     for i in j.search("project = CXCROSS AND status != Removed", HIER_FIELDS):
         hier[i["key"]] = hier_record(i)
+    ini = sorted(k for k, r in hier.items() if r["ty"] == "Initiative")
+    for n in range(0, len(ini), 80):                     # the Capabilities of our own projects that sit under a CXCROSS Initiative (the CXCROSS view counts them, and lists them when they have no epics)
+        for i in j.search(f'parent in ({", ".join(ini[n:n + 80])}) AND project in ({pkeys(PROJECTS)}) AND status != Removed', HIER_FIELDS):
+            hier[i["key"]] = hier_record(i)
     for _ in range(2):                                   # capabilities of our epics, then the parents we do not hold yet
         want = sorted(({e.get("cp") for e in epics if e.get("cp")} | {r.get("par") for r in hier.values() if r.get("par")}) - set(hier) - {None})
         for n in range(0, len(want), 80):

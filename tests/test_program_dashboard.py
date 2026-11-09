@@ -287,3 +287,30 @@ def test_the_sandbox_banner_is_added_before_the_usage_bundle_is_inlined():
     src = (HERE / "build_dashboard.py").read_text()
     body = src[src.index("def render(data"):src.index("def main()")]
     assert body.index("sandbox_fragment(fragment") < body.index("usage_bundle.inline_into(fragment")
+
+
+def test_the_cxcross_hierarchy_also_holds_our_capabilities_that_sit_under_a_cxcross_initiative():
+    """collect_hier asks for the Capabilities of the dashboard projects under the CXCROSS Initiatives (so the CXCROSS view can count and list them), never for another project's, and not the Removed ones."""
+    def issue(key, ty, par=None, st="In Progress"):
+        f = {"summary": key.lower(), "status": {"name": st}, "issuetype": {"name": ty}, "fixVersions": [{"name": "27.1"}], "project": {"key": key.split("-")[0]}}
+        if par:
+            f["parent"] = {"key": par}
+        return {"key": key, "fields": f}
+
+    class Stub:
+        def __init__(self):
+            self.asked = []
+
+        def search(self, jql, fields):
+            self.asked.append(jql)
+            if jql.startswith("project = CXCROSS"):
+                return [issue("CXCROSS-1", "Initiative"), issue("CXCROSS-2", "Capability", "CXCROSS-1")]
+            if jql.startswith("parent in (CXCROSS-1)"):
+                assert "project in (" in jql and "status != Removed" in jql and "CXCROSS" not in jql.split("project in (")[1], jql
+                return [issue("PMN-10", "Capability", "CXCROSS-1")]
+            return []
+
+    j = Stub()
+    out = BD.collect_hier(j, [], {})["hier"]
+    assert set(out) == {"CXCROSS-1", "CXCROSS-2", "PMN-10"} and out["PMN-10"]["par"] == "CXCROSS-1" and out["PMN-10"]["ty"] == "Capability"
+    assert sum(q.startswith("parent in (CXCROSS-1)") for q in j.asked) == 1
