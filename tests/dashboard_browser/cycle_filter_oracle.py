@@ -13,7 +13,7 @@ or planned after the release end, is in neither cycle and counts only when every
      (Done at the end of W6 once W6 has ended, N before: "planned start") to the release scope, the Done line only from W7. The week ticks, the last tick and the end marker, every day of the keyboard
      readout, the drawn lines read back from the SVG geometry, the plain-words line, the headline, the labels, the aria-label and the table days, for the as-of day before Delivery Cycle 1, inside it,
      on its last day, inside Delivery Cycle 2 and after the release end; a window of one day; a 390 px chart; the hash round trip and the re-draw on a click.
-  2. Cycles section: it has NO selector of its own and follows this filter; a banner names the cycles it shows and their dates (Cycle 1, Cycle 2, or both combined); the five Overview figures equal a recount
+  2. Cycles section: it has NO selector of its own and follows this filter; a banner names the cycles it shows and their dates (Cycle 1, Cycle 2, or both combined); the six headline figures equal a recount
      of the selected window (both ticked: every epic planned from the release start to the release end, counted once); the number of epics planned after the release end is folded into the Planned
      caption ("... · N after release end") and appears only when every cycle is shown. An older link with a removed key (cy=DC1, or the detail view keys ct= and cs=) is ignored without an error.
   3. The header control: present, no Commitment Type control, the hash round trip (dc), an older c= link ignored, the last cycle cannot be unticked, keyboard operation, no sideways scroll at 320 and
@@ -199,7 +199,8 @@ class Recount:
         nd = lambda e: e["s"] != "Done"
         over = [e for e in pl if nd(e) and day(self.planned_due(e)) < self.asof]
         nxt = [e for e in pl if nd(e) and self.asof <= day(self.planned_due(e)) <= self.asof + dt.timedelta(days=7)]
-        return {"planned": len(pl), "done": sum(1 for e in pl if not nd(e)), "overdue": len(over), "next": len(nxt), "flagged": sum(1 for e in pl if nd(e) and e.get("fl"))}
+        long_ = [e for e in pl if not nd(e) and e.get("edct") is not None and (e.get("cat") or "").lower() not in ("maintenance", "sow") and e["edct"] > 7]      # Took Over 7 Days: Done, with a cycle time, outside the excluded Issue Categories, MORE than 7 days
+        return {"planned": len(pl), "done": sum(1 for e in pl if not nd(e)), "long": len(long_), "overdue": len(over), "next": len(nxt), "flagged": sum(1 for e in pl if nd(e) and e.get("fl"))}
 
     def after_count(self):
         return sum(1 for e in self.sel if self.planned_due(e) and day(self.planned_due(e)) > self.end)
@@ -567,7 +568,7 @@ def check_view(t_problems: list, data: dict, universe: list, h: str, r: dict, la
         p.append(f"{tag} a release with one cycle must say it has no Delivery Cycle 2: {r['point']!r}")
     want_t = R.cycles_tiles()
     got_t = {k: (int(v.replace(",", "")) if re.fullmatch(r"[\d,]+", v or "") else v) for k, v in r["tiles"].items()}
-    names = {"planned": "planned", "done": "done", "overdue": "overdue", "next": "next", "flagged": "flagged"}
+    names = {"planned": "planned", "done": "done", "long": "long", "overdue": "overdue", "next": "next", "flagged": "flagged"}
     for k, v in want_t.items():
         if got_t.get(names[k]) != v:
             p.append(f"{tag} Cycles ({cname}) {k}: the page shows {got_t.get(names[k])}, the recount {v}")
@@ -780,9 +781,9 @@ SEC_JS = r"""(() => {
   const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
   const bn = document.getElementById('cy-banner'), sh = document.getElementById('cy-showing'), pt = document.getElementById('cy-point'), btn = document.getElementById('cy-tofilter');
   const bg = ink(bn, 'backgroundColor');
-  return {removed: ['g-cy', 'f-cy', 'lbl-cy'].filter(id => document.getElementById(id)), radios: sec.querySelectorAll('input[type=radio]').length, groups: sec.querySelectorAll('[role=radiogroup], select, .periodbar').length,
-    ownKey: Object.keys(state).filter(k => /^cy/.test(k)), kick: [...document.querySelectorAll('#cy-kpis1 .kpi .k')].map(t), plannedCap: t(document.querySelector('#cy-kpis1 [data-kpi="planned"] .s')), idleCap: t(document.querySelector('#cy-kpis2 [data-kpi="idle"] .s')),
-    headsTiles: bn.nextElementSibling === document.getElementById('cy-kpis1'), podsHead: t(document.getElementById('cy-pods-h')), podsKids: [...document.getElementById('cy-pods').children].map(e => e.id), sub: !!document.getElementById('cy-sub'), role: sh.getAttribute('role'), banner: t(sh), point: t(pt), hidden: bn.hidden, btn: btn ? {tag: btn.tagName, type: btn.type, tab: btn.tabIndex, text: t(btn), disabled: btn.disabled, label: btn.getAttribute('aria-label')} : null,
+  return {removed: ['g-cy', 'f-cy', 'lbl-cy'].filter(id => document.getElementById(id)), radios: sec.querySelectorAll('input[type=radio]').length, groups: sec.querySelectorAll('[role=radiogroup], select, .periodbar:not(#g-cypod)').length,
+    ownKey: Object.keys(state).filter(k => /^cy/.test(k)), kick: [...document.querySelectorAll('#cy-kpis1 .kpi .k')].map(t), plannedCap: t(document.querySelector('#cy-kpis1 [data-kpi="planned"] .s')), idleCap: t(document.querySelector('#cy-kpis2 [data-kpi="idle"] .s')) + ' | ' + ((document.querySelector('#cy-kpis2 [data-kpi="idle"] .l .tt') || {getAttribute: () => ''}).getAttribute('data-tip') || ''),
+    headsTiles: (bn.nextElementSibling && bn.nextElementSibling.id === 'g-cypod' ? bn.nextElementSibling.nextElementSibling : bn.nextElementSibling) === document.getElementById('cy-kpis1'), podsHead: t(document.getElementById('cy-pods-h')), podsKids: [...document.getElementById('cy-pods').children].map(e => e.id), sub: !!document.getElementById('cy-sub'), role: sh.getAttribute('role'), banner: t(sh), point: t(pt), hidden: bn.hidden, btn: btn ? {tag: btn.tagName, type: btn.type, tab: btn.tabIndex, text: t(btn), disabled: btn.disabled, label: btn.getAttribute('aria-label')} : null,
     contrast: {show: ratio(ink(sh, 'color'), bg), point: ratio(ink(pt, 'color'), bg), link: btn ? ratio(ink(btn, 'color'), bg) : null, edge: ratio(ink(bn, 'borderLeftColor'), [255, 255, 255])},
     ovMeta: t(document.querySelector('#cy-ovtable') && document.querySelector('#cy-ovtable').closest('.cyblock').querySelector(':scope > .cymeta')), ovCaption: t(document.querySelector('#cy-ovtable > caption')), hash: location.hash, errors: []};
 })()"""
@@ -804,13 +805,13 @@ def structure_probs(ch, url) -> list[str]:
         if r["kick"]:
             p.append(f"#{h}: the headline tiles repeat the cycle in a kicker, the banner says it once: {r['kick']}")
         if not r["headsTiles"]:
-            p.append(f"#{h}: the banner is not directly above the five tiles it heads (a picture of the tiles would not say the cycle)")
+            p.append(f"#{h}: the banner is not directly above the six tiles it heads (only the Filter by Pod row may sit between; a picture of the tiles would not say the cycle)")
         if name not in (r["plannedCap"] or "") or name not in (r["idleCap"] or ""):
-            p.append(f"#{h}: the Planned and Idle Pods captions (the figures counted against the cycle) must name it: {r['plannedCap']!r} {r['idleCap']!r}")
+            p.append(f"#{h}: the Planned caption and the Pods Without Planned Epics sub line plus hover (the figures counted against the cycle) must name it: {r['plannedCap']!r} {r['idleCap']!r}")
         if r["sub"]:
             p.append(f"#{h}: a subtitle is back under the heading (the banner says which cycles are shown)")
-        if r["podsHead"] != f"Pod health in {name}" or r["podsKids"] != ["cy-pods-h", "cy-kpis2", "cy-podlist"]:
-            p.append(f"#{h}: the Pod health block must name the cycles in its heading and hold no notes: {r['podsHead']!r} {r['podsKids']}")
+        if r["podsHead"] != f"Pods in {name}" or r["podsKids"] != ["cy-pods-h", "cy-kpis2", "cy-podlist"]:
+            p.append(f"#{h}: the Pods block must name the cycles in its heading and hold no notes: {r['podsHead']!r} {r['podsKids']}")
         if r["ovMeta"]:
             p.append(f"#{h}: a paragraph is back above the Projects, Teams and Pods table: {r['ovMeta']!r}")
         if name not in (r["ovCaption"] or ""):
@@ -1309,9 +1310,9 @@ MUTANTS = [
     ("the banner line a picture shows does not say 'combined'", "`Showing ${c.name}${c.multi ? \" combined\" : \"\"}`", "`Showing ${c.name}`"),
     ("the Planned tile repeats the cycle in a kicker", "planned: ({s, c, after}) => ({c: \"cy\", v:", "planned: ({s, c, after}) => ({c: \"cy\", k: esc(c.name), v:"),
     ("the Planned caption lost the cycle", "s: `epics planned in ${c.name}` + (after.length", "s: `epics planned` + (after.length"),
-    ("a line sits between the banner and the tiles it heads", '    </div>\n    <div class="kpis five" id="cy-kpis1"></div>', '    </div>\n    <div class="sub">A line.</div>\n    <div class="kpis five" id="cy-kpis1"></div>'),
+    ("a line sits between the banner and the tiles it heads", '<div class="kpis cyhl" id="cy-kpis1"></div>', '<div class="sub">A line.</div>\n    <div class="kpis cyhl" id="cy-kpis1"></div>'),
     ("a subtitle is back under the heading", '<h2 id="h-cycles" tabindex="-1">Delivery Cycle Governance</h2>\n', '<h2 id="h-cycles" tabindex="-1">Delivery Cycle Governance</h2>\n    <div class="sub" id="cy-sub">Delivery Cycle 1: release start to the end of W6.</div>\n'),
-    ("the Pod health heading does not name the cycles", "`Pod health in ${M.c.name}`", "`Pods in ${state.release}`"),
+    ("the Pods heading does not name the cycles", "`Pods in ${M.c.name}`", "`Pods in ${state.release}`"),
     ("the Find box is back", '<button type="button" class="btn link" data-cyact="colall">Collapse All</button></div>', '<button type="button" class="btn link" data-cyact="colall">Collapse All</button><input type="search" id="cy-find"></div>'),
     ("an explainer paragraph is back above the Projects table", '<div class="cyblock"><h3>Projects, Teams and Pods</h3>', '<div class="cyblock"><h3>Projects, Teams and Pods</h3><div class="cymeta">Open a name for its epics.</div>'),
     ("the banner pointer has no name of its own", " aria-label=\"Go to the Delivery Cycle filter\"", ""),
@@ -1345,7 +1346,7 @@ MUTANTS = [
     ("the even-pace readout ignores the window", "const pace = Math.round(paceAt(d));", "const pace = Math.round(D ? N * d / D : 0);"),
 ]
 STRUCTURAL = {"the removed selector is back", "the removed key is read again", "the banner is rewritten at every redraw", "the banner does not say the cycles are counted together", "the banner line a picture shows does not say 'combined'",
-              "the Planned tile repeats the cycle in a kicker", "a line sits between the banner and the tiles it heads", "a subtitle is back under the heading", "the Pod health heading does not name the cycles",
+              "the Planned tile repeats the cycle in a kicker", "a line sits between the banner and the tiles it heads", "a subtitle is back under the heading", "the Pods heading does not name the cycles",
               "the Find box is back", "an explainer paragraph is back above the Projects table", "the banner pointer has no name of its own"}      # caught by structure_probs, not by the numbers
 MUTANT_VIEWS = [("variant", "r=27.1&dc=1"), ("variant", "r=27.1&dc=2"), ("variant", "r=27.1"), ("asof_pre", "r=27.1&dc=2"), ("asof_w7", "r=27.1&dc=1"), ("asof_w7", "r=27.1&dc=2"), ("asof_w7", "r=27.1")]
 
@@ -1380,7 +1381,7 @@ HEADER_MUTANTS = [
      "{ const v = e.target.value; if (v === \"both\") state.dc = new Set(DC_IDS); else { state.dc.has(v) ? state.dc.delete(v) : state.dc.add(v); if (!state.dc.size) state.dc = new Set(DC_IDS); } }"),
     ("a click on a cycle adds it to the ones shown instead of replacing them", "state.dc = new Set(e.target.value === \"both\" ? DC_IDS : [e.target.value]);",
      "state.dc = e.target.value === \"both\" ? new Set(DC_IDS) : new Set([...state.dc, e.target.value]);"),
-    ("Both cycles is not the default", "dc: new Set(DC_IDS), ax:", "dc: new Set([\"1\"]), ax:"),
+    ("Both cycles is not the default", "dc: new Set(DC_IDS), pods: new Set(), ax:", "dc: new Set([\"1\"]), pods: new Set(), ax:"),
     ("the status line ends every cycle at W6", "hi = shown.includes(\"2\") ? W : Math.min(6, W);", "hi = Math.min(6, W);"),
     ("the status line names the wrong cycle", "`Cycle ${shown[0]}`}: W${lo}", "`Cycle ${3 - shown[0]}`}: W${lo}"),
     ("the status line is empty", "st.textContent = dcStatus(d);", "st.textContent = \"\";"),
