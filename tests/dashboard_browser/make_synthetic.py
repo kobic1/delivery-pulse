@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import copy
 import datetime as dt
 import re
 import json
@@ -553,15 +554,17 @@ class Gen:
         n = [96000]
         keys: dict = {}
 
-        def add(name, team, labels, status, dd=None, ts=None, c="Committed", nf=False, fv=None) -> str:
+        def add(name, team, labels, status, dd=None, ts=None, c="Committed", nf=False, fv=None, ct=5, cat=None, cal=None, since=None) -> str:
             n[0] += 1
             k = f"PMN-{n[0]}"
+            ws = self.windows[fv[0]][0] if since is not None else None                         # since: a closed release (the Took Over 7 Days cases): dd is then a day count from ITS start, and the epic was resolved 40 days after it
             e = {"k": k, "p": "PMN", "t": f"Fixed case {name}", "s": status, "fv": list(fv or [CURRENT]), "c": c, "tm": [team], "ai": False, "m": None, "rd": None,
-                 "cr": self.d(asof - dt.timedelta(days=60)), "cat": None, "ad": {(fv or [CURRENT])[0]: self.d(asof - dt.timedelta(days=22))}, "ts": ts["n"] if ts else None,
-                 "dd": self.d(asof + dt.timedelta(days=dd)) if dd is not None else None, "ud": self.d(asof)}
+                 "cr": self.d((ws if ws else asof) - dt.timedelta(days=60 if not ws else 10)), "cat": cat, "ad": {(fv or [CURRENT])[0]: self.d(ws if ws else asof - dt.timedelta(days=22))}, "ts": ts["n"] if ts else None,
+                 "dd": self.d((ws if ws else asof) + dt.timedelta(days=dd)) if dd is not None else None, "ud": self.d(asof)}
             if status == "Done":
-                e["rd"] = self.d(asof - dt.timedelta(days=1))
-                e["ip"], e["vl"], e["edct"], e["cal"] = 5, 0, 5, 5
+                e["rd"] = self.d(ws + dt.timedelta(days=40) if ws else asof - dt.timedelta(days=1))
+                if ct is not None:                                                               # ct: the cycle time in days (EDCT); None: a Done epic with no cycle time yet
+                    e["ip"], e["vl"], e["edct"], e["cal"] = ct, 0, ct, ct if cal is None else cal                  # cal: the calendar days (a different number from the EDCT: the tile reads the EDCT)
             if labels:
                 e["pl"] = list(labels)
             if nf:
@@ -629,6 +632,29 @@ class Gen:
         add("np_new", np_, None, "New", PLAN)
         for i in range(2):
             add(f"np2_none{i}", "Team Seed Np Small", None, "In Progress", PLAN)                    # two in-progress, none labelled: no share under 5
+
+        # 5. Took Over 7 Days (the Cycles headline tile): Done epics planned in the selected cycles whose cycle time (EDCT) is MORE than 7 days, among those that have one and are outside the Issue Categories that
+        # Cycle Time per Release leaves out (Maintenance, SOW). They live in the CLOSED release 26.4 (every date counted from its start, resolved 40 days after it), so no Done epic is added to the running release: the burnup
+        # of 27.1 and the label geometry that other suites check do not move. All Stretch, one team, two pods and no pod.
+        # Cycle 1 (planned at start + 10): 7 days (not over: the boundary; its calendar days are 9, which the tile must not read), 8 (over), 0 (a cycle time of 0 is a cycle time), 9 (over, other pod), 12 in another Issue
+        # Category (over), 8 with no pod (over), Maintenance 20 and SOW 20 (left out; the Done epics with NO cycle time are in long_cycle_extras, not here), an In Progress epic that carries a 30 (not Done), and a Done
+        # epic of 26.3 (outside the release). Cycle 2 (start + 60): 8 (over) and 7 (not).
+        lng, R = "Team Seed Lng", ["26.4"]
+        add("lng_7", lng, ["Pod-Lng-A"], "Done", 10, c="Stretch", ct=7, cal=9, fv=R, since=1)
+        add("lng_8", lng, ["Pod-Lng-A"], "Done", 10, c="Stretch", ct=8, fv=R, since=1)
+        add("lng_0", lng, ["Pod-Lng-A"], "Done", 10, c="Stretch", ct=0, fv=R, since=1)
+        add("lng_9", lng, ["Pod-Lng-B"], "Done", 10, c="Stretch", ct=9, fv=R, since=1)
+        add("lng_12_feature", lng, ["Pod-Lng-B"], "Done", 10, c="Stretch", ct=12, cat="Product - Feature work", fv=R, since=1)
+        add("lng_nopod_8", lng, None, "Done", 10, c="Stretch", ct=8, fv=R, since=1)
+        add("lng_maint_20", lng, ["Pod-Lng-B"], "Done", 10, c="Stretch", ct=20, cat="Maintenance", fv=R, since=1)
+        add("lng_sow_20", lng, ["Pod-Lng-B"], "Done", 10, c="Stretch", ct=20, cat="SOW", fv=R, since=1)
+        k_open = add("lng_open_30", lng, ["Pod-Lng-A"], "In Progress", 10, c="Stretch", fv=R, since=1)
+        next(e for e in epics if e["k"] == k_open)["edct"] = 30                                  # not Done: its cycle time is not read
+        add("lng_other_release", lng, ["Pod-Lng-A"], "Done", 10, c="Stretch", ct=30, fv=["26.3"], since=1)
+        add("lng_dc2_8", lng, ["Pod-Lng-A"], "Done", 60, c="Stretch", ct=8, fv=R, since=1)
+        add("lng_dc2_7", lng, ["Pod-Lng-A"], "Done", 61, c="Stretch", ct=7, fv=R, since=1)
+        # a pod whose only Done epic is not in the population because it is in the Maintenance Issue Category (the sub line has nothing to count)
+        add("lng_solo_maint_20", "Team Seed Lng Solo", ["Pod-Lng-Solo-B"], "Done", 10, c="Stretch", ct=20, cat="Maintenance", fv=R, since=1)
         self.fixed = keys
 
     def proactive_deps(self, epics, deps, ext):
@@ -803,6 +829,21 @@ def canarify(data: dict) -> dict:
             b["s"] = can("Blocked")
     return data
 
+
+
+def long_cycle_extras(data: dict) -> None:
+    """Two Done epics of the closed release 26.4 with NO cycle time (no EDCT yet), added to a copy of the payload by the Took Over 7 Days suite (cycle_pods_oracle.py). They are not in the stock fixture on purpose: a Done epic with no
+    EDCT adds a fifth line to the Cycle Time per Release hover (\"The link lists N Done epics: M of them have no EDCT yet\"), which the word budget of link_guard.py does not allow, and every other suite would
+    meet it. 'lng_no_ct' is in the same team and pod as the fixed cases (Team Seed Lng, Pod-Lng-B); 'lng_solo_no_ct' is the only Done epic of its pod (the sub line has nothing to count)."""
+    src = next(e for e in data["epics"] if e["t"] == "Fixed case lng_9")
+    n = 96200
+    for name, team, pod in (("lng_no_ct", "Team Seed Lng", "Pod-Lng-B"), ("lng_solo_no_ct", "Team Seed Lng Solo", "Pod-Lng-Solo-A")):
+        n += 1
+        e = copy.deepcopy(src)
+        e.update(k=f"PMN-{n}", t=f"Fixed case {name}", tm=[team], pl=[pod])
+        for f in ("ip", "vl", "edct", "cal"):
+            e.pop(f, None)
+        data["epics"].append(e)
 
 def make(today: dt.date | None = None, seed: int = 20261030, canary: bool = False) -> dict:
     data = Gen(today or il_today(), seed).build()

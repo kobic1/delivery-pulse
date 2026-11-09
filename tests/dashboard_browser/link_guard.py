@@ -43,7 +43,8 @@ KEYRE = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
 ALLOW: list[tuple[str, str, str, str]] = []      # (regex on the elided JQL, regex on the link's hover title or "", reason, what a query could do instead)
 PROPOSED_ALLOW = [      # the accepted gaps: every entry is a population Jira cannot express as a query, or a documented pending decision; the list may only shrink      # sites whose population Jira's native JQL cannot express (reasons checked on the synthetic payload, see the QA report)
     (r"\bparent in \(<keys>\)", "", "child epics / bugs selected by an attribute of their PARENT (the Capability's fix version, the epic's planned date): not searchable in native JQL", "none; the Capabilities query is the closest"),
-    (r"^key in \(<keys>\)$", r"^\d[\d,]* waiting items?", "the waiting items of Waiting Dependents Due Soon (Cycles, Pods block): an item of any issue type that waits on an epic through an issue link, due soon by the Dependencies planned-date rule; Jira cannot search for the far end of a link or for a planned date taken from a sprint, so the list is exact and its tooltip says so", "none; issueLinkType in (...) is a superset and cannot tell which items are due soon"),
+    (r"^key in \(<keys>\)$", r"took more than \d+ days", "the Done epics of Took Over 7 Days (Cycles, headline tile): a cycle time (the EDCT, as in Efficiency) is read from the change history and is not a Jira field, so the owner decided on the exact keys", "none; a cycle time is not searchable"),
+    (r"^key in \(<keys>\)$", r"^\d[\d,]* waiting items?", "the waiting items of Waiting Items Due Soon (Cycles, Pods block): an item of any issue type that waits on an epic through an issue link, due soon by the Dependencies planned-date rule; Jira cannot search for the far end of a link or for a planned date taken from a sprint, so the list is exact and its tooltip says so", "none; issueLinkType in (...) is a superset and cannot tell which items are due soon"),
     (r"^key in \(<keys>\)$", "", "pairs whose far end is not Done, story-level links, dependency cards, Needs Attention groups, DQ 'no cycle time' (changelog-derived): a linked issue's status / the changelog is not searchable", "issueLinkType in (...) is a superset"),
     (r"^issuetype = Bug AND key in \(<keys>\)$", "", "open CFBs by Root Cause Analysis state: the field is pre-filled with a template Jira cannot search", "all open CFBs (superset)"),
 ]
@@ -234,7 +235,7 @@ def _(t: T):
 TIP_BUDGET_WORDS = 25                           # the first block (the first two lines) of a hover: number, what it counts, scope, and one line
 TIP_BUDGET_LINES = 4                            # at most four lines in all (the page's own "Click to open in Jira" is added after them and is not part of data-tip)
 TIP_JS = r"""(() => [...document.querySelectorAll('[data-tip]')].map(e => ({tip: e.getAttribute('data-tip'), cls: String(e.getAttribute('class') || ''), inAttn: !!e.closest('#attn'), chip: !!e.closest('.achip'), link: e.getAttribute('data-link')})))()"""
-TIP_VIEWS = ["", "r=27.1&dc=1", "r=27.1&dc=2", "r=26.4", "p=PMN&dp=all", "r=27.1&dp=gap", "g=week", "cg=quarter", "nt=capability", "cx=committed", "cpg=release", "cpm=count", "r=27.1&p=PMN|CXCO&dc=1"]
+TIP_VIEWS = ["", "r=27.1&dc=1", "r=27.1&dc=2", "r=26.4", "p=PMN&dp=all", "r=27.1&dp=gap", "g=week", "cg=quarter", "nt=capability", "cx=committed", "cpg=release", "cpm=count", "r=27.1&p=PMN|CXCO&dc=1", "r=27.1&p=PMN&pd=pod-lvl-a2|~none"]
 
 
 def _words(text: str) -> int:
@@ -257,7 +258,7 @@ def tip_exception(h: dict) -> str | None:
 
 @SUITE.test("tooltips_rendered_hovers_meet_the_word_budget_and_the_standard")
 def _(t: T):
-    """A sample of rendered hovers on the fixture (13 views, details opened, the Needs Attention panel expanded): the first block is at most 25 words, there are at most 4 lines, a count of 1 never reads '1 epics',
+    """A sample of rendered hovers on the fixture (14 views, details opened, the Needs Attention panel expanded): the first block is at most 25 words, there are at most 4 lines, a count of 1 never reads '1 epics',
     no running release is called 'in progress', no hand-written 'Opens N ... in Jira' sits beside the page's own link line, and every hover-only span is a keyboard stop."""
     data = MS.make(MS.il_today())
     url = ctx.write(kit.fragment_for(data), "tips")
@@ -303,8 +304,8 @@ WIP_TIPS_JS = r"""(() => {
 
 @SUITE.test("tooltips_the_wip_tile_says_it_counts_the_status_In_Progress_only")
 def _(t: T):
-    """Two meanings of 'In-Progress' exist on the page (In Progress or Validation, and this tile: the status In Progress only). The tile's title, hover, sub line, link hover and list-row hovers must say so
-    plainly: number and scope first (at most 12 words in the first line), Validation named as not counted, and the wider 'In-Progress' wording never used for this tile."""
+    """Two meanings exist on the Cycles page (Active = In Progress or Validation, and this tile: the status In Progress only). The tile's title, hover, sub line, link hover and list-row hovers must say so
+    plainly: the number and scope first (at most 16 words in the first line, which names 'more than 3 epics In Progress'), Validation named as excluded, and the wider 'In-Progress' wording never used for this tile."""
     data = MS.make(MS.il_today())
     url = ctx.write(kit.fragment_for(data), "wiptips")
     ch = ctx.chrome
@@ -315,11 +316,11 @@ def _(t: T):
         t.check(bool(w) and bool(w["link"]) and bool(w["rows"]), f"{h}: the fixture has no pod over the level to read ({w})")
         if not w:
             continue
-        t.check(w["title"] == "Pods With More Than 3 Epics In Progress", f"{h}: the title is '{w['title']}'")
+        t.check(w["title"] == "Pods Over 3 Epics", f"{h}: the title is '{w['title']}'")
         lines = w["hover"].split("\n")
-        t.check(_words(lines[0]) <= 12 and "status In Progress" in lines[0] and "more than 3" in lines[0], f"{h}: the first line of the hover is '{lines[0]}'")
-        t.check("Validation is not counted" in w["hover"] and _words(" ".join(lines[:2])) <= TIP_BUDGET_WORDS and len(lines) <= TIP_BUDGET_LINES, f"{h}: the hover is '{w['hover']}'")
-        t.check(re.match(r"[\d,]+ epics? in status In Progress in these pods$", w["sub"]) is not None, f"{h}: the sub line is '{w['sub']}'")
+        t.check(_words(lines[0]) <= 16 and re.match(r"Pods with more than 3 epics In Progress, planned in Delivery Cycles? [\d and]+\.$", lines[0]) is not None, f"{h}: the first line of the hover is '{lines[0]}'")
+        t.check(lines[1] == "Validation excluded. 3 is a reference, not a rule." and _words(" ".join(lines[:2])) <= TIP_BUDGET_WORDS and len(lines) <= TIP_BUDGET_LINES, f"{h}: the hover is '{w['hover']}'")
+        t.check(re.match(r"[\d,]+ epics? In Progress in these pods$", w["sub"]) is not None, f"{h}: the sub line is '{w['sub']}'")
         t.check("Validation is not counted" in w["link"] and _words(w["link"].split("\n")[0]) <= 12, f"{h}: the link hover is '{w['link']}'")
         t.check(all(_words(r.split("\n")[0]) <= 12 and "status In Progress" in r.split("\n")[0] for r in w["rows"]), f"{h}: a list-row hover is over 12 words or does not name the status: {w['rows'][:2]}")
         t.check(not re.search(r"In-Progress|in-progress", " ".join([w["title"], w["hover"], w["sub"], w["link"]] + w["rows"])), f"{h}: the wider 'In-Progress' wording is used for this tile")

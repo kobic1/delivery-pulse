@@ -9,7 +9,7 @@ know, and a set of seeded pods: exactly 3 and exactly 4 epics In Progress, Valid
 one epic, an in-progress epic with no pod label, labels that look like issue keys).
 
 The Pods tiles are also recounted by an independent Python oracle (pod_oracle) from the baked epics in every view, and compared with the printed tile values and the opened lists. The same oracle recounts the page-level
-Weekly Plan vs. Actual table (the weeks, the Before W1 row, the Result wording, the sum against the Planned tile), the pod and team rows opened to their epics, and that the removed detail views are gone.
+Planned and Done by Week table (the weeks, the Before W1 row, the Result wording, the sum against the Planned tile), the pod and team rows opened to their epics, and that the removed detail views are gone.
 
     python3 link_cycles.py --live                       # about 60 s
     LINK_CYCLES_FULL=1 python3 link_cycles.py --live    # every release and project set
@@ -49,7 +49,7 @@ MODEL_JS = r"""(() => {
     const add = (kind, list, arg) => { const u = cyQ(kind, g, c, arg); out.push({tag: sc.tag, kind: arg ? kind + ":w" + arg[2] : kind, jql: dec(u), len: u ? u.length : 0, exp: K(list)}); };
     add("planned", s.planned); add("done", s.done); add("over", s.over); add("stale", s.staleIn); add("next", s.next); add("nextNs", s.nextNs);
     add("flag", s.flag); add("flagCarry", s.flagCarry);
-    add("nsSoon", (g ? g.epics : M.epics).filter(cyPodNs)); add("flightIn", (g ? g.epics : M.epics).filter(cyPodFlight));      // the Pod health population: planned in the selected cycles
+    add("nsSoon", (g ? g.epics : M.epics).filter(cyPodNs)); add("flightIn", (g ? g.epics : M.epics).filter(cyPodFlight));      // the Pods population: planned in the selected cycles
     if (g && g.level === "team") add("noPodFlight", g.epics.filter(e => cyPodFlight(e) && !e.pl.length));
     add("scope", g ? g.epics : M.epics);
     if (!g) {
@@ -191,6 +191,8 @@ _page: dict = {}
 def page(kind: str = "stock") -> tuple[dict, str]:
     if kind not in _page:
         data = MS.make(MS.il_today())
+        if kind == "long":                                                                   # the stock payload plus two Done epics with no cycle time (cycle_pods_oracle.py)
+            MS.long_cycle_extras(data)
         if kind == "variant":
             data = variant(data)
             seed_pods(data)
@@ -336,21 +338,23 @@ def _(t: T):
 
 @SUITE.test("cycles_no_link_holds_a_list_of_keys")
 def _(t: T):
-    """The Open Bugs tile was the one Cycles link that opened a list of keys; it is gone, so no Cycles link may carry more than three issue keys. A quoted value (a pod label such as POD-21) is not a key:
+    """The Open Bugs tile was the one Cycles link that opened a list of keys; it is gone, so no Cycles link may carry more than three issue keys, except the two lists Jira cannot search for (the waiting items, and the epics of Took Over 7 Days, whose cycle time is read from the change history). A quoted value (a pod label such as POD-21) is not a key:
     the variant payload seeds four labels that look like keys, and link_guard.n_keys must not count them."""
     import re
     import link_guard as G
     data, url = page("variant")
     ch = ctx.chrome
     keyre = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
-    bad, keylike, exact, waiting = [], 0, [], []
+    bad, keylike, exact, waiting, took = [], 0, [], [], []
     for h in ("r=27.1", "r=27.1&dc=1", "r=27.1&dc=2", "r=27.1&p=PMN&dc=1"):
         ch.goto(url + "#" + h)
         kit.wait_ready(ch)
         for a in ch.js(DOM_JS) or []:
             jql = urllib.parse.parse_qs(urllib.parse.urlsplit(a["href"]).query).get("jql", [""])[0]
             if G.n_keys(jql) > 3 and "waiting" in a["tip"]:
-                waiting.append(a["tip"])                                                  # the waiting items of Waiting Dependents Due Soon: Jira cannot search for issue links; an exact list that says so
+                waiting.append(a["tip"])                                                  # the waiting items of Waiting Items Due Soon: Jira cannot search for issue links; an exact list that says so
+            elif G.n_keys(jql) > 3 and "took more than" in a["tip"]:
+                took.append(a["tip"])                                                     # the epics of Took Over 7 Days: a cycle time is not a Jira field; an exact list that says so
             elif G.n_keys(jql) > 3:
                 bad.append(f"{h} {a['tip'][:60]!r}")
             if G.n_keys(jql) <= 3 and len(set(keyre.findall(jql))) > 3:
@@ -359,6 +363,7 @@ def _(t: T):
                     exact.append(f"{h} {a['tip'][:60]!r}")
     t.check(not bad, f"{len(bad)} Cycles links open a list of keys: {bad[:3]}")
     t.check(waiting and all(re.search(r"exact", x, re.I) for x in waiting), f"the waiting-items key lists must say they are exact lists ({len(waiting)} seen): {waiting[:1]}")
+    t.check(took and all(re.search(r"exact", x, re.I) for x in took), f"the Took Over 7 Days key list must say it is an exact list ({len(took)} seen): {took[:1]}")
     t.check(keylike > 0, "no link carried labels that look like issue keys (the seeded pods POD-21..24 did not reach a link: a blind check)")
     t.check(not exact, f"a link with labels that look like keys says it is an exact list: {exact[:2]}")
 
@@ -408,7 +413,7 @@ POD_PROBE = ("(() => { const t = document.querySelector('#cy-kpis2 [data-kpi=\"w
 
 
 def pod_budget(t: T, src: str, old: str) -> None:
-    """The union link of 'Pods With More Than 3 Epics In Progress' is one URL; with a budget one character below its length it is plain text, the number stays, and the buttons keep working."""
+    """The union link of 'Pods Over 3 Epics' is one URL; with a budget one character below its length it is plain text, the number stays, and the buttons keep working."""
     data, url = page("variant")
     ch = ctx.chrome
     ch.goto(url + "#r=27.1")
@@ -541,7 +546,7 @@ def _(t: T):
     allc = lists("r=27.1")
     wipl = {(r["name"], r["cells"][0]): r["cells"] for r in (ch.js(PO.LIST_JS + '("wip")') or {"rows": []})["rows"]}
     t.check(wipl.get(("Pod-Wip-Four", "PMN"), ["", "", ""])[2] == "4" and not ({"Pod-Wip-Mix1", "Pod-Wip-Mix2", "Pod-Wip-Val"} & {n for n, _ in wipl}),
-            f"Pods With More Than 3 Epics In Progress: 4 In Progress is over; 3 + 1 Validation, 3 + 2 and 4 Validation only are not: {sorted(n for n, _ in wipl if n.startswith('Pod-Wip'))}")
+            f"Pods Over 3 Epics: 4 In Progress is over; 3 + 1 Validation, 3 + 2 and 4 Validation only are not: {sorted(n for n, _ in wipl if n.startswith('Pod-Wip'))}")
 
     def ns(rows):
         return {(r["cells"][0] if r["rep"] else "*"): int(r["cells"][2]) for r in rows if r["th"] == "Team Seed Ns"}
@@ -555,7 +560,7 @@ def _(t: T):
             "Team Seed Lvl C": {"Pod-Lvl-C1": (1, "Lightest"), "Pod-Lvl-C2": (4, "Busiest")},
             "Team Seed Lvl G": {"Pod-Lvl-G1": (3, "Busiest"), "Pod-Lvl-G2": (1, "Lightest"), "Pod-Lvl-G3": (1, "Lightest")}}
     got = {k: v for k, v in lvl.items() if k.startswith("Team Seed Lvl")}
-    t.check(got == want, f"Pods To Level flags exactly the teams 2/10/0, 1/4 and 3/1/1 (40% exactly), not 3/2, 2/2, 0/4 (total 4), a single pod, 4/2 (33%) or a pod with Done epics only: {got}")
+    t.check(got == want, f"Busiest and Lightest Pods flags exactly the teams 2/10/0, 1/4 and 3/1/1 (40% exactly), not 3/2, 2/2, 0/4 (total 4), a single pod, 4/2 (33%) or a pod with Done epics only: {got}")
     waiting = {r["cells"][0].split()[0] for r in allc["wait"] if not r["grp"]}
     mine = {"EXA-96101", "EXA-96103", "EXB-96104", "EXA-96109"}
     never = {"EXA-96102", "EXB-96105", "EXB-96106", "EXA-96107", "EXB-96108"}
@@ -565,7 +570,7 @@ def _(t: T):
     both = [r for r in allc["wait"] if not r["grp"] and r["cells"][0].startswith("EXB-96104")]
     t.check(len(both) == 2, "a waiting item that waits on two providers appears under each")
     np_ = {(r["th"]): tuple(r["cells"]) for r in allc["noPod"] if r["th"].startswith("Team Seed Np")}
-    t.check(np_.get("Team Seed Np") == ("PMN", "5", "8", "63%") and np_.get("Team Seed Np Small") == ("PMN", "2", "2", "–"), f"in-progress without a pod label: {np_} (POD-31 and POD-32 are pods, NFR is not; a share needs 5 in-progress)")
+    t.check(np_.get("Team Seed Np") == ("PMN", "5", "8", "63%") and np_.get("Team Seed Np Small") == ("PMN", "2", "2", "–"), f"active without a pod label: {np_} (POD-31 and POD-32 are pods, NFR is not; a share needs 5 in-progress)")
 
 
 @SUITE.test("cycles_an_old_detail_address_opens_the_page_and_the_removed_kinds_are_gone")
@@ -580,7 +585,7 @@ def _(t: T):
         t.check(not ch.console_errors(), f"{old}: console errors: {ch.console_errors()[:2]}")
         info = ch.js("""(() => ({hash: location.hash, tiles: [...document.querySelectorAll('#cy-kpis1 [data-kpi]')].length, weekly: !!document.getElementById('cy-wktable'), table: !!document.getElementById('cy-ovtable'),
             detail: !!document.querySelector('#cy-crumb, .cydetail, #cy-panel, #cy-find'), keys: ['ct', 'cs', 'cy'].filter(k => new URLSearchParams(location.hash.slice(1)).has(k))}))()""")
-        t.check(info["tiles"] == 5 and info["weekly"] and info["table"] and not info["detail"], f"{old}: the page is not the one-page Cycles view: {info}")
+        t.check(info["tiles"] == 6 and info["weekly"] and info["table"] and not info["detail"], f"{old}: the page is not the one-page Cycles view: {info}")
         t.check(not info["keys"], f"{old}: the address still carries {info['keys']} after the page drew: {info['hash']}")
     ch.goto(url + "#r=27.1")
     kit.wait_ready(ch)
@@ -591,7 +596,7 @@ def _(t: T):
 
 @SUITE.test("cycles_the_page_has_one_column_of_blocks_in_the_owners_order")
 def _(t: T):
-    """Top to bottom: label, heading, banner, five tiles, the Pod health block, the weekly table, the Projects, Teams and Pods table, the disclosure; no subtitle, no After Release End line, no notes under the Pod health
+    """Top to bottom: label, heading, banner, the Filter by Pod row (hidden with all projects), six tiles, the Pods block, the weekly table, the Projects, Teams and Pods table, the disclosure; no subtitle, no After Release End line, no notes under the Pods
     heading; the heading names the cycles the tiles count; Expand All / Collapse All only; names are plain text; the weekly Result and links are recounted by pod_oracle in every view of the sweep."""
     data, url = page("variant")
     ch = ctx.chrome
@@ -601,11 +606,11 @@ def _(t: T):
       return {kids: [...s.children].map(e => e.id || e.className), label: tx(s.querySelector('.seclabel')), h2: tx(s.querySelector('h2')), podsKids: [...document.getElementById('cy-pods').children].map(e => e.id || e.tagName),
         podsH: tx(document.getElementById('cy-pods-h')), bodyKids: [...document.getElementById('cy-body').children].map(e => e.id || e.className), heads: [...document.querySelectorAll('#cy-body h3')].map(tx),
         btns: [...document.querySelectorAll('#cy-body .cytogglebar button')].map(tx), cap: tx(document.querySelector('#cy-cap summary')), caption: tx(document.querySelector('#cy-planned-cap, #cy-kpis1 [data-kpi="planned"] .s'))}; })()""")
-    t.check(info["kids"] == ["seclabel", "h-cycles", "cy-banner", "cy-kpis1", "cy-pods", "cy-body", "cy-cap"], f"the blocks of the section: {info['kids']}")
+    t.check(info["kids"] == ["seclabel", "h-cycles", "cy-banner", "g-cypod", "cy-kpis1", "cy-pods", "cy-body", "cy-cap"], f"the blocks of the section: {info['kids']}")
     t.check(info["label"] == "Cycles" and info["h2"] == "Delivery Cycle Governance", f"label and heading: {info['label']!r}, {info['h2']!r}")
-    t.check(info["podsKids"] == ["cy-pods-h", "cy-kpis2", "cy-podlist"], f"the Pod health block holds {info['podsKids']} (no notes)")
-    t.check(info["podsH"] == "Pod health in Delivery Cycles 1 and 2", f"the Pod health heading is {info['podsH']!r}")
-    t.check(info["heads"] == ["Weekly Plan vs. Actual", "Projects, Teams and Pods"] and info["bodyKids"] == ["cy-weekly", "cyblock"], f"the page-level blocks: {info['heads']} {info['bodyKids']}")
+    t.check(info["podsKids"] == ["cy-pods-h", "cy-kpis2", "cy-podlist"], f"the Pods block holds {info['podsKids']} (no notes)")
+    t.check(info["podsH"] == "Pods in Delivery Cycles 1 and 2", f"the Pods heading is {info['podsH']!r}")
+    t.check(info["heads"] == ["Planned and Done by Week", "Projects, Teams and Pods"] and info["bodyKids"] == ["cy-weekly", "cyblock"], f"the page-level blocks: {info['heads']} {info['bodyKids']}")
     t.check(info["btns"] == ["Expand All", "Collapse All"], f"the table controls are {info['btns']}")
     t.check(info["caption"].startswith("epics planned in Delivery Cycles 1 and 2 · ") and info["caption"].endswith(" after release end"), f"the Planned caption: {info['caption']!r}")
 
@@ -617,16 +622,16 @@ MUTANTS = [
     ("a due date on the start day is left out (>= becomes >)", '(duedate >= "${lo}" AND duedate <= "${hi}")', '(duedate > "${lo}" AND duedate <= "${hi}")'),
     ("'more than 3' becomes '3 or more'", "const wip = pods.filter(p => p.inProg.length > CY.podWip);", "const wip = pods.filter(p => p.inProg.length >= CY.podWip);"),
     ("Validation counted in the wip tile (threshold, list and sub line)", "p.inProg = p.epics.filter(e => ps.has(e) && cyWipEpic(e));", "p.inProg = p.epics.filter(e => ps.has(e) && CLASS.flight.includes(e.s));"),
-    ("Idle Pods ignores the selected cycle", "p.planned = p.epics.filter(e => ps.has(e)).length;", "p.planned = p.epics.filter(e => e.due).length;"),
+    ("Pods Without Planned Epics ignores the selected cycle", "p.planned = p.epics.filter(e => ps.has(e)).length;", "p.planned = p.epics.filter(e => e.due).length;"),
     ("the in-progress union link drops the project guard", "arg.map(p => `(${cyPodClause(p)})`).join(\" OR \")", "arg.map(p => `(labels in (${p.sp.map(q).join(\", \")}))`).join(\" OR \")"),
     ("Not-started due soon counts 8 days instead of 7", "e.due <= cyAdd(CY.asOf, CY.next);\nconst cyPh", "e.due <= cyAdd(CY.asOf, CY.next + 1);\nconst cyPh"),
     ("Not-started due soon uses the due date alone instead of the planned date", "cls(e.s) === \"notStarted\" && !!e.due && e.due >= CY.asOf && e.due <= cyAdd(CY.asOf, CY.next);", "cls(e.s) === \"notStarted\" && !!e.dd && e.dd >= CY.asOf && e.dd <= cyAdd(CY.asOf, CY.next);"),
-        ("Pods To Level flags from 30% instead of 40%", "levelSpread: 0.40,", "levelSpread: 0.30,"),
-    ("Pods To Level flags from 50% instead of 40%", "levelSpread: 0.40,", "levelSpread: 0.50,"),
-    ("Pods To Level ignores the minimum of 5 in-progress", "const flagged = total >= MIN_N && spread >= CY.levelSpread - 1e-9;", "const flagged = spread >= CY.levelSpread - 1e-9;"),
-    ("Pods To Level divides by the busiest pod instead of the team total", "spread = total ? (hi - lo) / total : 0;", "spread = hi ? (hi - lo) / hi : 0;"),
-    ("Waiting Dependents counts Done dependencies", "depModel().openAll.forEach(x => {", "depModel().inView.forEach(x => {"),
-    ("Waiting Dependents counts a provider without a pod as a pod", "withPod: !!(items.get(x.d.k) || {}).withPod || prov.pl.length > 0}", "withPod: !!(items.get(x.d.k) || {}).withPod || true}"),
+        ("Busiest and Lightest Pods flags from 30% instead of 40%", "levelSpread: 0.40,", "levelSpread: 0.30,"),
+    ("Busiest and Lightest Pods flags from 50% instead of 40%", "levelSpread: 0.40,", "levelSpread: 0.50,"),
+    ("Busiest and Lightest Pods ignores the minimum of 5 in-progress", "const flagged = total >= MIN_N && spread >= CY.levelSpread - 1e-9;", "const flagged = spread >= CY.levelSpread - 1e-9;"),
+    ("Busiest and Lightest Pods divides by the busiest pod instead of the team total", "spread = total ? (hi - lo) / total : 0;", "spread = hi ? (hi - lo) / hi : 0;"),
+    ("Waiting Items counts Done dependencies", "depModel().openAll.forEach(x => {", "depModel().inView.forEach(x => {"),
+    ("Waiting Items counts a provider without a pod as a pod", "withPod: !!(items.get(x.d.k) || {}).withPod || prov.pl.length > 0}", "withPod: !!(items.get(x.d.k) || {}).withPod || true}"),
     ("in-progress is In Progress only", "const cyInFlight = e => CLASS.flight.includes(e.s);", 'const cyInFlight = e => e.s === "In Progress";'),
     ("the pod label rule changes: a label shaped like POD-12 is no pod", "noPod = flight.filter(e => !e.pl.length), ns =", "noPod = flight.filter(e => !e.pl.length || e.pl.some(l => /^pod-\\d+$/i.test(l))), ns ="),
     ("a pod is counted per team instead of once", "const k = l.toLowerCase(), id = e.p + \"\\n\" + k; if (seen.has(id)) return; seen.add(id);", "const k = l.toLowerCase(), id = e.p + \"\\n\" + k + \"\\n\" + e.tm.join(); if (seen.has(id)) return; seen.add(id);"),
@@ -634,13 +639,13 @@ MUTANTS = [
     ("both cycles are counted as Cycle 1 only", "end: sel[sel.length - 1].end,", "end: sel[0].end,"),
     ("the Cycle 2 epics are dropped from the combined view", "e.due >= cc.start && e.due <= cc.end);", "e.due >= cc.start && e.due <= (cc.multi ? cc.set[0].end : cc.end));"),
     ("the banner shows the wrong cycle", "const head = `Showing ${c.name}", "const head = `Showing ${c.first}"),
-    ("Idle Pods ignores the union (Cycle 1 only)", "fig: (CY_PODFIG = cyPodFig(M.epics, planned))", "fig: (CY_PODFIG = cyPodFig(M.epics, M.planned(M.cycles[0])))"),
-    # the Pod health tiles count the epics planned in the selected cycles (pod_oracle spells the population again)
+    ("Pods Without Planned Epics ignores the union (Cycle 1 only)", "fig: (CY_PODFIG = cyPodFig(M.epics, planned))", "fig: (CY_PODFIG = cyPodFig(M.epics, M.planned(M.cycles[0])))"),
+    # the Pods tiles count the epics planned in the selected cycles (pod_oracle spells the population again)
     ("In-progress epics (tile, rows and links) count the whole release", "const cyPodFlight = e => cyPh(e) && cyInFlight(e);", "const cyPodFlight = e => cyInFlight(e);"),
     ("Not-started epics due soon count the whole release", "const cyPodNs = e => cyPh(e) && cyNsSoon(e);", "const cyPodNs = e => cyNsSoon(e);"),
     ("the wip tile counts epics planned outside the selected cycles", "p.inProg = p.epics.filter(e => ps.has(e) && cyWipEpic(e));", "p.inProg = p.epics.filter(cyWipEpic);"),
     ("the waiting providers come from the whole release", "const byKey = new Map(M.planned().map(", "const byKey = new Map(M.epics.map("),
-    ("a pod takes part in Pods To Level with an epic planned outside the cycles", "k.epics.some(e => cyPh(e) && !cyDone(e))", "k.epics.some(e => !cyDone(e))"),
+    ("a pod takes part in Busiest and Lightest Pods with an epic planned outside the cycles", "k.epics.some(e => cyPh(e) && !cyDone(e))", "k.epics.some(e => !cyDone(e))"),
     ("the in-progress link drops the cycle clause", "case \"flightIn\": w = `${CY_FLIGHT} AND ${cyPlan(S, E)}`;", "case \"flightIn\": w = CY_FLIGHT;"),
     ("the not-started link ignores the end of the cycle", "case \"nsSoon\": w = span(win[0], win[1], NS);", "case \"nsSoon\": w = span(A, cyAdd(A, CY.next), NS);"),
     # the weekly caption and the current-week marker

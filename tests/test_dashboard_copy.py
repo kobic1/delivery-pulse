@@ -187,7 +187,7 @@ def test_the_pod_tiles_are_defined_as_the_code_counts_them():
     assert "no epic planned in the selected Delivery Cycles" in cy                           # Idle Pods follows the selected cycles (one, or both combined)
     assert "among the epics of ${esc(state.release)} planned in the selected Delivery Cycles" in cy         # the other tile counts the epics planned in the selected cycles too
     assert "${CY.podWip}" in cy and "reference chosen by the owner, not a program rule" in cy
-    assert "except the Pod health tiles" in cy                                                   # their numbers open a list in the page, not Jira
+    assert "except the Pods tiles" in cy                                                   # their numbers open a list in the page, not Jira
 
 
 def test_the_wip_tile_counts_the_status_In_Progress_only_and_says_so():
@@ -197,12 +197,13 @@ def test_the_wip_tile_counts_the_status_In_Progress_only_and_says_so():
     assert 'const CY_WIP_STATUS = "In Progress";' in TEMPLATE and "const CY_WIP_CLAUSE = `status = ${q(CY_WIP_STATUS)}`;" in TEMPLATE
     assert "p.inProg = p.epics.filter(e => ps.has(e) && cyWipEpic(e))" in TEMPLATE and "CLASS.flight" not in re.search(r"function cyPodFig.*?\n}\n", TEMPLATE, re.S).group(0).split("\n", 1)[1]
     tile = re.search(r"  wip: \(\{c, fig\}\) => \{.*?\n  nsSoon:", TEMPLATE, re.S).group(0)
-    assert "Pods With More Than ${L} Epics In Progress" in tile and "Pods with more than ${L} epics in status In Progress" in tile and "Validation is not counted" in tile
-    assert "in status In Progress in these pods" in tile and "no pod has more than ${L} epics in status In Progress" in tile
+    assert "Pods Over ${L} Epics" in tile and "Pods with more than ${L} epics In Progress, planned in ${c.name}" in tile and "Validation excluded" in tile
+    assert "epics In Progress in these pods" in tile or "} In Progress in these pods" in tile
+    assert "no pod has more than ${L} epics In Progress" in tile
     assert "CLASS.flight" not in tile and "CY_FLIGHT" not in tile and "In-Progress" not in tile and "in-progress" not in tile
     assert re.search(r'case "podWip": w = .*\$\{CY_WIP_CLAUSE\}', TEMPLATE) and 'case "podWipIn": w = `${cyPodClause(arg)} AND ${CY_WIP_CLAUSE} AND ${cyPlan(S, E)}`' in TEMPLATE
     assert 'case "podWip": w = ' in TEMPLATE and "CY_FLIGHT" not in re.search(r'case "podWip": w = .*', TEMPLATE).group(0) + re.search(r'case "podWipIn": w = .*', TEMPLATE).group(0)
-    assert "Pods with more than ${CY.podWip} epics In Progress" in cy and "Validation is not counted here, unlike the other In-Progress figures of this section" in cy
+    assert "Pods over ${CY.podWip} epics" in cy and "pods with more than ${CY.podWip} epics in the status In Progress" in cy and "Validation is not counted here, unlike the other active figures of this section" in cy
     assert "in status In Progress" in re.search(r"function cyPodTable.*?\n}\n", TEMPLATE, re.S).group(0) and '"Epics In Progress"}</th>' in TEMPLATE
     assert '"Epics In-Progress"}</th>' not in TEMPLATE                                        # the old column name of this list; the Pods To Level list has its own, in an array
     assert "const cyInFlight = e => CLASS.flight.includes(e.s);" in TEMPLATE                  # the other in-progress figures are unchanged
@@ -341,9 +342,9 @@ def test_blocking_external_scope_is_the_only_outside_scope_chip_and_says_what_it
     assert 'x.extBlock ? "Waits on external scope"' in TEMPLATE
 
 
-# ---- the four proactive tiles of the Cycles Pods block (Not-Started Epics Due Within 7 Days, Waiting Dependents Due Soon, Pods To Level, In-Progress Epics Without a Pod Label)
+# ---- the four proactive tiles of the Cycles Pods block (Not Started Due Soon, Waiting Items Due Soon, Busiest and Lightest Pods, Active Epics Without Pod)
 PROACTIVE_TILES = ["nsSoon", "wait", "level", "noPod"]
-PROACTIVE_TITLES = ["Not-Started Epics Due Within ${CY.next} Days", "Waiting Dependents Due Soon", "Pods To Level", "In-Progress Epics Without a Pod Label"]
+PROACTIVE_TITLES = ["Not Started Due Soon", "Waiting Items Due Soon", "Busiest and Lightest Pods", "Active Epics Without Pod"]
 TIP_MAX_WORDS = 25                # the first line of a tile tooltip is the point, in about 25 words
 DEF_MAX_WORDS = 70                # one short definition line per tile in How this is calculated
 
@@ -375,16 +376,16 @@ def test_each_proactive_tile_tooltip_is_the_point_in_about_25_words_then_where_i
 
 def test_the_proactive_tiles_are_defined_in_the_cycles_disclosure_with_their_thresholds():
     cy = BLOCKS["cy"]
-    for name in ("Not-started epics due within ${CY.next} days", "Waiting dependents due soon", "Pods to level", "In-progress epics without a pod label"):
+    for name in ("Not started due soon", "Waiting items due soon", "Busiest and lightest pods", "Active epics without pod"):
         assert name in cy, name
     # the numbers come from the named constants, not from literals typed twice
-    assert "${Math.round(CY.levelSpread * 100)}%" in cy and "at least ${MIN_N} in-progress" in cy and "${CY.next} days later" in cy
+    assert "${Math.round(CY.levelSpread * 100)}%" in cy and "at least ${MIN_N} active" in cy and "${CY.next} days later" in cy
     assert "whose planned date (the due date, else the Target Sprint end) is from the as-of date up to ${CY.next} days later" in cy              # the owner confirmed: the due date wins, the Target Sprint end only without one
     assert "Only when an epic has no due date, the end of its Target Sprint" in cy                          # the planned date: the due date wins, the Target Sprint end only without one
     assert "the due date first, else the Target Sprint end" in cy                                          # the dependency rule for the waiting item
-    assert "A team is flagged when its busiest and lightest pods differ by" in cy and "of the team's in-progress epics" in cy
+    assert "A team is flagged when its busiest and lightest pods differ by" in cy and "of the team's active epics" in cy
     assert "A pod takes part when it has an epic planned in the selected Delivery Cycles that is not Done" in cy
-    for m in re.finditer(r"\n\s+\[(?:`|\")(Not-started epics due within|Waiting dependents due soon|Pods to level|In-progress epics without a pod label)[^\n]*", cy):
+    for m in re.finditer(r"\n\s+\[(?:`|\")(Not started due soon|Waiting items due soon|Busiest and lightest pods|Active epics without pod)[^\n]*", cy):
         words = len(strip_expressions(m.group(0)).split())
         assert words <= DEF_MAX_WORDS, (m.group(1), words)
 
@@ -412,7 +413,7 @@ def test_the_pod_coverage_note_is_still_in_the_pods_block():
     """The two notes of the Pods block (the whole-release remark and the pod coverage count) are gone; the heading says it instead."""
     for gone in ('id="cy-podnote"', 'id="cy-podscope"', 'id="cy-notes"', "epics carry a pod label;", "have none (No Pod Label)", "Only Idle Pods follows the cycle shown above."):
         assert gone not in TEMPLATE, gone
-    assert "`Pod health in ${M.c.name}`" in TEMPLATE and "whole release" not in TEMPLATE[TEMPLATE.index("function cyPodFig"):TEMPLATE.index("function cyPodTable")]
+    assert "`Pods in ${M.c.name}`" in TEMPLATE and "whole release" not in TEMPLATE[TEMPLATE.index("function cyPodFig"):TEMPLATE.index("function cyPodTable")]
 
 
 # ---------------------------------------------------------------------------------------------- the Delivery Cycle filter replaced the Commitment Type filter
@@ -460,7 +461,7 @@ def test_the_cycles_section_says_how_the_filter_changes_it():
     cy = BLOCKS["cy"]
     assert "With one cycle selected it shows that cycle only and leaves those epics out" in cy
     assert "the epics planned after the release end are counted in the caption of the Planned tile" in cy
-    assert "The Epics in Release column does not follow the Delivery Cycle filter. The Pod health tiles count the epics planned in the selected cycles" in cy
+    assert "The Epics in Release column does not follow the Delivery Cycle filter. The Pods tiles count the epics planned in the selected cycles" in cy
 
 
 def test_the_capabilities_disclosure_names_the_commitment_level_filter_and_what_does_not_apply():
@@ -479,7 +480,7 @@ def test_the_cycles_section_follows_the_header_filter_and_says_so():
         assert gone not in TEMPLATE and gone not in cy, gone
     assert 'id="cy-banner"' in TEMPLATE and 'id="cy-showing" role="status"' in TEMPLATE and 'id="cy-tofilter"' in TEMPLATE
     assert '"h-cycles": "#cy-banner"' in TEMPLATE                                           # a jump to the section lands on the banner
-    for said in ("The section has no filter of its own", "it follows the Release, Projects, Teams and Delivery Cycle filters", "With Both cycles selected (the default) it shows both combined",
+    for said in ("The section has one filter of its own, Filter by Pod", "it follows the Release, Projects, Teams and Delivery Cycle filters", "With Both cycles selected (the default) it shows both combined",
                  "planned in the selected Delivery Cycles", "the selected Delivery Cycles"):
         assert said in cy, said
     assert "Change it with the" in TEMPLATE and "Delivery Cycle filter</button> at the top of the page" in TEMPLATE
@@ -498,10 +499,11 @@ def test_the_cycles_banner_is_the_heading_of_the_headline_tiles_and_the_tiles_do
         m = re.search(r"\n  " + tile + r": \(\{[^}]*\}\) => \(\{c: \"cy\", v:", TEMPLATE)
         assert m, tile
         assert 'c: "cy", k:' not in TEMPLATE
+    assert re.search(r"\n  long: \(\{s, c\}\) => \{.*?\{c: \"cy\", v:", TEMPLATE, re.S)                          # the sixth tile, Took Over 7 Days, has no kicker either
     assert TEMPLATE.index('id="cy-banner"') < TEMPLATE.index('id="cy-kpis1"') < TEMPLATE.index('id="cy-pods"') < TEMPLATE.index('id="cy-body"') < TEMPLATE.index('id="cy-cap"')      # banner, the tiles it heads, the Pod health block, the weekly table and the Projects table, the disclosure
     assert 'id="cy-after"' not in TEMPLATE and "After Release End" not in TEMPLATE                                   # the epics planned after the release end are folded into the Planned caption
-    assert "s: `epics planned in ${c.name}` + (after.length ? ` · ${cyNum(" in TEMPLATE and "} after release end` : \"\")" in TEMPLATE and "with no epic planned in ${c.name}`" in TEMPLATE
-    assert "`Pod health in ${M.c.name}`" in TEMPLATE                                                        # the Pod health heading names the cycles its tiles count: the same epics as the Planned tile
+    assert "s: `epics planned in ${c.name}` + (after.length ? ` · ${cyNum(" in TEMPLATE and "} after release end` : \"\")" in TEMPLATE and "with no epic planned in ${c.name}.\\n" in TEMPLATE
+    assert "`Pods in ${M.c.name}`" in TEMPLATE                                                        # the Pods heading names the cycles its tiles count: the same epics as the Planned tile
 
 
 # ---------------------------------------------------------------------------------------------- the Cycles section is one page: no detail views, no Find box, no status chips
@@ -523,3 +525,86 @@ def test_the_weekly_table_is_one_page_level_table_numbered_like_the_burnup():
     assert "cyAdd(w[0], 7 * n)" in TEMPLATE and "n === W ? w[1]" in TEMPLATE                                       # W1 starts 7 days after the release start; the last week ends on the release end
     assert "W = dcWeeks(state.release)" in TEMPLATE and "Math.min(6, W)" in TEMPLATE
     assert "Week ${w + 1}" not in TEMPLATE and "Math.ceil(len / 7)" not in TEMPLATE                                  # no 13th week from a 91-day count
+
+
+# ---------------------------------------------------------------------------------------------- Took Over 7 Days, the Pods words and the Filter by Pod chips
+def _tile(name: str) -> str:
+    m = re.search(r"\n  " + name + r": \(\{.*?(?=\n  [a-zA-Z]+: \(\{|\n\};)", TEMPLATE, re.S)
+    assert m, name
+    return m.group(0)
+
+
+def test_took_over_7_days_is_the_third_headline_tile_with_a_named_constant_and_a_strict_comparison():
+    m = re.search(r"const CY = \{([^}]*)\};", TEMPLATE)
+    assert m and "longCycle: 7" in m.group(1), m and m.group(1)
+    assert 'headline: ["planned", "done", "long", "overdue", "next", "flagged"]' in TEMPLATE
+    assert "const cyLong = e => cyCtPop(e) && e.ed > CY.longCycle;" in TEMPLATE                       # strictly more than: exactly 7 days is not over
+    assert "const cyCtPop = e => cyDone(e) && !e.ex && e.ed != null;" in TEMPLATE                      # Done, outside the excluded Issue Categories, with a cycle time
+    assert "ed: cycleOf(e), ex: cycleExcluded(e)" in TEMPLATE                                          # the page's own cycle time and the rule of Cycle Time per Release, not a second copy
+    tile = _tile("long")
+    assert "Took Over ${CY.longCycle} Days" in tile and "took more than ${CY.longCycle} days.\\nCycle time as in the Efficiency section." in tile
+    assert "no epic is Done yet" in tile and "no Done epic has a cycle time to count" in tile and "cyShare(n, m)" in tile        # the share only from the page's MIN_N rule
+    assert "cyKeyIn(s.long.map(e => e.k))" in tile                                                      # a cycle time is not a Jira field: the exact keys
+    first = re.search(r"took more than \$\{CY\.longCycle\} days\.", tile)
+    assert first and len(strip_expressions("X Done epics planned in X took more than X days.").split()) <= 25
+    cy = BLOCKS["cy"]
+    assert "Took over ${CY.longCycle} days" in cy and "whose cycle time is more than ${CY.longCycle} days; cycle time as in Efficiency." in cy
+    assert "epics in ${esc(AI_EXCL_TEXT)} are left out, as in Cycle Time per Release" in cy             # the population rule is stated in the definition
+    assert "EDCT" not in cy                                                                             # the Cycles definitions never say EDCT (the Efficiency section does)
+
+
+def test_the_headline_strip_has_six_columns_and_the_laid_out_breakpoints():
+    assert 'class="kpis cyhl" id="cy-kpis1"' in TEMPLATE
+    assert ".kpis.cyhl { grid-template-columns:repeat(6," in TEMPLATE
+    assert "@media (max-width:1100px) { .kpis, .kpis.five, .kpis.cyhl { grid-template-columns:repeat(3," in TEMPLATE
+    assert "@media (max-width:620px) { .kpis, .kpis.five, .kpis.cyhl { grid-template-columns:repeat(2," in TEMPLATE
+
+
+def test_the_cycles_labels_hovers_and_subs_are_the_owners_words():
+    for name, words in (("done", ["of ${cyNum(s.planned,", "} planned ${epicWord(s.planned.length)}${cyShare(s.done.length, s.planned.length)}"]),
+                        ("overdue", ["} overdue more than ${CY.stale} days`", "none overdue more than ${CY.stale} days"]),
+                        ("flagged", ['"flag data is not in this build"']),
+                        ("idle", ['"Pods Without Planned Epics"', "Pods of ${rel} with no epic planned in ${c.name}.\\nNo pod label means no pod, so a pod can look idle.\\nOpens a list below", "s: `of ${fig.pods.length} ${plural(fig.pods.length, \"pod\", \"pods\")} in ${rel}`"]),
+                        ("wip", ["`Pods Over ${L} Epics`", "Pods with more than ${L} epics In Progress, planned in ${c.name}.\\nValidation excluded. ${L} is a reference, not a rule.\\nOpens a list below",
+                                 "In Progress in these pods`", "no pod has more than ${L} epics In Progress"]),
+                        ("nsSoon", ['"Not Started Due Soon"', "Not started epics planned in ${c.name}, due in the next ${CY.next} days (${cyWindow()}).\\nOpens a list below"]),
+                        ("wait", ['"Waiting Items Due Soon"', "Items due in the next ${CY.next} days that wait on an epic planned in ${c.name}.\\nOpens a list below"]),
+                        ("level", ['"Busiest and Lightest Pods"', "Busiest and lightest pod of each team whose pods differ by ${Math.round(CY.levelSpread * 100)}% or more of the team's active epics.\\nOpens a list below"]),
+                        ("noPod", ['"Active Epics Without Pod"', "Active epics (In Progress or Validation) planned in ${c.name} with no pod label.\\nOpens a list below", "of ${cyLn(act.flight, \"active\"", "no active epic"])):
+        tile = _tile(name)
+        for w in words:
+            assert w in tile, (name, w)
+    assert '<h3 id="cy-pods-h">Pods</h3>' in TEMPLATE and "`Pods in ${M.c.name}`" in TEMPLATE
+    assert "<h3>Planned and Done by Week</h3>" in TEMPLATE
+    for gone in ("Weekly Plan vs. Actual", "Pod health", "Idle Pods", "Pods To Level", "Waiting Dependents", "Not-Started Epics", "of them stale", "Pods With More Than", "Without a Pod Label"):
+        assert gone not in TEMPLATE, gone
+    cy = BLOCKS["cy"]
+    for said in ('["Active", `status In Progress or Validation.`]', "[`Overdue more than ${CY.stale} days`", '["Filter by Pod"', '["Planned and Done by Week"'):
+        assert said in cy, said
+
+
+def test_every_new_pods_hover_keeps_its_first_block_in_25_words_and_four_lines():
+    for name in ("idle", "wip", "nsSoon", "wait", "level", "noPod"):
+        m = re.search(r'tipFocus\((?:`[^`]*`|"[^"]*"), `([^`]*)`\)', _tile(name))
+        assert m, name
+        lines = m.group(1).split("\\n")
+        words = len(strip_expressions(" ".join(lines[:2])).split())
+        assert words <= 25 and len(lines) <= 4, (name, words, lines)
+
+
+def test_the_pod_filter_is_one_state_one_address_key_one_place_in_the_model():
+    assert "pods: new Set()" in TEMPLATE and 'h.set("pd", [...state.pods].sort().join("|"))' in TEMPLATE
+    assert 'list("pd")' in TEMPLATE and "state.projects.size === 1 ? (list(\"pd\") || []) : []" in TEMPLATE        # read only with exactly one project
+    assert "pods: state.pods.size > 0 && state.projects.size === 1," in TEMPLATE and '["g-cypod", ch.pods]' in TEMPLATE     # counted by Reset Filters (n), with the changed dot
+    assert "function projChanged(el) {\n  state.pods = new Set();" in TEMPLATE                                      # the choice belongs to one project
+    assert "const cyPodsOn = () => state.pods.size > 0 && state.projects.size === 1 && cyLabelsReady();" in TEMPLATE
+    build = re.search(r"function cyBuild\(\) \{.*?\n\}\n", TEMPLATE, re.S).group(0)
+    assert "let eps = every.filter(cyPodPass);" in build and build.count("cyPodPass") == 1                         # applied ONCE, where the model is built
+    assert "!cyPodsOn() || (e.pl.length ? e.pl.some(l => state.pods.has(l.toLowerCase())) : state.pods.has(CY_NOPOD))" in TEMPLATE
+    assert '[cyNodeClause(g), cyPodFilterQ(), w].filter(Boolean)' in TEMPLATE                                    # every cyQ link carries the same filter
+    assert 'id="g-cypod"' in TEMPLATE and 'id="cy-podsline"' in TEMPLATE and 'id="cy-podnote"' not in TEMPLATE
+    assert TEMPLATE.index('id="cy-banner"') < TEMPLATE.index('id="g-cypod"') < TEMPLATE.index('id="cy-kpis1"')
+    for said in ("Pods chosen: ${names.length > 3 ? `${names.length} pods` : esc(names.join(\", \"))}. Tiles and tables count only their epics.",
+                 "No epics planned in ${esc(c.name)} (${c.start} to ${c.end}) for the chosen pods. Choose other pods or ",
+                 "Shows only epics of the chosen pods in every tile and table below. Choose several to combine them. All Pods clears the choice."):
+        assert said in TEMPLATE, said
