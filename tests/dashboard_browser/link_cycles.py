@@ -649,7 +649,8 @@ MUTANTS = [
     ("the in-progress link drops the cycle clause", "case \"flightIn\": w = `${CY_FLIGHT} AND ${cyPlan(S, E)}`;", "case \"flightIn\": w = CY_FLIGHT;"),
     ("the not-started link ignores the end of the cycle", "case \"nsSoon\": w = span(win[0], win[1], NS);", "case \"nsSoon\": w = span(A, cyAdd(A, CY.next), NS);"),
     # the weekly caption and the current-week marker
-    ("the weekly caption hard-codes the weekdays", "Weeks run ${dayName(wk.ws)} to ${dayName(wk.we)}.", "Weeks run Sunday to Saturday."),
+    # the fictitious weeks start on the weekday of the day the suite runs, so a caption that hard-codes one weekday is the right caption on that day; swapping the two names is wrong on every day
+    ("the weekly caption swaps its weekdays", "Weeks run ${dayName(wk.ws)} to ${dayName(wk.we)}.", "Weeks run ${dayName(wk.we)} to ${dayName(wk.ws)}."),
     ("the weekly caption names the cycle wrongly", "Epics by planned week in ${esc(c.name)}.${wk", "Epics by planned week in ${esc(c.first)}.${wk"),
     ("the current week is marked one week late", "const cur = sp.ws <= CY.asOf && CY.asOf <= sp.we;", "const cur = sp.ws <= cyAdd(CY.asOf, 7) && cyAdd(CY.asOf, 7) <= sp.we;"),
     ("the current-week row has no aria-current", "' class=\"cycur\" aria-current=\"date\"'", "' class=\"cycur\"'"),
