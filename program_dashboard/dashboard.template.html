@@ -489,6 +489,7 @@ td a { text-decoration:none; border-bottom:1px dotted #7C8794; }
 .cypods tr.cypod th, .cypods tr.cycap th { font-weight:400; }
 .cypods .cysub { font-weight:400; }
 .cypods tr[hidden] { display:none; }
+.cypods tr.xtband th { background:var(--bg); color:var(--ink); font-size:var(--t-cap); font-weight:700; text-align:left; border-top:2px solid var(--ink); border-bottom:1px solid var(--line); }
 .cyname-wrap { display:inline-flex; align-items:center; gap:2px; }
 .cytgl { min-width:24px; min-height:24px; text-align:center; text-decoration:none; padding:0 4px; }
 .cytgl-gap { display:inline-block; width:24px; }
@@ -2380,15 +2381,15 @@ function xtNodes() {                                                // a builder
     const base = (parent ? parent.id + "." : "") + xtSlug(name); let id = base, k = 2; while (used.has(id)) id = `${base}-${k++}`; used.add(id);
     const n = {id, level, name, parent: parent || null, kids: [], ...fields}; if (parent) parent.kids.push(n); return n; }};
 }
-function xtOpenSet(tid, roots, expanded) {
-  if (!expanded) return XT_OPEN.get(tid) || new Set(state.projects.size === 1 ? roots.filter(n => n.kids.length).map(n => n.id) : []);
+function xtOpenSet(tid, roots, expanded, collapsed) {              // collapsed: every row starts closed (even with one project selected); the reader's own choices are kept as for any table
+  if (!expanded) return XT_OPEN.get(tid) || new Set(!collapsed && state.projects.size === 1 ? roots.filter(n => n.kids.length).map(n => n.id) : []);
   const cur = XT_OPEN.get(tid) || new Set(), seen = XT_SEEN.get(tid) || new Set(), walk = n => { if (n.kids.length && !seen.has(n.id)) { seen.add(n.id); cur.add(n.id); } n.kids.forEach(walk); };
   roots.forEach(walk); XT_OPEN.set(tid, cur); XT_SEEN.set(tid, seen); return cur;
 }
-// o: {id, roots (the project nodes, kids nested), cls (more table classes), caption, about (the sentence after the caption, about which rows open), expanded (true: every row with rows under it opens at first, and a new one opens too), heads (the <th> cells after the first one, as HTML), first (the first heading), cells(n) (the <td> cells of a node), tail (rows after the nodes, in the body), foot (true: the tail goes in the foot of the table)}.
+// o: {id, roots (the project nodes, kids nested), cls (more table classes), caption, about (the sentence after the caption, about which rows open), expanded (true: every row with rows under it opens at first, and a new one opens too), collapsed (true: every row starts closed), bands (a Map from a root node's id to the label of a band row drawn just above it; a band is one cell across the table, no data-id, so Expand All, Collapse All and xtApply never touch it) with span (the number of columns), heads (the <th> cells after the first one, as HTML), first (the first heading), cells(n) (the <td> cells of a node), tail (rows after the nodes, in the body), foot (true: the tail goes in the foot of the table)}.
 // Returns {bar, table}: the Expand All and Collapse All buttons (empty when no row has anything under it) and the table.
 function xtTable(o) {
-  const open = xtOpenSet(o.id, o.roots, o.expanded), order = [], dfs = n => { order.push(n); n.kids.forEach(dfs); }; o.roots.forEach(dfs);
+  const open = xtOpenSet(o.id, o.roots, o.expanded, o.collapsed), order = [], dfs = n => { order.push(n); n.kids.forEach(dfs); }; o.roots.forEach(dfs);
   const shown = n => !n.parent || (open.has(n.parent.id) && shown(n.parent)), rid = n => `xtr-${o.id}-${n.id}`;
   const row = n => {
     const on = open.has(n.id), what = xtWhat(n);
@@ -2398,7 +2399,7 @@ function xtTable(o) {
   };
   const bar = order.some(n => n.kids.length) ? `<div class="cyfrow cytogglebar"><button type="button" class="btn link" data-xtact="expall" data-xttable="${esc(o.id)}">Expand All</button><button type="button" class="btn link" data-xtact="colall" data-xttable="${esc(o.id)}">Collapse All</button></div>` : "";
   return {bar, table: `<table class="cypods ${o.cls || ""}" id="xt-${esc(o.id)}" data-xt="${esc(o.id)}"><caption class="sr">${esc(o.caption)} ${o.about || "Each project and team row that has rows under it can be expanded or collapsed."}</caption>` +
-    `<thead><tr><th scope="col">${o.first}</th>${o.heads}</tr></thead><tbody>${order.map(row).join("")}${o.foot ? "" : o.tail || ""}</tbody>${o.foot ? `<tfoot>${o.tail || ""}</tfoot>` : ""}</table>`, ids: order.map(n => n.id)};
+    `<thead><tr><th scope="col">${o.first}</th>${o.heads}</tr></thead><tbody>${order.map(n => (o.bands && o.bands.has(n.id) ? `<tr class="xtband"><th scope="rowgroup" colspan="${o.span || 1}">${esc(o.bands.get(n.id))}</th></tr>` : "") + row(n)).join("")}${o.foot ? "" : o.tail || ""}</tbody>${o.foot ? `<tfoot>${o.tail || ""}</tfoot>` : ""}</table>`, ids: order.map(n => n.id)};
 }
 function xtApply(tid) {                                              // DOM only: which rows are shown and which arrows are open; the clicked row stays where it is
   const table = document.getElementById("xt-" + tid); if (!table) return;
@@ -3275,6 +3276,8 @@ const cxJira = (o = {}) => jira({commit: cxCommit(), ...o});
 // A Capability is a CXCROSS one when it is a CXCROSS issue, or when it sits under a CXCROSS Initiative (not Removed) whatever its own project is.
 const cxIni = (H, c) => { const p = H[c] && H[c].par, I = p && H[p]; return !!(I && I.s !== "Removed" && p.startsWith("CXCROSS")); };
 const isCxCap = (H, c) => !!c && (c.startsWith("CXCROSS") || cxIni(H, c));
+const CX_NOT_ON_PAGE = "Not on the CrossCX Projects page";
+const cxPrioOf = () => { const P = DATA.cxPrio; return P && Array.isArray(P.groups) && P.map && typeof P.map === "object" ? P : null; };      // the build's copy of the page's priority order; absent when the page could not be read
 function cxModel() {
   const H = DATA.hier || {}, rel = state.release, scope = scopeOf(rel).filter(cxPass);
   const all = scope.filter(e => isCxCap(H, e.cp)), removedCap = c => H[c] && H[c].s === "Removed";
@@ -3284,7 +3287,9 @@ function cxModel() {
   // The groups: the Capabilities with epics here, under the Initiative they sit under. A Removed or unknown Initiative is the group "" (No Initiative), last. Groups by Initiative title, Capabilities by title, then key.
   const titleCmp = (a, b) => ((H[a] || {}).t || "").localeCompare((H[b] || {}).t || "", "en", {sensitivity: "base"}) || keyCmp(a, b);
   const groups = new Map(); [...byCap.keys()].forEach(c => { const g = iniOf(c) || ""; if (!groups.has(g)) groups.set(g, []); groups.get(g).push(c); });
-  const order = [...groups.keys()].sort((a, b) => a === "" ? 1 : b === "" ? -1 : titleCmp(a, b));
+  // The order of the Initiative groups: the CrossCX Projects page when the build read it (band, then row, then title; an Initiative not on the page after them, by title), else by title. No Initiative is last either way.
+  const P = cxPrioOf(), pm = g => P && P.map[g] && Number.isInteger(P.map[g].g) && Number.isInteger(P.map[g].r) && typeof P.groups[P.map[g].g] === "string" && P.groups[P.map[g].g] ? P.map[g] : null;
+  const order = [...groups.keys()].sort((a, b) => a === "" ? 1 : b === "" ? -1 : (pm(a) && pm(b)) ? (pm(a).g - pm(b).g || pm(a).r - pm(b).r || titleCmp(a, b)) : pm(a) ? -1 : pm(b) ? 1 : titleCmp(a, b));
   order.forEach(g => groups.get(g).sort(titleCmp));
   const mismatch = e => {                                          // an open epic planned later than the latest release of its Capability
     if (cls(e.s) === "done") return false;
@@ -3297,7 +3302,7 @@ function cxModel() {
   const allCx = Object.keys(H).filter(k => H[k].ty === "Capability" && isCxCap(H, k));
   const withEpicsEver = new Set(DATA.epics.filter(e => e.cp).map(e => e.cp));
   const noEpics = allCx.filter(c => !removedCap(c) && !byCap.has(c));
-  return {H, rel, scope, all, epics, leftOut, byCap, groups, order, iniOf, mism, noFv, unsch, noneEver: noEpics.filter(c => !withEpicsEver.has(c)), noneHere: noEpics.filter(c => withEpicsEver.has(c)),
+  return {H, rel, scope, all, epics, leftOut, byCap, groups, order, iniOf, P, pm, mism, noFv, unsch, noneEver: noEpics.filter(c => !withEpicsEver.has(c)), noneHere: noEpics.filter(c => withEpicsEver.has(c)),
     removedCaps: allCx.filter(removedCap).length, removedIni: Object.keys(H).filter(k => H[k].ty === "Initiative" && H[k].s === "Removed").length,
     capsUnderRemovedIni: [...byCap.keys()].filter(c => { const p = H[c] && H[c].par; return p && H[p] && H[p].s === "Removed"; }).length};
 }
@@ -3336,12 +3341,13 @@ function renderCx() {
     defs: [
       ["Population", `epics whose parent Capability is in CXCROSS or sits under a CXCROSS Initiative, in ${esc(rel)}, under the Projects and Teams filters and this section's own Commitment Type choice (All by default).`],
       ["Cell", `one project's epics under one Capability, shown as Done / total. It opens those epics in Jira.`],
-      ["Initiative group", `Capabilities are grouped under their Initiative; a group row adds up its Capabilities.`],
+      ["Initiative group", `Capabilities are grouped under their Initiative; a group row adds up its Capabilities. The table opens collapsed.`],
+      ["Order", M.P ? `Initiatives follow the order of the CrossCX Projects page; those not on it come last.` : `Initiatives are sorted by title.`],
       ["Required Fix Version", `the Fix Version on the CXCROSS Capability, taken as the required release. This is an owner assumption, not verified.`],
       ["Behind Required Fix Version", `a cell is marked when an open epic is planned later than the Capability, or is still open although the Capability's latest release version has ended.`]
     ],
     left: `Removed items, and epics owned by CXCROSS itself. A Capability with no release-named fix version cannot be assessed and says so in the last column.`,
-    know: `The marking is a fact about versions and dates, not a verdict on a project or a team. Rows are sorted by title and columns follow the standard project order, so neither expresses lateness.`,
+    know: `The marking is a fact about versions and dates, not a verdict on a project or a team. ${M.P ? "Initiatives follow the page order, Capabilities are sorted by title, and columns follow the standard project order, so none of them expresses lateness." : "Rows are sorted by title and columns follow the standard project order, so neither expresses lateness."}`,
     more: [
       ["Planned later", `the epic's earliest release version is later than the Capability's latest release version. The hover lists those epics and the reason.`],
       ["Commitment Type", `the choice in this section. A Capability is listed when at least one of its epics has the chosen type, and its cells count only those epics.`],
@@ -3364,14 +3370,18 @@ function renderCx() {
     // The table is grouped by Initiative: one expandable row per Initiative (an Initiative that is Removed or unknown is the group "No Initiative", last), its Capabilities under it, the same rows as before.
     // A group row adds up the cells of its Capabilities: the epics under all of them, per project. Every epic sits under one Capability, so it counts once, and the footer is the sum of the groups.
     const rowOf = new Map(rows.map(r => [r.c, r])), nb = xtNodes(), iniLbl = g => g ? `${g} ${shortText((H[g] || {}).t, 60)}` : "No Initiative";
-    const roots = M.order.map(g => { const I = H[g] || {}, rs = M.groups.get(g).map(c => rowOf.get(c));
+    // With the CrossCX Projects page read at build time: a band row above the first Initiative of each priority group, then the Initiatives that are not on the page (and No Initiative) under their own band.
+    const bandOf = g => { const m = M.pm(g); return m ? M.P.groups[m.g] : CX_NOT_ON_PAGE; }, bands = new Map();
+    const roots = M.order.map(g => { const I = H[g] || {}, rs = M.groups.get(g).map(c => rowOf.get(c)), pr = M.pm(g);
+      const count = nn(rs.length, "Capability", "Capabilities");
       const gn = nb.add("ini", g || "No Initiative", null, {key: g, rs, what: g ? `Initiative ${iniLbl(g)}` : "No Initiative",
         nameHtml: g ? `<a href="${BASE}/browse/${esc(g)}" target="_blank" rel="noopener" ${tipAttr(`${g}\n${I.t || ""}\n${I.s || "status unknown"}`, "x")} aria-label="${esc(g + ", " + shortText(I.t, 80))}. Opens in Jira.">${esc(g)}</a> ${esc(shortText(I.t, 80))}` : "No Initiative",
-        note: nn(rs.length, "Capability", "Capabilities")});
+        note: pr ? tipFocus(count, `Priority from the CrossCX Projects page: ${bandOf(g)}, row ${shortText(pr.n, 70)}`, count) : count});
       rs.forEach(r => nb.add("cap", r.c, gn, {key: r.c, r,
         nameHtml: `<a href="${BASE}/browse/${esc(r.c)}" target="_blank" rel="noopener" ${tipAttr(`${r.c}\n${r.C.t || ""}\n${r.C.s || "status unknown"} · Initiative: ${r.ini ? r.ini + " " + ((H[r.ini] || {}).t || "") : "none"}`, "x")} aria-label="${esc(r.c + ", " + shortText(r.C.t, 80))}. Opens in Jira.">${esc(shortText(r.C.t, 80))}</a>`,
         note: `<a href="${BASE}/browse/${esc(r.c)}" target="_blank" rel="noopener" aria-label="${esc(r.c)}. Opens in Jira.">${esc(r.c)}</a> · ${esc(r.C.p || r.c.split("-")[0])}`}));
       return gn; });
+    if (M.P) { let last = null; roots.forEach(n => { const b = bandOf(n.key); if (b !== last) { bands.set(n.id, b); last = b; } }); }
     const fvCell = r => `<td class="fvc">${r.L ? esc(versionText(r.C.fv)) : `<span class="flag info"><svg class="ic" viewBox="0 0 12 12" aria-hidden="true">${FLAG_ICON.info}</svg>No Required Fix Version</span>${(r.C.fv || []).length ? `<div class="muted">${esc(versionText(r.C.fv))}</div>` : ""}`}</td>`;
     const groupFv = g => { const v = g.rs.map(r => versionsOf(r.C.fv)), rel = [...new Set(v.flatMap(x => x.rel))].sort((x, y) => relNum(x) - relNum(y));       // the distinct required fix versions of its Capabilities
       if (rel.length) return `<td class="fvc">${esc([...rel, ...(v.some(x => x.unsched) ? ["Unscheduled"] : [])].join(", "))}</td>`;
@@ -3388,8 +3398,8 @@ function renderCx() {
     const foot = `<tr><th scope="row">Epics</th>${projects.map(p => { const l = epicsByProj.get(p); return `<td class="cxc n">${n(l.length, cxJira({projects: [p], extra: par(capKeys)}), `${nn(l.length, `${p} epic`, `${p} epics`)} under CXCROSS Capabilities${parentNote(capKeys.length)}`)}</td>`; }).join("")}<td></td></tr>` +
       `<tr><th scope="row">Done</th>${projects.map(p => { const l = epicsByProj.get(p).filter(e => cls(e.s) === "done"); return `<td class="cxc n">${n(l.length, cxJira({projects: [p], kind: "done", extra: par(capKeys)}), `${nn(l.length, `Done ${p} epic`, `Done ${p} epics`)} under CXCROSS Capabilities${parentNote(capKeys.length)}`)}</td>`; }).join("")}<td></td></tr>` +
       `<tr><th scope="row">Cells Behind</th>${projects.map(p => { const k = behindByProj.get(p), es = [...new Set(rows.flatMap(r => (r.cells.get(p) ? r.cells.get(p).bh.map(x => x.e.k) : [])))]; return `<td class="cxc n">${n(k, keyIn(es), `${nn(k, "CXCROSS item", "CXCROSS items")} where ${p} is Behind Required Fix Version`)}</td>`; }).join("")}<td></td></tr>`;
-    const x = xtTable({id: "cx", roots, expanded: true, cls: "captable cxtable", first: "Initiative and Capability", foot: true, tail: foot,
-      caption: `CXCROSS Capabilities with epics in release ${rel}, grouped by Initiative: for each project, epics done out of total, and whether the cell is Behind Required Fix Version.`, about: "Each Initiative row can be expanded or collapsed to show its Capabilities.",
+    const x = xtTable({id: "cx", roots, collapsed: true, bands, span: projects.length + 2, cls: "captable cxtable", first: "Initiative and Capability", foot: true, tail: foot,
+      caption: `CXCROSS Capabilities with epics in release ${rel}, grouped by Initiative${M.P ? " in the order of the CrossCX Projects page" : ""}: for each project, epics done out of total, and whether the cell is Behind Required Fix Version.`, about: "Each Initiative row can be expanded or collapsed to show its Capabilities; the table opens collapsed.",
       heads: `${projects.map(p => `<th scope="col" class="cxc">${esc(p)}</th>`).join("")}<th scope="col">Required Fix Version</th>`,
       cells: nd => nd.level === "cap" ? projects.map(p => cell(nd.r, p)).join("") + fvCell(nd.r) : projects.map(p => groupCell(nd, p)).join("") + groupFv(nd)});
     host.innerHTML = `<a class="skip" href="#h-capview" data-skip="h-capview">Skip to Capability View</a>${x.bar}<div class="scrollcue">Scrolls sideways</div><div class="tablewrap tall cxwrap" tabindex="0" role="region" aria-label="CXCROSS Capabilities by Initiative and project, scrolls sideways when it does not fit">${x.table}</div>` +

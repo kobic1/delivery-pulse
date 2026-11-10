@@ -286,7 +286,15 @@ class Gen:
             "capNoFv": {"total": len(cap_nofv), "done": sum(1 for c in cap_nofv if c["s"] == "Done")}, "capPulledAt": il_stamp(gen_day, 8, 44),
             "eb": eb, "podRx": {p: ("pod|^CXCO-[A-Za-z]+-\\d+$" if p == "CXCO" else "pod") for p in PROJECTS}, "cap": cap,
         }
+        data["cxPrio"] = self.cx_priority(inis)
         return data
+
+    # ---- the priority order of the (fictitious) CrossCX Projects page
+    def cx_priority(self, inis):
+        """cxPrio as the collector writes it: band labels in page order and, per Initiative, its band, its row position and the page's clean row name (fictitious). inis[3] is on no row; inis[4] is a second Initiative of the same row."""
+        return {"groups": ["Global Priority - 1", "Global Priority - 2", "Watch List"],
+                "map": {inis[2]: {"g": 0, "r": 0, "n": "Fictitious Programme Alpha"}, inis[0]: {"g": 0, "r": 1, "n": "Fictitious Programme Beta"},
+                        inis[4]: {"g": 1, "r": 2, "n": "Fictitious Programme Gamma"}, inis[1]: {"g": 2, "r": 3, "n": "Fictitious Watch Item"}}}
 
     # ---- epics
     def epic(self, proj, rel, ri, ws, we, by_rel, pod_names, proj_caps, cx_caps, used_ts) -> dict:
@@ -789,6 +797,10 @@ def canarify(data: dict) -> dict:
                 b[f] = can(b[f])
     for s in data["sprints"]:
         s["n"] = can(s["n"])
+    if data.get("cxPrio"):
+        data["cxPrio"]["groups"] = [can(g) for g in data["cxPrio"]["groups"]]
+        for m in data["cxPrio"]["map"].values():
+            m["n"] = can(m["n"])
     for sec in ("capabilities",):
         data[sec] = {k: can(v) for k, v in data[sec].items()}
     for tab in ("hier", "capList", "ext"):
