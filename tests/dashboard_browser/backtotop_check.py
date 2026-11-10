@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """The Back to Top button is easy to see and to hit.
 
-It appears after a scroll up from deep in the page (the behaviour is tested in the harness). Here its look and place, at 1400 px, at 1800 px (a wide window) and at 390 px:
+It appears after a scroll up from deep in the page (the behaviour is tested in the harness). Here its look and place, at 1400 px, at 1800 px, at 2500 px (a very wide window) and at 390 px:
 solid blue with white text (contrast of at least 4.5:1), at least 48 px tall and wide, a visible label on a desktop and an icon only on a phone (the accessible name stays), 24 px from the bottom right corner on a desktop
-(16 px right, 20 px bottom on a phone), in the corner of the window at every width, also on a wide screen. A self-test puts the old small white button back and the check must fail.
+(16 px right, 20 px bottom on a phone), in the corner of the window up to 1999 px wide, and from 2000 px wide 200 px from the right and 140 px from the bottom, in the margin beside the content. A self-test puts the old small white button back and the check must fail.
 
     python3 backtotop_check.py [--live] [--only NAME]
 """
@@ -79,17 +79,20 @@ def problems(r, vp):
     else:
         if not r["labelVisible"]:
             bad.append(f"{vp[0]}px: the label is not visible on a desktop")
-        if abs(r["bottom"] - 24) > 1:
-            bad.append(f"{vp[0]}px: {r['bottom']:.0f} px from the bottom, expected 24")
-        if abs(r["right"] - 24) > 1:
-            bad.append(f"{vp[0]}px: {r['right']:.0f} px from the right, expected 24 (the corner of the window at every width)")
+        if vp[0] >= 2000:
+            if abs(r["right"] - 200) > 1 or abs(r["bottom"] - 140) > 1:
+                bad.append(f"{vp[0]}px: {r['right']:.0f} px from the right and {r['bottom']:.0f} from the bottom, expected 200 and 140 (the margin beside the content on a wide window)")
+            if r["colRight"] is not None and r["left"] < r["colRight"] + 8:
+                bad.append(f"{vp[0]}px: the button (left edge {r['left']:.0f}) sits over the content column (right edge {r['colRight']:.0f})")
+        elif abs(r["right"] - 24) > 1 or abs(r["bottom"] - 24) > 1:
+            bad.append(f"{vp[0]}px: {r['right']:.0f} px from the right and {r['bottom']:.0f} from the bottom, expected 24 and 24 (the corner)")
     return bad
 
 
 @SUITE.test("back_to_top_is_big_blue_and_placed_clear_of_the_content")
 def _(t: T):
     url = page()
-    for vp in ((1400, 900), (1800, 900), (390, 844)):
+    for vp in ((1400, 900), (1800, 900), (2500, 1300), (390, 844)):
         r = read(url, vp)
         bad = problems(r, vp)
         t.check(not bad, f"{bad}")
