@@ -16,6 +16,7 @@ import shutil
 import socket
 import struct
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.request
@@ -102,27 +103,50 @@ def free_port() -> int:
         return s.getsockname()[1]
 
 
+START_TRIES = int(os.environ.get("CHROME_START_TRIES", "3"))          # a start that never opens its debugging port is retried (a busy CI machine does this now and then)
+START_ERROR = "Chrome did not open its debugging port"
+
+
+def start_with_retry(attempt, tries: int | None = None, pause: float = 1.0):
+    """Run attempt(n) (n = 0, 1, ...) until it returns. Only the start-up failure START_ERROR is retried, with a pause that grows with each try; the last failure is raised unchanged, so callers see the same error as before.
+    Each retry prints one line to stderr, so a log shows how often a machine needed one."""
+    tries = max(1, START_TRIES if tries is None else tries)
+    for n in range(tries):
+        try:
+            return attempt(n)
+        except RuntimeError as e:
+            if str(e) != START_ERROR or n == tries - 1:
+                raise
+            print(f"[cdp] {START_ERROR} (try {n + 1} of {tries}), starting again", file=sys.stderr, flush=True)
+            time.sleep(pause * (n + 1))
+
+
 class Chrome:
-    """One headless Chrome with its own temporary profile and a free debugging port."""
+    """One headless Chrome with its own temporary profile and a free debugging port. A start that does not open its port is retried up to CHROME_START_TRIES times (3), each with a new port and profile."""
 
     def __init__(self, port: int | None = None, width: int = 1400, height: int = 900):
         exe = find_chrome()
         if not exe:
             raise ChromeMissing("Google Chrome was not found (set CHROME_BIN to its path)")
-        self.port = port or free_port()
-        self.ud = tempfile.mkdtemp(prefix="dp-chrome-")
-        self.p = subprocess.Popen([exe, "--headless=new", "--disable-gpu", "--hide-scrollbars", f"--remote-debugging-port={self.port}", f"--user-data-dir={self.ud}",
-                                   "--no-first-run", "--no-default-browser-check", "--allow-file-access-from-files", *(["--no-sandbox"] if os.environ.get("CI") else []), f"--window-size={width},{height}", "about:blank"],
-                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        for _ in range(100):
-            try:
-                urllib.request.urlopen(f"http://127.0.0.1:{self.port}/json/version", timeout=2).read()
-                break
-            except Exception:
-                time.sleep(.1)
-        else:
+
+        def attempt(n: int):
+            self.port = port if (port and n == 0) else free_port()
+            self.ud = tempfile.mkdtemp(prefix="dp-chrome-")
+            self.p = subprocess.Popen([exe, "--headless=new", "--disable-gpu", "--hide-scrollbars", f"--remote-debugging-port={self.port}", f"--user-data-dir={self.ud}",
+                                       "--no-first-run", "--no-default-browser-check", "--allow-file-access-from-files", *(["--no-sandbox"] if os.environ.get("CI") else []), f"--window-size={width},{height}", "about:blank"],
+                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            for _ in range(100):
+                if self.p.poll() is not None:                       # Chrome already exited: no point in waiting for its port
+                    break
+                try:
+                    urllib.request.urlopen(f"http://127.0.0.1:{self.port}/json/version", timeout=2).read()
+                    return
+                except Exception:
+                    time.sleep(.1)
             self.close()
-            raise RuntimeError("Chrome did not open its debugging port")
+            raise RuntimeError(START_ERROR)
+
+        start_with_retry(attempt)
         tabs = json.load(urllib.request.urlopen(f"http://127.0.0.1:{self.port}/json"))
         t = [t for t in tabs if t["type"] == "page"][0]
         self.ws = WS(t["webSocketDebuggerUrl"])
