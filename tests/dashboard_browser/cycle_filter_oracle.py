@@ -199,7 +199,7 @@ class Recount:
         nd = lambda e: e["s"] != "Done"
         over = [e for e in pl if nd(e) and day(self.planned_due(e)) < self.asof]
         nxt = [e for e in pl if nd(e) and self.asof <= day(self.planned_due(e)) <= self.asof + dt.timedelta(days=7)]
-        long_ = [e for e in pl if not nd(e) and e.get("edct") is not None and (e.get("cat") or "").lower() not in ("maintenance", "sow") and e["edct"] > 7]      # Took Over 7 Days: Done, with a cycle time, outside the excluded Issue Categories, MORE than 7 days
+        long_ = [e for e in pl if not nd(e) and e.get("edct") is not None and (e.get("cat") or "").lower() not in ("maintenance", "sow") and e["edct"] > 10]      # Took Over 10 Days: Done, with a cycle time, outside the excluded Issue Categories, MORE than 7 days
         return {"planned": len(pl), "done": sum(1 for e in pl if not nd(e)), "long": len(long_), "overdue": len(over), "next": len(nxt), "flagged": sum(1 for e in pl if nd(e) and e.get("fl"))}
 
     def after_count(self):
@@ -807,7 +807,7 @@ def structure_probs(ch, url) -> list[str]:
         if not r["headsTiles"]:
             p.append(f"#{h}: the banner is not directly above the six tiles it heads (only the Filter by Pod row may sit between; a picture of the tiles would not say the cycle)")
         if name not in (r["plannedCap"] or "") or name not in (r["idleCap"] or ""):
-            p.append(f"#{h}: the Planned caption and the Pods Without Planned Epics sub line plus hover (the figures counted against the cycle) must name it: {r['plannedCap']!r} {r['idleCap']!r}")
+            p.append(f"#{h}: the Planned caption and the Idle Pods sub line plus hover (the figures counted against the cycle) must name it: {r['plannedCap']!r} {r['idleCap']!r}")
         if r["sub"]:
             p.append(f"#{h}: a subtitle is back under the heading (the banner says which cycles are shown)")
         if r["podsHead"] != f"Pods in {name}" or r["podsKids"] != ["cy-pods-h", "cy-kpis2", "cy-podlist"]:
@@ -1301,7 +1301,7 @@ KEEP_JS = 'e => { const p = plannedDue(e), w = DATA.windows[rel], m = !p ? null 
 MUTANTS = [
     ("Cycles ignores the filter", "dcs = dcState(), shown = cycles.filter(x => dcs.shown.includes(x.id.slice(2)));", "dcs = dcState(), shown = cycles;"),
     ("the after-release-end number is shown with one cycle", "after: dcs.all ? eps.filter(", "after: true ? eps.filter("),
-    ("undated active epics keep rows alive with one cycle", "noDue: dcs.all ? eps.filter(", "noDue: true ? eps.filter("),
+    ("undated in-progress epics keep rows alive with one cycle", "noDue: dcs.all ? eps.filter(", "noDue: true ? eps.filter("),
     ("Delivery Cycle 1 ends a day early in the Cycles section", "const w6 = cyAdd(w[0], 48);", "const w6 = cyAdd(w[0], 47);"),
     ("both cycles are counted as Cycle 1 only", "end: sel[sel.length - 1].end,", "end: sel[0].end,"),
     ("the Cycle 2 epics are dropped from the combined view", "e.due >= cc.start && e.due <= cc.end);", "e.due >= cc.start && e.due <= (cc.multi ? cc.set[0].end : cc.end));"),

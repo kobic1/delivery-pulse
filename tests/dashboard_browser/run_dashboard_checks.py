@@ -7,7 +7,7 @@
      link_cycles.py (every Delivery Cycles query finds the epics the page counts);
      tile_oracle.py (the EDCT Days and Epics by AI tiles cover the last 30 days; every tile link finds the epics counted);
      cycle_filter_oracle.py (the Delivery Cycle filter: the burnup and the Cycles section against an independent recount, the header control, seeded defects);
-     cycle_pods_oracle.py (the Cycles section's Took Over 7 Days tile and Filter by Pod chips against independent recounts, the chips driven like a reader, seeded defects);
+     cycle_pods_oracle.py (the Cycles section's Took Over 10 Days tile and Filter by Pod chips against independent recounts, the chips driven like a reader, seeded defects);
      ax_oracle.py (the Accessibility Bugs All / Yes / No control of the Quality section: recount, links, hash, keyboard, seeded defects);
      usage_oracle.py (the usage statistics block: what is recorded, when, and what never is; seeded defects), usage_page_check.py (the Delivery Pulse Usage report page) and usage_view_check.py (the owner-only live usage view) and usage_port_check.py (the browser port of the usage report against the Python report);
   4. leak_check.py (nothing real in this folder, when a real payload is on the machine);

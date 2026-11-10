@@ -43,8 +43,8 @@ KEYRE = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
 ALLOW: list[tuple[str, str, str, str]] = []      # (regex on the elided JQL, regex on the link's hover title or "", reason, what a query could do instead)
 PROPOSED_ALLOW = [      # the accepted gaps: every entry is a population Jira cannot express as a query, or a documented pending decision; the list may only shrink      # sites whose population Jira's native JQL cannot express (reasons checked on the synthetic payload, see the QA report)
     (r"\bparent in \(<keys>\)", "", "child epics / bugs selected by an attribute of their PARENT (the Capability's fix version, the epic's planned date): not searchable in native JQL", "none; the Capabilities query is the closest"),
-    (r"^key in \(<keys>\)$", r"took more than \d+ days", "the Done epics of Took Over 7 Days (Cycles, headline tile): a cycle time (the EDCT, as in Efficiency) is read from the change history and is not a Jira field, so the owner decided on the exact keys", "none; a cycle time is not searchable"),
-    (r"^key in \(<keys>\)$", r"^\d[\d,]* waiting items?", "the waiting items of Waiting Items Due Soon (Cycles, Pods block): an item of any issue type that waits on an epic through an issue link, due soon by the Dependencies planned-date rule; Jira cannot search for the far end of a link or for a planned date taken from a sprint, so the list is exact and its tooltip says so", "none; issueLinkType in (...) is a superset and cannot tell which items are due soon"),
+    (r"^key in \(<keys>\)$", r"took more than \d+ days", "the Done epics of Took Over 10 Days (Cycles, headline tile): a cycle time (the EDCT, as in Efficiency) is read from the change history and is not a Jira field, so the owner decided on the exact keys", "none; a cycle time is not searchable"),
+    (r"^key in \(<keys>\)$", r"^\d[\d,]* waiting items?", "the waiting items of Dependencies, Due in 7 Days (Cycles, Pods block): an item of any issue type that waits on an epic through an issue link, due soon by the Dependencies planned-date rule; Jira cannot search for the far end of a link or for a planned date taken from a sprint, so the list is exact and its tooltip says so", "none; issueLinkType in (...) is a superset and cannot tell which items are due soon"),
     (r"^key in \(<keys>\)$", "", "pairs whose far end is not Done, story-level links, dependency cards, Needs Attention groups, DQ 'no cycle time' (changelog-derived): a linked issue's status / the changelog is not searchable", "issueLinkType in (...) is a superset"),
     (r"^issuetype = Bug AND key in \(<keys>\)$", "", "open CFBs by Root Cause Analysis state: the field is pre-filled with a template Jira cannot search", "all open CFBs (superset)"),
 ]
@@ -304,7 +304,7 @@ WIP_TIPS_JS = r"""(() => {
 
 @SUITE.test("tooltips_the_wip_tile_says_it_counts_the_status_In_Progress_only")
 def _(t: T):
-    """Two meanings exist on the Cycles page (Active = In Progress or Validation, and this tile: the status In Progress only). The tile's title, hover, sub line, link hover and list-row hovers must say so
+    """Two meanings exist on the Cycles page (In progress = In Progress or Validation, and this tile: the status In Progress only). The tile's title, hover, sub line, link hover and list-row hovers must say so
     plainly: the number and scope first (at most 16 words in the first line, which names 'more than 3 epics In Progress'), Validation named as excluded, and the wider 'In-Progress' wording never used for this tile."""
     data = MS.make(MS.il_today())
     url = ctx.write(kit.fragment_for(data), "wiptips")
@@ -316,7 +316,7 @@ def _(t: T):
         t.check(bool(w) and bool(w["link"]) and bool(w["rows"]), f"{h}: the fixture has no pod over the level to read ({w})")
         if not w:
             continue
-        t.check(w["title"] == "Pods Over 3 Epics", f"{h}: the title is '{w['title']}'")
+        t.check(w["title"] == "Pods With More Than 3 Epics in Progress", f"{h}: the title is '{w['title']}'")
         lines = w["hover"].split("\n")
         t.check(_words(lines[0]) <= 16 and re.match(r"Pods with more than 3 epics In Progress, planned in Delivery Cycles? [\d and]+\.$", lines[0]) is not None, f"{h}: the first line of the hover is '{lines[0]}'")
         t.check(lines[1] == "Validation excluded. 3 is a reference, not a rule." and _words(" ".join(lines[:2])) <= TIP_BUDGET_WORDS and len(lines) <= TIP_BUDGET_LINES, f"{h}: the hover is '{w['hover']}'")
