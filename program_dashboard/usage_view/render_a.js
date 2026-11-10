@@ -110,11 +110,13 @@ function panel(title, caption, body, data = "", hid = "", extra_cls = "") {
 }
 
 
-function spark(vals, label) {
-  // A sparkline of a weekly series (None = a week that cannot be drawn: a gap). Drawn only from 3 numbers; autoscaled (a trend shape, not a magnitude).
+function spark(vals, label, part = null) {
+  // A sparkline of a weekly series (None = a week that cannot be drawn: a gap). Drawn from 2 points on; autoscaled (a trend shape, not a magnitude).
+  // part: per week, True for an incomplete week (the provisional first week, the week in progress). A complete week is the solid line and area with a solid dot on the last one; an incomplete week is a hatched point, joined to its neighbour by a lighter dashed line (no area under it).
+  part = part || vals.map(() => false);
   const pts = [];
   vals.forEach((v, i) => { if (typeof v === "number") pts.push([i, v]); });
-  if (pts.length < 3) return '<div class="skbar" aria-hidden="true"></div>';
+  if (pts.length < 2) return '<div class="skbar" aria-hidden="true"></div>';
   let lo = Math.min(...pts.map(p => p[1])), hi = Math.max(...pts.map(p => p[1]));
   const pad = (hi - lo) * 0.12 || Math.max(1.0, Math.abs(hi) * 0.1);
   lo = lo - pad; hi = hi + pad;
@@ -128,12 +130,38 @@ function spark(vals, label) {
     else if (cur.length) { runs.push(cur); cur = []; }
   });
   if (cur.length) runs.push(cur);
-  const d_l = runs.flatMap(run => run.map(([i, v], k) => (k === 0 ? "M" : "L") + f2(i, v))).join(" ");
-  const d_a = runs.map(run => run.map(([i, v], k) => (k === 0 ? "M" : "L") + f2(i, v)).join(" ") + ` L${pyfmt(xy(run[run.length - 1][0], 0)[0], ".2f")} 29 L${pyfmt(xy(run[0][0], 0)[0], ".2f")} 29 Z`).join(" ");
-  const [li, lv] = pts[pts.length - 1];
-  const [lx, ly] = xy(li, lv);
-  return (`<div class="sparkwrap"><svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label="${e(label)}"><path class="a" d="${d_a}"/><path class="l" d="${d_l}"/></svg>`
-          + `<i class="ld" aria-hidden="true" style="left:${pyfmt(lx, '.1f')}%;top:${pyfmt(100 * ly / 30, '.1f')}%"></i></div>`);
+  const solid = [], dashed = [];                                                        // the runs of complete weeks, and the segments that touch an incomplete week
+  for (const run of runs) {
+    let sub = [];
+    run.forEach(([i, v], k) => {
+      if (part[i]) {
+        if (sub.length) { solid.push(sub); sub = []; }
+        if (k > 0) dashed.push([run[k - 1], [i, v]]);
+        return;
+      }
+      if (k > 0 && part[run[k - 1][0]]) dashed.push([run[k - 1], [i, v]]);
+      sub.push([i, v]);
+    });
+    if (sub.length) solid.push(sub);
+  }
+  const d_l = solid.flatMap(run => run.map(([i, v], k) => (k === 0 ? "M" : "L") + f2(i, v))).join(" ");
+  const d_a = solid.map(run => run.map(([i, v], k) => (k === 0 ? "M" : "L") + f2(i, v)).join(" ") + ` L${pyfmt(xy(run[run.length - 1][0], 0)[0], ".2f")} 29 L${pyfmt(xy(run[0][0], 0)[0], ".2f")} 29 Z`).join(" ");
+  const d_p = dashed.map(([x, y]) => `M${f2(x[0], x[1])} L${f2(y[0], y[1])}`).join(" ");
+  let dots = "";
+  const full = pts.filter(([i, v]) => !part[i]);
+  if (full.length) {
+    const [lx, ly] = xy(full[full.length - 1][0], full[full.length - 1][1]);
+    dots += `<i class="ld" aria-hidden="true" style="left:${pyfmt(lx, '.1f')}%;top:${pyfmt(100 * ly / 30, '.1f')}%"></i>`;
+  }
+  for (const [i, v] of pts) {
+    if (part[i]) {
+      const [lx, ly] = xy(i, v);
+      dots += `<i class="ld pt" aria-hidden="true" style="left:${pyfmt(lx, '.1f')}%;top:${pyfmt(100 * ly / 30, '.1f')}%"></i>`;
+    }
+  }
+  const pp = d_p ? `<path class="p" d="${d_p}"/>` : "";
+  return (`<div class="sparkwrap"><svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label="${e(label)}"><path class="a" d="${d_a}"/><path class="l" d="${d_l}"/>${pp}</svg>`
+          + `${dots}</div>`);
 }
 
 
@@ -227,6 +255,27 @@ function _comparable_run(m) {
     w = d_add(w, -7);
   }
   return run.sort();
+}
+
+
+function _strip_weeks(m) {
+  // The weeks the sparkline strips draw, oldest first, as [(week, partial)]: the comparable run (complete weeks), the provisional first week when it sits right before the run (or is the last completed week), and the week in progress when it has data,
+  // all under the same recording rules. The strip is a picture only: the changes, the usual range and the baselines use complete comparable weeks and never these.
+  const run = _comparable_run(m);
+  const L = m.last;
+  let out;
+  if (run.length) {
+    const rg0 = m.regime(L);
+    out = run.map(w => [w, false]);
+    if (m.provisional_first && m.first_week === d_add(run[0], -7) && m.regime(m.first_week) === rg0) out.unshift([m.first_week, true]);
+  } else if (m.provisional_first && m.first_week === L && m.regime(L) !== null && m.regime(L) !== undefined) {
+    out = [[L, true]];
+  } else {
+    return [];
+  }
+  const rg = m.regime(out[out.length - 1][0]);
+  if (m.by_week.has(m.cur) && m.regime(m.cur) === rg && !(m.cur === m.rollover && rg === "v2")) out.push([m.cur, true]);
+  return out;
 }
 
 
@@ -332,7 +381,8 @@ function device_donut(dc, th = THRESHOLDS) {
 
 
 function kpi_series(a) {
-  // Weekly values of the key figures over the comparable run (the sparklines and the changes): the same period_values as the cards, one week at a time; the desktop share of the visits with a width needs 20 visits and no withheld class.
+  // Weekly values of the key figures over the comparable run (the changes): the same period_values as the cards, one week at a time; the desktop share of the visits with a width needs 20 visits and no withheld class.
+  // strip/sser: the same figures for the sparklines, which also draw the provisional first week and the week in progress (see _strip_weeks).
   const m = a["model"], th = a["model"].th;
   const run = _comparable_run(m);
   const grow = new Map(a["weeks"].map(w => [w["ws"], w]));
@@ -350,7 +400,38 @@ function kpi_series(a) {
     const dk = device_card(v["dev"], th)["desk"];
     ser["desk"].set(w, dk === undefined ? null : dk);
   }
-  return {"run": run, "ser": ser, "cnt": cnt_};
+  const strip = _strip_weeks(m);                                                        // the same figures for the strips, with the incomplete weeks (the same guards: a group under the minimum is not a number)
+  const sser = {};
+  for (const k of ["people", "new", "vpp", "min"]) sser[k] = new Map();
+  for (const [w, part] of strip) {
+    if (!part) {
+      for (const k of Object.keys(sser)) sser[k].set(w, ser[k].has(w) ? ser[k].get(w) : null);
+      continue;
+    }
+    const v = period_values(m.visits(w), th);
+    sser["people"].set(w, v["people"]);
+    sser["vpp"].set(w, v["vpp"]);
+    sser["min"].set(w, v["min"]);
+    if (w === m.cur && v["n"]) {                                                        // in the provisional first week everyone is new by construction (as the weekly table, no figure)
+      const new_n = m.new(w).size;
+      sser["new"].set(w, v["n"] < MIN_USERS ? SMALL : protect_partition({"new": new_n, "other": v["n"] - new_n}, v["n"])["new"]);
+    } else {
+      sser["new"].set(w, null);
+    }
+  }
+  return {"run": run, "ser": ser, "cnt": cnt_, "strip": strip, "sser": sser};
+}
+
+
+const STRIP_NOTE = "In the small weekly lines, a lighter hatched point is part of a week: the first week, which starts mid-week, or the week still in progress.";
+
+
+function _strip_label(what, vals, part, end, fl = false) {   // fl: the series holds floats (Python tells 3.0 from 3 by type, the port by this flag)
+  // The accessible name of a strip. With only complete weeks it says the weeks are comparable and ends at the card's figure; with incomplete weeks it says so (the partial first week, the week so far) and ends at the last week it draws.
+  if (!part.some(Boolean)) return `${what} per week, last ${vals.length} comparable weeks, ending at ${end}.`;
+  const incl = (part[0] && part[part.length - 1]) ? "the partial first week and the week so far" : part[part.length - 1] ? "the week so far" : "the partial first week";
+  const tail = `, ending at ${pystr(vals[vals.length - 1], fl)}` + (part[part.length - 1] ? " (week so far)" : "");
+  return `${what} per week, last ${vals.length} weeks including ${incl}${tail}.`;
 }
 
 
@@ -476,12 +557,13 @@ function _kpis(a) {
   const P = kpi_period(m);
   const ks = kpi_series(a);
   const run = ks["run"], ser = ks["ser"], cn = ks["cnt"];
+  const strip = ks["strip"], sser = ks["sser"];
+  const part = strip.map(x => x[1]);
   const vals = period_values(P["rows"], th);
   const L = m.last;
   const prev = d_add(L, -7);
   const week_mode = P["kind"] === "week";
   const has_prev = week_mode && run.includes(prev) && run.includes(L);
-  const weeks_n = run.length;
   let why;
   if (!week_mode) why = "No comparison yet: first week of data";
   else if (!run.includes(L)) why = (m.regime(L) !== null && m.regime(L) !== undefined) ? "No comparison: recording rules changed" : "No comparison: no visits that week";
@@ -490,7 +572,19 @@ function _kpis(a) {
   const note = ["nt", why];
   const so = P["so_far"] ? ", so far" : "";
   const get = (key, w) => { const x = ser[key].get(w); return x === undefined ? null : x; };
-  const arr = key => run.map(w => (is_num(get(key, w)) ? get(key, w) : null));
+  const get2 = (key, w) => { const x = sser[key].get(w); return x === undefined ? null : x; };
+  const strip_of = key => {
+    // (values, incomplete flags) of a strip: an incomplete week at either end that cannot be drawn (no figure, or a group under the minimum) takes no room.
+    const vs = strip.map(([w]) => (is_num(get2(key, w)) ? get2(key, w) : null));
+    const ps = part.slice();
+    while (vs.length && ps[0] && vs[0] === null) { vs.shift(); ps.shift(); }
+    while (vs.length && ps[ps.length - 1] && vs[vs.length - 1] === null) { vs.pop(); ps.pop(); }
+    return [vs, ps];
+  };
+  const sp = (key, what, end, fl = false) => {
+    const [vs, ps] = strip_of(key);
+    return spark(vs, _strip_label(what, vs, ps, end, fl), ps);
+  };
   const cells = [];
   let dl, den, v, pv;
   // 1 people active (hero)
@@ -515,7 +609,7 @@ function _kpis(a) {
     } else {
       den += "<br>No audience size supplied";
     }
-    cells.push(_kpi("People active", num(vals["people"]), dl, den, spark(arr("people"), `People active per week, last ${weeks_n} comparable weeks, ending at ${cur}.`), true, null, "kpi-people"));
+    cells.push(_kpi("People active", num(vals["people"]), dl, den, sp("people", "People active", cur), true, null, "kpi-people"));
   }
   // 2 new people
   let nw;
@@ -535,7 +629,7 @@ function _kpis(a) {
   } else {
     pv = get("new", prev);
     dl = has_prev ? _delta(nw, pv, false, 0, "", true) : note;
-    cells.push(_kpi("New people", num(nw), dl, e(`of ${vals['people'] === SMALL ? vals['people'] : _pl(vals['n'], 'person', 'people')} active${so}`), spark(arr("new"), `New people per week, last ${weeks_n} comparable weeks, ending at ${nw}.`), false, null, "kpi-new"));
+    cells.push(_kpi("New people", num(nw), dl, e(`of ${vals['people'] === SMALL ? vals['people'] : _pl(vals['n'], 'person', 'people')} active${so}`), sp("new", "New people", nw), false, null, "kpi-new"));
   }
   // 3 engaged visits per active person
   v = vals["vpp"];
@@ -546,7 +640,7 @@ function _kpis(a) {
   } else {
     pv = get("vpp", prev);
     dl = has_prev ? _delta(v, pv, pv !== null && pv !== SMALL && cn["vpp"].get(prev)[1] >= th["min_den"], 1, "", null) : note;
-    cells.push(_kpi("Engaged visits per person", num(v, "", true), dl, e(`${_pl(vals['eng'], 'engaged visit', 'engaged visits')}, ${_pl(vals['n'], 'person', 'people')}${so}`), spark(arr("vpp"), `Engaged visits per active person per week, last ${weeks_n} comparable weeks, ending at ${pystr(v, true)}.`), false, null, "kpi-vpp"));
+    cells.push(_kpi("Engaged visits per person", num(v, "", true), dl, e(`${_pl(vals['eng'], 'engaged visit', 'engaged visits')}, ${_pl(vals['n'], 'person', 'people')}${so}`), sp("vpp", "Engaged visits per active person", pystr(v, true), true), false, null, "kpi-vpp"));
   }
   // 4 median active minutes
   v = vals["min"];
@@ -557,7 +651,7 @@ function _kpis(a) {
   } else {
     pv = get("min", prev);
     dl = has_prev ? _delta(v, pv, false, 1, " min", null) : note;
-    cells.push(_kpi("Median visit length", `${num(v, "", true)}<span class="small"> min</span>`, dl, e(`active minutes, ${_pl(vals['pos'][0], 'engaged visit', 'engaged visits')}${so}`), spark(arr("min"), `Median active minutes per engaged visit per week, last ${weeks_n} comparable weeks, ending at ${pystr(v, true)}.`), false, null, "kpi-min"));
+    cells.push(_kpi("Median visit length", `${num(v, "", true)}<span class="small"> min</span>`, dl, e(`active minutes, ${_pl(vals['pos'][0], 'engaged visit', 'engaged visits')}${so}`), sp("min", "Median active minutes per engaged visit", pystr(v, true), true), false, null, "kpi-min"));
   }
   // 5 device (twice as wide as the others: the donut and its legend sit side by side)
   const dev = device_card(vals["dev"], th);
@@ -600,7 +694,8 @@ function _kpis(a) {
   } else {
     sub = "No data yet.";
   }
-  return (`<section class="blk" id="kpis" aria-labelledby="h-kpi"><h2 id="h-kpi">Key figures</h2><p class="cap" id="kpi-note">${e(sub)}</p><p class="cap" id="device-caveat">Device is by browser window width, not device type: a narrow desktop window counts as phone.</p>`
+  const strip_note = cells.some(c => c.includes('class="ld pt"')) ? `<p class="cap" id="strip-note">${e(STRIP_NOTE)}</p>` : "";
+  return (`<section class="blk" id="kpis" aria-labelledby="h-kpi"><h2 id="h-kpi">Key figures</h2><p class="cap" id="kpi-note">${e(sub)}</p><p class="cap" id="device-caveat">Device is by browser window width, not device type: a narrow desktop window counts as phone.</p>${strip_note}`
           + `<div class="kpis">${cells.join("")}</div>${show_data(table)}</section>`);
 }
 

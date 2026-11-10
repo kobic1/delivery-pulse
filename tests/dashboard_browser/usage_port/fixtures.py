@@ -109,6 +109,27 @@ def _wtd_people(more: int = 0) -> list:
     return people
 
 
+def _strip_people(first: int, mid: int, last: int, cur: int) -> list:
+    """Fictitious people for the strips of the key figures (data day Wed 11 Nov 2026): `first` people in the provisional first week (from Wed 21 Oct), `mid` on Tue 27 Oct, `last` on Wed 4 Nov (the last completed week), and `cur` people on Mon 9 Nov (the week in progress).
+    Person i is in a week when i is under that week's number; the people of the week in progress are the last ones (some are new)."""
+    v2 = {"s": 60, "vs": 60, "lv": 0, "fa": 0, "d": "l"}
+    nov = lambda n: dt.date(2026, 11, n)
+    people = []
+    for i in range(max(first, mid, last, cur + 2)):
+        vis = []
+        if i < first:
+            vis.append((dt.date(2026, 10, 21), dict(v2)))
+        if i < mid:
+            vis.append((dt.date(2026, 10, 27), dict(v2)))
+        if i < last:
+            vis.append((nov(4), dict(v2)))
+        if i >= 2 and i < cur + 2:
+            vis.append((nov(9), dict(v2)))
+        if vis:
+            people.append(vis)
+    return people
+
+
 def scenarios() -> dict:
     sa = dict(UR.SHOW_ALL)
     d = UR.demo_bodies
@@ -136,6 +157,12 @@ def scenarios() -> dict:
         "wtd_hand_default_five": dict(bodies=wtd_bodies(_wtd_people(2)), th=_thresholds(None), **at(dt.date(2026, 11, 11))),
         "wtd_hand_showall": dict(bodies=wtd_bodies(_wtd_people()), th=_thresholds(sa), **at(dt.date(2026, 11, 11))),
         "wtd_hand_sunday_showall": dict(bodies=wtd_bodies(_wtd_people()), th=_thresholds(sa), **at(sun2)),
+        "strip_first_and_so_far_default": dict(bodies=wtd_bodies(_strip_people(6, 8, 10, 8)), th=_thresholds(None), **at(dt.date(2026, 11, 11))),
+        "strip_so_far_under_five_default": dict(bodies=wtd_bodies(_strip_people(6, 8, 10, 3)), th=_thresholds(None), **at(dt.date(2026, 11, 11))),
+        "strip_so_far_under_five_showall": dict(bodies=wtd_bodies(_strip_people(6, 8, 10, 3)), th=_thresholds(sa), **at(dt.date(2026, 11, 11))),
+        "strip_first_under_five_default": dict(bodies=wtd_bodies(_strip_people(3, 8, 10, 8)), th=_thresholds(None), **at(dt.date(2026, 11, 11))),
+        "strip_two_points_default": dict(bodies=wtd_bodies([[(dt.date(2026, 10, 30), {"s": 60, "vs": 60, "lv": 0, "fa": 0, "d": "l"}), (dt.date(2026, 11, 3), {"s": 90 + i, "vs": 90 + i, "lv": 0, "fa": 0, "d": "s"})] for i in range(7)]), th=_thresholds(None), **at(dt.date(2026, 11, 4))),
+        "strip_so_far_only_showall": dict(bodies=wtd_bodies(_strip_people(0, 0, 0, 4)), th=_thresholds(sa), **at(dt.date(2026, 11, 11))),
         "wtd_hand_no_current_showall": dict(bodies=wtd_bodies([[(dt.date(2026, 11, 2), {"s": 60}), (dt.date(2026, 11, 7), {"s": 60})], [(dt.date(2026, 11, 3), {"s": 30})]]), th=_thresholds(sa), **at(sun2)),
     }
 

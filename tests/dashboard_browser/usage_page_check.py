@@ -207,6 +207,41 @@ def _(t: T):
     ctx.chrome.viewport(1400, 900)
 
 
+STRIP_JS = r"""(() => [...document.querySelectorAll('.kpis .kpi')].map(c => {
+  const sw = c.querySelector('.sparkwrap'); if (!sw) return null;
+  const pts = [...sw.querySelectorAll('i.ld.pt')], solid = [...sw.querySelectorAll('i.ld:not(.pt)')], dash = sw.querySelector('svg path.p'), line = sw.querySelector('svg path.l');
+  const r = el => el.getBoundingClientRect();
+  return {id: c.id, label: sw.querySelector('svg').getAttribute('aria-label'), pts: pts.length, solid: solid.length,
+          hatch: pts.every(p => getComputedStyle(p).backgroundImage.includes('repeating-linear-gradient')), solidFill: solid.every(p => getComputedStyle(p).backgroundImage === 'none'),
+          dash: dash ? getComputedStyle(dash).strokeDasharray : null, lineDash: line ? getComputedStyle(line).strokeDasharray : null,
+          inside: pts.every(p => { const b = r(p), s = r(sw); return b.left >= s.left - 5 && b.right <= s.right + 5 && b.top >= s.top - 5 && b.bottom <= s.bottom + 5; }), hidden: [...sw.querySelectorAll('i.ld')].every(p => p.getAttribute('aria-hidden') === 'true')};
+}).filter(Boolean))()"""
+
+
+@SUITE.test("usage_page_key_figure_strips_draw_the_incomplete_weeks_hatched_and_say_so")
+def _(t: T):
+    for w in (1400, 390):
+        ch = open_at(w)
+        st = ch.js(STRIP_JS)
+        t.check(len(st) >= 3 and all(c["pts"] == 1 and c["solid"] == 1 for c in st), f"{w}: each strip has one hatched point (the week so far) and a solid last point: {[(c['id'], c['pts'], c['solid']) for c in st]}")
+        t.check(all(c["hatch"] and c["solidFill"] and c["inside"] and c["hidden"] for c in st), f"{w}: the hatched point is hatched, the solid one is not, both sit inside the strip and are hidden from a screen reader: {st[:1]}")
+        t.check(all(c["dash"] not in (None, "none") and c["lineDash"] in ("none", "", "0px") for c in st), f"{w}: the line to the incomplete week is dashed, the line of the complete weeks is solid: {[(c['dash'], c['lineDash']) for c in st]}")
+        t.check(all("including the week so far, ending at" in c["label"] and "(week so far)" in c["label"] for c in st), f"{w}: the accessible name says it includes the week so far: {[c['label'] for c in st]}")
+        note = ch.js("(() => { const n = document.getElementById('strip-note'); return n ? {t: n.innerText, vis: n.getBoundingClientRect().height > 10 && getComputedStyle(n).display !== 'none'} : null; })()")
+        t.check(note and note["vis"] and "lighter hatched point is part of a week" in note["t"] and ch.js("document.querySelectorAll('#strip-note').length") == 1, f"{w}: one short line explains the lighter points: {note}")
+        t.check(ch.js("document.documentElement.scrollWidth - document.documentElement.clientWidth") <= 0, f"{w}: no sideways scroll")
+    ctx.chrome.viewport(1400, 900)
+
+
+@SUITE.test("usage_page_key_figure_strips_without_a_week_in_progress_hatch_only_the_first_week")
+def _(t: T):
+    ch = open_at(1400, "v1")                                                                # v1 records, no week in progress: only the provisional first week is incomplete
+    st = ch.js(STRIP_JS)
+    t.check(len(st) == 3 and all(c["pts"] == 1 and c["solid"] == 1 and "including the partial first week, ending at" in c["label"] and "so far" not in c["label"] for c in st), f"v1 page: {[(c['id'], c['pts'], c['label']) for c in st]}")
+    t.check(ch.js("!!document.getElementById('strip-note')"), "the note is there while a hatched point is")
+    ctx.chrome.viewport(1400, 900)
+
+
 @SUITE.test("usage_page_week_so_far_block_sits_in_the_weekly_panel_with_its_sentence_and_figures_and_fits_the_width")
 def _(t: T):
     for kind in ("demo", "live1"):

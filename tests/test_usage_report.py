@@ -1711,6 +1711,117 @@ def test_the_week_so_far_check_passes_on_the_real_report():
     check_week_to_date(UR)
 
 
+# ------------------------------------------------------------------------------------------------ the strips of the key figures draw the incomplete weeks too
+def kpi_card(h: str, hid: str) -> str:
+    k = kpi_section(h)
+    i = k.index(f'id="{hid}"')
+    j = k.find('<div class="kpi', i)
+    return k[i:j if j > 0 else len(k)]
+
+
+def strip_facts(h: str) -> dict:
+    """What a card says about its strip: the accessible name, the number of hatched (incomplete) points, whether a solid last point and a dashed line are there, and whether the card shows the skeleton instead."""
+    out = {}
+    for hid in ("kpi-people", "kpi-new", "kpi-vpp", "kpi-min"):
+        c = kpi_card(h, hid)
+        label = re.search(r'<svg class="spark"[^>]*aria-label="([^"]*)"', c)
+        out[hid] = {"label": label.group(1) if label else None, "pt": c.count('class="ld pt"'), "solid": c.count('class="ld"'), "dashed": re.findall(r'<path class="p" d="([^"]*)"', c), "skel": 'class="skbar"' in c}
+    return out
+
+
+def without_strips(h: str) -> str:
+    k = kpi_section(h)
+    k = re.sub(r'<div class="sparkwrap">.*?</div>', "", k[:k.index('<table id="device-table"')])                # the device table's "all recorded visits" line rightly reaches the week so far
+    return re.sub(r'<p class="cap" id="strip-note">.*?</p>', "", k)
+
+
+def strip_data(cur_people: int = 8, counts=(10, 16, 22, 28)) -> list:
+    """The first completed week starts mid-week (provisional), the others are complete, and `cur_people` new people are active in the week in progress."""
+    return weekly(list(counts)) + [person(100 + i, [(CUR + dt.timedelta(days=1), sess(s=60))]) for i in range(cur_people)]
+
+
+def check_the_strips_draw_the_incomplete_weeks(mod):
+    full = mod.html_report(agg(strip_data(8), mod))
+    f = strip_facts(full)
+    # both incomplete weeks are drawn, hatched, and the labels say so; the complete weeks stay a solid line with a solid last point
+    p = f["kpi-people"]
+    assert not p["skel"] and p["pt"] == 2 and p["solid"] == 1 and len(p["dashed"]) == 1 and p["dashed"][0].count("M") == 2, p
+    assert p["label"] == "People active per week, last 5 weeks including the partial first week and the week so far, ending at 8 (week so far).", p["label"]
+    # new people: in the provisional first week everyone is new by construction, so that week has no figure and takes no room
+    n = f["kpi-new"]
+    assert n["pt"] == 1 and n["label"] == "New people per week, last 4 weeks including the week so far, ending at 8 (week so far).", n
+    assert f["kpi-vpp"]["label"] == "Engaged visits per active person per week, last 5 weeks including the partial first week and the week so far, ending at 1.0 (week so far)."
+    assert f["kpi-min"]["label"] == "Median active minutes per engaged visit per week, last 5 weeks including the partial first week and the week so far, ending at 1.0 (week so far)."
+    assert full.count('id="strip-note"') == 1 and "In the small weekly lines, a lighter hatched point is part of a week" in full
+    # nothing else changed: the change against the week before, the usual range and the table are those of the complete weeks only
+    done = mod.html_report(agg(weekly([10, 16, 22, 28]), mod))
+    assert without_strips(full) == without_strips(done)
+    assert "&#9650; Up 6 (27%)" in kpi_card(full, "kpi-people") and "Usual range building: 2 of 5 comparable weeks" in kpi_card(full, "kpi-people")
+    # the first week alone: one hatched point and the three complete weeks
+    d = strip_facts(done)["kpi-people"]
+    assert d["pt"] == 1 and d["label"] == "People active per week, last 4 weeks including the partial first week, ending at 28." and 'id="strip-note"' in done
+
+
+def check_a_group_under_the_minimum_is_a_gap_in_the_strip(mod):
+    small = mod.html_report(agg(strip_data(3), mod))                                      # 3 people so far this week: not drawn, not even as a stub
+    f = strip_facts(small)["kpi-people"]
+    assert f["pt"] == 1 and f["label"] == "People active per week, last 4 weeks including the partial first week, ending at 28.", f
+    assert len(f["dashed"]) == 1 and f["dashed"][0].count("M") == 1
+    assert strip_facts(small)["kpi-new"]["pt"] == 0 and "ending at 3" not in small
+    shown = mod.html_report(agg(strip_data(3), mod, th=with_min_group(1)))               # the minimum is what decides: with it off the same 3 people are drawn
+    assert strip_facts(shown)["kpi-people"]["pt"] == 2
+    few_first = mod.html_report(agg(weekly([3, 10, 16, 22]), mod))                        # a provisional first week under the minimum is a gap that takes no room
+    g = strip_facts(few_first)["kpi-people"]
+    assert g["pt"] == 0 and not g["dashed"] and g["label"] == "People active per week, last 3 comparable weeks, ending at 22." and 'id="strip-note"' not in few_first
+
+
+def check_the_strip_draws_from_two_points_on(mod):
+    young = mod.html_report(agg(weekly([6]) + [person(100 + i, [(CUR + dt.timedelta(days=1), sess(s=60))]) for i in range(7)], mod))
+    p = strip_facts(young)["kpi-people"]
+    assert not p["skel"] and p["pt"] == 2 and p["solid"] == 0 and p["label"] == "People active per week, last 2 weeks including the partial first week and the week so far, ending at 7 (week so far).", p
+    k = kpi_section(young)
+    assert k.count("No comparison yet: first week of data") >= 3 and "Comparisons appear after two complete weeks" in k          # the comparison rules did not move
+    one = mod.html_report(agg(weekly([6]), mod))                                          # one point only: still the skeleton
+    assert strip_facts(one)["kpi-people"]["skel"] and 'id="strip-note"' not in one
+    two = mod.html_report(agg(weekly([10, 16], dow=0), mod))                              # two complete weeks: drawn, solid, no hatched point
+    t = strip_facts(two)["kpi-people"]
+    assert not t["skel"] and t["pt"] == 0 and t["solid"] == 1 and not t["dashed"] and t["label"] == "People active per week, last 2 comparable weeks, ending at 16.", t
+
+
+def check_complete_weeks_are_drawn_as_before(mod):
+    h = mod.html_report(agg(weekly([10, 16, 22, 28], dow=0), mod))
+    t = strip_facts(h)["kpi-people"]
+    assert t["pt"] == 0 and t["solid"] == 1 and not t["dashed"] and t["label"] == "People active per week, last 4 comparable weeks, ending at 28." and 'id="strip-note"' not in h
+
+
+def test_the_strips_draw_the_incomplete_weeks():
+    check_the_strips_draw_the_incomplete_weeks(UR)
+
+
+def test_a_group_under_the_minimum_is_a_gap_in_the_strip():
+    check_a_group_under_the_minimum_is_a_gap_in_the_strip(UR)
+
+
+def test_the_strip_draws_from_two_points_on():
+    check_the_strip_draws_from_two_points_on(UR)
+
+
+def test_complete_weeks_are_drawn_as_before():
+    check_complete_weeks_are_drawn_as_before(UR)
+
+
+def test_the_hatched_point_and_the_dashed_line_are_in_the_style_sheet_and_the_note_is_short():
+    assert ".sparkwrap .ld.pt" in UR.CSS and "var(--hatch-blue)" in UR.CSS[UR.CSS.index(".sparkwrap .ld.pt"):][:200] and ".spark path.p" in UR.CSS and "stroke-dasharray" in UR.CSS[UR.CSS.index(".spark path.p"):][:200]
+    assert len(UR.STRIP_NOTE) < 150 and "part of a week" in UR.STRIP_NOTE
+
+
+def test_the_strip_weeks_are_the_complete_run_with_the_incomplete_weeks_at_its_ends():
+    m = agg(strip_data(8))["model"]
+    assert [(w, p) for w, p in UR._strip_weeks(m)] == [(wk(3), True), (wk(2), False), (wk(1), False), (wk(0), False), (CUR, True)]
+    assert UR._comparable_run(m) == [wk(2), wk(1), wk(0)]                                  # the baseline and the changes still use the complete weeks only
+
+
+
 # ------------------------------------------------------------------------------------------------ seeded-defect self-tests: the same checks must catch a report with one defect put in
 SEEDED = [
     ("partition complement leak (only cells are guarded, not what subtraction reveals)", [("            if rem < MIN_USERS:\n                vis = [n for n in mine if n not in out_hidden and cells[n] > 0]", "            if False:\n                vis = [n for n in mine if n not in out_hidden and cells[n] > 0]")],
@@ -1752,6 +1863,12 @@ SEEDED = [
     ("a difference printed against a withheld figure", [("and SMALL not in (sc, sp)", "and True")], check_week_to_date),
     ("a percentage on a previous figure under the minimum denominator", [("pct_of(abs(d), prev_val, th) if d else None", "rnd(100 * abs(d) / prev_val) if d and prev_val else None")], check_week_to_date),
     ("a verdict word in the week-so-far sentence", [("today still in progress) against the same days last week (", "today still in progress) a decline against the same days last week (")], check_week_to_date),
+    ("a hatched point drawn as a solid one (the incomplete weeks look complete)", [("<i class=\"ld pt\" aria-hidden=\"true\"", "<i class=\"ld\" aria-hidden=\"true\"")], check_the_strips_draw_the_incomplete_weeks),
+    ("the week in progress left out of the strips", [("    if m.cur in m.by_week and m.regime(m.cur) == rg and not (m.cur == m.rollover and rg == \"v2\"):", "    if False:")], check_the_strips_draw_the_incomplete_weeks),
+    ("a strip label that does not say it holds partial weeks", [("weeks including {incl}{tail}.", "weeks{tail}.")], check_the_strips_draw_the_incomplete_weeks),
+    ("the incomplete weeks leak into the changes and the table (the comparable run is the strip)", [("    run = _comparable_run(m)\n    grow = ", "    run = [w for w, _ in _strip_weeks(m)]\n    grow = ")], check_the_strips_draw_the_incomplete_weeks),
+    ("a group under the minimum drawn in the week in progress (the count, not the guarded figure)", [("        sser[\"people\"][w] = v[\"people\"]\n", "        sser[\"people\"][w] = v[\"n\"]\n")], check_a_group_under_the_minimum_is_a_gap_in_the_strip),
+    ("a strip needs three points again", [("    if len(pts) < 2:\n        return '<div class=\"skbar\"", "    if len(pts) < 3:\n        return '<div class=\"skbar\"")], check_the_strip_draws_from_two_points_on),
 ]
 
 
