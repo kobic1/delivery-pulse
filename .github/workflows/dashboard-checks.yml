@@ -47,7 +47,8 @@ jobs:
           - {name: "delivery cycle filter, self-tests", args: '--suites "delivery cycle filter" --only selftest'}
           - {name: "headline tiles", args: '--suites "headline tiles"'}
           - {name: "harness, canary, links", args: '--suites "harness,canary,link oracle,link guard"'}
-          - {name: "other suites", args: '--except "cycles links,delivery cycle filter,headline tiles,harness,canary,link oracle,link guard"'}
+          - {name: "usage suites", args: '--suites "usage statistics,usage report page,usage view (owner only),usage report port"'}
+          - {name: "other suites", args: '--except "cycles links,delivery cycle filter,headline tiles,harness,canary,link oracle,link guard,usage statistics,usage report page,usage view (owner only),usage report port"'}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
