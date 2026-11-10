@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """The Back to Top button is easy to see and to hit.
 
-It appears after a scroll up from deep in the page (the behaviour is tested in the harness). Here its look and place, at 1400 px, at 1800 px (wider than the 1240 px content column plus the button) and at 390 px:
+It appears after a scroll up from deep in the page (the behaviour is tested in the harness). Here its look and place, at 1400 px, at 1800 px (a wide window) and at 390 px:
 solid blue with white text (contrast of at least 4.5:1), at least 48 px tall and wide, a visible label on a desktop and an icon only on a phone (the accessible name stays), 24 px from the bottom right corner on a desktop
-(16 px right, 20 px bottom on a phone), and from 1608 px wide it sits in the empty margin beside the content column, not over it. A self-test puts the old small white button back and the check must fail.
+(16 px right, 20 px bottom on a phone), in the corner of the window at every width, also on a wide screen. A self-test puts the old small white button back and the check must fail.
 
     python3 backtotop_check.py [--live] [--only NAME]
 """
@@ -81,11 +81,8 @@ def problems(r, vp):
             bad.append(f"{vp[0]}px: the label is not visible on a desktop")
         if abs(r["bottom"] - 24) > 1:
             bad.append(f"{vp[0]}px: {r['bottom']:.0f} px from the bottom, expected 24")
-        if vp[0] >= 1608:
-            if r["colRight"] is not None and r["left"] < r["colRight"] + 8:
-                bad.append(f"{vp[0]}px: the button (left edge {r['left']:.0f}) sits over the content column (right edge {r['colRight']:.0f}), expected the margin beside it")
-        elif abs(r["right"] - 24) > 1:
-            bad.append(f"{vp[0]}px: {r['right']:.0f} px from the right, expected 24")
+        if abs(r["right"] - 24) > 1:
+            bad.append(f"{vp[0]}px: {r['right']:.0f} px from the right, expected 24 (the corner of the window at every width)")
     return bad
 
 
