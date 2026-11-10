@@ -2476,7 +2476,7 @@ function cfbPeriods(mode) {
     if (e < since) break;
     const sd = new Date(s), yr = sd.getUTCFullYear(), mo = sd.getUTCMonth();
     const label = mode === "month" ? `${yr}-${String(mo + 1).padStart(2, "0")}` : `${yr}-Q${Math.floor(mo / 3) + 1}`;
-    out.unshift({id: label, start: Math.max(s, since), end: e, line1: label, line2: "", label, name: label + (i === 0 ? " (running)" : "") + (s < since ? ` (from ${DATA.bugSince})` : ""), running: i === 0, sel: false, janFirst: mo === 0});
+    out.unshift({id: label, start: Math.max(s, since), end: e, line1: label, line2: "", label, name: label + (i === 0 ? " (running)" : "") + (s < since ? ` (from ${DATA.bugSince})` : ""), running: i === 0, sel: i === 0, janFirst: mo === 0});
     if (mode === "month" && out.length >= 12) break;
   }
   return out;
@@ -2510,9 +2510,10 @@ function renderCfb() {
   kept.forEach(c => { labelOf[c.k + c.i] = c; });
   const lab = (k, i) => { const c = labelOf[k + i]; return c ? `<text x="${c.x}" y="${c.y}" text-anchor="middle" font-size="11" font-weight="600" fill="${c.col}">${c.v}</text>` : ""; };
   const everyLbl = Math.max(1, Math.ceil(54 / slot));
+  const hasSel = rows.some(r => r.sel);                              // the selected release (Release), or the quarter or month that is running now: its bars are solid, the others lighter, its table row is highlighted
   rows.forEach((r, i) => {
     const cx = pl + slot * i + slot / 2, dash = r.running ? ' stroke="#0A47C2" stroke-dasharray="3 2"' : "", dashR = r.running ? ' stroke="#8A5200" stroke-dasharray="3 2"' : "";
-    const op = mode === "version" && cur && !r.sel ? ' opacity=".55"' : "";
+    const op = hasSel && !r.sel ? ' opacity=".55"' : "";
     g += ga(`<rect x="${cx - bw - 1}" y="${yy(r.n)}" width="${bw}" height="${base0 - yy(r.n)}" fill="#025AFB"${dash}${op}/>` + lab("n", i), cfbJql(r.start, r.end), `${r.name}\n${nn(r.n, "CFB", "CFBs")} fixed ${U.where}`);
     g += ga(`<rect x="${cx + 1}" y="${yy(r.reg)}" width="${bw}" height="${base0 - yy(r.reg)}" fill="#C77700"${dashR}${op}/>` + lab("reg", i), cfbJql(r.start, r.end, "regression = Yes"), `${r.name}\n${r.reg} of the ${nn(r.n, "fixed CFB", "fixed CFBs")} ${r.reg === 1 ? "is a regression" : "are regressions"}`);
     if ((rows.length - 1 - i) % everyLbl === 0) {
@@ -2539,7 +2540,7 @@ function renderCfb() {
     ? `Release windows run from the Jira version start (the IP week) to its release date. PQCR Cases sums Number of Incidents over the CFB bugs fixed in the window. ` +
       (cur ? "The row for the selected release is highlighted. " : `${state.release} has not started, so no row is highlighted. `) + `An asterisk marks a release still running.`
     : `${mode === "month" ? "Calendar months" : "Calendar quarters"} by Closed date, newest first in the table. PQCR Cases sums Number of Incidents over the CFB bugs fixed in the period. ` +
-      `An asterisk and a dashed outline mark the ${U.noun} still running. ` + `Data starts on ${DATA.bugSince}${rows.length && rows[0].name.includes("(from") ? `, so the first ${U.noun} is partial` : ""}. ${monthTotal ? `The total row sums the ${rows.length} months shown (${rows[0].label} to ${rows[rows.length - 1].label.replace("*", "")}). ` : ""}The cards above stay on ${esc(state.release)}.`);
+      `The ${U.noun} still running has an asterisk and a dashed outline, its bars are solid and its row is highlighted; the others are lighter. ` + `Data starts on ${DATA.bugSince}${rows.length && rows[0].name.includes("(from") ? `, so the first ${U.noun} is partial` : ""}. ${monthTotal ? `The total row sums the ${rows.length} months shown (${rows[0].label} to ${rows[rows.length - 1].label.replace("*", "")}). ` : ""}The cards above stay on ${esc(state.release)}.`);
   capEl.textContent = `* = ${U.noun} still running. PQCR Cases = incidents on CFBs fixed in the ${U.noun}.`;
   { const rfd = bugsBase().filter(b => b.cfb && b.s === "Ready for Deploy"), n = rfd.length;          // a CFB in Ready for Deploy is not open and not yet fixed here: say so, with the count
     if (n) rfdEl.innerHTML = `${tlink(n.toLocaleString("en-US"), href(`project in (${pkeys(state.projects)}) AND issuetype = Bug AND ${CFB_Q()} AND status = "Ready for Deploy"${bugTeamClause(state.teams)}`), `${nn(n, "CFB is", "CFBs are")} in Ready for Deploy\nNot counted as fixed until the status is Done.`)} ${plural(n, "CFB is", "CFBs are")} in Ready for Deploy; counted as fixed once Done.`; }
