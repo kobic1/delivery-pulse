@@ -42,6 +42,7 @@ sys.path.insert(0, str(HERE))
 import product_releases as PR
 import usage_bundle
 import ft_calendar  # noqa: E402
+import cx_priority as CXP  # noqa: E402
 import importlib.util as _ilu  # noqa: E402
 _spec = _ilu.spec_from_file_location("release_planning_model", HERE.parent / "release_planning" / "model.py")
 RPM = _ilu.module_from_spec(_spec)                       # the release planning report's own pod rule (classify / pod_labels), reused rather than copied
@@ -375,6 +376,12 @@ def collect_hier(j, epics, caps) -> dict:
         kinds[r["ty"]] = kinds.get(r["ty"], 0) + 1
     print(f"hierarchy: {len(hier)} issues {kinds}", flush=True)
     return {"hier": hier}
+
+
+def collect_cx_priority(j, hier) -> dict:
+    """The CXCROSS priority order from the Confluence page named by CXCROSS_PRIORITY_PAGE_ID (see cx_priority.py): {"cxPrio": ...}, or {} when it cannot be read. Never fails the build."""
+    res = CXP.compute(j.s, j.base, hier or {})
+    return {"cxPrio": res} if res else {}
 
 
 NFR_LABEL = "NFR"
@@ -972,6 +979,7 @@ def fetch() -> dict:
     links = collect_links(j, epics)
     plan = planning(j, epics, bugs, links)
     plan.update(collect_hier(j, epics, links["capabilities"]))
+    plan.update(collect_cx_priority(j, plan["hier"]))
     collect_nfr(j, epics)
     cfbx = collect_cfb(j)
     capx = collect_capabilities(j, {e["cp"] for e in epics if e.get("cp")})
@@ -1155,6 +1163,7 @@ def main() -> int:
     ap.add_argument("--add-products", action="store_true", help="resolve and pull the non-CXone products (WFM, EEM, ESP) into build/program_data.json, then render")
     ap.add_argument("--add-nfr", action="store_true", help="flag the epics that carry the NFR label in build/program_data.json, then render")
     ap.add_argument("--add-hier", action="store_true", help="add the CXCROSS Initiative > Capability hierarchy to build/program_data.json, then render")
+    ap.add_argument("--add-cx-priority", action="store_true", help="read the CXCROSS priority page (CXCROSS_PRIORITY_PAGE_ID) and add cxPrio to build/program_data.json from its saved hierarchy (one Confluence call, no Jira pull), then render; the saved field is kept when the page cannot be read")
     ap.add_argument("--add-planning", action="store_true", help="add due dates, target sprints, sprint calendar, status-since and bug updates to build/program_data.json, then render")
     ap.add_argument("--add-deps", action="store_true", help="read dependency links and capabilities into build/program_data.json (no changelog calls), then render")
     ap.add_argument("--add-bugs", action="store_true", help="re-read the bugs (customer-found bugs by reporter OR Salesforce case, Closed dates) and the Open CFB Root Cause Analysis state into build/program_data.json, then render")
@@ -1165,7 +1174,7 @@ def main() -> int:
     ap.add_argument("--emit-usage-calendar", action="store_true", help="write build/usage_calendar.json (release W1 start, end of W6, release end, sprint boundaries: dates only) for usage_report.py --calendar; reads build/program_data.json, renders nothing")
     ap.add_argument("--add-cycles", action="store_true", help="no longer used (kept so old command lines still run): the Confluence pods pull was removed; Group By is Team or Pod from labels")
     args = ap.parse_args()
-    modes = [a for a in ("reuse", "add_products", "add_nfr", "add_hier", "add_planning", "add_deps", "add_bugs", "add_pods", "add_cfb_open", "add_capitalization", "add_capabilities", "add_cycles", "emit_usage_calendar") if getattr(args, a)]
+    modes = [a for a in ("reuse", "add_products", "add_nfr", "add_hier", "add_cx_priority", "add_planning", "add_deps", "add_bugs", "add_pods", "add_cfb_open", "add_capitalization", "add_capabilities", "add_cycles", "emit_usage_calendar") if getattr(args, a)]
     if len(modes) > 1:      # the branches below are an if/elif chain: a second flag used to be skipped without a word
         ap.error("use one mode flag at a time (got " + ", ".join("--" + m.replace("_", "-") for m in modes) + "); run them one after another")
     global SANDBOX
@@ -1190,6 +1199,12 @@ def main() -> int:
         data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
         data.update(collect_hier(E.Jira(), [e for e in data["epics"] if e["p"] in PROJECTS], data.get("capabilities", {})))
         save_data(data)
+    elif args.add_cx_priority:
+        data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
+        res = collect_cx_priority(E.Jira(), data.get("hier"))
+        if res:
+            data.update(res)
+            save_data(data)
     elif args.add_planning:
         data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
         eps = [e for e in data["epics"] if e["p"] in PROJECTS]
