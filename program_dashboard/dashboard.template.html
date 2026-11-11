@@ -935,6 +935,7 @@ const DATA_ALL = /*__DATA__*/null;
 // Product mode. The CXone projects share one set of releases (26.4, 27.1 ...); WFM, EEM and ESP are products of their own, each with its own fix versions, built by the collector as a payload of the same shape
 // (DATA_ALL.products[name]). The page runs on ONE dataset, chosen here before anything is computed: the CXone payload, or a product's. Switching product stores the choice and reloads, so no cache or
 // derived value can carry over from one dataset to the other. A link without prod= opens CXone.
+const PRODUCT_LABEL = {WFM: "IEX WFM"}, prodName = n => PRODUCT_LABEL[n] || n;          // what the reader sees for a product; the key (WFM) stays in the data, the links and the saved filters
 const PRODUCT_NAMES = Object.keys(DATA_ALL.products || {}).filter(k => DATA_ALL.products[k] && !DATA_ALL.products[k].unavailable);
 // Deep links. A link to the dashboard can end in a plain #token (the only kind of address part an Artifact passes to the page): #quality, #release-calendar, #eem (a product view) or #eem~delivery (a section of a product view).
 // The page opens on that section and moves focus to its heading. A token is not a filter state: the reader's saved filters still apply. A token for a section this view does not have opens the page as usual.
@@ -1550,7 +1551,7 @@ function deliveryTiles(rel, TB, tDone, paceLine) {
 }
 function renderStatus() {
   const rel = state.release, list = scopeOf(rel), c = counts(list), mo = lastDays(), ms = monthStats(mo), inWin = `in the last ${WINDOW_DAYS} days (${windowWords(mo)})`;
-  const projLabel = PRODUCT !== "cxone" ? PRODUCT : state.projects.size === projectsAll.length ? "All Projects" : [...state.projects].join(", ") || "No project";
+  const projLabel = PRODUCT !== "cxone" ? prodName(PRODUCT) : state.projects.size === projectsAll.length ? "All Projects" : [...state.projects].join(", ") || "No project";
   const wk = weekOf(rel), noProj = !state.projects.size, TB = targetBase(rel), tgt = TB.tgt, tDone = doneScope(rel).filter(e => cls(e.s) === "done").length;
   document.getElementById("st-rel").textContent = `Release ${rel}`;
   document.getElementById("st-rest").textContent = `${projLabel}${state.teams.size ? " · " + [...state.teams].join(", ") : ""}${wk ? " · " + wk : ""}`;
@@ -4350,21 +4351,21 @@ function buildProductUi() {
   if (!PRODUCT_NAMES.length) return;                               // a payload without products: the page is exactly as it was
   const fp = document.getElementById("f-product");
   document.getElementById("g-product").hidden = false;
-  fp.innerHTML = [["cxone", "CXone"], ...PRODUCT_NAMES.map(n => [n, n])].map(([v, n]) => `<option value="${esc(v)}">${esc(n)}</option>`).join("");
+  fp.innerHTML = [["cxone", "CXone"], ...PRODUCT_NAMES.map(n => [n, prodName(n)])].map(([v, n]) => `<option value="${esc(v)}">${esc(n)}</option>`).join("");
   fp.value = PRODUCT;
   fp.onchange = e => switchProduct(e.target.value);
   if (PRODUCT === "cxone") return;
   ["g-projects", "g-dc"].forEach(id => { document.getElementById(id).hidden = true; });          // one project: shown as text. The Release select stays and holds the one release chosen for you (the running Major)
   document.getElementById("g-scope").hidden = false;
-  document.getElementById("prod-scope").textContent = PRODUCT;
-  const rs = document.getElementById("f-release"); rs.setAttribute("data-tip", `Release chosen automatically\nThe running Major of ${PRODUCT}, from the work in each version. Other releases are not shown.`); rs.setAttribute("data-link", "0");
+  document.getElementById("prod-scope").textContent = prodName(PRODUCT);
+  const rs = document.getElementById("f-release"); rs.setAttribute("data-tip", `Release chosen automatically\nThe running Major of ${prodName(PRODUCT)}, from the work in each version. Other releases are not shown.`); rs.setAttribute("data-link", "0");
 }
 function syncProductUi() {
   if (!PRODUCT_NAMES.length) return;
   document.getElementById("f-product").value = PRODUCT;
   document.getElementById("g-product").classList.toggle("changed", PRODUCT !== "cxone");
   if (PRODUCT === "cxone") return;
-  const R = PRODUCT_RES, rel = state.release, win = DATA.windows && DATA.windows[rel], who = rel.startsWith(PRODUCT) ? rel : `${PRODUCT} ${rel}`;
+  const R = PRODUCT_RES, rel = state.release, win = DATA.windows && DATA.windows[rel], who = rel.startsWith(PRODUCT) ? rel : `${prodName(PRODUCT)} ${rel}`;
   const others = [R.minor && `Minor ${R.minor.name}`, R.future && `Future ${R.future.name}`].filter(Boolean).join(", ");
   const tip = `${who}: how this view is built\nThe release is chosen from the work in each version (rule ${R.rule}, ${(R.major.confidence || "").toLowerCase()} confidence, as of ${fmtDay(R.asOf)})${others ? "; not shown: " + others : ""}.\n` +
     `Its Done, Removed and Commitment Type rules are verified only for CXone, and the scope is counted as it is today.\n` +
@@ -5003,7 +5004,7 @@ if (DATA.schema != null && DATA.schema !== PAGE_SCHEMA) {      // a payload from
   }).observe(status, {childList: true, subtree: true, characterData: true});
   if (!RUNTIME || PRODUCT !== "cxone") {                       // the standalone file cannot read Jira, and Refresh reads the CXone projects only: the button stays present, looks unavailable, and says why on hover or focus
     btn.classList.add("unavail"); btn.setAttribute("aria-disabled", "true"); btn.setAttribute("aria-describedby", "refresh-why");
-    why.textContent = PRODUCT !== "cxone" ? `Refresh covers the CXone projects. This ${PRODUCT} view shows the data of the last rebuild, as of the time beside it.` : "Live refresh works in the published page in Claude. This file shows the data as of the time beside it.";
+    why.textContent = PRODUCT !== "cxone" ? `Refresh covers the CXone projects. This ${prodName(PRODUCT)} view shows the data of the last rebuild, as of the time beside it.` : "Live refresh works in the published page in Claude. This file shows the data as of the time beside it.";
     document.addEventListener("keydown", e => { if (e.key === "Escape") unit.classList.add("nowhy"); });
     ["mouseleave", "blur"].forEach(ev => btn.addEventListener(ev, () => unit.classList.remove("nowhy")));
   } else why.hidden = true;
