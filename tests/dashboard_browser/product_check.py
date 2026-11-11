@@ -15,6 +15,7 @@ The products are fictitious here (make_synthetic.product_sample): PRD1 has dated
 from __future__ import annotations
 
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -213,6 +214,49 @@ def _(t: T):
         t.check(js(ch, "return PRODUCT") == "cxone" and not shown(ch, "#g-product") and len(strip(ch)) == CX_STRIP, f"products={products}: the page is not the plain CXone page")
     ch, _ = load("NOPE")
     t.check(js(ch, "return PRODUCT") == "cxone", "an unknown product in the link did not fall back to CXone")
+
+
+def wfm_page(template=None):
+    """The product list of the real page, with the first fictitious product named WFM: the one product whose reader-facing name differs from its key."""
+    data = MS.make(MS.il_today())
+    data["build"] = {"sha": "abc1234", "dirty": False, "at": "2026-01-01T00:00+02:00"}
+    prods = MS.product_sample(data)
+    prods["WFM"] = prods.pop("PRD1")
+    data["productList"], data["products"] = ["WFM", "PRD2"], prods
+    return ctx.write(kit.wrap(MS.render_page(data, template) if template else MS.render_page(data, ctx.template)), "prodwfm")
+
+
+def wfm_read(url):
+    ch = ctx.chrome
+    ch.cmd("Emulation.setTimezoneOverride", timezoneId="Asia/Jerusalem")
+    ch.viewport(1400, 900, mobile=False)
+    ch.goto(url + "#prod=WFM")
+    assert kit.wait_ready(ch), "the page did not draw: " + str(ch.console_errors()[:2])
+    time.sleep(0.4)
+    return {"opts": js(ch, "return [...document.querySelectorAll('#f-product option')].map(o => [o.value, o.textContent.trim()])"),
+            "scope": js(ch, "return document.getElementById('prod-scope').textContent"), "prod": js(ch, "return PRODUCT"),
+            "label": js(ch, "return document.getElementById('f-product').selectedOptions[0].textContent.trim()")}
+
+
+@SUITE.test("the_WFM_product_is_named_IEX_WFM_for_the_reader_and_stays_WFM_in_the_link")
+def _(t: T):
+    r = wfm_read(wfm_page())
+    t.check(r["opts"] == [["cxone", "CXone"], ["PRD2", "PRD2"], ["WFM", "IEX WFM"]], f"the Product list is {r['opts']}")
+    t.check(r["prod"] == "WFM" and r["label"] == "IEX WFM" and r["scope"] == "IEX WFM", f"product {r['prod']!r}, selected {r['label']!r}, project text {r['scope']!r}")
+
+
+@SUITE.test("selftest_the_IEX_WFM_check_fails_when_the_display_name_is_taken_out")
+def _(t: T):
+    src = ctx.template.read_text(encoding="utf-8")
+    marker = 'PRODUCT_LABEL = {WFM: "IEX WFM"}'
+    if marker not in src:
+        raise kit.Skip("this template has no display name for WFM to take out")
+    with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False, encoding="utf-8") as f:
+        f.write(src.replace(marker, "PRODUCT_LABEL = {}"))
+    url = wfm_page(Path(f.name))
+    Path(f.name).unlink()
+    r = wfm_read(url)
+    t.check(r["label"] != "IEX WFM", "the check passed without the display name: it is blind")
 
 
 if __name__ == "__main__":
