@@ -414,6 +414,7 @@ details.vd details.more[open] > ul.dl { margin-top:4px; }
 .tablewrap { overflow-x:auto; max-width:100%; position:relative; }      /* position:relative keeps the absolutely placed .sr text inside the scrolling area, so it cannot widen the page */
 .tablewrap.tall { max-height:560px; overflow:auto; }
 .tablewrap.tall thead th, .tablewrap.freeze thead th, details.vd .tablewrap thead th { position:sticky; top:0; z-index:1; }      /* every table that can be longer than its box keeps its header row in view; .freeze = a box that fits the window below the sticky stack */
+.tablewrap.freeze table.cyepl thead th, .tablewrap.tall table.cyepl thead th, details.vd .tablewrap table.cyepl thead th { position:static; }      /* the epic list nested in a pod row is part of the row: its header scrolls with it. Left sticky it would stick to the top of the outer box, over the outer header row */
 .tablewrap.cxwrap, .tablewrap.freeze { max-height:max(320px, calc(100vh - var(--stick, 0px) - 24px)); overflow:auto; }      /* the CXCROSS list can be long: the box fits the window below the sticky stack and the header row stays in view */
 table { border-collapse:collapse; width:100%; }
 th, td { padding:6px 10px; text-align:left; border-bottom:1px solid var(--line-soft); white-space:nowrap; }
