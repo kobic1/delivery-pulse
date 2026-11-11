@@ -162,5 +162,59 @@ def _(t: T):
     t.check(bool(bad), "the check passed with the header-follow code switched off: it is blind")
 
 
+NESTED = """(async () => {
+  const click = sel => document.querySelectorAll(sel).forEach(b => b.click());
+  click('[data-cyact=expall]');
+  await new Promise(r => setTimeout(r, 250));
+  const box = document.querySelector('#cy-ovtable') && document.querySelector('#cy-ovtable').closest('.tablewrap');
+  if (!box) return {found: false};
+  const inner = [...box.querySelectorAll('table.cyepl thead th')].filter(th => th.offsetParent);
+  if (!inner.length) return {found: true, nested: 0};
+  box.style.maxHeight = '260px';                                  // the real table is long enough to scroll inside its box; the synthetic one needs a short box to do the same
+  const r0 = box.getBoundingClientRect();
+  window.scrollTo(0, window.scrollY + r0.top - STICK);
+  box.scrollTop = 300;
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 80))));
+  const outer = [...box.querySelectorAll('#cy-ovtable > thead th')].map(th => th.getBoundingClientRect());
+  const oTop = Math.min(...outer.map(r => r.top)), oBot = Math.max(...outer.map(r => r.bottom));
+  const clash = inner.map(th => th.getBoundingClientRect()).filter(r => r.bottom > oTop + 1 && r.top < oBot - 1).length;
+  return {found: true, nested: inner.length, scrolled: box.scrollTop > 0, clash, position: getComputedStyle(inner[0]).position};
+})()"""
+
+
+def nested_rows(url):
+    ch = ctx.chrome
+    ch.cmd("Emulation.setTimezoneOverride", timezoneId="Asia/Jerusalem")
+    ch.viewport(1400, 800, mobile=False)
+    ch.goto(url + "#r=27.1")
+    assert kit.wait_ready(ch), "the page did not draw: " + str(ch.console_errors()[:2])
+    time.sleep(0.8)
+    return ch.js(NESTED)
+
+
+@SUITE.test("the_epic_list_inside_a_pod_row_never_draws_its_header_over_the_table_header")
+def _(t: T):
+    r = nested_rows(page())
+    t.check(r.get("found"), "the Projects, Teams and Pods table was not on the page, the check is blind")
+    t.check(r.get("nested", 0) >= 1, "no epic list opened inside the table, the check is blind")
+    t.check(r.get("scrolled"), "the table box did not scroll inside, the check is blind")
+    t.check(r.get("position") == "static", f"the nested epic list header is {r.get('position')}, not static")
+    t.check(r.get("clash") == 0, f"{r.get('clash')} nested epic-list header cells sit on the table's own header row")
+
+
+@SUITE.test("selftest_the_nested_header_check_fails_when_the_nested_header_is_made_sticky_again")
+def _(t: T):
+    src = ctx.template.read_text(encoding="utf-8")
+    marker = ".tablewrap.freeze table.cyepl thead th, "
+    if marker not in src:
+        raise kit.Skip("this template has no rule for the nested epic list header to take out")
+    with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False, encoding="utf-8") as f:
+        f.write(src.replace(marker, ".nope-never table.cyepl thead th, "))
+    url = page(Path(f.name))
+    Path(f.name).unlink()
+    r = nested_rows(url)
+    t.check(r.get("clash"), "the check passed with the nested header sticky: it is blind")
+
+
 if __name__ == "__main__":
     sys.exit(kit.cli(SUITE, __doc__))
