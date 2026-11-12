@@ -148,3 +148,16 @@ def test_resolve_all_without_a_dated_version_opens_on_the_lowest_and_without_ver
     assert PR.resolve_all("PX", [row("Xp_2.9.0", 1, 1, 1), row("Xp_2.8.1", 1, 1, 1)], TODAY)["major"]["name"] == "Xp_2.8.1"
     empty = PR.resolve_all("PX", [], TODAY)
     assert empty["major"] is None and empty["releases"] == [] and empty["warnings"]
+
+
+def test_monthly_hotfix_names_read_as_year_and_month_and_pmstnd_offers_only_those():
+    assert PR.split_name("PM November Hotfix 26") == ("PM Hotfix", (26, 11)) and PR.tier_of("PM April Hotfix 26") == "major"
+    assert PR.split_name("February Hotfix 2025 - All Partners Except F9") is None and PR.split_name("PM 25.4") is None
+    names_ = ["26.3", "26.4", "PM May Hotfix 26", "PM December Hotfix 26", "PM November Hotfix 26", "PM June Hotfix 26"]
+    rows = [row(n, 1, 1, 1) for n in names_]
+    res = PR.resolve_all("PM", rows, dt.date(2026, 11, 12), line="PM Hotfix", by_month=True)
+    assert res["releases"] == ["PM May Hotfix 26", "PM June Hotfix 26", "PM November Hotfix 26", "PM December Hotfix 26"]      # chronological, 26.3 / 26.4 left out
+    assert res["major"]["name"] == "PM November Hotfix 26"                                                                     # this month's
+    assert PR.resolve_all("PM", rows, dt.date(2026, 12, 3), line="PM Hotfix", by_month=True)["major"]["name"] == "PM December Hotfix 26"
+    assert PR.resolve_all("PM", rows, dt.date(2026, 8, 3), line="PM Hotfix", by_month=True)["major"]["name"] == "PM June Hotfix 26"      # no August version: the latest before it
+    assert PR.resolve_all("PM", rows, dt.date(2026, 2, 3), line="PM Hotfix", by_month=True)["major"]["name"] == "PM May Hotfix 26"       # all later: the first
