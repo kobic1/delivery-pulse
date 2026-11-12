@@ -48,9 +48,17 @@ _spec = _ilu.spec_from_file_location("release_planning_model", HERE.parent / "re
 RPM = _ilu.module_from_spec(_spec)                       # the release planning report's own pod rule (classify / pod_labels), reused rather than copied
 _spec.loader.exec_module(RPM)
 
-PROJECTS = ["PMN", "CXCO", "CXSUP", "CXWFM", "CXINT", "INT"]                # the CXone projects: one release train (26.4, 27.1 ...) with dated Jira versions
+PROJECTS = ["PMN", "CXCO", "CXSUP", "CXWFM", "CXINT", "INT", "WFM"]         # the CXone projects: one release train (26.4, 27.1 ...) with dated Jira versions. WFM is also a product of its own (PRODUCTS): it is listed here for the epics it plans in the CXone releases, and keeps its own bug rules (BUG_EXCLUDE_JQL, CFB_LINK_JQL)
 PRODUCTS = ["WFM", "EEM", "ESP", "EMOB"]                                             # not CXone: one project each, its own fix versions (9.0, 9.4, ESP27.1), resolved by product_releases.py
+CFB_LINK_TYPE, CFB_LINK_JQL = "Fixes", 'issueLinkType = "fixes"'                  # the non-CXone products (WFM, EMOB, EEM, ESP) also count a bug that has a Fixes link as customer-found (owner decision, 2026-11-12); CXone keeps reporter or Salesforce case only
 BUG_EXCLUDE_JQL = {"WFM": '(issueLinkType is EMPTY OR issueLinkType != "clones")'}      # extra condition on a project's bug pull (owner decision, 2026-11-12): WFM counts its bugs without the ones that have a "clones" link. CXWFM is not WFM and is not touched
+
+
+def proj_rules(projects) -> dict:
+    """The bug rules a CXone project of its own: {project: {bugClause, cfbLink}}. The page adds them to a link only for that project, so a mixed selection still equals Jira."""
+    return {p: {"bugClause": BUG_EXCLUDE_JQL[p], "cfbLink": CFB_LINK_JQL} for p in projects if p in BUG_EXCLUDE_JQL and p in PRODUCTS}
+
+
 ALL_RELEASE_PRODUCTS = ["EMOB"]                                              # these offer every unreleased version in the Release control (the soonest-due one is the default); the others show one running Major
 # Project keys that are reserved JQL words: Jira rejects INT as a bare project key ("'INT' is a reserved JQL word. You must surround it in quotation marks") and wants it quoted.
 # EVERY query that names a project key goes through pkey / pkeys; the page has the same helper (JQL_RESERVED_KEYS reaches it through definitions()), and tests/test_program_dashboard.py fails on an unquoted interpolation.
@@ -218,8 +226,11 @@ def bug_record(i: dict, proj: str, ax_keys: set) -> dict:
         b["ax"] = 1
     by_reporter = (f.get("reporter") or {}).get("accountId") == CFB_ACCOUNT
     has_case = bool(f.get(SF_FIELD))
-    if by_reporter or has_case:
+    by_link = proj in PRODUCTS and any(((lk.get("type") or {}).get("name") == CFB_LINK_TYPE) for lk in f.get("issuelinks") or [])
+    if by_reporter or has_case or by_link:
         b["cfb"] = 1
+        if by_link:
+            b["fx"] = 1
         if by_reporter:
             b["rb"] = 1
         if has_case:
@@ -601,7 +612,8 @@ def rca_flags(texts: dict[str, str]) -> tuple[dict[str, int], int]:
 
 def collect_cfb(j) -> dict:
     """Every CFB (bug reported by the CFB account) of the six projects with its Root Cause Analysis state, plus the open count across ALL projects."""
-    jql = f'project in ({pkeys(PROJECTS)}) AND issuetype = Bug AND {CFB_JQL}'
+    fx = [p for p in PROJECTS if p in PRODUCTS]                          # a project that also counts a Fixes link as customer-found (WFM)
+    jql = f'project in ({pkeys(PROJECTS)}) AND issuetype = Bug AND ({CFB_JQL}' + (f' OR (project in ({pkeys(fx)}) AND {CFB_LINK_JQL}))' if fx else ')')
     got = j.search(jql, ["summary", "status", RCA_FIELD, RCA_REVIEW, "issuelinks"])
     texts = {i["key"]: plain_text(i["fields"].get(RCA_FIELD)) for i in got}
     flag, ntemplates = rca_flags(texts)
@@ -828,7 +840,7 @@ def collect_bugs(j) -> list:
         if proj in BUG_EXCLUDE_JQL:
             base += f" AND {BUG_EXCLUDE_JQL[proj]}"
         ax_keys = {i["key"] for i in j.search(f"{base} AND {AX_JQL}", ["summary"])}
-        got = j.search(base, BUG_FIELDS)
+        got = j.search(base, BUG_FIELDS + ["issuelinks"] if proj in PRODUCTS else BUG_FIELDS)
         bugs += [bug_record(i, proj, ax_keys) for i in got]
         print(f"{proj}: {len(got)} bugs ({len(ax_keys)} accessibility)", flush=True)
     n = sum(1 for b in bugs if b.get("cfb"))
@@ -945,7 +957,7 @@ def collect_product(j, project: str, resolution: dict) -> dict:
         derived = derive_windows(resolution, names, epics, windows)
         return {"project": project, "resolution": resolution, "projects": [project], "releases": names, "current": CURRENT_RELEASE, "provisional": names,
                 "windows": windows, "windowsDerived": derived, "epics": epics, "bugs": bugs, **links, **plan,
-                **({"bugClause": BUG_EXCLUDE_JQL[project]} if project in BUG_EXCLUDE_JQL else {}),
+                **({"bugClause": BUG_EXCLUDE_JQL[project]} if project in BUG_EXCLUDE_JQL else {}), "cfbLink": CFB_LINK_JQL,
                 "hier": {}, "capabilities": {}, "capList": {}, "capEpics": [], "cfbx": {}, "cap": {},
                 "generated": dt.datetime.now().astimezone().isoformat(timespec="minutes"), "bugsPulledAt": bugs_at}
     finally:
@@ -992,7 +1004,7 @@ def fetch() -> dict:
     capz = collect_capitalization(j)
     return {"cfbx": cfbx, "cap": capz, **capx, "generated": dt.datetime.now().astimezone().isoformat(timespec="minutes"), **links, **plan,
             "jiraBase": os.environ["JIRA_BASE_URL"].rstrip("/"),
-            "projects": PROJECTS, "releases": RELEASES, "current": CURRENT_RELEASE,
+            "projects": PROJECTS, "releases": RELEASES, "current": CURRENT_RELEASE, "projRules": proj_rules(PROJECTS),
             "windows": fetch_windows(j),
             "provisional": PROVISIONAL, "epics": epics, "bugs": bugs,
             "cfbAccount": CFB_ACCOUNT, "bugSince": BUG_SINCE, "bugsPulledAt": bugs_at,

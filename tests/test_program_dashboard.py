@@ -170,7 +170,7 @@ def bare_reserved(jql: str) -> list:
 
 
 def test_a_reserved_project_key_is_quoted_and_every_other_key_is_left_alone():
-    assert BD.JQL_RESERVED_KEYS == ["INT"] and BD.PROJECTS[-1] == "INT" and BD.PROJECTS[:5] == ["PMN", "CXCO", "CXSUP", "CXWFM", "CXINT"] and BD.PRODUCTS == ["WFM", "EEM", "ESP", "EMOB"]
+    assert BD.JQL_RESERVED_KEYS == ["INT"] and BD.PROJECTS[-1] == "WFM" and BD.PROJECTS[:6] == ["PMN", "CXCO", "CXSUP", "CXWFM", "CXINT", "INT"] and BD.PRODUCTS == ["WFM", "EEM", "ESP", "EMOB"]
     assert BD.pkey("INT") == '"INT"' and BD.pkey("CXINT") == "CXINT" and BD.pkey("PMN") == "PMN"
     assert BD.pkeys(["PMN", "INT", "CXCROSS"]) == 'PMN, "INT", CXCROSS'
     assert BD.pkeys(["PMN", "CXCO"]) == "PMN, CXCO"                                    # the other projects' queries are byte-identical to before
@@ -318,4 +318,22 @@ def test_the_cxcross_hierarchy_also_holds_our_capabilities_that_sit_under_a_cxcr
 
 def test_wfm_bug_pull_leaves_out_bugs_that_clone_and_cxwfm_is_untouched():
     assert BD.BUG_EXCLUDE_JQL == {"WFM": '(issueLinkType is EMPTY OR issueLinkType != "clones")'}
-    assert "CXWFM" not in BD.BUG_EXCLUDE_JQL and "WFM" not in BD.PROJECTS
+    assert "CXWFM" not in BD.BUG_EXCLUDE_JQL and "CXWFM" not in BD.PRODUCTS
+
+
+def test_a_fixes_link_makes_a_cfb_for_the_non_cxone_products_only():
+    link = {"type": {"name": "Fixes"}, "outwardIssue": {"key": "ZZ-9"}}
+    other = {"type": {"name": "Blocks"}, "inwardIssue": {"key": "ZZ-8"}}
+    base = {"key": "WFM-1", "fields": {"created": "2026-01-01T10:00:00.000+0200", "status": {"name": "Open"}, "reporter": {"accountId": "someone-else"}, "issuelinks": [other]}}
+    assert "cfb" not in BD.bug_record(base, "WFM", set())                                       # another link type is not enough
+    base["fields"]["issuelinks"] = [other, link]
+    b = BD.bug_record(base, "WFM", set())
+    assert b["cfb"] == 1 and b["fx"] == 1 and "rb" not in b and "sf" not in b
+    assert "cfb" not in BD.bug_record(base, "CXWFM", set())                                      # a CXone project ignores the link
+    assert all(p in BD.PRODUCTS for p in ("WFM", "EMOB", "EEM", "ESP")) and BD.CFB_LINK_JQL == 'issueLinkType = "fixes"'
+
+
+def test_wfm_is_a_cxone_project_with_its_own_bug_rules_and_cxwfm_has_none():
+    r = BD.proj_rules(BD.PROJECTS)
+    assert list(r) == ["WFM"] and r["WFM"]["bugClause"] == BD.BUG_EXCLUDE_JQL["WFM"] and r["WFM"]["cfbLink"] == BD.CFB_LINK_JQL
+    assert BD.proj_rules(["PMN", "CXWFM"]) == {}

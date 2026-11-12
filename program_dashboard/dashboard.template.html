@@ -1199,8 +1199,13 @@ const pkey = k => JQL_RESERVED_KEYS.includes(k) ? q(k) : k;
 const pkeys = list => [...list].map(pkey).join(", ");
 const CFB_FIXED_JQL = `(status = Done AND resolution in (Fixed, "Fixed - Config"))`;       // this section counts a CFB as fixed only at the status Done; Ready for Deploy waits for Done
 // A customer-found bug (CFB) is a Bug reported by the CFB account OR linked to a Salesforce case (field SF Connection Case Reference). Broader than the alerting rules (reporter only).
-const CFB_Q = () => `(reporter = ${q(DATA.cfbAccount)} OR cf[10329] is not EMPTY)`;
-const NOT_CFB_Q = () => `(reporter != ${q(DATA.cfbAccount)} AND cf[10329] is EMPTY)`;
+// Bug rules of one project inside the CXone view (WFM: no clones, a Fixes link is customer-found): the collector writes them to DATA.projRules, and a link adds each one for that project only.
+const PROJ_RULES = DATA.projRules || {};
+const cfbFx = () => DATA.cfbLink || Object.entries(PROJ_RULES).filter(([, r]) => r.cfbLink).map(([p, r]) => `(project = ${pkey(p)} AND ${r.cfbLink})`).join(" OR ");
+const notFx = () => DATA.cfbLink ? `(issueLinkType is EMPTY OR issueLinkType != "fixes")` : Object.entries(PROJ_RULES).filter(([, r]) => r.cfbLink).map(([p]) => `(project != ${pkey(p)} OR issueLinkType is EMPTY OR issueLinkType != "fixes")`).join(" AND ");
+const CFB_Q = () => `(${cfbFx() ? cfbFx() + " OR " : ""}reporter = ${q(DATA.cfbAccount)} OR cf[10329] is not EMPTY)`;      // a product (WFM, EMOB, EEM, ESP) also counts a bug with a Fixes link as customer-found: DATA.cfbLink is that condition
+const NOT_CFB_Q = () => `(${notFx() ? notFx() + " AND " : ""}reporter != ${q(DATA.cfbAccount)} AND cf[10329] is EMPTY)`;
+const CFB_WHO = () => DATA.cfbLink ? "reported by the CFB account, linked to a Salesforce case, or linked by a Fixes link" : cfbFx() ? `reported by the CFB account or linked to a Salesforce case (${Object.keys(PROJ_RULES).join(", ")}: or linked by a Fixes link)` : "reported by the CFB account or linked to a Salesforce case";
 // A fixed CFB counts in the period of its Closed date (Israel-local day); a Done CFB without one uses its resolution date.
 const cfbDate = b => b.cl || b.rd;
 // Epics in these Issue Categories do not need a Capability parent, so a missing parent is not flagged for them. The stored spelling is "Maintenance";
@@ -1236,6 +1241,7 @@ function bugTeamClause(teams) {
 // A link whose query carries a broken value (NaN, undefined, an object printed as text) would open an empty or wrong list in Jira: no link is better than a misleading one.
 const BAD_JQL = /\b(?:NaN|undefined)\b|\[object /;
 const href = jql => { if (DATA.bugClause && /issuetype = Bug\b/.test(jql) && !jql.includes(DATA.bugClause)) jql = `${jql} AND ${DATA.bugClause}`;          // a product that leaves some bugs out of its counts (WFM: bugs that clone another) leaves them out of its Jira links too, so the count in Jira equals the count here
+  if (/issuetype = Bug\b/.test(jql)) for (const [p, r] of Object.entries(PROJ_RULES)) if (r.bugClause && new RegExp("project in \\([^)]*\\b" + p + "\\b").test(jql) && !jql.includes(r.bugClause)) jql = `${jql} AND (project != ${pkey(p)} OR ${r.bugClause})`;
   if (BAD_JQL.test(jql)) { try { console.warn("Delivery Pulse: link dropped, the query holds a broken value:", jql.slice(0, 200)); } catch (e) { /* no console */ } return null; } return `${BASE}/issues/?jql=${encodeURIComponent(jql)}`; };
 function jira(o = {}) {
   const projects = o.projects || [...state.projects], commit = o.commit || ALLC;
@@ -2600,7 +2606,7 @@ function renderCfbAbout() {
   host.innerHTML = defs(howBody({id: "cfb",
     bl: `Use this to see how many customer-found bugs (CFBs) were fixed in each ${CFB_UNIT[state.cfbGroup].noun}, and how many were regressions. A bar counts fixed CFBs by their Closed date.`,
     defs: [
-      ["CFB", `a Bug reported by the CFB account, or linked to a Salesforce case (the field SF Connection Case Reference is not empty).`],
+      ["CFB", `a Bug reported by the CFB account, or linked to a Salesforce case (the field SF Connection Case Reference is not empty)${DATA.cfbLink ? ", or with a Fixes link to another issue" : cfbFx() ? `. In ${Object.keys(PROJ_RULES).join(", ")} a Bug with a Fixes link to another issue is a CFB too` : ""}.`],
       ["Fixed", `status Done and resolution Fixed or Fixed - Config.`],
       ["Period", `the Closed date, as an Israel-local day. A Done CFB with no Closed date uses its resolution date.`],
       ["Regression", `the Regression field is Yes.`],
@@ -2609,7 +2615,7 @@ function renderCfbAbout() {
     left: `A CFB in Ready for Deploy is not counted as fixed until it moves to Done, and it is not open either: the Open Bugs trend and the Open CFBs table treat it as final. The count is under the chart.`,
     know: `Broader than the alerting rules and Teams alerts, which use the reporter only. The cards above stay on ${esc(state.release)}. The Open Bugs trend and the Open CFBs table do not use the Closed date.`,
     more: [
-      ["Counts in the selected projects", `${lk(all.length, CFB_Q(), "in the data")} ${plural(all.length, "bug counts", "bugs count")} as a CFB (created, resolved or closed since ${esc(DATA.bugSince)}, or still open): ${lk(all.filter(b => b.rb).length, `reporter = ${q(DATA.cfbAccount)}`, "reported by the CFB account")} reported by the CFB account and ${lk(all.filter(b => b.sf).length, "cf[10329] is not EMPTY", "linked to a Salesforce case")} linked to a Salesforce case. ${lk(viaCase.length, `cf[10329] is not EMPTY AND reporter != ${q(DATA.cfbAccount)}`, "linked to a Salesforce case, reported by someone else")} ${plural(viaCase.length, "bug carries", "bugs carry")} a Salesforce case although another person reported ${plural(viaCase.length, "it", "them")}.`],
+      ["Counts in the selected projects", `${lk(all.length, CFB_Q(), "in the data")} ${plural(all.length, "bug counts", "bugs count")} as a CFB (created, resolved or closed since ${esc(DATA.bugSince)}, or still open): ${lk(all.filter(b => b.rb).length, `reporter = ${q(DATA.cfbAccount)}`, "reported by the CFB account")} reported by the CFB account and ${lk(all.filter(b => b.sf).length, "cf[10329] is not EMPTY", "linked to a Salesforce case")} linked to a Salesforce case.${cfbFx() ? ` ${lk(all.filter(b => b.fx).length, cfbFx(), "with a Fixes link")} ${plural(all.filter(b => b.fx).length, "has", "have")} a Fixes link.` : ""} ${lk(viaCase.length, `cf[10329] is not EMPTY AND reporter != ${q(DATA.cfbAccount)}`, "linked to a Salesforce case, reported by someone else")} ${plural(viaCase.length, "bug carries", "bugs carry")} a Salesforce case although another person reported ${plural(viaCase.length, "it", "them")}.`],
       ["Done CFBs with no Closed date", `${noClosed.length ? `${lk(noClosed.length, `${CFB_FIXED_JQL} AND ${CFB_Q()} AND cf[10099] is EMPTY`, "with no Closed date", "Done CFB", "Done CFBs")} ${plural(noClosed.length, "falls", "fall")} back to the resolution date.` : "none; every fixed CFB has a Closed date."}`],
       ...OCFB_HELP,
       ["Chart and table", `${CFB_CAP_HELP}`],
@@ -2624,7 +2630,7 @@ function renderOpenCfb() {
   const notDone = R.filter(r => r.rca === "not"), done = R.filter(r => r.rca === "done"), na = R.filter(r => r.rca === "na"), over = R.filter(r => r.late), reg = R.filter(r => r.b.rg);
   const openHref = href(`${ocfbBase()} AND ${OPEN_BUG_JQL}${bugTeamClause(state.teams)}`);
   kpiCards(kp, [
-    {c: "q", v: n ? tlink(n, openHref, `${nn(n, "open CFB", "open CFBs")} in the selected projects\nLeft out: Done, Ready for Deploy, Closed, Resolved and Removed.`) : "0", l: "Open CFBs", s: n ? "reported by the CFB account or linked to a Salesforce case" : "none open"},
+    {c: "q", v: n ? tlink(n, openHref, `${nn(n, "open CFB", "open CFBs")} in the selected projects\nLeft out: Done, Ready for Deploy, Closed, Resolved and Removed.`) : "0", l: "Open CFBs", s: n ? CFB_WHO() : "none open"},
     {c: "q", v: M.hasX ? sub(notDone, "with Root Cause Analysis not done", "Jira cannot search this field: it is pre-filled with a template.") : "–", l: "RCA Not Done", s: M.hasX ? `${sub(done, "with Root Cause Analysis done")} Done · ${sub(na, "with Root Cause Analysis not required")} Not Required` : "RCA state is not in this build"},
     {c: "q", v: over.length ? tlink(over.length, href(`${ocfbBase()} AND ${OPEN_BUG_JQL}${bugTeamClause(state.teams)} AND (${overSlaJql()})`), `${nn(over.length, "open CFB", "open CFBs")} past their SLA\nAge is more than the SLA days for the priority, as of ${asOf}.`) : "0", l: "Over SLA", s: `of ${n} open ${n === 1 ? "CFB" : "CFBs"}`},
     {c: "q", v: reg.length ? tlink(reg.length, href(`${ocfbBase()} AND ${OPEN_BUG_JQL} AND regression = Yes${bugTeamClause(state.teams)}`), `${nn(reg.length, "open CFB", "open CFBs")} with Regression set to Yes`) : "0", l: "Regression", s: "Regression field is Yes"},
@@ -2645,7 +2651,7 @@ function renderOpenCfb() {
   host.innerHTML = `<details class="vd" id="ocfb-details"><summary>Show Open CFBs (${n})</summary>${inner}</details>`;      // collapsed until asked for; an open panel stays open while the page re-renders, for this visit only
   document.getElementById("ocfb-cap").innerHTML = ""; OCFB_HELP = [
     ["Open CFBs table", `follows the Projects and Teams filters, like the chart above; the Priority, CFB and Accessibility Bugs controls and the Delivery Cycle filter do not apply. Open means a status other than Done, Ready for Deploy, Closed, Resolved or Removed, the same rule as Needs Attention; the table covers the selected projects.`],
-    ["Population", `bugs reported by the CFB account or linked to a Salesforce case in the selected projects (and teams) whose status is not Done, Ready for Deploy, Closed, Resolved or Removed. Rows are in project and key order, not ranked.`],
+    ["Population", `bugs ${CFB_WHO()} in the selected projects (and teams) whose status is not Done, Ready for Deploy, Closed, Resolved or Removed. Rows are in project and key order, not ranked.`],
     ["Age", `whole calendar days from creation to the as-of day.`],
     ["SLA days", `P1 ${CFG.sla.p1}; with a regression ${CFG.sla.regression}; P2 without one ${CFG.sla.p2}; P3 and P4 without one ${CFG.sla.other}; no SLA for a bug with no P1 to P4 priority. The SLA due date is created plus the SLA days. Over SLA means age greater than the SLA days.`],
     ["Incidents", `the Number of Incidents field, with linked incident issues when there are any.`],
@@ -3259,12 +3265,12 @@ function renderAttention() {
     more: [
       ["No SLA", `a bug with no priority, or a priority outside P1 to P4, has no SLA. It is listed under Jira Hygiene as "No SLA", never in the SLA groups.`],
       ["Where the thresholds come from", `SLA days: ${CFG.sla.source}. Due soon: ${CFG.dueSoonSource}. No update: ${CFG.noUpdateSource}. In Validation: ${CFG.validationSource}. Bugs Backlog Increase: ${CFG.backlog.source}.`],
-      ["Customer-found", `reported by the CFB account or linked to a Salesforce case. The alerting rules use the reporter only. A missing regression counts as No. Age is whole calendar days from creation.`],
+      ["Customer-found", `${CFB_WHO()}. The alerting rules use the reporter only. A missing regression counts as No. Age is whole calendar days from creation.`],
       ["Due soon, example", `due soon starts on day 3, 5, 10 and 21 for SLAs of 3, 7, 14 and 30 days.`],
       ["Holidays", `the list holds ${CFG.HOLIDAYS.length} dates from 2025-06 to ${esc(CFG.holidaysThrough.slice(0, 7))}${M.holidayStale ? "; the as-of date is beyond the list, so later days are not adjusted for holidays" : ""}. Intermediate festival days such as Chol HaMoed are not excluded. Dates are Israel local dates as Jira returns them.`],
       ["Hover and trend weeks", `the hover shows both the business days and the calendar days. Trend weeks start on Monday.`],
       ["Dependencies", `Overdue dependencies and Dependency Schedule Gaps use the rules on the Dependencies board. The gap group counts provider epics, with the pair count in the hover text, and agrees with the Schedule Gaps figure there.`],
-      ["Data limits", `The open bug count from ${CFG.backlog.days} days ago is rebuilt from creation and resolution dates, because there is no status history. It can differ slightly if a bug was reopened. Status-since is held only for epics in Validation or In Progress, and Refresh does not update it. Refresh updates due dates, Target Sprints and dependency links. Provider epics that this page does not hold (other projects or releases) may be missing. Bugs have no title in this data, so only their key is shown. Nothing about these rules is stored between visits: each one is computed from the data this page holds.`],
+      ["Data limits", `The open bug count from ${CFG.backlog.days} days ago is rebuilt from creation and resolution dates, because there is no status history. It can differ slightly if a bug was reopened. Status-since is held only for epics in Validation or In Progress, and Refresh does not update it. Refresh updates due dates, Target Sprints and dependency links. Provider epics that this page does not hold (other projects or releases) may be missing. Bugs have no title in this data, so only their key is shown.${Object.keys(PROJ_RULES).length ? ` ${Object.keys(PROJ_RULES).join(", ")} has its own bug rules (no bugs that clone another; a Fixes link makes a bug customer-found), so Refresh leaves its bugs as of the last build.` : ""} Nothing about these rules is stored between visits: each one is computed from the data this page holds.`],
       ["What was checked", `${checkedTxt}`]
     ]})}</div></details>`;
   const act = (id) => {
@@ -4753,6 +4759,7 @@ function mergeDelta(nodes, axKeys) {
   for (const n of nodes) {
     const f = n.fields || {}, key = n.key, proj = key.split("-")[0], type = f.issuetype && f.issuetype.name;
     if (!DATA.projects.includes(proj)) continue;
+    if (type === "Bug" && PROJ_RULES[proj]) continue;                          // a project with its own bug rules (WFM) keeps its bugs as of the last build: Refresh cannot read its links
     const status = f.status && f.status.name, created = (f.created || "").slice(0, 10), rd = (f.resolutiondate || "").slice(0, 10) || null;
     if (type === "Epic") {
       const fv = (f.fixVersions || []).map(v => v.name).filter(v => DATA.releases.includes(v)), old = epics.get(key);
@@ -4852,9 +4859,9 @@ const BUG_CLOSED_JQL_LIST = BUG_CLOSED.map(x => /\s/.test(x) ? `"${x}"` : x).joi
 async function cfbRefresh(mcp, say) {                            // Open CFBs: the open set is read again, the ones that left it are read by key, the Root Cause Analysis state is classified as the collector does
   const X = DATA.cfbx; if (!X || !X.bugs) return null;
   const tpl = Array.isArray(X.tpl) ? new Set(X.tpl) : null;
-  const open = await fetchAll(mcp, `project in (${pkeys(DATA.projects)}) AND issuetype = Bug AND (reporter = "${DATA.cfbAccount}" OR cf[10329] is not EMPTY) AND status not in (${BUG_CLOSED_JQL_LIST})`, (pg, n) => say(`Open CFBs: page ${pg}, ${n} issues read so far.`), CFB_FIELDS);
+  const open = await fetchAll(mcp, `project in (${pkeys(DATA.projects.filter(p => !PROJ_RULES[p]))}) AND issuetype = Bug AND (reporter = "${DATA.cfbAccount}" OR cf[10329] is not EMPTY) AND status not in (${BUG_CLOSED_JQL_LIST})`, (pg, n) => say(`Open CFBs: page ${pg}, ${n} issues read so far.`), CFB_FIELDS);
   if (open.truncated) throw {code: "tool_error", message: "more open CFBs than the page limit; ask for a full rebuild"};
-  const now = new Set(open.nodes.map(n => n.key)), left = DATA.bugs.filter(b => b.cfb && isOpenBug(b) && !now.has(b.k)).map(b => b.k), leftNodes = [];
+  const now = new Set(open.nodes.map(n => n.key)), left = DATA.bugs.filter(b => b.cfb && isOpenBug(b) && !PROJ_RULES[b.p] && !now.has(b.k)).map(b => b.k), leftNodes = [];
   for (let i = 0; i < left.length; i += 100) {
     const r = await fetchAll(mcp, `key in (${left.slice(i, i + 100).join(", ")})`, (pg, n) => say(`Open CFBs that closed: page ${pg}, ${n} issues read so far.`), CFB_FIELDS);
     if (r.truncated) throw {code: "tool_error", message: "more closed CFBs than the page limit; ask for a full rebuild"};
