@@ -299,5 +299,118 @@ def _(t: T):
     t.check(CLAUSE not in jql, "the check passed without the clause in the links: it is blind")
 
 
+def cfb_jql(prod, link, template=None):
+    """CFB_Q() and NOT_CFB_Q() of a fictitious product payload that carries (or not) a CFB link condition."""
+    data = MS.make(MS.il_today())
+    data["build"] = {"sha": "abc1234", "dirty": False, "at": "2026-01-01T00:00+02:00"}
+    prods = MS.product_sample(data)
+    if link:
+        prods[prod]["cfbLink"] = 'issueLinkType = "fixes"'
+    data["productList"], data["products"] = list(prods), prods
+    url = ctx.write(kit.wrap(MS.render_page(data, template) if template else MS.render_page(data, ctx.template)), "prodcfb")
+    ch = ctx.chrome
+    ch.viewport(1400, 900, mobile=False)
+    ch.goto(url + "#prod=" + prod)
+    assert kit.wait_ready(ch), "the page did not draw: " + str(ch.console_errors()[:2])
+    time.sleep(0.4)
+    return js(ch, "return [CFB_Q(), NOT_CFB_Q(), CFB_WHO()]")
+
+
+@SUITE.test("a_product_with_a_fixes_link_rule_counts_it_in_the_cfb_query_the_text_and_the_not_cfb_query")
+def _(t: T):
+    yes, no = cfb_jql("PRD1", True), cfb_jql("PRD2", False)
+    t.check(yes[0].startswith('(issueLinkType = "fixes" OR reporter = ') and yes[0].endswith("cf[10329] is not EMPTY)"), f"CFB_Q is {yes[0]!r}")
+    t.check('issueLinkType != "fixes"' in yes[1] and "Fixes link" in yes[2], f"NOT_CFB_Q / text are {yes[1:]!r}")
+    t.check("issueLinkType" not in no[0] + no[1] and "Fixes" not in no[2], f"a product without the rule reads {no!r}")
+
+
+@SUITE.test("selftest_the_fixes_link_check_fails_when_the_page_ignores_the_link_condition")
+def _(t: T):
+    src = ctx.template.read_text(encoding="utf-8")
+    marker = '${cfbFx() ? cfbFx() + " OR " : ""}'
+    if marker not in src:
+        raise kit.Skip("this template has no Fixes link condition to take out")
+    with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False, encoding="utf-8") as f:
+        f.write(src.replace(marker, ""))
+    r = cfb_jql("PRD1", True, Path(f.name))
+    Path(f.name).unlink()
+    t.check("issueLinkType" not in r[0], "the check passed without the link condition in CFB_Q: it is blind")
+
+
+RULE = {"bugClause": '(issueLinkType is EMPTY OR issueLinkType != "clones")', "cfbLink": 'issueLinkType = "fixes"'}
+
+
+def rule_read(rules, template=None, hash_=""):
+    """In the CXone view of a fictitious payload, one project (the second one) carries its own bug rules: the links the page builds."""
+    data = MS.make(MS.il_today())
+    data["build"] = {"sha": "abc1234", "dirty": False, "at": "2026-01-01T00:00+02:00"}
+    data["projRules"] = {data["projects"][-1]: rules} if rules else {}
+    url = ctx.write(kit.wrap(MS.render_page(data, template) if template else MS.render_page(data, ctx.template)), "projrule")
+    ch = ctx.chrome
+    ch.viewport(1400, 900, mobile=False)
+    ch.goto(url + hash_)
+    assert kit.wait_ready(ch), "the page did not draw: " + str(ch.console_errors()[:2])
+    time.sleep(0.4)
+    P = data["projects"][-1]
+    return P, js(ch, "const P = %r; const d = u => decodeURIComponent((u || '').split('jql=')[1] || ''); return {mixed: d(jiraBugs({extra: OPEN_BUG_JQL})), other: d(jiraBugs({projects: [projectsAll[0]], extra: OPEN_BUG_JQL})), only: d(jiraBugs({projects: [P], extra: OPEN_BUG_JQL})), cfb: CFB_Q(), notcfb: NOT_CFB_Q(), who: CFB_WHO()}" % data["projects"][-1])
+
+
+@SUITE.test("a_project_with_its_own_bug_rules_in_the_cxone_view_adds_them_to_its_links_only")
+def _(t: T):
+    P, r = rule_read(RULE)
+    PQ = f'"{P}"' if P == "INT" else P                                                  # the reserved key INT is quoted in JQL
+    clause = f'(project != {PQ} OR {RULE["bugClause"]})'
+    t.check(r["mixed"].endswith(clause) and r["only"].endswith(clause), f"links of a selection with {P}: {r['mixed'][-120:]!r} / {r['only'][-120:]!r}")
+    t.check("issueLinkType" not in r["other"], f"a link without {P} carries the rule: {r['other'][-120:]!r}")
+    t.check(f'(project = {PQ} AND issueLinkType = "fixes") OR reporter = ' in r["cfb"] and f'(project != {PQ} OR issueLinkType is EMPTY OR issueLinkType != "fixes")' in r["notcfb"] and f"{P}: or linked by a Fixes link" in r["who"], f"CFB queries {r['cfb']!r} / {r['notcfb']!r} / {r['who']!r}")
+    P2, none = rule_read(None)
+    t.check("issueLinkType" not in none["mixed"] + none["cfb"] + none["notcfb"] and "Fixes" not in none["who"], "a payload without project rules changed a link or a CFB query")
+
+
+@SUITE.test("selftest_the_project_rule_check_fails_when_the_page_does_not_add_the_rules")
+def _(t: T):
+    src = ctx.template.read_text(encoding="utf-8")
+    marker = "if (r.bugClause && new RegExp"
+    if marker not in src:
+        raise kit.Skip("this template has no per-project bug rule to take out")
+    with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False, encoding="utf-8") as f:
+        f.write(src.replace(marker, "if (false && new RegExp"))
+    P, r = rule_read(RULE, Path(f.name))
+    Path(f.name).unlink()
+    t.check("issueLinkType" not in r["mixed"], "the check passed without the rule in the links: it is blind")
+
+
+def bar_read(width, template=None):
+    """The filter bar of the CXone view with seven projects (the six of the fixture and a short seventh, WFM): where its controls sit."""
+    data = MS.make(MS.il_today())
+    data["build"] = {"sha": "abc1234", "dirty": False, "at": "2026-01-01T00:00+02:00"}
+    data["projects"] = data["projects"] + ["WFM"]
+    url = ctx.write(kit.wrap(MS.render_page(data, template) if template else MS.render_page(data, ctx.template)), "projbar")
+    ch = ctx.chrome
+    ch.viewport(width, 900, mobile=False)
+    ch.goto(url)
+    assert kit.wait_ready(ch), "the page did not draw: " + str(ch.console_errors()[:2])
+    time.sleep(0.5)
+    return js(ch, "const top = e => Math.round(e.getBoundingClientRect().top); const chips = [...document.querySelectorAll('#f-projects button.chip')]; return {chips: chips.map(b => b.textContent.trim()), chipTops: [...new Set(chips.map(top))], controls: ['g-product', 'g-release', 'g-projects', 'teamsel'].map(id => document.getElementById(id)).filter(e => e && e.offsetParent).map(top)}")
+
+
+@SUITE.test("seven_projects_keep_the_project_chips_and_the_first_filter_controls_on_one_line")
+def _(t: T):
+    for w in (1440, 1280):                                                    # the fixture's project names are longer than the real ones; the real page was also measured at 1100 and 1024
+        r = bar_read(w)
+        t.check(r["chips"][-1] == "WFM" and len(r["chipTops"]) == 1, f"{w}px: the chips are {r['chips']} on rows {r['chipTops']}")
+        t.check(len(set(r["controls"])) == 1, f"{w}px: Product, Release, Projects and Teams are on rows {r['controls']}")
+
+
+@SUITE.test("selftest_the_one_line_filter_check_fails_when_the_project_chips_are_made_wide")
+def _(t: T):
+    src = ctx.template.read_text(encoding="utf-8")
+    with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False, encoding="utf-8") as f:
+        f.write(src.replace("</style>", "#f-projects button.chip { min-width: 190px !important; }</style>", 1))
+    r = bar_read(1280, Path(f.name))
+    Path(f.name).unlink()
+    t.check(len(r["chipTops"]) > 1 or len(set(r["controls"])) > 1, "the check passed with chips 190px wide: it is blind")
+
+
 if __name__ == "__main__":
     sys.exit(kit.cli(SUITE, __doc__))
