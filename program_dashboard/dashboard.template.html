@@ -4386,7 +4386,8 @@ function buildProductUi() {
   ["g-projects", "g-dc"].forEach(id => { document.getElementById(id).hidden = true; });          // one project: shown as text. The Release select stays and holds the one release chosen for you (the running Major)
   document.getElementById("g-scope").hidden = false;
   document.getElementById("prod-scope").textContent = prodName(PRODUCT);
-  const rs = document.getElementById("f-release"); rs.setAttribute("data-tip", `Release chosen automatically\nThe running Major of ${prodName(PRODUCT)}, from the work in each version. Other releases are not shown.`); rs.setAttribute("data-link", "0");
+  const rs = document.getElementById("f-release"), many = (PRODUCT_RES.releases || []).length > 0;          // a product that offers every unreleased version keeps its Release select open to all of them
+  rs.setAttribute("data-tip", many ? `Release\nEvery unreleased version of ${prodName(PRODUCT)}. The page opens on the one due soonest.` : `Release chosen automatically\nThe running Major of ${prodName(PRODUCT)}, from the work in each version. Other releases are not shown.`); rs.setAttribute("data-link", "0");
 }
 function syncProductUi() {
   if (!PRODUCT_NAMES.length) return;
@@ -4395,9 +4396,10 @@ function syncProductUi() {
   if (PRODUCT === "cxone") return;
   const R = PRODUCT_RES, rel = state.release, win = DATA.windows && DATA.windows[rel], who = rel.startsWith(PRODUCT) ? rel : `${prodName(PRODUCT)} ${rel}`;
   const others = [R.minor && `Minor ${R.minor.name}`, R.future && `Future ${R.future.name}`].filter(Boolean).join(", ");
-  const tip = `${who}: how this view is built\nThe release is chosen from the work in each version (rule ${R.rule}, ${(R.major.confidence || "").toLowerCase()} confidence, as of ${fmtDay(R.asOf)})${others ? "; not shown: " + others : ""}.\n` +
+  const many = (R.releases || []).length > 0, cand = (R.candidates || []).find(c => c.name === rel) || R.major, relDate = cand && cand.release;
+  const tip = `${who}: how this view is built\n` + (many ? `Every unreleased version of ${prodName(PRODUCT)} can be picked; the page opens on the one due soonest (as of ${fmtDay(R.asOf)}).\n` : `The release is chosen from the work in each version (rule ${R.rule}, ${(R.major.confidence || "").toLowerCase()} confidence, as of ${fmtDay(R.asOf)})${others ? "; not shown: " + others : ""}.\n`) +
     `Its Done, Removed and Commitment Type rules are verified only for CXone, and the scope is counted as it is today.\n` +
-    `Release date ${R.major.release ? fmtDay(R.major.release) : "none"}. ` + (win ? `Dates are Jira version dates (${fmtDay(win[0])} to ${fmtDay(win[1])})${(DATA.windowsDerived || []).includes(rel) ? ", except the start: Jira has none, so it is the day the first epic of the release was created" : ""}.` : `${rel} has no start and release date in Jira, so the burn-up has no calendar.`);
+    `Release date ${relDate ? fmtDay(relDate) : "none"}. ` + (win ? `Dates are Jira version dates (${fmtDay(win[0])} to ${fmtDay(win[1])})${(DATA.windowsDerived || []).includes(rel) ? ", except the start: Jira has none, so it is the day the first epic of the release was created" : ""}.` : `${rel} has no start and release date in Jira, so the burn-up has no calendar.`);
   const note = document.getElementById("prod-note"); note.hidden = false;
   note.innerHTML = tipFocus(`${esc(who)} is a product view, not comparable with the CXone views. ${win ? "Dates are Jira version dates." : "It has no dates in Jira, so the burn-up is not drawn."}`, tip, `${who} product view`);
 }

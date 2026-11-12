@@ -49,7 +49,8 @@ RPM = _ilu.module_from_spec(_spec)                       # the release planning 
 _spec.loader.exec_module(RPM)
 
 PROJECTS = ["PMN", "CXCO", "CXSUP", "CXWFM", "CXINT", "INT"]                # the CXone projects: one release train (26.4, 27.1 ...) with dated Jira versions
-PRODUCTS = ["WFM", "EEM", "ESP"]                                             # not CXone: one project each, its own fix versions (9.0, 9.4, ESP27.1), resolved by product_releases.py
+PRODUCTS = ["WFM", "EEM", "ESP", "EMOB"]                                             # not CXone: one project each, its own fix versions (9.0, 9.4, ESP27.1), resolved by product_releases.py
+ALL_RELEASE_PRODUCTS = ["EMOB"]                                              # these offer every unreleased version in the Release control (the soonest-due one is the default); the others show one running Major
 # Project keys that are reserved JQL words: Jira rejects INT as a bare project key ("'INT' is a reserved JQL word. You must surround it in quotation marks") and wants it quoted.
 # EVERY query that names a project key goes through pkey / pkeys; the page has the same helper (JQL_RESERVED_KEYS reaches it through definitions()), and tests/test_program_dashboard.py fails on an unquoted interpolation.
 JQL_RESERVED_KEYS = ["INT"]
@@ -927,7 +928,7 @@ def collect_product(j, project: str, resolution: dict) -> dict:
     The collector's functions read the module globals, so they are swapped for the run and always restored. What belongs to the CXone organisation
     only (Capabilities, NFRs, customer-found bugs, capitalization, the CXCROSS hierarchy) is left out on purpose."""
     global PROJECTS, RELEASES, CURRENT_RELEASE, PROVISIONAL
-    names = [resolution["major"]["name"]]                          # the release is chosen for the reader: the running Major only (the resolution keeps the Minor and the Future as information)
+    names = resolution.get("releases") or [resolution["major"]["name"]]      # the release is chosen for the reader: the running Major only (the resolution keeps the Minor and the Future as information); a product that offers every unreleased version lists them all
     saved = (PROJECTS, RELEASES, CURRENT_RELEASE, PROVISIONAL)
     PROJECTS, RELEASES, CURRENT_RELEASE, PROVISIONAL = [project], names, resolution["major"]["name"], names
     try:
@@ -953,7 +954,8 @@ def fetch_products(j) -> dict:
     overrides, today, out = load_overrides(), dt.date.today(), {}
     for proj in PRODUCTS:
         try:
-            res = PR.resolve(proj, PR.collect_evidence(rd, proj), today, overrides)
+            rows = PR.collect_evidence(rd, proj)
+            res = PR.resolve_all(proj, rows, today) if proj in ALL_RELEASE_PRODUCTS else PR.resolve(proj, rows, today, overrides)
             for w in res["warnings"]:
                 print(f"warning: {proj}: {w}", flush=True)
             if not res["major"]:
