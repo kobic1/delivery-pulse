@@ -50,6 +50,7 @@ _spec.loader.exec_module(RPM)
 
 PROJECTS = ["PMN", "CXCO", "CXSUP", "CXWFM", "CXINT", "INT"]                # the CXone projects: one release train (26.4, 27.1 ...) with dated Jira versions
 PRODUCTS = ["WFM", "EEM", "ESP", "EMOB"]                                             # not CXone: one project each, its own fix versions (9.0, 9.4, ESP27.1), resolved by product_releases.py
+BUG_EXCLUDE_JQL = {"WFM": '(issueLinkType is EMPTY OR issueLinkType != "clones")'}      # extra condition on a project's bug pull (owner decision, 2026-11-12): WFM counts its bugs without the ones that have a "clones" link. CXWFM is not WFM and is not touched
 ALL_RELEASE_PRODUCTS = ["EMOB"]                                              # these offer every unreleased version in the Release control (the soonest-due one is the default); the others show one running Major
 # Project keys that are reserved JQL words: Jira rejects INT as a bare project key ("'INT' is a reserved JQL word. You must surround it in quotation marks") and wants it quoted.
 # EVERY query that names a project key goes through pkey / pkeys; the page has the same helper (JQL_RESERVED_KEYS reaches it through definitions()), and tests/test_program_dashboard.py fails on an unquoted interpolation.
@@ -824,6 +825,8 @@ def collect_bugs(j) -> list:
     for proj in PROJECTS:
         base = (f'project = {pkey(proj)} AND issuetype = Bug AND (created >= "{BUG_SINCE}" '
                 f'OR resolutiondate >= "{BUG_SINCE}" OR cf[10099] >= "{BUG_SINCE}" OR resolution is EMPTY)')
+        if proj in BUG_EXCLUDE_JQL:
+            base += f" AND {BUG_EXCLUDE_JQL[proj]}"
         ax_keys = {i["key"] for i in j.search(f"{base} AND {AX_JQL}", ["summary"])}
         got = j.search(base, BUG_FIELDS)
         bugs += [bug_record(i, proj, ax_keys) for i in got]
@@ -942,6 +945,7 @@ def collect_product(j, project: str, resolution: dict) -> dict:
         derived = derive_windows(resolution, names, epics, windows)
         return {"project": project, "resolution": resolution, "projects": [project], "releases": names, "current": CURRENT_RELEASE, "provisional": names,
                 "windows": windows, "windowsDerived": derived, "epics": epics, "bugs": bugs, **links, **plan,
+                **({"bugClause": BUG_EXCLUDE_JQL[project]} if project in BUG_EXCLUDE_JQL else {}),
                 "hier": {}, "capabilities": {}, "capList": {}, "capEpics": [], "cfbx": {}, "cap": {},
                 "generated": dt.datetime.now().astimezone().isoformat(timespec="minutes"), "bugsPulledAt": bugs_at}
     finally:

@@ -314,3 +314,8 @@ def test_the_cxcross_hierarchy_also_holds_our_capabilities_that_sit_under_a_cxcr
     out = BD.collect_hier(j, [], {})["hier"]
     assert set(out) == {"CXCROSS-1", "CXCROSS-2", "PMN-10"} and out["PMN-10"]["par"] == "CXCROSS-1" and out["PMN-10"]["ty"] == "Capability"
     assert sum(q.startswith("parent in (CXCROSS-1)") for q in j.asked) == 1
+
+
+def test_wfm_bug_pull_leaves_out_bugs_that_clone_and_cxwfm_is_untouched():
+    assert BD.BUG_EXCLUDE_JQL == {"WFM": '(issueLinkType is EMPTY OR issueLinkType != "clones")'}
+    assert "CXWFM" not in BD.BUG_EXCLUDE_JQL and "WFM" not in BD.PROJECTS

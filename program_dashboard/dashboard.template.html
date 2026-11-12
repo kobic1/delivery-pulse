@@ -1235,7 +1235,8 @@ function bugTeamClause(teams) {
 }
 // A link whose query carries a broken value (NaN, undefined, an object printed as text) would open an empty or wrong list in Jira: no link is better than a misleading one.
 const BAD_JQL = /\b(?:NaN|undefined)\b|\[object /;
-const href = jql => { if (BAD_JQL.test(jql)) { try { console.warn("Delivery Pulse: link dropped, the query holds a broken value:", jql.slice(0, 200)); } catch (e) { /* no console */ } return null; } return `${BASE}/issues/?jql=${encodeURIComponent(jql)}`; };
+const href = jql => { if (DATA.bugClause && /issuetype = Bug\b/.test(jql) && !jql.includes(DATA.bugClause)) jql = `${jql} AND ${DATA.bugClause}`;          // a product that leaves some bugs out of its counts (WFM: bugs that clone another) leaves them out of its Jira links too, so the count in Jira equals the count here
+  if (BAD_JQL.test(jql)) { try { console.warn("Delivery Pulse: link dropped, the query holds a broken value:", jql.slice(0, 200)); } catch (e) { /* no console */ } return null; } return `${BASE}/issues/?jql=${encodeURIComponent(jql)}`; };
 function jira(o = {}) {
   const projects = o.projects || [...state.projects], commit = o.commit || ALLC;
   if (!projects.length || !commit.size) return null;

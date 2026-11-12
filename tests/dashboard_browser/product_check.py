@@ -259,5 +259,45 @@ def _(t: T):
     t.check(r["label"] != "IEX WFM", "the check passed without the display name: it is blind")
 
 
+CLAUSE = '(issueLinkType is EMPTY OR issueLinkType != "clones")'
+
+
+def bug_link_jql(prod, clause, template=None):
+    """The JQL behind the open-bugs link of a fictitious product payload that carries (or not) a bug clause."""
+    data = MS.make(MS.il_today())
+    data["build"] = {"sha": "abc1234", "dirty": False, "at": "2026-01-01T00:00+02:00"}
+    prods = MS.product_sample(data)
+    if clause:
+        prods[prod]["bugClause"] = clause
+    data["productList"], data["products"] = list(prods), prods
+    url = ctx.write(kit.wrap(MS.render_page(data, template) if template else MS.render_page(data, ctx.template)), "prodbug")
+    ch = ctx.chrome
+    ch.viewport(1400, 900, mobile=False)
+    ch.goto(url + "#prod=" + prod)
+    assert kit.wait_ready(ch), "the page did not draw: " + str(ch.console_errors()[:2])
+    time.sleep(0.4)
+    return js(ch, "return decodeURIComponent((jiraBugs({extra: OPEN_BUG_JQL}) || '').split('jql=')[1] || '')")
+
+
+@SUITE.test("a_product_with_a_bug_clause_adds_it_to_every_bug_link_and_one_without_does_not")
+def _(t: T):
+    with_c, without = bug_link_jql("PRD1", CLAUSE), bug_link_jql("PRD2", None)
+    t.check(with_c.endswith("AND " + CLAUSE) and with_c.count(CLAUSE) == 1, f"the link of the product with a clause is {with_c!r}")
+    t.check("issueLinkType" not in without and "issuetype = Bug" in without, f"the link of the product without one is {without!r}")
+
+
+@SUITE.test("selftest_the_bug_clause_check_fails_when_the_clause_is_not_added_to_links")
+def _(t: T):
+    src = ctx.template.read_text(encoding="utf-8")
+    marker = "if (DATA.bugClause &&"
+    if marker not in src:
+        raise kit.Skip("this template has no bug clause to take out")
+    with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False, encoding="utf-8") as f:
+        f.write(src.replace(marker, "if (false &&"))
+    jql = bug_link_jql("PRD1", CLAUSE, Path(f.name))
+    Path(f.name).unlink()
+    t.check(CLAUSE not in jql, "the check passed without the clause in the links: it is blind")
+
+
 if __name__ == "__main__":
     sys.exit(kit.cli(SUITE, __doc__))
