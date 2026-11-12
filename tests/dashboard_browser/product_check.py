@@ -413,5 +413,49 @@ def _(t: T):
     t.check(len(r["chipTops"]) > 1 or len(set(r["controls"])) > 1, "the check passed with chips 190px wide: it is blind")
 
 
+def pmstnd_read(prod, template=None):
+    """The page with the first fictitious product named PMSTND (a second one stays PRD2): what the strip, the sections and the skip links are in the given product's view."""
+    data = MS.make(MS.il_today())
+    data["build"] = {"sha": "abc1234", "dirty": False, "at": "2026-01-01T00:00+02:00"}
+    prods = MS.product_sample(data)
+    prods["PMSTND"] = prods.pop("PRD1")
+    data["productList"], data["products"] = ["PMSTND", "PRD2"], prods
+    url = ctx.write(kit.wrap(MS.render_page(data, template or ctx.template)), "prodpm")
+    ch = ctx.chrome
+    ch.cmd("Emulation.setTimezoneOverride", timezoneId="Asia/Jerusalem")
+    ch.viewport(1400, 900, mobile=False)
+    ch.goto(url + "#prod=" + prod)
+    assert kit.wait_ready(ch), "the page did not draw: " + str(ch.console_errors()[:2])
+    time.sleep(0.4)
+    return {"strip": strip(ch),
+            "hidden": js(ch, "return ['h-burnup', 'h-eff', 'h-deps'].map(id => document.getElementById(id).closest('section').hidden)"),
+            "skips": js(ch, "return [...document.querySelectorAll('a.skip')].filter(a => a.offsetParent !== null || !a.closest('section[hidden]')).map(a => a.dataset.skip)"),
+            "hint": js(ch, "return document.getElementById('gran-hint').textContent"), "errors": ch.console_errors()[:2]}
+
+
+@SUITE.test("PMSTND_shows_no_Delivery_Efficiency_or_Dependencies_and_every_other_product_keeps_them")
+def _(t: T):
+    r = pmstnd_read("PMSTND")
+    t.check([x for x in r["strip"] if x != "AI Adoption"] == ["Needs Attention", "Quality"], f"the PMSTND strip is {r['strip']}")
+    t.check(r["hidden"] == [True, True, True], f"Delivery, Efficiency, Dependencies hidden: {r['hidden']}")
+    t.check(not {"h-burnup", "h-eff", "h-deps"} & set(r["skips"]), f"a skip link still points at a removed section: {r['skips']}")
+    t.check("Both charts" not in r["hint"] and not r["errors"], f"hint {r['hint']!r}, errors {r['errors']}")
+    o = pmstnd_read("PRD2")
+    t.check(strip(ctx.chrome) in PRODUCT_STRIPS and o["hidden"] == [False, False, False] and "Both charts" in o["hint"], f"another product lost sections: {o['strip']} {o['hidden']}")
+
+
+@SUITE.test("selftest_the_PMSTND_sections_check_fails_when_the_sections_are_not_taken_out")
+def _(t: T):
+    src = ctx.template.read_text(encoding="utf-8")
+    marker = 'const PRODUCT_OFF = {PMSTND: ["h-burnup", "h-eff", "h-deps"]};'
+    if marker not in src:
+        raise kit.Skip("this template has no per-product section list to take out")
+    with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False, encoding="utf-8") as f:
+        f.write(src.replace(marker, "const PRODUCT_OFF = {};"))
+    r = pmstnd_read("PMSTND", Path(f.name))
+    Path(f.name).unlink()
+    t.check(r["hidden"] != [True, True, True] or "Delivery" in r["strip"], "the check passed with the sections left in: it is blind")
+
+
 if __name__ == "__main__":
     sys.exit(kit.cli(SUITE, __doc__))

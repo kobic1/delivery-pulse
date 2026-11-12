@@ -704,7 +704,7 @@ footer.f b { color:var(--ink); }
       <label class="chip"><input type="radio" name="f-gran" value="month"> Month</label>
       <label class="chip"><input type="radio" name="f-gran" value="quarter"> Quarter</label>
     </div>
-    <span class="hintline">Both charts below; the tiles use the last 30 days.</span>
+    <span class="hintline" id="gran-hint">Both charts below; the tiles use the last 30 days.</span>
   </div>
   <div class="pair">
     <section class="sec e" aria-labelledby="h-eff">
@@ -940,6 +940,9 @@ const PRODUCT_NAMES = Object.keys(DATA_ALL.products || {}).filter(k => DATA_ALL.
 // Deep links. A link to the dashboard can end in a plain #token (the only kind of address part an Artifact passes to the page): #quality, #release-calendar, #eem (a product view) or #eem~delivery (a section of a product view).
 // The page opens on that section and moves focus to its heading. A token is not a filter state: the reader's saved filters still apply. A token for a section this view does not have opens the page as usual.
 const DEEP_SECTIONS = {"needs-attention": "h-attn", "delivery": "h-burnup", "efficiency": "h-eff", "ai-adoption": "h-ai", "quality": "h-bugs", "dependencies": "h-deps", "nfrs": "h-nfr", "cxcross": "h-cx", "capabilities": "h-capview", "cycles": "h-cycles", "release-analysis": "h-analysis", "release-calendar": "h-ftenable"};
+const PRODUCT_HIDDEN = ["h-nfr", "h-cx", "h-capview", "h-cycles", "h-analysis", "h-ftenable"];                  // the sections every product view does not have
+const PRODUCT_OFF = {PMSTND: ["h-burnup", "h-eff", "h-deps"]};                    // sections taken out of ONE product's view (owner decision, 2026-11-12): PMSTND shows Needs Attention, AI Adoption and Quality only
+const hiddenFor = p => p === "cxone" ? [] : [...PRODUCT_HIDDEN, ...(PRODUCT_OFF[p] || [])];
 const HASH_IS_TOKEN = /^#[^=&]+$/.test(location.hash);
 const DEEP = (() => {
   if (!HASH_IS_TOKEN) return null;
@@ -3244,11 +3247,12 @@ function renderAttention() {
     const keys = list.flatMap(it => it.card ? [it.key, ...it.card.pairs.map(x => x.d.k)] : [it.key]);
     const moreBtn = n > lim ? `<button type="button" class="btn link" data-act="more-${id}" aria-expanded="${more}">${more ? "Show Fewer" : `Show ${n - lim} More`}</button>` : "";
     return `<div class="agrp"><h3 class="ah"><button type="button" class="abtn" data-act="grp-${id}" aria-expanded="${isOpen}" aria-controls="ag-${id}"><svg class="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2l5 4-5 4z"/></svg><span class="an">${esc(t.name)}</span> <span class="ac">${n}</span><span class="asev">${flagHtml(sevIcon[t.sev], t.sev)}</span></button></h3>` +
-      `<div id="ag-${id}" class="abody"${isOpen ? "" : " hidden"}><ul class="arows">${rows}</ul><div class="amore">${moreBtn}${id === "dep-gap" ? `<button type="button" class="btn link" data-gapjump="1">Open in Dependencies</button>` : ""}<a href="${keyIn(keys) || "#"}" target="_blank" rel="noopener" ${tipAttr(`${nn(keys.length, "issue", "issues")}: ${nn(n, "case", "cases")} in this group${t.items.some(i => i.card) ? " and the epics they block" : ""}`, keyIn(keys))}>Open all ${n} in Jira</a></div></div></div>`;
+      `<div id="ag-${id}" class="abody"${isOpen ? "" : " hidden"}><ul class="arows">${rows}</ul><div class="amore">${moreBtn}${id === "dep-gap" && !sectionOff("h-deps") ? `<button type="button" class="btn link" data-gapjump="1">Open in Dependencies</button>` : ""}<a href="${keyIn(keys) || "#"}" target="_blank" rel="noopener" ${tipAttr(`${nn(keys.length, "issue", "issues")}: ${nn(n, "case", "cases")} in this group${t.items.some(i => i.card) ? " and the epics they block" : ""}`, keyIn(keys))}>Open all ${n} in Jira</a></div></div></div>`;
   };
   const hygOpen = attnUi.open.has("hygiene");
   const hygHtml = M.hygTotal ? `<div class="agrp"><h3 class="ah"><button type="button" class="abtn" data-act="grp-hygiene" aria-expanded="${hygOpen}" aria-controls="ag-hygiene"><svg class="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2l5 4-5 4z"/></svg><span class="an">Jira Hygiene</span> <span class="ac">${M.hygChecks}</span><span class="asev">${flagHtml("info", "Info")}</span></button></h3><div id="ag-hygiene" class="abody"${hygOpen ? "" : " hidden"}><ul class="arows hyg">${M.hyg.filter(h => h.n).map(h => `<li class="arow"><div class="a1">${h.href ? tlink(h.n.toLocaleString("en-US"), h.href, h.tip) : `<b>${h.n.toLocaleString("en-US")}</b>`} <span class="at">${esc(h.label)}</span></div><div class="a2">${h.noteHtml || esc(h.note)}</div><div class="a3"></div><div class="a4"><span class="conf">Confirmed</span></div></li>`).join("")}</ul></div></div>` : "";
-  body.innerHTML = `<a class="skip" href="#h-burnup" data-skip="h-burnup">Skip to Delivery</a>` + ids.map(groupHtml).join("") + hygHtml +
+  const skipTo = sectionOff("h-burnup") ? ["h-bugs", "Quality"] : ["h-burnup", "Delivery"];
+  body.innerHTML = `<a class="skip" href="#${skipTo[0]}" data-skip="${skipTo[0]}">Skip to ${skipTo[1]}</a>` + ids.map(groupHtml).join("") + hygHtml +
     `<details class="vd"><summary>Limits and Thresholds</summary><div class="cap">${howBody({id: "attn",
     bl: `Use this to see which rules build the attention list and what they cannot see. Every rule reads the Jira data held on this page, and no team or person is ranked.`,
     defs: [
@@ -4375,7 +4379,7 @@ function renderTeamList() {
 const fmtDay = d => d ? new Date(d.slice(0, 10) + "T00:00:00Z").toLocaleDateString("en-GB", {day: "numeric", month: "short", year: "numeric", timeZone: "UTC"}) : "";
 function switchProduct(v) {
   // between two products the reader stays on the section being read (the page opens at the top when the other product has no such section, or the reader is above the first one); to or from CXone the page opens at the top
-  const cur = SEC.top() ? "" : SEC.current(), keep = cur && v !== "cxone" && PRODUCT !== "cxone" && !PRODUCT_HIDDEN.includes(cur) ? cur : "";
+  const cur = SEC.top() ? "" : SEC.current(), keep = cur && v !== "cxone" && PRODUCT !== "cxone" && !hiddenFor(v).includes(cur) ? cur : "";
   const rev = Object.entries(DEEP_SECTIONS).find(([, id]) => id === keep), tok = [v === "cxone" ? "" : v.toLowerCase(), rev ? rev[0] : ""].filter(Boolean).join("~");
   try { localStorage.setItem("dp.product", v); } catch (e) { /* not persisted */ }
   try { history.scrollRestoration = "manual"; } catch (e) { /* the browser decides */ }          // a reload must not bring back the old scroll position into a page of another shape
@@ -5083,12 +5087,14 @@ if (DATA.schema != null && DATA.schema !== PAGE_SCHEMA) {      // a payload from
 // ---- the Section Strip: jump links scroll with script (the address hash holds the filters); a scrollspy marks the section being read.
 // Anchors are the section elements (Delivery Cycle Governance and Release Analysis are sections too, and their sub-blocks keep them lit). The reading line is the bottom of the sticky stack + 30% of the rest of the window.
 // An anchor counts as passed when it touches the region above the reading line or has scrolled above the window; the current item is the last passed anchor in page order. No scroll handler.
-const PRODUCT_HIDDEN = ["h-nfr", "h-cx", "h-capview", "h-cycles", "h-analysis", "h-ftenable"];                  // the sections a product view does not have
+const sectionOff = id => hiddenFor(PRODUCT).includes(id);
 if (PRODUCT !== "cxone") {                                       // the strip entry goes and the section is hidden before the strip reads its links; the sections stay in the page (their renderers are skipped in updateCore)
-  PRODUCT_HIDDEN.forEach(id => {
+  hiddenFor(PRODUCT).forEach(id => {
     const a = document.querySelector(`#seclist a[data-jump="${id}"]`); if (a && a.parentElement) a.parentElement.remove();
     const h = document.getElementById(id), sec = h && h.closest("section"); if (sec) sec.hidden = true;
+    document.querySelectorAll(`a.skip[data-skip="${id}"]`).forEach(k => { if (!k.closest("section[hidden]")) k.remove(); });      // no "Skip to ..." link to a section the view does not have
   });
+  if (sectionOff("h-eff")) { const gh = document.getElementById("gran-hint"); if (gh) gh.textContent = "The chart below; the tiles use the last 30 days."; }
 }
 const SEC = (() => {
   const nav = document.getElementById("secnav"), list = document.getElementById("seclist"), links = [...list.querySelectorAll("a")];

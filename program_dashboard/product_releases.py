@@ -29,10 +29,15 @@ HIGH_RATIO, MEDIUM_RATIO = 2.0, 1.2
 PLACEHOLDER_RX = re.compile(r"future|do not clone", re.I)
 OLD_PI_RX = re.compile(r"^PI\.")
 NAME_RX = re.compile(r"^(?P<line>[A-Za-z_]*)(?P<nums>\d+(?:\.\d+)*)$")
+MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+MONTHLY_RX = re.compile(r"^(?P<line>PM) (?P<month>" + "|".join(MONTHS) + r") Hotfix (?P<yy>\d{2})$")      # PMSTND ships a hotfix release every month: "PM November Hotfix 26"
 
 
 def split_name(name: str) -> tuple[str, tuple[int, ...]] | None:
-    """('ESP', (27, 1)) for ESP27.1; None for a name that is not a release number (ASC_2026Q1)."""
+    """('ESP', (27, 1)) for ESP27.1; None for a name that is not a release number (ASC_2026Q1). A monthly hotfix reads as (year, month): ('PM Hotfix', (26, 11)) for PM November Hotfix 26."""
+    mm = MONTHLY_RX.match(name.strip())
+    if mm:
+        return f"{mm.group('line')} Hotfix", (int(mm.group("yy")), MONTHS.index(mm.group("month")) + 1)
     m = NAME_RX.match(name.strip())
     return (m.group("line"), tuple(int(x) for x in m.group("nums").split("."))) if m else None
 
@@ -97,21 +102,26 @@ def _ev(r: dict | None) -> dict | None:
     return None if r is None else {k: r.get(k) for k in ("name", "start", "release", "total", "open_all", "open_epics", "epics_in_progress", "recent")}
 
 
-def default_release(rows: list[dict], today: dt.date) -> dict | None:
-    """The release a multi-release product opens on: the unreleased version due soonest; with no dated version, the lowest version number."""
+def default_release(rows: list[dict], today: dt.date, by_month: bool = False) -> dict | None:
+    """The release a multi-release product opens on: the unreleased version due soonest; with no dated version, the lowest version number.
+    by_month=True (PMSTND, monthly hotfixes with no dates): this month's hotfix; when there is none, the latest one before it, else the first."""
+    if by_month and rows:
+        now = (today.year % 100, today.month)
+        upto = [r for r in rows if split_name(r["name"])[1] <= now]
+        return max(upto, key=lambda r: split_name(r["name"])[1]) if upto else min(rows, key=lambda r: split_name(r["name"])[1])
     dated = [r for r in rows if r.get("release") and (_days_to(r["release"], today) or 0) >= 0]
     if dated:
         return min(dated, key=lambda r: (_days_to(r["release"], today), split_name(r["name"])[1]))
     return min(rows, key=lambda r: split_name(r["name"])[1]) if rows else None
 
 
-def resolve_all(project: str, rows: list[dict], today: dt.date) -> dict:
+def resolve_all(project: str, rows: list[dict], today: dt.date, line: str | None = None, by_month: bool = False) -> dict:
     """A product that ships many releases at once (every unreleased version is offered, one is the default). The record has the shape of resolve(): the default stands in as the major,
     and "releases" lists every version offered, oldest first. No work threshold applies: the reader picks the release."""
     warnings: list[str] = []
-    cand = [dict(r, tier=tier_of(r["name"])) for r in rows]
+    cand = [dict(r, tier=tier_of(r["name"])) for r in rows if line is None or split_name(r["name"])[0] == line]       # line: only the versions of one naming line (PMSTND: the monthly hotfixes, not 26.3 / 26.4)
     cand.sort(key=lambda r: split_name(r["name"])[1])
-    d = default_release(cand, today)
+    d = default_release(cand, today, by_month)
     out = {"project": project, "rule": RULE, "mode": "all-unreleased", "asOf": today.isoformat(), "override": False, "warnings": warnings, "closingOut": [],
            "candidates": [_ev(r) | {"tier": r["tier"]} for r in cand], "releases": [r["name"] for r in cand],
            "major": None if d is None else {**_ev(d), "confidence": "DEFAULT"}, "minor": None, "future": None}
