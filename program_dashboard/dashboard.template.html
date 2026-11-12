@@ -127,7 +127,7 @@ html.deeplanding :focus-visible { outline:none; }               /* a link that o
 #g-projects { display:grid; grid-template-columns:auto auto minmax(0,1fr); grid-template-areas:"lbl btn hint" "chips chips chips"; gap:4px 10px; align-items:center; }
 #g-projects > .lbl { grid-area:lbl; } #g-projects > .chips { grid-area:chips; } #g-projects > .btn.multi { grid-area:btn; } #g-projects > .multihint { grid-area:hint; } #g-projects > .sr { grid-area:lbl; }
 #g-projects button.btn.multi { min-height:24px; padding:0 9px; font-size:var(--t-xs); }
-#filterbar #g-projects .seg .chip, #filterbar #g-dc .seg .chip { padding:4px 10px; }
+#filterbar #g-projects .seg .chip, #filterbar #g-dc .seg .chip { padding:4px 7px; }      /* seven projects and Delivery Cycle share one line of the 1208px bar: 10px chips left 13px to spare before WFM was listed and overflowed by 43px after */
 /* filter bar row system: groups hang from one top line, each a 24px label row over a 32px control row (the Multi-Select button shares the label row), so labels and controls sit on two common lines. The Delivery Cycle note is helper text below its control; Reset Filters sits on the control line, at the right end of the bar. */
 #filterbar { align-items:flex-start; position:relative; }
 #filterbar .ftoggle { align-self:flex-end; }
