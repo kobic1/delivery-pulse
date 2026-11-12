@@ -170,7 +170,7 @@ def bare_reserved(jql: str) -> list:
 
 
 def test_a_reserved_project_key_is_quoted_and_every_other_key_is_left_alone():
-    assert BD.JQL_RESERVED_KEYS == ["INT"] and BD.PROJECTS[-1] == "INT" and BD.PROJECTS[:5] == ["PMN", "CXCO", "CXSUP", "CXWFM", "CXINT"] and BD.PRODUCTS == ["WFM", "EEM", "ESP"]
+    assert BD.JQL_RESERVED_KEYS == ["INT"] and BD.PROJECTS[-1] == "INT" and BD.PROJECTS[:5] == ["PMN", "CXCO", "CXSUP", "CXWFM", "CXINT"] and BD.PRODUCTS == ["WFM", "EEM", "ESP", "EMOB"]
     assert BD.pkey("INT") == '"INT"' and BD.pkey("CXINT") == "CXINT" and BD.pkey("PMN") == "PMN"
     assert BD.pkeys(["PMN", "INT", "CXCROSS"]) == 'PMN, "INT", CXCROSS'
     assert BD.pkeys(["PMN", "CXCO"]) == "PMN, CXCO"                                    # the other projects' queries are byte-identical to before
@@ -314,3 +314,8 @@ def test_the_cxcross_hierarchy_also_holds_our_capabilities_that_sit_under_a_cxcr
     out = BD.collect_hier(j, [], {})["hier"]
     assert set(out) == {"CXCROSS-1", "CXCROSS-2", "PMN-10"} and out["PMN-10"]["par"] == "CXCROSS-1" and out["PMN-10"]["ty"] == "Capability"
     assert sum(q.startswith("parent in (CXCROSS-1)") for q in j.asked) == 1
+
+
+def test_wfm_bug_pull_leaves_out_bugs_that_clone_and_cxwfm_is_untouched():
+    assert BD.BUG_EXCLUDE_JQL == {"WFM": '(issueLinkType is EMPTY OR issueLinkType != "clones")'}
+    assert "CXWFM" not in BD.BUG_EXCLUDE_JQL and "WFM" not in BD.PROJECTS

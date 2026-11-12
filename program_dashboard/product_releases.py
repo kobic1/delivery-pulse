@@ -28,7 +28,7 @@ RUN_OPEN_EPICS, RUN_OPEN_ALL, RUN_RECENT = 1, 5, 3
 HIGH_RATIO, MEDIUM_RATIO = 2.0, 1.2
 PLACEHOLDER_RX = re.compile(r"future|do not clone", re.I)
 OLD_PI_RX = re.compile(r"^PI\.")
-NAME_RX = re.compile(r"^(?P<line>[A-Za-z]*)(?P<nums>\d+(?:\.\d+)*)$")
+NAME_RX = re.compile(r"^(?P<line>[A-Za-z_]*)(?P<nums>\d+(?:\.\d+)*)$")
 
 
 def split_name(name: str) -> tuple[str, tuple[int, ...]] | None:
@@ -95,6 +95,29 @@ def _pick(rows: list[dict], today: dt.date) -> tuple[dict | None, str, list[dict
 
 def _ev(r: dict | None) -> dict | None:
     return None if r is None else {k: r.get(k) for k in ("name", "start", "release", "total", "open_all", "open_epics", "epics_in_progress", "recent")}
+
+
+def default_release(rows: list[dict], today: dt.date) -> dict | None:
+    """The release a multi-release product opens on: the unreleased version due soonest; with no dated version, the lowest version number."""
+    dated = [r for r in rows if r.get("release") and (_days_to(r["release"], today) or 0) >= 0]
+    if dated:
+        return min(dated, key=lambda r: (_days_to(r["release"], today), split_name(r["name"])[1]))
+    return min(rows, key=lambda r: split_name(r["name"])[1]) if rows else None
+
+
+def resolve_all(project: str, rows: list[dict], today: dt.date) -> dict:
+    """A product that ships many releases at once (every unreleased version is offered, one is the default). The record has the shape of resolve(): the default stands in as the major,
+    and "releases" lists every version offered, oldest first. No work threshold applies: the reader picks the release."""
+    warnings: list[str] = []
+    cand = [dict(r, tier=tier_of(r["name"])) for r in rows]
+    cand.sort(key=lambda r: split_name(r["name"])[1])
+    d = default_release(cand, today)
+    out = {"project": project, "rule": RULE, "mode": "all-unreleased", "asOf": today.isoformat(), "override": False, "warnings": warnings, "closingOut": [],
+           "candidates": [_ev(r) | {"tier": r["tier"]} for r in cand], "releases": [r["name"] for r in cand],
+           "major": None if d is None else {**_ev(d), "confidence": "DEFAULT"}, "minor": None, "future": None}
+    if d is None:
+        warnings.append(f"no unreleased version found for {project}")
+    return out
 
 
 def _override(overrides: dict, project: str, tier: str, today: dt.date, warnings: list) -> str | None:

@@ -23,6 +23,7 @@ def test_names_are_classified_by_their_number_of_segments_and_line_prefix():
     assert PR.tier_of("7.4") == "major" and PR.tier_of("ZZ31.2") == "major" and PR.tier_of("31.2") == "major"
     assert PR.tier_of("7.4.1") == "minor" and PR.tier_of("6.1.9.2") == "minor"
     assert PR.tier_of("ASC_2026Q1") is None and PR.tier_of("12") is None
+    assert PR.split_name("Mob_3.8.1") == ("Mob_", (3, 8, 1)) and PR.tier_of("Mob_3.8.1") == "minor" and PR.tier_of("Mob_3.9") == "major"
     assert PR.split_name("ZZ31.2") == ("ZZ", (31, 2)) and PR.split_name("7.4.1") == ("", (7, 4, 1))
 
 
@@ -133,3 +134,17 @@ def test_a_release_with_no_dates_gets_no_window():
     res = PR.resolve("PY", [row("ZZ31.1", 100, 60, 38, 5, 60)], TODAY)
     wins = BD.product_windows(res, ["ZZ31.1"])
     assert BD.derive_windows(res, ["ZZ31.1"], [{"fv": ["ZZ31.1"], "cr": "2026-01-01"}], wins) == [] and wins == {}
+
+
+# ---------------------------------------------------------------- a product that offers every unreleased version
+def test_resolve_all_lists_every_version_oldest_first_and_opens_on_the_one_due_soonest():
+    rows = [row("Xp_2.9.0", 3, 3, 2), row("Xp_2.8.1", 8, 5, 1, release="2026-11-25"), row("Xp_2.10.0", 0, 0, 0), row("Xp_2.8.0", 9, 0, 0, release="2026-10-23")]
+    res = PR.resolve_all("PX", rows, TODAY)
+    assert res["releases"] == ["Xp_2.8.0", "Xp_2.8.1", "Xp_2.9.0", "Xp_2.10.0"]            # numeric order: 2.10 comes after 2.9
+    assert res["major"]["name"] == "Xp_2.8.1" and res["minor"] is None and res["future"] is None and res["mode"] == "all-unreleased"
+
+
+def test_resolve_all_without_a_dated_version_opens_on_the_lowest_and_without_versions_on_none():
+    assert PR.resolve_all("PX", [row("Xp_2.9.0", 1, 1, 1), row("Xp_2.8.1", 1, 1, 1)], TODAY)["major"]["name"] == "Xp_2.8.1"
+    empty = PR.resolve_all("PX", [], TODAY)
+    assert empty["major"] is None and empty["releases"] == [] and empty["warnings"]
