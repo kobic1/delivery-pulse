@@ -381,25 +381,26 @@ def _(t: T):
 
 
 def bar_read(width, template=None):
-    """The filter bar of the CXone view with seven projects (the six of the fixture and a short seventh, WFM): where its controls sit."""
+    """The filter bar of the CXone view with the fixture's seven projects (the real keys, WFM among them): where its controls sit."""
     data = MS.make(MS.il_today())
     data["build"] = {"sha": "abc1234", "dirty": False, "at": "2026-01-01T00:00+02:00"}
-    data["projects"] = data["projects"] + ["WFM"]
+    prods = MS.product_sample(data)                                                     # the Product select takes its width of the first row, as on the real page
+    data["productList"], data["products"] = list(prods), prods
     url = ctx.write(kit.wrap(MS.render_page(data, template) if template else MS.render_page(data, ctx.template)), "projbar")
     ch = ctx.chrome
     ch.viewport(width, 900, mobile=False)
-    ch.goto(url)
+    ch.goto(url + "#cxone")                                                             # the CXone view, whatever product a test left stored
     assert kit.wait_ready(ch), "the page did not draw: " + str(ch.console_errors()[:2])
     time.sleep(0.5)
-    return js(ch, "const top = e => Math.round(e.getBoundingClientRect().top); const chips = [...document.querySelectorAll('#f-projects button.chip')]; return {chips: chips.map(b => b.textContent.trim()), chipTops: [...new Set(chips.map(top))], controls: ['g-product', 'g-release', 'g-projects', 'teamsel'].map(id => document.getElementById(id)).filter(e => e && e.offsetParent).map(top)}")
+    return js(ch, "const top = e => Math.round(e.getBoundingClientRect().top); const chips = [...document.querySelectorAll('#f-projects button.chip')]; return {chips: chips.map(b => b.textContent.trim()), chipTops: [...new Set(chips.map(top))], controls: ['g-product', 'g-release', 'g-projects', 'teamsel', 'g-dc'].map(id => document.getElementById(id)).filter(e => e && e.offsetParent).map(top)}")
 
 
-@SUITE.test("seven_projects_keep_the_project_chips_and_the_first_filter_controls_on_one_line")
+@SUITE.test("seven_projects_keep_every_filter_control_including_delivery_cycle_on_one_line")
 def _(t: T):
-    for w in (1440, 1280):                                                    # the fixture's project names are longer than the real ones; the real page was also measured at 1100 and 1024
+    for w in (1440, 1280):                                                    # a narrower window wraps the bar, as it always has
         r = bar_read(w)
-        t.check(r["chips"][-1] == "WFM" and len(r["chipTops"]) == 1, f"{w}px: the chips are {r['chips']} on rows {r['chipTops']}")
-        t.check(len(set(r["controls"])) == 1, f"{w}px: Product, Release, Projects and Teams are on rows {r['controls']}")
+        t.check("WFM" in r["chips"] and len(r["chips"]) == 8 and len(r["chipTops"]) == 1, f"{w}px: the chips are {r['chips']} on rows {r['chipTops']}")
+        t.check(len(set(r["controls"])) == 1, f"{w}px: Product, Release, Projects, Teams and Delivery Cycle are on rows {r['controls']}")
 
 
 @SUITE.test("selftest_the_one_line_filter_check_fails_when_the_project_chips_are_made_wide")
