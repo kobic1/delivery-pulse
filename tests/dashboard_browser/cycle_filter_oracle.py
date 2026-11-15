@@ -1194,7 +1194,7 @@ def _(t: T):
 
 @SUITE.test("header_keyboard_operation")
 def _(t: T):
-    """A radio group like Accessibility Bugs and Group CFB By: one Tab stop (the selected option), the arrow keys move AND select (wrapping), Space selects the focused option, the focus stays in the group."""
+    """A radio group like Accessibility Bugs and Group CFBs By: one Tab stop (the selected option), the arrow keys move AND select (wrapping), Space selects the focused option, the focus stays in the group."""
     data, url, universe = payload("variant")
     ch = ctx.chrome
     ch.goto(url + "#r=27.1")
