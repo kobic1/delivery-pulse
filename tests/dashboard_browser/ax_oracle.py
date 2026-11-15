@@ -482,7 +482,7 @@ def _(t: T):
         return {role: g.getAttribute('role'), labelledby: g.getAttribute('aria-labelledby'), cls: g.className, fgCls: fg.className.replace(/\bchanged\b/g, '').trim(),
                 label: (document.getElementById(g.getAttribute('aria-labelledby')) || {}).textContent, labelTag: (document.getElementById(g.getAttribute('aria-labelledby')) || {}).tagName,
                 values: [...g.querySelectorAll('input')].map(i => i.value), texts: [...g.querySelectorAll('label')].map(l => l.textContent.trim()), types: [...g.querySelectorAll('input')].map(i => i.type),
-                names: [...new Set([...g.querySelectorAll('input')].map(i => i.name))], tabindex: [...g.querySelectorAll('input')].map(i => i.getAttribute('tabindex')), html: strip(fg.outerHTML.replace(/>\s+</g, '><')).replace(/Salesforce Connector|Accessibility Bugs/g, 'L').replace(/CFB \(Reported by L\)/, 'L')};
+                names: [...new Set([...g.querySelectorAll('input')].map(i => i.name))], tabindex: [...g.querySelectorAll('input')].map(i => i.getAttribute('tabindex')), html: strip(fg.outerHTML.replace(/>\s+</g, '><')).replace(/Accessibility Bugs|CFB/g, 'L')};
       };
       return {ax: sig('f-ax'), cfb: sig('f-cfb'), checkboxes: document.querySelectorAll('#g-ax input[type=checkbox], input#f-ax[type=checkbox]').length, body: document.body.innerText + ' ' + document.body.innerHTML.replace(/<[^>]+>/g, ' '),
               inBar: !!document.querySelector('.bugbar #g-ax'), order: [...document.querySelectorAll('.bugbar > *')].map(e => e.id)};
