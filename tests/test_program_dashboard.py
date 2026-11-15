@@ -201,6 +201,7 @@ def test_no_query_the_collector_sends_names_the_reserved_key_bare(monkeypatch):
 
     monkeypatch.setenv("JIRA_BASE_URL", "https://example.invalid")
     monkeypatch.setattr(BD.E, "Jira", FakeJira)
+    monkeypatch.setattr(BD.PRA, "collect", lambda keys: {"org": "o", "at": "t", "kept": 0, "noKey": 0, "bots": 0, "activeDays": 14, "list": []})      # never GitHub from a unit test
     BD.fetch()
     j = FakeJira()
     BD.collect_bug_updates(j, [])
@@ -346,3 +347,27 @@ def test_wfm_is_a_cxone_project_with_its_own_bug_rules_and_cxwfm_has_none():
     r = BD.proj_rules(BD.PROJECTS)
     assert list(r) == ["WFM"] and r["WFM"]["bugClause"] == BD.BUG_EXCLUDE_JQL["WFM"] and r["WFM"]["cfbLink"] == BD.CFB_LINK_JQL
     assert BD.proj_rules(["PMN", "CXWFM"]) == {}
+
+
+def test_the_pull_request_feed_never_sinks_the_build_and_searches_every_project_and_product_key(monkeypatch):
+    monkeypatch.setattr(BD.PRA, "collect", lambda keys: (_ for _ in ()).throw(RuntimeError("boom")))
+    res = BD.collect_prs()
+    assert "list" not in res and res["unavailable"].startswith("RuntimeError") and res["org"]
+    seen = []
+    monkeypatch.setattr(BD.PRA, "collect", lambda keys: seen.append(list(keys)) or {"org": "o", "at": "t", "kept": 0, "noKey": 0, "bots": 0, "activeDays": 14, "list": []})
+    class J:
+        def search(self, jql, fields):
+            return []
+    BD.collect_prs(J())
+    assert seen == [BD.PROJECTS + BD.PRODUCTS] and "PMSTND" in seen[0] and "INT" in seen[0]
+
+
+def test_pull_requests_read_but_not_resolved_to_releases_say_so_and_keep_no_working_field(monkeypatch):
+    rec = {"r": "a", "n": 1, "t": "x", "ra": "2026-11-01", "up": "2026-11-10", "rv": "none", "ci": "ok", "pj": ["PMN"], "ik": ["PMN-1"]}
+    monkeypatch.setattr(BD.PRA, "collect", lambda keys: {"org": "o", "at": "t", "kept": 1, "noKey": 0, "bots": 0, "activeDays": 14, "list": [dict(rec)]})
+    class Down:
+        def search(self, jql, fields):
+            raise RuntimeError("no")
+    monkeypatch.setattr(BD.PRA, "release_lookup", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("jira down")))
+    res = BD.collect_prs(Down())
+    assert res["releasesUnavailable"].startswith("RuntimeError") and res["list"] and all("ik" not in x and "rl" not in x for x in res["list"])

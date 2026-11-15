@@ -15,6 +15,7 @@ on:
       - "tests/test_program_dashboard.py"
       - "tests/test_definitions_contract.py"
       - "tests/test_dashboard_copy.py"
+      - "tests/test_pr_aging.py"
       - "tests/dashboard_browser/**"
       - ".github/workflows/dashboard-checks.yml"
   push:
@@ -24,6 +25,7 @@ on:
       - "tests/test_program_dashboard.py"
       - "tests/test_definitions_contract.py"
       - "tests/test_dashboard_copy.py"
+      - "tests/test_pr_aging.py"
       - "tests/dashboard_browser/**"
       - ".github/workflows/dashboard-checks.yml"
 
@@ -75,7 +77,7 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - name: Collector and contract tests
-        run: python -m pytest tests/test_program_dashboard.py tests/test_definitions_contract.py tests/test_dashboard_copy.py -q
+        run: python -m pytest tests/test_program_dashboard.py tests/test_definitions_contract.py tests/test_dashboard_copy.py tests/test_pr_aging.py -q
       - name: Leak scan (generic patterns)
         run: python program_dashboard/leak_scan.py
       - name: The parallel browser suites all passed
