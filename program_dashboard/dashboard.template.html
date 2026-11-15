@@ -958,7 +958,7 @@ const PRODUCT = (() => {
 })();
 const PRODUCT_RES = PRODUCT === "cxone" ? null : DATA_ALL.products[PRODUCT].resolution;      // the resolution record: the evidence, the rule version, the Major, Minor and Future
 const DATA = PRODUCT === "cxone" ? DATA_ALL : (() => {
-  const keep = {}; ["jiraBase", "cloudId", "cfbAccount", "bugSince", "schema", "defs", "build"].forEach(k => { if (DATA_ALL[k] !== undefined) keep[k] = DATA_ALL[k]; });
+  const keep = {}; ["jiraBase", "cloudId", "cfbAccount", "bugSince", "schema", "defs", "build", "prs"].forEach(k => { if (DATA_ALL[k] !== undefined) keep[k] = DATA_ALL[k]; });
   return {...keep, ...DATA_ALL.products[PRODUCT]};
 })();
 const filtersKey = "delivery-pulse-filters" + (PRODUCT === "cxone" ? "" : ":" + PRODUCT);          // each product keeps its own filters; CXone keeps the key it always had
@@ -1007,6 +1007,7 @@ const CFG = {
   holidaysThrough: "2027-12-31",                                 // the holiday list below covers up to this date
   weekend: [5, 6], HOLIDAYS: ["2025-06-02", "2025-09-23", "2025-09-24", "2025-10-02", "2025-10-07", "2025-10-14", "2026-04-02", "2026-04-08", "2026-04-22", "2026-05-22", "2026-09-12", "2026-09-13", "2026-09-21", "2026-09-26", "2026-10-03", "2027-04-22", "2027-04-28", "2027-05-12", "2027-06-11", "2027-10-02", "2027-10-03", "2027-10-11", "2027-10-16", "2027-10-23"],
   rows: {first: 5, other: 10},
+  pr: {days: 3, escalate: 7, source: "owner-supplied (the PR aging alert skill); only pull requests with activity in the last 14 days, owner decision 2026-11-15"},      // open pull requests: business days since ready for review; the activity window comes with the data (DATA.prs.activeDays)
   backlog: {pct: 20, min: 5, days: 14, source: "owner decision, 2026-11-11"},      // Bugs Backlog Increase: open bugs of a project now against the open bugs 14 days ago; fires at +20% and at least 5 more bugs
 };
 const projectsAll = DATA.projects;
@@ -3128,6 +3129,7 @@ function attentionModel() {
   mk("epic-validation-age", `Epics in Validation More Than ${CFG.validationDays} Business Days`, "Medium", "Confirmed");
   mk("dep-gap", "Dependency Schedule Gaps", "Medium", "Single-source");
   mk("bug-backlog", "Bugs Backlog Increase", "Medium", "Single-source");
+  mk("pr-aging", `Pull Requests Open More Than ${CFG.pr.days} Business Days`, "Medium", "Single-source");
   // ---- production bugs: customer-found, open, not yet ready to deploy; follows the Projects and Teams filters, not the release
   const prod = bugsBase().filter(b => b.cfb && isOpenBug(b));
   const bugItem = (b, extra) => ({key: b.k, kind: "bug", title: "", project: b.p, status: b.s, team: b.tm || "", href: `${BASE}/browse/${b.k}`, tier: 0, impact: 0, blast: 0, pr: b.pr, ...extra});
@@ -3165,6 +3167,27 @@ function attentionModel() {
     const bd = businessDaysSince(e.ss);
     if (bd > CFG.validationDays) { const r = {type: "epic-validation-age", text: `${bd} business days in Validation (limit ${CFG.validationDays}), ${d} calendar days`, rule: "Epic in Validation longer than the limit; the cause is not known, as no comments are held", value: `${bd} business days (${d} calendar days) since ${e.ss}`, threshold: `${CFG.validationDays} business days`, source: CFG.validationSource, conf: "Confirmed", icon: "warn"};
       addReason(e.k, r); T["epic-validation-age"].items.push(epicItem(e, {age: d, why: r})); } });
+  // ---- pull requests (GitHub, read by pr_aging.py): open, not draft, naming a Jira key of a selected project, waiting more than the limit in business days since ready for review, with activity in the last 14 days.
+  // Follows the Projects filter and the selected release (the collector resolves the issue a pull request names, or its parent epic, to fix versions: x.rl). A pull request carries no team,
+  // so the group is left out while a team is selected. No author or reviewer is held.
+  const PRS = DATA.prs || null, prCfg = CFG.pr, prActive = (PRS && PRS.activeDays) || 14, prOff = !!state.teams.size;
+  const PR_RV = {none: "no review yet", commented: "reviewed, no decision", changes: "changes requested", approved: "approved, not merged"}, PR_CI = {ok: "checks passing", fail: "checks failing", pend: "checks running", none: "no checks"};
+  let prChecked = 0, prOtherRel = 0;
+  const prNoRel = !!(PRS && PRS.list && (PRS.releasesUnavailable || PRS.list.some(x => !Array.isArray(x.rl))));      // no release known: the pull requests of the selected release cannot be picked
+  if (PRS && PRS.list && !prOff && !prNoRel) PRS.list.forEach(x => {
+    const sel = x.pj.filter(p => state.projects.has(p)); if (!sel.length) return;
+    if (!x.rl.includes(state.release)) { prOtherRel++; return; }
+    prChecked++;
+    if (daysSince(x.up) > prActive) return;
+    const bd = businessDaysSince(x.ra); if (bd <= prCfg.days) return;
+    const d = daysSince(x.ra), esc7 = bd >= prCfg.escalate;
+    const r = {type: "pr-aging", text: `${bd} business days since ready for review (limit ${prCfg.days}${esc7 ? `, escalation at ${prCfg.escalate}` : ""})`, aria: `${x.r} pull request ${x.n}, ${shortText(x.t, 80)}, ${bd} business days since ready for review`,
+      rule: `Open pull request that has waited longer than the limit since it was marked ready for review (its creation when it never was a draft), with activity in the last ${prActive} days`,
+      value: `${bd} business days (${d} calendar days) since ${x.ra}; last activity ${x.up}`, threshold: `${prCfg.days} business days`, source: prCfg.source, conf: "Single-source", icon: esc7 ? "high" : "warn"};
+    const key = `${x.r}#${x.n}`; addReason(key, r);
+    T["pr-aging"].items.push({key, kind: "pr", title: x.t, project: sel.join(", "), status: "", team: "", sub: `${sel.join(", ")} · ${PR_RV[x.rv] || x.rv} · ${PR_CI[x.ci] || x.ci}`, href: `https://github.com/${PRS.org}/${x.r}/pull/${x.n}`, tier: 0, impact: 1, blast: 0, slaKey: 0, age: bd, why: r});
+  });
+  const prNote = !PRS ? "" : PRS.unavailable ? `Pull requests were not checked: ${PRS.unavailable}.` : PRS.refreshFailed ? `Pull requests were not refreshed (${PRS.refreshFailed}); as of ${ilStamp(PRS.at)}.` : prNoRel ? `Pull requests were not checked against the release: ${PRS.releasesUnavailable || "their releases were not read in this build"}.` : prOff ? "Pull requests are not shown while a team is selected, as they carry no team." : "";
   // ---- dependencies: one case per provider epic, with what it blocks
   const depCases = (pairs, id, mkReason) => providerCards(pairs).forEach(c => {
     const p = c.p, blocked = c.pairs.map(x => x.d), r = mkReason(c);
@@ -3190,7 +3213,7 @@ function attentionModel() {
     {label: "Done Epics with No EDCT", n: doneNoEdct.length, href: null, note: `read from change history, which Jira cannot search${edctWait.length ? `; ${edctWait.length} more wait for the next cycle-time refresh` : ""}`},
   ];
   const holidayStale = asOfDay() > utc(CFG.holidaysThrough); if (holidayStale && !window.__holidayWarned) { window.__holidayWarned = true; console.warn(`The holiday list ends ${CFG.holidaysThrough}; Validation business days after it are not adjusted for holidays.`); }
-  const checked = {bugs: prod.length, validation: scope.filter(e => e.s === "Validation").length, deps: dm.open.length, backlog: backlogRows.length, proj: (state.projects.size === projectsAll.length ? "All Projects" : pj || "no project") + (state.teams.size ? `, teams ${[...state.teams].join(", ")}` : "")};
+  const checked = {bugs: prod.length, validation: scope.filter(e => e.s === "Validation").length, deps: dm.open.length, backlog: backlogRows.length, prs: prChecked, prNote, prAt: PRS && PRS.at, prFound: PRS && PRS.found, prNoKey: PRS && PRS.noKey, prBots: PRS && PRS.bots, prOtherRel, proj: (state.projects.size === projectsAll.length ? "All Projects" : pj || "no project") + (state.teams.size ? `, teams ${[...state.teams].join(", ")}` : "")};
   return {holidayStale, gaps: dm.open.filter(x => x.gap).length, T, order: Object.keys(T), reasons, hyg, hygTotal: hyg.reduce((a, h) => a + h.n, 0), hygChecks: hyg.filter(h => h.n).length, checked, asOfTxt};
 }
 function attnTip(it, reasons, onlyFirst) {
@@ -3217,14 +3240,15 @@ function renderAttention() {
     return `<button type="button" class="achip" data-chip="${id}" ${tipAttr(tipTxt, "")} aria-label="${esc(`${n} ${label}`)}" aria-describedby="attn-d-${id}">${flagHtml(icon, "", "")}<b>${n.toLocaleString("en-US")}</b> ${esc(label)}</button>`; };
   const seg = id => chip(id, sevIcon[M.T[id].sev], M.T[id].items.length, M.T[id].name);
   const chk = M.checked;
-  const checkedTxt = `Checked ${chk.bugs} open customer-found ${chk.bugs === 1 ? "bug" : "bugs"}, ${chk.validation} ${chk.validation === 1 ? "epic" : "epics"} in Validation and ${chk.deps} open ${chk.deps === 1 ? "dependency" : "dependencies"} across ${esc(chk.proj)}. Compared the open bugs of ${chk.backlog} ${chk.backlog === 1 ? "project" : "projects"} now and ${CFG.backlog.days} days ago. Comments and story data were not checked. As of ${esc(M.asOfTxt)}.`;      // kept in Limits and Thresholds, not in the summary
-  const NEED = ["bug-sla-breach", "bug-sla-due", "bug-no-progress", "dep-overdue", "epic-validation-age", "dep-gap", "bug-backlog"], needIds = ids.filter(id => NEED.includes(id)), refIds = ids.filter(id => !NEED.includes(id));
+  const checkedTxt = `Checked ${chk.bugs} open customer-found ${chk.bugs === 1 ? "bug" : "bugs"}, ${chk.validation} ${chk.validation === 1 ? "epic" : "epics"} in Validation and ${chk.deps} open ${chk.deps === 1 ? "dependency" : "dependencies"} across ${esc(chk.proj)}. Compared the open bugs of ${chk.backlog} ${chk.backlog === 1 ? "project" : "projects"} now and ${CFG.backlog.days} days ago.${chk.prNote ? " " + esc(chk.prNote) : DATA.prs ? ` Looked at ${chk.prs} open ${chk.prs === 1 ? "pull request" : "pull requests"} of release ${esc(state.release)} with a Jira key of the selected projects that had activity in the last ${DATA.prs.activeDays || 14} days (${chk.prOtherRel} more belong to other releases or to none, ${chk.prNoKey} had no Jira key and ${chk.prBots} were by bots; as of ${esc(ilStamp(chk.prAt))}).` : " The pull requests were not read in this build."} Comments and story data were not checked. As of ${esc(M.asOfTxt)}.`;      // kept in Limits and Thresholds, not in the summary
+  const NEED = ["bug-sla-breach", "bug-sla-due", "bug-no-progress", "dep-overdue", "epic-validation-age", "dep-gap", "bug-backlog", "pr-aging"], needIds = ids.filter(id => NEED.includes(id)), refIds = ids.filter(id => !NEED.includes(id));
   const uniq = list => new Set(list.flatMap(id => M.T[id].items.map(i => i.key))).size, nNeed = uniq(needIds), nRef = uniq(refIds) + M.hygChecks;
   const hygSeg = M.hygTotal ? chip("hygiene", "info", M.hygChecks, `hygiene ${M.hygChecks === 1 ? "check" : "checks"} with findings`) : "";
   const nRefItems = uniq(refIds);
   const memberships = new Map(); needIds.forEach(id => M.T[id].items.forEach(i => memberships.set(i.key, (memberships.get(i.key) || 0) + 1)));
   const dupItems = [...memberships.values()].filter(v => v > 1).length;
-  const stale = M.holidayStale ? `<span class="attn-plus">The holiday list ends ${esc(CFG.holidaysThrough)}, so Validation business days after that date are not adjusted for holidays.</span>` : "";
+  const prWarn = M.checked.prNote ? `<span class="attn-plus">${esc(M.checked.prNote)}</span>` : "";
+  const stale = prWarn + (M.holidayStale ? `<span class="attn-plus">The holiday list ends ${esc(CFG.holidaysThrough)}, so Validation business days after that date are not adjusted for holidays.</span>` : "");
   const refPart = refIds.length
     ? `<span class="attn-plus">plus ${nRefItems} for reference:</span>` + refIds.map(seg).join("") + (M.hygTotal ? `<span class="attn-nw"><span class="attn-plus">and</span>${hygSeg}</span>` : "")
     : M.hygTotal ? `<span class="attn-nw"><span class="attn-plus">plus</span>${hygSeg}</span>` : "";
@@ -3242,12 +3266,12 @@ function renderAttention() {
       const rs = (M.reasons.get(it.key) || []).slice().sort((a, b) => (a.type === id ? -1 : 0) - (b.type === id ? -1 : 0));
       const tip = attnTip(it, rs);
       const chipHtml = rs.map(r => flagHtml(r.icon, "", `<span>${esc(r.text)}</span>`)).join("");      // one inline span: a date in the text is wrapped by nowrapDates, and inside the flag (inline-flex with a gap) each piece would become a flex item
-      return `<li class="arow"${i >= lim && !more ? " hidden" : ""} ${tipAttr(tip, "")}><div class="a1"><a class="cl" href="${it.href || "#"}" target="_blank" rel="noopener" ${tipAttr(tip, "x")} aria-label="${esc(rs[0].aria || it.key + (it.title ? ", " + shortText(it.title, 80) : "") + ", " + rs[0].text)}. Evidence, opens in Jira.">${esc(it.key)}</a>${it.title ? ` <span class="at" title="${esc(it.title)}">${esc(shortText(it.title, 80))}</span>` : ""}</div><div class="a2">${it.sub ? esc(it.sub) : `${esc(it.project)} · ${esc(it.status || "–")}${it.team ? ` · ${esc(it.team)}` : ""}`}</div><div class="a3">${chipHtml}${it.gapPairs ? `<ul class="agl">${it.card.pairs.map(x => `<li>blocks <a class="cl" href="${BASE}/browse/${esc(x.d.k)}" target="_blank" rel="noopener">${esc(x.d.k)}</a> · ${esc(x.gapParts.dy)}</li>`).join("")}</ul>` : ""}</div><div class="a4"><span class="conf" title="Confidence: ${rs[0].conf}">${rs[0].conf}</span></div></li>`;
+      return `<li class="arow"${i >= lim && !more ? " hidden" : ""} ${tipAttr(tip, "")}><div class="a1"><a class="cl" href="${it.href || "#"}" target="_blank" rel="noopener" ${tipAttr(tip, "x")} aria-label="${esc(rs[0].aria || it.key + (it.title ? ", " + shortText(it.title, 80) : "") + ", " + rs[0].text)}. Evidence, opens ${it.kind === "pr" ? "on GitHub" : "in Jira"}.">${esc(it.key)}</a>${it.title ? ` <span class="at" title="${esc(it.title)}">${esc(shortText(it.title, 80))}</span>` : ""}</div><div class="a2">${it.sub ? esc(it.sub) : `${esc(it.project)} · ${esc(it.status || "–")}${it.team ? ` · ${esc(it.team)}` : ""}`}</div><div class="a3">${chipHtml}${it.gapPairs ? `<ul class="agl">${it.card.pairs.map(x => `<li>blocks <a class="cl" href="${BASE}/browse/${esc(x.d.k)}" target="_blank" rel="noopener">${esc(x.d.k)}</a> · ${esc(x.gapParts.dy)}</li>`).join("")}</ul>` : ""}</div><div class="a4"><span class="conf" title="Confidence: ${rs[0].conf}">${rs[0].conf}</span></div></li>`;
     }).join("");
     const keys = list.flatMap(it => it.card ? [it.key, ...it.card.pairs.map(x => x.d.k)] : [it.key]);
     const moreBtn = n > lim ? `<button type="button" class="btn link" data-act="more-${id}" aria-expanded="${more}">${more ? "Show Fewer" : `Show ${n - lim} More`}</button>` : "";
     return `<div class="agrp"><h3 class="ah"><button type="button" class="abtn" data-act="grp-${id}" aria-expanded="${isOpen}" aria-controls="ag-${id}"><svg class="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2l5 4-5 4z"/></svg><span class="an">${esc(t.name)}</span> <span class="ac">${n}</span><span class="asev">${flagHtml(sevIcon[t.sev], t.sev)}</span></button></h3>` +
-      `<div id="ag-${id}" class="abody"${isOpen ? "" : " hidden"}><ul class="arows">${rows}</ul><div class="amore">${moreBtn}${id === "dep-gap" && !sectionOff("h-deps") ? `<button type="button" class="btn link" data-gapjump="1">Open in Dependencies</button>` : ""}<a href="${keyIn(keys) || "#"}" target="_blank" rel="noopener" ${tipAttr(`${nn(keys.length, "issue", "issues")}: ${nn(n, "case", "cases")} in this group${t.items.some(i => i.card) ? " and the epics they block" : ""}`, keyIn(keys))}>Open all ${n} in Jira</a></div></div></div>`;
+      `<div id="ag-${id}" class="abody"${isOpen ? "" : " hidden"}><ul class="arows">${rows}</ul><div class="amore">${moreBtn}${id === "dep-gap" && !sectionOff("h-deps") ? `<button type="button" class="btn link" data-gapjump="1">Open in Dependencies</button>` : ""}${id === "pr-aging" ? "" : `<a href="${keyIn(keys) || "#"}" target="_blank" rel="noopener" ${tipAttr(`${nn(keys.length, "issue", "issues")}: ${nn(n, "case", "cases")} in this group${t.items.some(i => i.card) ? " and the epics they block" : ""}`, keyIn(keys))}>Open all ${n} in Jira</a>`}</div></div></div>`;
   };
   const hygOpen = attnUi.open.has("hygiene");
   const hygHtml = M.hygTotal ? `<div class="agrp"><h3 class="ah"><button type="button" class="abtn" data-act="grp-hygiene" aria-expanded="${hygOpen}" aria-controls="ag-hygiene"><svg class="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2l5 4-5 4z"/></svg><span class="an">Jira Hygiene</span> <span class="ac">${M.hygChecks}</span><span class="asev">${flagHtml("info", "Info")}</span></button></h3><div id="ag-hygiene" class="abody"${hygOpen ? "" : " hidden"}><ul class="arows hyg">${M.hyg.filter(h => h.n).map(h => `<li class="arow"><div class="a1">${h.href ? tlink(h.n.toLocaleString("en-US"), h.href, h.tip) : `<b>${h.n.toLocaleString("en-US")}</b>`} <span class="at">${esc(h.label)}</span></div><div class="a2">${h.noteHtml || esc(h.note)}</div><div class="a3"></div><div class="a4"><span class="conf">Confirmed</span></div></li>`).join("")}</ul></div></div>` : "";
@@ -3262,13 +3286,14 @@ function renderAttention() {
       ["No update", `${CFG.noUpdateDays} days or more since the update date. Any edit counts as an update.`],
       ["In Validation too long", `more than ${CFG.validationDays} business days in Validation.`],
       ["Bugs Backlog Increase", `a project whose open bugs now are at least ${CFG.backlog.pct}% and at least ${CFG.backlog.min} bugs higher than ${CFG.backlog.days} days ago. It counts all bugs of the project, any priority, including accessibility bugs. Open means the status is not Done, Ready for Deploy, Closed, Resolved or Removed, so Validation counts as open. It follows the Projects and Teams filters, not the release.`],
+      ["Pull requests", `an open pull request of the ${esc(DATA.prs ? DATA.prs.org : "GitHub")} organisation, not a draft, not by a bot, not labelled do-not-review or wip, that names a Jira key of the selected projects in its title, description or branch name, belongs to the selected release (the issue it names, or that issue's parent epic, has the release as a fix version), and has waited more than ${CFG.pr.days} business days since it was last marked ready for review (its creation when it never was a draft). Only a pull request with some activity (a push, comment, review or label) in the last ${DATA.prs && DATA.prs.activeDays || 14} days counts; ${CFG.pr.escalate} business days or more is marked as an escalation. It follows the Projects filter and the selected release; a pull request carries no team, so the group is not shown while a team is selected. No author or reviewer is held.`],
       ["Business days", `Sunday to Thursday. Friday, Saturday and Israeli public holidays are not counted.`]
     ],
     left: `Comments and story data are not checked. The list cannot see why an epic is in Validation, whether it is ready to close, blocked flags or scope churn.`,
-    know: `Epic rules follow the selected release and the Projects and Teams filters; bug rules follow Projects and Teams only. The as-of date is the date of the data, not today.`,
+    know: `Epic rules follow the selected release and the Projects and Teams filters; bug rules follow Projects and Teams only; pull request rules follow the selected release and the Projects filter (not Teams). The as-of date is the date of the data, not today.`,
     more: [
       ["No SLA", `a bug with no priority, or a priority outside P1 to P4, has no SLA. It is listed under Jira Hygiene as "No SLA", never in the SLA groups.`],
-      ["Where the thresholds come from", `SLA days: ${CFG.sla.source}. Due soon: ${CFG.dueSoonSource}. No update: ${CFG.noUpdateSource}. In Validation: ${CFG.validationSource}. Bugs Backlog Increase: ${CFG.backlog.source}.`],
+      ["Where the thresholds come from", `SLA days: ${CFG.sla.source}. Due soon: ${CFG.dueSoonSource}. No update: ${CFG.noUpdateSource}. In Validation: ${CFG.validationSource}. Bugs Backlog Increase: ${CFG.backlog.source}. Pull requests: ${CFG.pr.source}.`],
       ["Customer-found", `${CFB_WHO()}. The alerting rules use the reporter only. A missing regression counts as No. Age is whole calendar days from creation.`],
       ["Due soon, example", `due soon starts on day 3, 5, 10 and 21 for SLAs of 3, 7, 14 and 30 days.`],
       ["Holidays", `the list holds ${CFG.HOLIDAYS.length} dates from 2025-06 to ${esc(CFG.holidaysThrough.slice(0, 7))}${M.holidayStale ? "; the as-of date is beyond the list, so later days are not adjusted for holidays" : ""}. Intermediate festival days such as Chol HaMoed are not excluded. Dates are Israel local dates as Jira returns them.`],
