@@ -56,9 +56,14 @@ CFB_LINK_TYPE, CFB_LINK_JQL = "Fixes", 'issueLinkType = "fixes"'                
 BUG_EXCLUDE_JQL = {"WFM": '(issueLinkType is EMPTY OR issueLinkType != "clones")'}      # extra condition on a project's bug pull (owner decision, 2026-11-12): WFM counts its bugs without the ones that have a "clones" link. CXWFM is not WFM and is not touched
 
 
+NO_BUG_PROJECTS = ["WFM"]      # CXone projects that count only through their epics on the CXone releases: their bugs are not read into the CXone data and the Quality section has none (owner decision, 2026-11-16). WFM keeps its own bugs in its own product view
+
+
 def proj_rules(projects) -> dict:
-    """The bug rules a CXone project of its own: {project: {bugClause, cfbLink}}. The page adds them to a link only for that project, so a mixed selection still equals Jira."""
-    return {p: {"bugClause": BUG_EXCLUDE_JQL[p], "cfbLink": CFB_LINK_JQL} for p in projects if p in BUG_EXCLUDE_JQL and p in FIXES_LINK_PRODUCTS}
+    """The bug rules a CXone project of its own: {project: {bugClause, cfbLink, noBugs}}. The page adds them to a link only for that project, so a mixed selection still equals Jira;
+    `noBugs` marks a project whose bugs are not in the data, so the page leaves them out of its Jira links too."""
+    return {p: {"bugClause": BUG_EXCLUDE_JQL[p], "cfbLink": CFB_LINK_JQL, **({"noBugs": True} if p in NO_BUG_PROJECTS else {})}
+            for p in projects if p in BUG_EXCLUDE_JQL and p in FIXES_LINK_PRODUCTS}
 
 
 ALL_RELEASE_PRODUCTS = ["EMOB", "PMSTND"]                                              # these offer every unreleased version in the Release control (the soonest-due one is the default); the others show one running Major
@@ -616,8 +621,9 @@ def rca_flags(texts: dict[str, str]) -> tuple[dict[str, int], int]:
 
 def collect_cfb(j) -> dict:
     """Every CFB (bug reported by the CFB account) of the six projects with its Root Cause Analysis state, plus the open count across ALL projects."""
-    fx = [p for p in PROJECTS if p in FIXES_LINK_PRODUCTS]                          # a project that also counts a Fixes link as customer-found (WFM)
-    jql = f'project in ({pkeys(PROJECTS)}) AND issuetype = Bug AND ({CFB_JQL}' + (f' OR (project in ({pkeys(fx)}) AND {CFB_LINK_JQL}))' if fx else ')')
+    projects = [p for p in PROJECTS if p not in NO_BUG_PROJECTS]                    # WFM's bugs are not part of the CXone data
+    fx = [p for p in projects if p in FIXES_LINK_PRODUCTS]                          # a project that also counts a Fixes link as customer-found
+    jql = f'project in ({pkeys(projects)}) AND issuetype = Bug AND ({CFB_JQL}' + (f' OR (project in ({pkeys(fx)}) AND {CFB_LINK_JQL}))' if fx else ')')
     got = j.search(jql, ["summary", "status", RCA_FIELD, RCA_REVIEW, "issuelinks"])
     texts = {i["key"]: plain_text(i["fields"].get(RCA_FIELD)) for i in got}
     flag, ntemplates = rca_flags(texts)
@@ -840,10 +846,12 @@ def collect_links(j, epics) -> dict:
             "linksPulledAt": dt.datetime.now().astimezone().isoformat(timespec="minutes")}      # per-source stamp: the header shows the oldest source, so a links-only re-pull must not read as older than it is
 
 
-def collect_bugs(j) -> list:
-    """Every Bug of the six projects open, created, resolved or closed since BUG_SINCE, as compact rows (see bug_record)."""
+def collect_bugs(j, skip=()) -> list:
+    """Every Bug of the six projects open, created, resolved or closed since BUG_SINCE, as compact rows (see bug_record). `skip`: projects whose bugs are left out (NO_BUG_PROJECTS for the CXone data)."""
     bugs = []
     for proj in PROJECTS:
+        if proj in skip:
+            continue
         base = (f'project = {pkey(proj)} AND issuetype = Bug AND (created >= "{BUG_SINCE}" '
                 f'OR resolutiondate >= "{BUG_SINCE}" OR cf[10099] >= "{BUG_SINCE}" OR resolution is EMPTY)')
         if proj in BUG_EXCLUDE_JQL:
@@ -1117,7 +1125,7 @@ def timed(name: str, fn, *args):
 
 def pull_bugs(j):
     """The bugs and the time they were read (the page shows it as the age of the bug data)."""
-    bugs = collect_bugs(j)
+    bugs = collect_bugs(j, NO_BUG_PROJECTS)
     return bugs, dt.datetime.now().astimezone().isoformat(timespec="minutes")
 
 
@@ -1281,6 +1289,11 @@ def sandbox_fragment(fragment: str, build: dict) -> str:
     return fragment.replace("<title>Delivery Pulse</title>", "<title>Delivery Pulse Sandbox</title>").replace('<header class="top gutter">', banner + '<header class="top gutter">', 1)
 
 
+def current_bugs(bugs: list) -> list:
+    """The bugs of the current projects, without the projects whose bugs are left out (NO_BUG_PROJECTS): an older pull may still hold the bugs of a project that has since been dropped."""
+    return [b for b in bugs if b["p"] in PROJECTS and b["p"] not in NO_BUG_PROJECTS]
+
+
 def render(data: dict) -> None:
     """The template is a body-only fragment (title, meta, style, markup, script), which is exactly what the
     Artifact tool wants. The standalone file wraps the same fragment in a document and hoists title and meta."""
@@ -1300,7 +1313,8 @@ def render(data: dict) -> None:
     # an older pull may hold projects that have since been dropped from PROJECTS: keep only the current ones
     data["projects"] = PROJECTS
     data["epics"] = [e for e in data["epics"] if e["p"] in PROJECTS]
-    data["bugs"] = [b for b in data["bugs"] if b["p"] in PROJECTS]
+    data["bugs"] = current_bugs(data["bugs"])
+    data["projRules"] = proj_rules(PROJECTS)                          # the rules are code, not data: an older snapshot drawn again gets today's
     fragment = TEMPLATE.read_text(encoding="utf-8")
     payload = json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
     assert fragment.count("/*__DATA__*/null") == 1
