@@ -568,3 +568,51 @@ def test_the_isolated_copy_shares_the_changelog_cache_so_product_epics_are_cache
     c = BD.ChangelogCache(None, NOW_C)
     monkeypatch.setattr(BD, "CHANGELOG_CACHE", c)
     assert BD.isolated_copy().CHANGELOG_CACHE is c
+
+
+# ---- WFM counts on the CXone page through its epics only: no bugs of it in the CXone data (owner decision, 2026-11-16) -------------------------------------------------------
+
+class _Searches:
+    def __init__(self):
+        self.sent = []
+
+    def search(self, jql, fields=None, **k):
+        self.sent.append(jql)
+        return []
+
+
+def test_wfm_is_marked_as_having_no_bugs_on_the_cxone_page():
+    assert BD.NO_BUG_PROJECTS == ["WFM"] and BD.proj_rules(BD.PROJECTS)["WFM"]["noBugs"] is True
+    assert "noBugs" not in BD.proj_rules(["PMN"]).get("PMN", {})
+
+
+def test_the_cxone_bug_pull_skips_wfm_and_the_default_pull_does_not():
+    j = _Searches()
+    BD.collect_bugs(j, BD.NO_BUG_PROJECTS)
+    assert j.sent and all("WFM" not in q.replace("CXWFM", "") for q in j.sent), "no query names WFM"
+    assert any("CXWFM" in q for q in j.sent), "CXWFM (another project) is still read"
+    k = _Searches()
+    BD.collect_bugs(k)
+    assert any(" WFM " in q or q.startswith("project = WFM ") for q in k.sent), "a product run (no skip) reads WFM's own bugs"
+
+
+def test_the_customer_found_bug_pull_leaves_wfm_out():
+    j = _Searches()
+    BD.collect_cfb(j)
+    q = j.sent[0]
+    assert "WFM" not in q.replace("CXWFM", "") and "CXWFM" in q and "clones" not in q and "Fixes" not in q
+
+
+def test_a_product_pull_in_its_isolated_copy_still_reads_the_bugs_of_its_own_project(monkeypatch):
+    mine = BD.isolated_copy()
+    got = {}
+    monkeypatch.setattr(mine, "collect_bugs", lambda j, skip=(): got.setdefault("skip", skip) and [] or [])
+    for name, value in (("pull_epics", []), ("add_changelog", None), ("collect_links", {}), ("planning", {}), ("product_windows", {}), ("derive_windows", [])):
+        monkeypatch.setattr(mine, name, lambda *a, _v=value, **k: _v)
+    mine.collect_product(None, "WFM", {"major": {"name": "9.1"}, "releases": ["9.1"], "candidates": []})
+    assert not got.get("skip"), "the WFM product view keeps WFM's bugs"
+
+
+def test_an_older_snapshot_that_holds_wfm_bugs_loses_them_on_save_and_keeps_the_others():
+    bugs = [{"k": "WFM-1", "p": "WFM"}, {"k": "CXWFM-1", "p": "CXWFM"}, {"k": "PMN-1", "p": "PMN"}, {"k": "OLD-1", "p": "OLD"}]
+    assert [b["k"] for b in BD.current_bugs(bugs)] == ["CXWFM-1", "PMN-1"]

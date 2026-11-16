@@ -1128,7 +1128,7 @@ const doneScope = r => scopeOf(r);
 const cycleOf = e => e.edct;                                  // cycle time is always EDCT, as in the weekly email
 // bugs carry one team (Team Name)
 const bugTeamOk = b => !state.teams.size || state.teams.has(b.tm || NO_TEAM);
-const bugsBase = () => DATA.bugs.filter(b => state.projects.has(b.p) && bugTeamOk(b));
+const bugsBase = () => DATA.bugs.filter(b => state.projects.has(b.p) && !noBugs(b.p) && bugTeamOk(b));
 // The Bugs Backlog section also honours Accessibility Bugs (No = leave them out, Yes = only them, All = both), Priority and CFB; the CFB section does not.
 const backlogBugs = () => bugsBase().filter(b => (state.ax === "all" || (state.ax === "yes") === !!b.ax) && (state.bugPri.size === PRI_ALL.length || state.bugPri.has(b.pr)) &&
   (state.cfb === "all" || (state.cfb === "yes") === !!b.cfb));
@@ -1137,6 +1137,7 @@ const backlogBugs = () => bugsBase().filter(b => (state.ax === "all" || (state.a
 function whyEmpty(kind) {
   const rel = esc(state.release);
   if (!state.projects.size) return "No project is selected. Choose at least one project in the filter bar.";
+  if (kind === "bugs" && [...state.projects].every(noBugs)) return `${[...state.projects].join(", ")} bugs are not part of this page: ${[...state.projects].join(", ")} counts here through its epics on the CXone releases only. Add another project to see bugs.`;
   if (kind === "bugs" && !state.bugPri.size) return "No priority is selected. Choose at least one in the Bugs Backlog filters.";
   if (state.teams.size) {
     const names = [...state.teams].map(esc).join(", "), many = state.teams.size > 1;
@@ -1205,11 +1206,13 @@ const CFB_FIXED_JQL = `(status = Done AND resolution in (Fixed, "Fixed - Config"
 // A customer-found bug (CFB) is a Bug reported by the CFB account OR linked to a Salesforce case (field SF Connection Case Reference). Broader than the alerting rules (reporter only).
 // Bug rules of one project inside the CXone view (WFM: no clones, a Fixes link is customer-found): the collector writes them to DATA.projRules, and a link adds each one for that project only.
 const PROJ_RULES = DATA.projRules || {};
-const cfbFx = () => DATA.cfbLink || Object.entries(PROJ_RULES).filter(([, r]) => r.cfbLink).map(([p, r]) => `(project = ${pkey(p)} AND ${r.cfbLink})`).join(" OR ");
-const notFx = () => DATA.cfbLink ? `(issueLinkType is EMPTY OR issueLinkType != "fixes")` : Object.entries(PROJ_RULES).filter(([, r]) => r.cfbLink).map(([p]) => `(project != ${pkey(p)} OR issueLinkType is EMPTY OR issueLinkType != "fixes")`).join(" AND ");
+const BUG_RULES = Object.entries(PROJ_RULES).filter(([, r]) => !r.noBugs);          // the bug rules that apply to bugs this page holds (a project with noBugs has none)
+const noBugs = p => !!(PROJ_RULES[p] && PROJ_RULES[p].noBugs);          // a project that counts only through its epics (WFM on CXone releases): its bugs are not in the data and not in the Jira links
+const cfbFx = () => DATA.cfbLink || BUG_RULES.filter(([, r]) => r.cfbLink).map(([p, r]) => `(project = ${pkey(p)} AND ${r.cfbLink})`).join(" OR ");
+const notFx = () => DATA.cfbLink ? `(issueLinkType is EMPTY OR issueLinkType != "fixes")` : BUG_RULES.filter(([, r]) => r.cfbLink).map(([p]) => `(project != ${pkey(p)} OR issueLinkType is EMPTY OR issueLinkType != "fixes")`).join(" AND ");
 const CFB_Q = () => `(${cfbFx() ? cfbFx() + " OR " : ""}reporter = ${q(DATA.cfbAccount)} OR cf[10329] is not EMPTY)`;      // a product (WFM, EMOB, EEM, ESP) also counts a bug with a Fixes link as customer-found: DATA.cfbLink is that condition
 const NOT_CFB_Q = () => `(${notFx() ? notFx() + " AND " : ""}reporter != ${q(DATA.cfbAccount)} AND cf[10329] is EMPTY)`;
-const CFB_WHO = () => DATA.cfbLink ? "reported by the CFB account, linked to a Salesforce case, or linked by a Fixes link" : cfbFx() ? `reported by the CFB account or linked to a Salesforce case (${Object.keys(PROJ_RULES).join(", ")}: or linked by a Fixes link)` : "reported by the CFB account or linked to a Salesforce case";
+const CFB_WHO = () => DATA.cfbLink ? "reported by the CFB account, linked to a Salesforce case, or linked by a Fixes link" : cfbFx() ? `reported by the CFB account or linked to a Salesforce case (${BUG_RULES.map(([p]) => p).join(", ")}: or linked by a Fixes link)` : "reported by the CFB account or linked to a Salesforce case";
 // A fixed CFB counts in the period of its Closed date (Israel-local day); a Done CFB without one uses its resolution date.
 const cfbDate = b => b.cl || b.rd;
 // Epics in these Issue Categories do not need a Capability parent, so a missing parent is not flagged for them. The stored spelling is "Maintenance";
@@ -1245,7 +1248,8 @@ function bugTeamClause(teams) {
 // A link whose query carries a broken value (NaN, undefined, an object printed as text) would open an empty or wrong list in Jira: no link is better than a misleading one.
 const BAD_JQL = /\b(?:NaN|undefined)\b|\[object /;
 const href = jql => { if (DATA.bugClause && /issuetype = Bug\b/.test(jql) && !jql.includes(DATA.bugClause)) jql = `${jql} AND ${DATA.bugClause}`;          // a product that leaves some bugs out of its counts (WFM: bugs that clone another) leaves them out of its Jira links too, so the count in Jira equals the count here
-  if (/issuetype = Bug\b/.test(jql)) for (const [p, r] of Object.entries(PROJ_RULES)) if (r.bugClause && new RegExp("project in \\([^)]*\\b" + p + "\\b").test(jql) && !jql.includes(r.bugClause)) jql = `${jql} AND (project != ${pkey(p)} OR ${r.bugClause})`;
+  if (/issuetype = Bug\b/.test(jql)) for (const [p, r] of Object.entries(PROJ_RULES)) if (r.bugClause && !r.noBugs && new RegExp("project in \\([^)]*\\b" + p + "\\b").test(jql) && !jql.includes(r.bugClause)) jql = `${jql} AND (project != ${pkey(p)} OR ${r.bugClause})`;
+  if (/issuetype = Bug\b/.test(jql)) for (const p of Object.keys(PROJ_RULES)) if (noBugs(p) && new RegExp("project in \\([^)]*\\b" + p + "\\b").test(jql) && !jql.includes(`project != ${pkey(p)}`)) jql = `${jql} AND project != ${pkey(p)}`;
   if (BAD_JQL.test(jql)) { try { console.warn("Delivery Pulse: link dropped, the query holds a broken value:", jql.slice(0, 200)); } catch (e) { /* no console */ } return null; } return `${BASE}/issues/?jql=${encodeURIComponent(jql)}`; };
 function jira(o = {}) {
   const projects = o.projects || [...state.projects], commit = o.commit || ALLC;
@@ -2382,7 +2386,7 @@ function renderBugs() {
   legend.innerHTML =
     `<span style="color:#868B97"><i class="box"></i><span style="color:var(--muted)">Created per Week</span></span>` +
     `<span style="color:#009E70"><i class="box"></i><span style="color:var(--muted)">Resolved per Week</span></span>`;
-  cap.textContent = `Weeks start Monday; dashed bars are the running week.`;
+  cap.textContent = `Weeks start Monday; dashed bars are the running week.` + (Object.keys(PROJ_RULES).some(noBugs) ? ` ${Object.keys(PROJ_RULES).filter(noBugs).join(", ")} bugs are not part of this section: ${Object.keys(PROJ_RULES).filter(noBugs).join(", ")} counts here through its epics on the CXone releases only.` : "");
   dataTable("bug-data", "Bugs created, resolved and open per week", ["Week Starting", "Created", "Resolved", "Open at Week End"],
     series.map(s => [shortDate(s.w), tlink(s.created, jiraBugs({extra: rangeJql("created", s.w, s.w + 7 * DAY)}), `${nn(s.created, "bug", "bugs")} created, week of ${shortDate(s.w)}`),
       tlink(s.resolved, jiraBugs({extra: `${rangeJql("resolutiondate", s.w, s.w + 7 * DAY)} AND ${BUG_CLOSED_IN}`}), `${nn(s.resolved, "bug", "bugs")} resolved, week of ${shortDate(s.w)}`), s.open]));
@@ -3299,7 +3303,7 @@ function renderAttention() {
       ["Holidays", `the list holds ${CFG.HOLIDAYS.length} dates from 2025-06 to ${esc(CFG.holidaysThrough.slice(0, 7))}${M.holidayStale ? "; the as-of date is beyond the list, so later days are not adjusted for holidays" : ""}. Intermediate festival days such as Chol HaMoed are not excluded. Dates are Israel local dates as Jira returns them.`],
       ["Hover and trend weeks", `the hover shows both the business days and the calendar days. Trend weeks start on Monday.`],
       ["Dependencies", `Overdue dependencies and Dependency Schedule Gaps use the rules on the Dependencies board. The gap group counts provider epics, with the pair count in the hover text, and agrees with the Schedule Gaps figure there.`],
-      ["Data limits", `The open bug count from ${CFG.backlog.days} days ago is rebuilt from creation and resolution dates, because there is no status history. It can differ slightly if a bug was reopened. Status-since is held only for epics in Validation or In Progress, and Refresh does not update it. Refresh updates due dates, Target Sprints and dependency links. Provider epics that this page does not hold (other projects or releases) may be missing. Bugs have no title in this data, so only their key is shown.${Object.keys(PROJ_RULES).length ? ` ${Object.keys(PROJ_RULES).join(", ")} has its own bug rules (no bugs that clone another; a Fixes link makes a bug customer-found), so Refresh leaves its bugs as of the last build.` : ""} Nothing about these rules is stored between visits: each one is computed from the data this page holds.`],
+      ["Data limits", `The open bug count from ${CFG.backlog.days} days ago is rebuilt from creation and resolution dates, because there is no status history. It can differ slightly if a bug was reopened. Status-since is held only for epics in Validation or In Progress, and Refresh does not update it. Refresh updates due dates, Target Sprints and dependency links. Provider epics that this page does not hold (other projects or releases) may be missing. Bugs have no title in this data, so only their key is shown.${BUG_RULES.length ? ` ${BUG_RULES.map(([p]) => p).join(", ")} has its own bug rules (no bugs that clone another; a Fixes link makes a bug customer-found), so Refresh leaves its bugs as of the last build.` : ""} Nothing about these rules is stored between visits: each one is computed from the data this page holds.`],
       ["What was checked", `${checkedTxt}`]
     ]})}</div></details>`;
   const act = (id) => {
