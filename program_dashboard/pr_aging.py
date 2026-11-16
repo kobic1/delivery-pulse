@@ -32,6 +32,7 @@ MIN_QUOTA = 300                         # stop cleanly under this many remaining
 BOTS = {"dependabot", "renovate", "copilot", "github-actions"}          # login without the [bot] suffix
 SKIP_LABELS = {"do-not-review", "wip"}                                  # a pull request carrying one of these is not waiting for a review
 IL = ZoneInfo("Asia/Jerusalem")
+PUBLIC_REASON = "the GitHub read failed"            # all the page ever says about a failed read: the real reason (GitHub's own message, a status code) goes to the build log only, never into the payload, which the page embeds whole
 
 FIELDS = """number title createdAt updatedAt isDraft reviewDecision headRefName bodyText
   author { __typename login }
@@ -69,9 +70,28 @@ def token() -> str:
     raise PrFeedError("no GitHub token (set NICE_GH_READ_TOKEN)")
 
 
+def refusal(exc: urllib.error.HTTPError) -> tuple[str, int]:
+    """GitHub's own reason for a refusal (its message, short) and how many seconds it asks us to wait (0 when it does not say): the Retry-After header of a secondary rate limit, or
+    the time to the reset of an exhausted hourly limit. Nothing here can hold a token: only the message text GitHub sends back is read."""
+    try:
+        msg = str(json.loads(exc.read() or b"{}").get("message", ""))
+    except (ValueError, AttributeError, OSError):
+        msg = ""
+    h = getattr(exc, "headers", None) or {}
+    wait = 0
+    ra = str(h.get("Retry-After", ""))
+    reset = str(h.get("x-ratelimit-reset", ""))
+    if ra.isdigit():
+        wait = int(ra)
+    elif str(h.get("x-ratelimit-remaining", "")) == "0" and reset.isdigit():
+        wait = max(0, int(reset) - int(time.time())) + 2
+    return " ".join(msg.split())[:80], wait
+
+
 def gql(tok: str, variables: dict, post=None, sleep=time.sleep) -> dict:
-    """One GraphQL call. A 502/503/504 (GitHub timing out on a heavy page) is retried up to three times with a growing pause and a smaller page; a 401/403, a
-    GraphQL error or a rate-limit answer is a PrFeedError at once and is never retried in a loop."""
+    """One GraphQL call. A 502/503/504 (GitHub timing out on a heavy page) is retried up to three times with a growing pause and a smaller page. A 403/429 that asks for a short
+    wait (a secondary rate limit: up to two minutes) is retried after that wait, at most three times; any other refusal is a PrFeedError at once, naming GitHub's own reason (rate limit,
+    access ...) so the page can say why. A GraphQL error is a PrFeedError at once; nothing is retried in a loop."""
     variables = dict(variables)
     for attempt in range(4):
         body = json.dumps({"query": QUERY, "variables": variables}).encode()
@@ -83,6 +103,11 @@ def gql(tok: str, variables: dict, post=None, sleep=time.sleep) -> dict:
         except urllib.error.HTTPError as exc:
             if exc.code in (502, 503, 504) and attempt < 3:
                 sleep(5 * 3 ** attempt); variables["n"] = max(5, variables["n"] // 2); continue
+            if exc.code in (403, 429):
+                why, wait = refusal(exc)
+                if 0 < wait <= 120 and attempt < 3:
+                    sleep(wait); continue
+                raise PrFeedError(f"GitHub answered {exc.code}" + (f": {why}" if why else "") + (f" (asks to wait {wait // 60} min)" if wait > 120 else "")) from None
             raise PrFeedError(f"GitHub answered {exc.code}") from None
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             if attempt < 3:
@@ -257,7 +282,8 @@ def collect(keys, tok: str | None = None, post=None, sleep=time.sleep) -> dict:
         recs, cnt = reduce_nodes(nodes, keys)
         return {"org": ORG, "at": at, "activeDays": ACTIVE_DAYS, "found": len(nodes), "kept": len(recs), **cnt, "list": recs}
     except PrFeedError as exc:
-        return {"org": ORG, "at": at, "unavailable": str(exc)[:120]}
+        print(f"warning: pull requests not read: {exc}", flush=True)        # the owner's build log only: the page gets the generic line
+        return {"org": ORG, "at": at, "unavailable": PUBLIC_REASON}
 
 
 if __name__ == "__main__":
