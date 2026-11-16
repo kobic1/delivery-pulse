@@ -201,7 +201,7 @@ def test_no_query_the_collector_sends_names_the_reserved_key_bare(monkeypatch):
 
     monkeypatch.setenv("JIRA_BASE_URL", "https://example.invalid")
     monkeypatch.setattr(BD.E, "Jira", FakeJira)
-    monkeypatch.setattr(BD.PRA, "collect", lambda keys: {"org": "o", "at": "t", "kept": 0, "noKey": 0, "bots": 0, "activeDays": 14, "list": []})      # never GitHub from a unit test
+    monkeypatch.setattr(BD.PRA, "collect", lambda keys, previous=None: {"org": "o", "at": "t", "kept": 0, "noKey": 0, "bots": 0, "activeDays": 14, "list": []})      # never GitHub from a unit test
     BD.fetch()
     j = FakeJira()
     BD.collect_bug_updates(j, [])
@@ -350,11 +350,11 @@ def test_wfm_is_a_cxone_project_with_its_own_bug_rules_and_cxwfm_has_none():
 
 
 def test_the_pull_request_feed_never_sinks_the_build_and_searches_every_project_and_product_key(monkeypatch):
-    monkeypatch.setattr(BD.PRA, "collect", lambda keys: (_ for _ in ()).throw(RuntimeError("boom")))
+    monkeypatch.setattr(BD.PRA, "collect", lambda keys, previous=None: (_ for _ in ()).throw(RuntimeError("boom")))
     res = BD.collect_prs()
     assert "list" not in res and res["unavailable"] == BD.PRA.PUBLIC_REASON and "boom" not in json.dumps(res) and res["org"]
     seen = []
-    monkeypatch.setattr(BD.PRA, "collect", lambda keys: seen.append(list(keys)) or {"org": "o", "at": "t", "kept": 0, "noKey": 0, "bots": 0, "activeDays": 14, "list": []})
+    monkeypatch.setattr(BD.PRA, "collect", lambda keys, previous=None: seen.append(list(keys)) or {"org": "o", "at": "t", "kept": 0, "noKey": 0, "bots": 0, "activeDays": 14, "list": []})
     class J:
         def search(self, jql, fields):
             return []
@@ -364,10 +364,77 @@ def test_the_pull_request_feed_never_sinks_the_build_and_searches_every_project_
 
 def test_pull_requests_read_but_not_resolved_to_releases_say_so_and_keep_no_working_field(monkeypatch):
     rec = {"r": "a", "n": 1, "t": "x", "ra": "2026-11-01", "up": "2026-11-10", "rv": "none", "ci": "ok", "pj": ["PMN"], "ik": ["PMN-1"]}
-    monkeypatch.setattr(BD.PRA, "collect", lambda keys: {"org": "o", "at": "t", "kept": 1, "noKey": 0, "bots": 0, "activeDays": 14, "list": [dict(rec)]})
+    monkeypatch.setattr(BD.PRA, "collect", lambda keys, previous=None: {"org": "o", "at": "t", "kept": 1, "noKey": 0, "bots": 0, "activeDays": 14, "list": [dict(rec)]})
     class Down:
         def search(self, jql, fields):
             raise RuntimeError("no")
     monkeypatch.setattr(BD.PRA, "release_lookup", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("jira down")))
     res = BD.collect_prs(Down())
     assert res["releasesUnavailable"] == "the Jira release lookup failed" and "jira down" not in json.dumps(res) and res["list"] and all("ik" not in x and "rl" not in x for x in res["list"])
+
+
+def _stub_the_collectors(monkeypatch, order, chain_waits_for=None, fail=None):
+    """Replaces every collector of fetch() by a stub that records its name; the optional event makes one chain step wait until a side collector has started."""
+    import threading
+
+    class J:
+        pass
+
+    monkeypatch.setenv("JIRA_BASE_URL", "https://example.invalid")
+    monkeypatch.setattr(BD.E, "Jira", J)
+    seen = {}
+
+    def stub(name, value=None, started=None, wait=None):
+        def f(*a, **k):
+            order.append(name); seen[name] = (a, k)
+            if started is not None:
+                started.set()
+            if wait is not None:
+                assert wait.wait(5), f"{name} ran before the side collectors started: they are not running beside the chain"
+            if fail == name:
+                raise RuntimeError(f"{name} failed")
+            return value
+        return f
+    prs_started = threading.Event()
+    for name, value in (("pull_epics", [{"k": "PMN-1", "p": "PMN", "fv": ["27.1"]}]), ("collect_bugs", []), ("collect_links", {"capabilities": {}}), ("planning", {}), ("collect_hier", {"hier": {}}),
+                        ("collect_cx_priority", {}), ("collect_nfr", None), ("collect_capabilities", {}), ("collect_cfb", {"c": 1}), ("collect_capitalization", {"z": 1}), ("fetch_windows", {"w": 1}),
+                        ("fetch_products", {"WFM": {}})):
+        monkeypatch.setattr(BD, name, stub(name, value))
+    monkeypatch.setattr(BD, "add_changelog", stub("add_changelog", None, wait=prs_started if chain_waits_for else None))
+    monkeypatch.setattr(BD, "collect_prs", stub("collect_prs", {"org": "o", "list": []}, started=prs_started))
+    return seen
+
+
+def test_the_pulls_that_do_not_depend_on_the_epics_run_beside_the_epic_chain(monkeypatch):
+    order = []
+    seen = _stub_the_collectors(monkeypatch, order, chain_waits_for="collect_prs")
+    data = BD.fetch()                       # add_changelog waits (5 s at most) for the pull request read to have started: it can only have if the two run side by side
+    assert sorted(order) == sorted(set(order)) and len(order) == 14, f"every collector exactly once: {order}"
+    assert data["cfbx"] == {"c": 1} and data["cap"] == {"z": 1} and data["windows"] == {"w": 1} and data["products"] == {"WFM": {}} and data["prs"] == {"org": "o", "list": []}
+    assert data["epics"] == [{"k": "PMN-1", "p": "PMN", "fv": ["27.1"]}]
+
+
+def test_a_failure_in_a_side_pull_still_stops_the_build(monkeypatch):
+    for name in ("collect_cfb", "fetch_products", "collect_prs", "collect_capitalization"):
+        _stub_the_collectors(monkeypatch, [], fail=name)
+        with pytest.raises(RuntimeError, match=f"{name} failed"):
+            BD.fetch()
+
+
+def test_the_earlier_pull_request_list_is_read_from_the_named_file_and_a_bad_file_means_a_full_read(monkeypatch, tmp_path):
+    f = tmp_path / "prev.json"
+    f.write_text(json.dumps({"at": "t", "list": []}))
+    monkeypatch.setenv("PRS_PREVIOUS_FILE", str(f))
+    assert BD.previous_prs() == {"at": "t", "list": []}
+    f.write_text("{not json")
+    assert BD.previous_prs() is None
+    monkeypatch.setenv("PRS_PREVIOUS_FILE", str(tmp_path / "missing.json"))
+    assert BD.previous_prs() is None
+    monkeypatch.delenv("PRS_PREVIOUS_FILE")
+    assert BD.previous_prs() is None
+    order = []
+    f.write_text(json.dumps({"at": "t", "list": []}))
+    monkeypatch.setenv("PRS_PREVIOUS_FILE", str(f))
+    seen = _stub_the_collectors(monkeypatch, order)
+    BD.fetch()
+    assert seen["collect_prs"][0][2] == {"at": "t", "list": []}, "fetch hands the earlier list to the pull request read"
