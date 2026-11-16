@@ -352,7 +352,7 @@ def test_wfm_is_a_cxone_project_with_its_own_bug_rules_and_cxwfm_has_none():
 def test_the_pull_request_feed_never_sinks_the_build_and_searches_every_project_and_product_key(monkeypatch):
     monkeypatch.setattr(BD.PRA, "collect", lambda keys: (_ for _ in ()).throw(RuntimeError("boom")))
     res = BD.collect_prs()
-    assert "list" not in res and res["unavailable"].startswith("RuntimeError") and res["org"]
+    assert "list" not in res and res["unavailable"] == BD.PRA.PUBLIC_REASON and "boom" not in json.dumps(res) and res["org"]
     seen = []
     monkeypatch.setattr(BD.PRA, "collect", lambda keys: seen.append(list(keys)) or {"org": "o", "at": "t", "kept": 0, "noKey": 0, "bots": 0, "activeDays": 14, "list": []})
     class J:
@@ -370,4 +370,4 @@ def test_pull_requests_read_but_not_resolved_to_releases_say_so_and_keep_no_work
             raise RuntimeError("no")
     monkeypatch.setattr(BD.PRA, "release_lookup", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("jira down")))
     res = BD.collect_prs(Down())
-    assert res["releasesUnavailable"].startswith("RuntimeError") and res["list"] and all("ik" not in x and "rl" not in x for x in res["list"])
+    assert res["releasesUnavailable"] == "the Jira release lookup failed" and "jira down" not in json.dumps(res) and res["list"] and all("ik" not in x and "rl" not in x for x in res["list"])

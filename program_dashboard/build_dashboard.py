@@ -996,9 +996,10 @@ def collect_prs(j=None, epics=None) -> dict:
     try:
         res = PRA.collect(PROJECTS + PRODUCTS)
     except Exception as exc:
-        res = {"org": PRA.ORG, "at": dt.datetime.now().astimezone().isoformat(timespec="minutes"), "unavailable": f"{type(exc).__name__}: {str(exc)[:80]}"}
+        print(f"warning: pull requests not read: {type(exc).__name__}: {str(exc)[:200]}", flush=True)       # the build log only
+        res = {"org": PRA.ORG, "at": dt.datetime.now().astimezone().isoformat(timespec="minutes"), "unavailable": PRA.PUBLIC_REASON}
     if res.get("unavailable"):
-        print(f"warning: pull requests not read: {res['unavailable']}", flush=True)
+        print("warning: pull requests not read (the reason is in the log lines above; the page says only that the read failed)", flush=True)
         return res
     try:
         known = {e["k"]: e.get("fv") or [] for e in epics or []}
@@ -1008,8 +1009,8 @@ def collect_prs(j=None, epics=None) -> dict:
     except Exception as exc:
         for x in res.get("list", []):
             x.pop("ik", None)
-        res["releasesUnavailable"] = f"{type(exc).__name__}: {str(exc)[:80]}"
-        print(f"warning: pull request releases not resolved: {res['releasesUnavailable']}", flush=True)
+        print(f"warning: pull request releases not resolved: {type(exc).__name__}: {str(exc)[:200]}", flush=True)     # the build log only
+        res["releasesUnavailable"] = "the Jira release lookup failed"
     return res
 
 

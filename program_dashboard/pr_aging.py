@@ -32,6 +32,7 @@ MIN_QUOTA = 300                         # stop cleanly under this many remaining
 BOTS = {"dependabot", "renovate", "copilot", "github-actions"}          # login without the [bot] suffix
 SKIP_LABELS = {"do-not-review", "wip"}                                  # a pull request carrying one of these is not waiting for a review
 IL = ZoneInfo("Asia/Jerusalem")
+PUBLIC_REASON = "the GitHub read failed"            # all the page ever says about a failed read: the real reason (GitHub's own message, a status code) goes to the build log only, never into the payload, which the page embeds whole
 
 FIELDS = """number title createdAt updatedAt isDraft reviewDecision headRefName bodyText
   author { __typename login }
@@ -281,7 +282,8 @@ def collect(keys, tok: str | None = None, post=None, sleep=time.sleep) -> dict:
         recs, cnt = reduce_nodes(nodes, keys)
         return {"org": ORG, "at": at, "activeDays": ACTIVE_DAYS, "found": len(nodes), "kept": len(recs), **cnt, "list": recs}
     except PrFeedError as exc:
-        return {"org": ORG, "at": at, "unavailable": str(exc)[:120]}
+        print(f"warning: pull requests not read: {exc}", flush=True)        # the owner's build log only: the page gets the generic line
+        return {"org": ORG, "at": at, "unavailable": PUBLIC_REASON}
 
 
 if __name__ == "__main__":

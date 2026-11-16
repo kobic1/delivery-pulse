@@ -145,9 +145,9 @@ def test_collect_says_why_when_it_cannot_read_and_never_returns_an_empty_list_fo
     monkeypatch.setattr(P.shutil, "which", lambda x: None)
     monkeypatch.setattr(P.os.path, "expanduser", lambda x: "/nonexistent/gh")
     res = P.collect(KEYS)
-    assert "list" not in res and res["unavailable"].startswith("no GitHub token")
+    assert "list" not in res and res["unavailable"] == P.PUBLIC_REASON and "no GitHub token" not in json.dumps(res)
     res = P.collect(KEYS, tok="t", post=Fake({}, fail=[401]), sleep=lambda s: None)
-    assert "list" not in res and res["unavailable"] == "GitHub answered 401"
+    assert "list" not in res and res["unavailable"] == P.PUBLIC_REASON and "401" not in json.dumps(res)
 
 
 def test_collect_returns_the_records_the_counts_and_the_activity_window():
@@ -233,3 +233,10 @@ def test_a_refusal_names_githubs_own_reason_and_a_short_secondary_limit_wait_is_
     with pytest.raises(P.PrFeedError, match=r"^GitHub answered 403$"):
         P.gql("t", q, Fake({}, fail=[403]), sleep=slept.append)
     assert slept == [7, 9]
+
+
+def test_the_reason_of_a_failed_read_goes_to_the_log_and_never_into_the_payload(capsys):
+    res = P.collect(KEYS, tok="t", post=Fake({}, fail=[(403, "API rate limit exceeded for user ID 42.", {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(int(__import__("time").time()) + 1800)})]), sleep=lambda s: None)
+    assert res["unavailable"] == "the GitHub read failed" and "rate limit" not in json.dumps(res) and "403" not in json.dumps(res)
+    out = capsys.readouterr().out
+    assert "warning: pull requests not read: GitHub answered 403: API rate limit exceeded for user ID 42. (asks to wait 30 min)" in out
