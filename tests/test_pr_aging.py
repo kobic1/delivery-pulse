@@ -62,15 +62,16 @@ def test_review_and_check_states_and_no_person_is_held():
 
 
 class Fake:
-    """GitHub's GraphQL endpoint: searches answer by query text from `table` {substring: [nodes]}; `fail` is a list of HTTP codes to answer first."""
+    """GitHub's GraphQL endpoint: searches answer by query text from `table` {substring: [nodes]}; `fail` is a list of HTTP codes to answer first, or of (code, message, headers)."""
     def __init__(self, table, fail=(), remaining=4000, count_override=None):
         self.table, self.fail, self.remaining, self.calls, self.override = table, list(fail), remaining, [], count_override or {}
 
     def __call__(self, req, timeout=0):
         body = json.loads(req.data)
         if self.fail:
-            code = self.fail.pop(0)
-            raise urllib.error.HTTPError("u", code, "x", {}, io.BytesIO(b""))
+            f = self.fail.pop(0)
+            code, msg, hdrs = f if isinstance(f, tuple) else (f, "", {})
+            raise urllib.error.HTTPError("u", code, "x", hdrs, io.BytesIO(json.dumps({"message": msg}).encode() if msg else b""))
         v = body["variables"]; self.calls.append(v)
         nodes = next((x for k, x in self.table.items() if k in v["q"]), [])
         total = self.override.get(v["q"], len(nodes))
@@ -212,3 +213,23 @@ def test_a_jira_failure_is_a_failure_of_the_lookup_the_collector_turns_into_a_no
         raise RuntimeError("jira down")
     rel, unknown = P.release_lookup(down, ["PMN-1", "PMN-2"])
     assert unknown == 2 and rel == {"PMN-1": set(), "PMN-2": set()}
+
+
+def test_a_refusal_names_githubs_own_reason_and_a_short_secondary_limit_wait_is_retried():
+    q = {"q": "x", "after": None, "n": 20}
+    with pytest.raises(P.PrFeedError, match=r"403: Resource not accessible by personal access token"):
+        P.gql("t", q, Fake({}, fail=[(403, "Resource not accessible by personal access token", {})]), sleep=lambda s: None)
+    slept = []
+    ok = Fake({" PMN in:": [node(1)]}, fail=[(403, "You have exceeded a secondary rate limit.", {"Retry-After": "7"}), (403, "You have exceeded a secondary rate limit.", {"Retry-After": "9"})])
+    d = P.gql("t", {"q": "x PMN in:title", "after": None, "n": 20}, ok, sleep=slept.append)
+    assert slept == [7, 9] and d["search"]["issueCount"] == 1
+    far = {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(int(__import__("time").time()) + 1800)}
+    with pytest.raises(P.PrFeedError, match=r"429: API rate limit exceeded for user ID \d+\. \(asks to wait 30 min\)"):
+        P.gql("t", q, Fake({}, fail=[(429, "API rate limit exceeded for user ID 42.", far)]), sleep=lambda s: None)
+    with pytest.raises(P.PrFeedError) as e:
+        P.gql("t", q, Fake({}, fail=[(403, "x" * 500, {})]), sleep=lambda s: None)
+    assert len(str(e.value)) < 120 and "ghp_" not in str(e.value)
+    assert [s for s in slept] == [7, 9], "a refusal with no wait is never slept on"
+    with pytest.raises(P.PrFeedError, match=r"^GitHub answered 403$"):
+        P.gql("t", q, Fake({}, fail=[403]), sleep=slept.append)
+    assert slept == [7, 9]
