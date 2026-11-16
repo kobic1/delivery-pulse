@@ -32,6 +32,9 @@ MIN_QUOTA = 300                         # stop cleanly under this many remaining
 BOTS = {"dependabot", "renovate", "copilot", "github-actions"}          # login without the [bot] suffix
 SKIP_LABELS = {"do-not-review", "wip"}                                  # a pull request carrying one of these is not waiting for a review
 IL = ZoneInfo("Asia/Jerusalem")
+MAX_WAIT = 600                          # owner decision 2026-11-16: a refusal that asks for a wait (a secondary rate limit) is waited out up to 10 minutes
+WAIT_BUDGET = 900                       # all the waiting of one read together (the build job has 60 minutes and the read itself takes about 4)
+_waited = [0]                           # seconds waited so far in this read; collect() sets it back to 0
 PUBLIC_REASON = "the GitHub read failed"            # all the page ever says about a failed read: the real reason (GitHub's own message, a status code) goes to the build log only, never into the payload, which the page embeds whole
 
 FIELDS = """number title createdAt updatedAt isDraft reviewDecision headRefName bodyText
@@ -89,8 +92,8 @@ def refusal(exc: urllib.error.HTTPError) -> tuple[str, int]:
 
 
 def gql(tok: str, variables: dict, post=None, sleep=time.sleep) -> dict:
-    """One GraphQL call. A 502/503/504 (GitHub timing out on a heavy page) is retried up to three times with a growing pause and a smaller page. A 403/429 that asks for a short
-    wait (a secondary rate limit: up to two minutes) is retried after that wait, at most three times; any other refusal is a PrFeedError at once, naming GitHub's own reason (rate limit,
+    """One GraphQL call. A 502/503/504 (GitHub timing out on a heavy page) is retried up to three times with a growing pause and a smaller page. A 403/429 that asks for a
+    wait (a secondary rate limit: up to MAX_WAIT seconds, 10 minutes) is retried after that wait, at most three times and at most WAIT_BUDGET seconds of waiting in one read; any other refusal is a PrFeedError at once, naming GitHub's own reason (rate limit,
     access ...) so the page can say why. A GraphQL error is a PrFeedError at once; nothing is retried in a loop."""
     variables = dict(variables)
     for attempt in range(4):
@@ -105,9 +108,11 @@ def gql(tok: str, variables: dict, post=None, sleep=time.sleep) -> dict:
                 sleep(5 * 3 ** attempt); variables["n"] = max(5, variables["n"] // 2); continue
             if exc.code in (403, 429):
                 why, wait = refusal(exc)
-                if 0 < wait <= 120 and attempt < 3:
+                if 0 < wait <= MAX_WAIT and attempt < 3 and _waited[0] + wait <= WAIT_BUDGET:
+                    _waited[0] += wait
+                    print(f"GitHub asks to wait {wait} s ({why or 'rate limit'}): waiting", flush=True)
                     sleep(wait); continue
-                raise PrFeedError(f"GitHub answered {exc.code}" + (f": {why}" if why else "") + (f" (asks to wait {wait // 60} min)" if wait > 120 else "")) from None
+                raise PrFeedError(f"GitHub answered {exc.code}" + (f": {why}" if why else "") + (f" (asks to wait {wait // 60} min)" if wait >= 60 else f" (asks to wait {wait} s)" if wait else "")) from None
             raise PrFeedError(f"GitHub answered {exc.code}") from None
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             if attempt < 3:
@@ -277,6 +282,7 @@ def collect(keys, tok: str | None = None, post=None, sleep=time.sleep) -> dict:
     """The payload section DATA.prs: the records, how many were found and dropped (so the page can show what it did not check), and when. On any failure the section
     carries `unavailable` instead of a list: the page then says the pull requests were not checked, never that nothing is waiting."""
     at = dt.datetime.now().astimezone().isoformat(timespec="minutes")
+    _waited[0] = 0
     try:
         nodes, found = fetch_nodes(tok or token(), keys, post=post, sleep=sleep)
         recs, cnt = reduce_nodes(nodes, keys)
