@@ -215,6 +215,13 @@ def test_a_jira_failure_is_a_failure_of_the_lookup_the_collector_turns_into_a_no
     assert unknown == 2 and rel == {"PMN-1": set(), "PMN-2": set()}
 
 
+@pytest.fixture(autouse=True)
+def _no_waiting_left_over():
+    P._waited[0] = 0
+    yield
+    P._waited[0] = 0
+
+
 def test_a_refusal_names_githubs_own_reason_and_a_short_secondary_limit_wait_is_retried():
     q = {"q": "x", "after": None, "n": 20}
     with pytest.raises(P.PrFeedError, match=r"403: Resource not accessible by personal access token"):
@@ -240,3 +247,27 @@ def test_the_reason_of_a_failed_read_goes_to_the_log_and_never_into_the_payload(
     assert res["unavailable"] == "the GitHub read failed" and "rate limit" not in json.dumps(res) and "403" not in json.dumps(res)
     out = capsys.readouterr().out
     assert "warning: pull requests not read: GitHub answered 403: API rate limit exceeded for user ID 42. (asks to wait 30 min)" in out
+
+
+def test_a_secondary_limit_asking_five_minutes_is_waited_out_and_one_asking_longer_than_ten_is_not():
+    msg = "You have exceeded a secondary rate limit."
+    slept = []
+    ok = Fake({" PMN in:": [node(1)]}, fail=[(403, msg, {"Retry-After": "300"})])
+    d = P.gql("t", {"q": "x PMN in:title", "after": None, "n": 20}, ok, sleep=slept.append)
+    assert slept == [300] and d["search"]["issueCount"] == 1
+    P._waited[0] = 0
+    with pytest.raises(P.PrFeedError, match=r"403: .* \(asks to wait 10 min\)$|403: .* \(asks to wait 11 min\)$"):
+        P.gql("t", {"q": "x", "after": None, "n": 20}, Fake({}, fail=[(403, msg, {"Retry-After": "601"})]), sleep=slept.append)
+    assert slept == [300], "a request for more than 10 minutes was slept on"
+
+
+def test_all_the_waiting_of_one_read_is_capped_so_a_build_never_sits_idle_for_an_hour():
+    msg = "You have exceeded a secondary rate limit."
+    slept = []
+    P._waited[0] = 0
+    fail = [(403, msg, {"Retry-After": "500"}), (403, msg, {"Retry-After": "500"})]
+    with pytest.raises(P.PrFeedError, match="403"):
+        P.gql("t", {"q": "x", "after": None, "n": 20}, Fake({}, fail=fail), sleep=slept.append)
+    assert slept == [500] and P._waited[0] == 500, "the second wait would have brought the read past 900 s in total"
+    P.collect(KEYS, tok="t", post=Fake({}), sleep=lambda s: None)
+    assert P._waited[0] == 0, "collect() starts every read with a fresh budget"
