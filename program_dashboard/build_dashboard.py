@@ -742,9 +742,16 @@ def collect_story_links(j, epics) -> dict:
     Kept apart from the epic board: sdeps = [dependent, provider, "D"/"B"/"DB", [parent epics of the ends]]; sinfo = status, project and type of each end."""
     keys = sorted(e["k"] for e in epics)
     pairs, info = {}, {}
-    for n in range(0, len(keys), 80):
-        for i in j.search(f'parent in ({", ".join(keys[n:n + 80])}) AND status != Removed AND issueLinkType in ({", ".join(sorted(DEP_TYPES))})',
-                          ["issuelinks", "status", "issuetype", "parent"]):
+    chunks = [keys[n:n + 80] for n in range(0, len(keys), 80)]
+
+    def read(chunk):
+        return j.search(f'parent in ({", ".join(chunk)}) AND status != Removed AND issueLinkType in ({", ".join(sorted(DEP_TYPES))})',
+                        ["issuelinks", "status", "issuetype", "parent"])
+
+    with ThreadPoolExecutor(max_workers=4) as pool:                 # the reads are independent; they are merged below in key order, so the result is the same as one read after another
+        pages = list(pool.map(read, chunks))
+    for n, page in enumerate(pages):
+        for i in page:
             f = i["fields"]
             pe = (f.get("parent") or {}).get("key")
             info[i["key"]] = {"s": (f.get("status") or {}).get("name"), "ty": (f.get("issuetype") or {}).get("name"), "par": pe}
@@ -761,8 +768,6 @@ def collect_story_links(j, epics) -> dict:
                 rec["t"].add("D" if t == "Dependency" else "B")
                 if pe:
                     rec["pe"].add(pe)
-        if (n // 80) % 10 == 9:
-            print(f"  story-level links: {min(n + 80, len(keys))}/{len(keys)} epics read", flush=True)
     sdeps = sorted([d, p, "".join(c for c in "DB" if c in rec["t"]), sorted(rec["pe"])] for (d, p), rec in pairs.items())
     print(f"story-level links: {len(sdeps)} pairs under {len({pe for r in sdeps for pe in r[3]})} epics", flush=True)
     return {"sdeps": sdeps, "sinfo": info}
@@ -859,7 +864,7 @@ def pull_epics(j) -> list:
     for proj in PROJECTS:
         jql = (f'project = {pkey(proj)} AND issuetype = Epic AND status != Removed '
                f'AND fixVersion in ({quoted})')
-        got = j.search(jql, FIELDS)
+        got = j.search(jql, FIELDS + ["updated"])
         print(f"{proj}: {len(got)} epics", flush=True)
         for i in got:
             f = i["fields"]
@@ -879,31 +884,97 @@ def pull_epics(j) -> list:
                 "m": val(f.get("customfield_15264")),
                 "rd": resolved, "cr": (f.get("created") or "")[:10],
                 "cat": val(f.get("customfield_10139")),
+                "_u": f.get("updated"),                          # transient: the key of the changelog cache, removed by add_changelog
             })
     return epics
 
 
+CHANGELOG_CACHE_VERSION = 1           # bump when analyse() changes what it returns: an older cache is then ignored
+CHANGELOG_CACHE_HOURS = 24            # a cache older than this is ignored (one full read a day, the same rhythm as the pull request feed)
+CHANGELOG_CACHE_OUT = HERE / "build" / "changelog_cache.json"
+
+
+class ChangelogCache:
+    """What analyse() returned for each epic, keyed by the epic's `updated` stamp. An epic whose stamp is unchanged has the same changelog and the same fields, so its result is
+    reused; anything else (new epic, any edit, a missing stamp, an older cache version, a cache older than CHANGELOG_CACHE_HOURS) is read again. Holds no person and no secret."""
+
+    def __init__(self, previous: dict | None = None, now: dt.datetime | None = None):
+        self.now = now or dt.datetime.now().astimezone()
+        self.old, self.new, self.hits, self.lock = {}, {}, 0, __import__("threading").Lock()
+        self.full_at = self.now.isoformat(timespec="minutes")
+        try:
+            if previous and previous.get("v") == CHANGELOG_CACHE_VERSION and isinstance(previous.get("entries"), dict):
+                at = dt.datetime.fromisoformat(previous["fullAt"])
+                if at.tzinfo is None:
+                    at = at.replace(tzinfo=dt.timezone.utc)
+                age = (self.now - at).total_seconds() / 3600
+                if -1 <= age <= CHANGELOG_CACHE_HOURS:
+                    self.old, self.full_at = previous["entries"], previous["fullAt"]
+        except (ValueError, KeyError, TypeError):
+            self.old = {}
+
+    def get(self, key: str, updated: str | None):
+        hit = self.old.get(key) if updated else None
+        if hit and hit.get("u") == updated and isinstance(hit.get("m"), dict):
+            with self.lock:
+                self.hits += 1
+                self.new[key] = hit
+            return hit["m"]
+        return None
+
+    def put(self, key: str, updated: str | None, m: dict) -> None:
+        if updated and "error" not in m:
+            with self.lock:
+                self.new[key] = {"u": updated, "m": m}
+
+    def dump(self) -> dict:
+        return {"v": CHANGELOG_CACHE_VERSION, "fullAt": self.full_at, "entries": self.new}
+
+
+CHANGELOG_CACHE: ChangelogCache | None = None        # set by fetch(); None means every changelog is read
+
+
+def previous_changelog_cache() -> dict | None:
+    """The cache of the last good build, from the file named by CHANGELOG_CACHE_FILE (the scheduled build keeps it between runs). Never raises: no file or an unreadable one means a full read."""
+    path = os.environ.get("CHANGELOG_CACHE_FILE", "").strip()
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8")) if path and Path(path).is_file() else None
+    except (OSError, ValueError):
+        return None
+
+
 def add_changelog(j, epics) -> None:
-    """Cycle time and the release join dates of every epic (one changelog request each)."""
-    print(f"reading the changelog of {len(epics)} epics (cycle time + release join dates) ...", flush=True)
+    """Cycle time and the release join dates of every epic (one changelog request each, except for epics whose `updated` stamp is unchanged since the cached read)."""
+    cache = CHANGELOG_CACHE
+    results, todo = {}, []
+    for e in epics:
+        m = cache.get(e["k"], e.get("_u")) if cache else None
+        if m is not None:
+            results[e["k"]] = m
+        else:
+            todo.append(e)
+    print(f"reading the changelog of {len(todo)} epics (cycle time + release join dates); {len(results)} unchanged since the cached read ...", flush=True)
 
     def work(e):
         try:
-            return e["k"], analyse(j, e)
+            m = analyse(j, e)
+            if cache:
+                cache.put(e["k"], e.get("_u"), m)
+            return e["k"], m
         except Exception as exc:                                  # one bad epic must not sink the build
             return e["k"], {"error": str(exc)[:80]}
 
-    results = {}
     with ThreadPoolExecutor(max_workers=6) as pool:
-        for n, (k, m) in enumerate(pool.map(work, epics), 1):
+        for n, (k, m) in enumerate(pool.map(work, todo), 1):
             results[k] = m
             if n % 200 == 0:
-                print(f"  {n}/{len(epics)}", flush=True)
+                print(f"  {n}/{len(todo)}", flush=True)
     errors = [k for k, m in results.items() if "error" in m]
     drift = [k for k, m in results.items() if "edct" in m and m["edct"] != m["pipeline_edct"]]
-    print(f"changelogs done: {len(results) - len(errors)} ok, {len(errors)} errors, "
+    print(f"changelogs done: {len(results) - len(errors)} ok ({len(results) - len(todo)} from the cache), {len(errors)} errors, "
           f"{len(drift)} cycle times differ from the email pipeline's EDCT", flush=True)
     for e in epics:
+        e.pop("_u", None)
         m = results.get(e["k"])
         if m and "error" not in m:
             e["ad"] = m["ad"]
@@ -968,8 +1039,21 @@ def collect_product(j, project: str, resolution: dict) -> dict:
         PROJECTS, RELEASES, CURRENT_RELEASE, PROVISIONAL = saved
 
 
+def isolated_copy():
+    """A second copy of this module with globals of its own. collect_product swaps PROJECTS, RELEASES, CURRENT_RELEASE and PROVISIONAL for the length of a product pull; run in this
+    module while the CXone pulls read the same names beside it, it would hand them a product's projects and releases (seen: the capitalization section labelled with one product's project,
+    the pod labels of the CXone epics not read). The product pulls run in this copy instead, so nothing is shared."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("build_dashboard_isolated", Path(__file__).resolve())
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    mod.CHANGELOG_CACHE = CHANGELOG_CACHE
+    return mod
+
+
 def fetch_products(j) -> dict:
     """Resolve the running Major / Minor / Future of every product, then pull the ones that have a Major. A product that fails is left out with the reason: it never sinks the build."""
+    mine = isolated_copy()
     rd = PR.Reader.from_session(j.s, j.base)
     overrides, today, out = load_overrides(), dt.date.today(), {}
     for proj in PRODUCTS:
@@ -982,7 +1066,7 @@ def fetch_products(j) -> dict:
                 out[proj] = {"project": proj, "resolution": res, "unavailable": "no running Major"}
                 continue
             print(f"{proj}: Major {res['major']['name']} ({res['major']['confidence']}), Minor {(res['minor'] or {}).get('name')}, Future {(res['future'] or {}).get('name')}", flush=True)
-            out[proj] = collect_product(j, proj, res)
+            out[proj] = mine.collect_product(j, proj, res)
         except Exception as exc:                                  # one product failing must not sink the others or the CXone build
             print(f"warning: product {proj} not built: {str(exc)[:160]}", flush=True)
             out[proj] = {"project": proj, "unavailable": str(exc)[:120]}
@@ -1031,17 +1115,24 @@ def timed(name: str, fn, *args):
     return out
 
 
+def pull_bugs(j):
+    """The bugs and the time they were read (the page shows it as the age of the bug data)."""
+    bugs = collect_bugs(j)
+    return bugs, dt.datetime.now().astimezone().isoformat(timespec="minutes")
+
+
 def fetch() -> dict:
+    global CHANGELOG_CACHE
     j = E.Jira()
+    CHANGELOG_CACHE = ChangelogCache(previous_changelog_cache())
     epics = timed("epics", pull_epics, j)
 
-    bugs = timed("bugs", collect_bugs, j)
-    bugs_at = dt.datetime.now().astimezone().isoformat(timespec="minutes")
-
-    # Five pulls do not depend on the epic chain below (changelogs, links, planning, hierarchy, capabilities): they run beside it instead of after it. The pull request read only
-    # looks at the keys and release names of the epics, which the chain never changes. A failure in any of them stops the build, as before; the pool is always joined first.
+    # Six pulls do not depend on the epic chain below (changelogs, links, planning, hierarchy, capabilities): they run beside it instead of after it. The pull request read only
+    # looks at the keys and release names of the epics, which the chain never changes; the bugs are needed once, by `planning`, which waits for them. A failure in any of them
+    # stops the build, as before; the pool is always joined first.
     previous = previous_prs()
-    with ThreadPoolExecutor(max_workers=5) as side:
+    with ThreadPoolExecutor(max_workers=6) as side:
+        f_bugs = side.submit(timed, "bugs", pull_bugs, j)
         f_cfb = side.submit(timed, "cfb", collect_cfb, j)
         f_capz = side.submit(timed, "capitalization", collect_capitalization, j)
         f_win = side.submit(timed, "windows", fetch_windows, j)
@@ -1050,12 +1141,17 @@ def fetch() -> dict:
 
         timed("changelogs", add_changelog, j, epics)
         links = timed("links", collect_links, j, epics)
+        bugs, bugs_at = f_bugs.result()
         plan = timed("planning", planning, j, epics, bugs, links)
         plan.update(timed("hierarchy", collect_hier, j, epics, links["capabilities"]))
         plan.update(timed("cx priority", collect_cx_priority, j, plan["hier"]))
         timed("nfr", collect_nfr, j, epics)
         capx = timed("capabilities", collect_capabilities, j, {e["cp"] for e in epics if e.get("cp")})
         cfbx, capz, windows, products, prs = f_cfb.result(), f_capz.result(), f_win.result(), f_prod.result(), f_prs.result()
+    if CHANGELOG_CACHE.new:
+        CHANGELOG_CACHE_OUT.parent.mkdir(parents=True, exist_ok=True)
+        CHANGELOG_CACHE_OUT.write_text(json.dumps(CHANGELOG_CACHE.dump(), separators=(",", ":")), encoding="utf-8")
+        print(f"changelog cache: {len(CHANGELOG_CACHE.new)} epics kept for the next build ({CHANGELOG_CACHE.hits} reused in this one)", flush=True)
     return {"cfbx": cfbx, "cap": capz, **capx, "generated": dt.datetime.now().astimezone().isoformat(timespec="minutes"), **links, **plan,
             "jiraBase": os.environ["JIRA_BASE_URL"].rstrip("/"),
             "projects": PROJECTS, "releases": RELEASES, "current": CURRENT_RELEASE, "projRules": proj_rules(PROJECTS),

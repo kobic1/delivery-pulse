@@ -438,3 +438,133 @@ def test_the_earlier_pull_request_list_is_read_from_the_named_file_and_a_bad_fil
     seen = _stub_the_collectors(monkeypatch, order)
     BD.fetch()
     assert seen["collect_prs"][0][2] == {"at": "t", "list": []}, "fetch hands the earlier list to the pull request read"
+
+
+# ---- the changelog cache and the parallel story-link read (faster epic chain) ----------------------------------------------------------------------------------------------------
+
+NOW_C = dt.datetime(2026, 11, 16, 12, 0, tzinfo=dt.timezone.utc)
+
+
+def _cached(entries, at="2026-11-16T08:00+00:00", v=None):
+    return {"v": BD.CHANGELOG_CACHE_VERSION if v is None else v, "fullAt": at, "entries": entries}
+
+
+def test_a_cached_changelog_is_reused_only_when_the_epics_updated_stamp_is_unchanged():
+    c = BD.ChangelogCache(_cached({"A-1": {"u": "s1", "m": {"ad": {"27.1": "2026-01-01"}}}}), NOW_C)
+    assert c.get("A-1", "s1") == {"ad": {"27.1": "2026-01-01"}} and c.hits == 1
+    assert c.get("A-1", "s2") is None and c.get("A-1", None) is None and c.get("A-2", "s1") is None
+
+
+def test_a_cache_of_another_version_or_older_than_a_day_or_unreadable_is_ignored_and_a_young_one_keeps_its_time():
+    e = {"A-1": {"u": "s", "m": {"ad": {}}}}
+    assert BD.ChangelogCache(_cached(e, v=0), NOW_C).get("A-1", "s") is None
+    assert BD.ChangelogCache(_cached(e, at="2026-11-15T11:59+00:00"), NOW_C).get("A-1", "s") is None
+    assert BD.ChangelogCache(_cached(e, at="not a time"), NOW_C).get("A-1", "s") is None
+    assert BD.ChangelogCache({"v": BD.CHANGELOG_CACHE_VERSION}, NOW_C).get("A-1", "s") is None and BD.ChangelogCache(None, NOW_C).get("A-1", "s") is None
+    young = BD.ChangelogCache(_cached(e, at="2026-11-15T12:30+00:00"), NOW_C)
+    assert young.get("A-1", "s") is not None and young.dump()["fullAt"] == "2026-11-15T12:30+00:00"      # the chain stops 24 hours after the last full read
+    assert BD.ChangelogCache(None, NOW_C).dump()["fullAt"].startswith("2026-11-16T12:00")
+
+
+def test_add_changelog_reads_only_the_epics_that_changed_and_gives_the_same_epics_as_a_full_read(monkeypatch):
+    reads = []
+
+    def fake(j, e):
+        reads.append(e["k"])
+        return {"ad": {r: e["cr"] for r in e["fv"]}, "ip": 2, "vl": 1, "edct": 3, "pipeline_edct": 3, "cal": 4} if e["s"] == "Done" else {"ad": {r: e["cr"] for r in e["fv"]}}
+    monkeypatch.setattr(BD, "analyse", fake)
+
+    def epics():
+        return [{"k": "A-1", "s": "Done", "rd": "2026-02-01", "cr": "2026-01-01", "fv": ["27.1"], "_u": "u1"},
+                {"k": "A-2", "s": "In Progress", "rd": None, "cr": "2026-01-02", "fv": ["27.1"], "_u": "u2"},
+                {"k": "A-3", "s": "In Progress", "rd": None, "cr": "2026-01-03", "fv": ["27.2"], "_u": None}]
+    monkeypatch.setattr(BD, "CHANGELOG_CACHE", None)
+    full = epics()
+    BD.add_changelog(None, full)
+    assert reads == ["A-1", "A-2", "A-3"] and all("_u" not in e for e in full), "no cache: every changelog is read, and the transient stamp never reaches the payload"
+    first = BD.ChangelogCache(None, NOW_C)
+    monkeypatch.setattr(BD, "CHANGELOG_CACHE", first)
+    reads.clear(); BD.add_changelog(None, epics())
+    second = BD.ChangelogCache(first.dump(), NOW_C)
+    monkeypatch.setattr(BD, "CHANGELOG_CACHE", second)
+    reads.clear()
+    again = epics(); again[1]["_u"] = "u2-edited"                   # A-2 was edited; A-3 has no stamp, so it is never cached
+    BD.add_changelog(None, again)
+    assert sorted(reads) == ["A-2", "A-3"] and second.hits == 1
+    expected = epics(); BD.CHANGELOG_CACHE = None; BD.add_changelog(None, expected)
+    assert again == expected, "the epics are the same with the cache as without it"
+    assert set(second.dump()["entries"]) == {"A-1", "A-2"}
+
+
+def test_a_failed_changelog_read_is_not_cached(monkeypatch):
+    def boom(j, e):
+        raise RuntimeError("503")
+    monkeypatch.setattr(BD, "analyse", boom)
+    c = BD.ChangelogCache(None, NOW_C)
+    monkeypatch.setattr(BD, "CHANGELOG_CACHE", c)
+    BD.add_changelog(None, [{"k": "A-1", "s": "Done", "rd": "2026-02-01", "cr": "2026-01-01", "fv": ["27.1"], "_u": "u"}])
+    assert c.dump()["entries"] == {}
+
+
+def test_the_changelog_cache_is_read_from_the_named_file_and_a_bad_file_means_a_full_read(monkeypatch, tmp_path):
+    f = tmp_path / "cache.json"
+    f.write_text(json.dumps({"v": 1, "entries": {}}))
+    monkeypatch.setenv("CHANGELOG_CACHE_FILE", str(f))
+    assert BD.previous_changelog_cache() == {"v": 1, "entries": {}}
+    f.write_text("{no")
+    assert BD.previous_changelog_cache() is None
+    monkeypatch.setenv("CHANGELOG_CACHE_FILE", str(tmp_path / "missing.json"))
+    assert BD.previous_changelog_cache() is None
+    monkeypatch.delenv("CHANGELOG_CACHE_FILE")
+    assert BD.previous_changelog_cache() is None
+
+
+def test_story_links_read_in_parallel_equal_the_links_read_one_after_another():
+    keys = [f"E-{n:03d}" for n in range(200)]                       # three chunks of 80
+    rows = {}
+    for n, k in enumerate(keys):
+        a, b = f"S-{n}", f"S-{(n * 7) % 200}"
+        rows[k] = [{"key": a, "fields": {"status": {"name": "Open"}, "issuetype": {"name": "Story"}, "parent": {"key": k}, "issuelinks": [
+            {"type": {"name": "Dependency", "inward": "is a dependency of", "outward": "depends on"}, "outwardIssue": {"key": b, "fields": {"status": {"name": "Open"}, "issuetype": {"name": "Story"}}}}]}}]
+
+    class J:
+        def search(self, jql, fields):
+            import re as _re
+            return [r for k in _re.findall(r"E-\d+", jql) for r in rows.get(k, [])]
+    parallel = BD.collect_story_links(J(), [{"k": k} for k in keys])
+
+    class Serial(J):
+        pass
+    import concurrent.futures as cf
+    original = BD.ThreadPoolExecutor
+    BD.ThreadPoolExecutor = lambda max_workers=None: original(max_workers=1)
+    try:
+        serial = BD.collect_story_links(Serial(), [{"k": k} for k in keys])
+    finally:
+        BD.ThreadPoolExecutor = original
+    assert parallel == serial and parallel["sdeps"], "same pairs, same infos, same order"
+
+
+def test_a_product_pull_swaps_the_projects_and_releases_of_its_own_copy_of_the_module_never_of_the_one_the_cxone_pulls_read(monkeypatch):
+    mine = BD.isolated_copy()
+    assert mine is not BD and mine.PROJECTS == BD.PROJECTS and mine.PROJECTS is not BD.PROJECTS
+    before = (list(BD.PROJECTS), list(BD.RELEASES), BD.CURRENT_RELEASE, list(BD.PROVISIONAL))
+    seen = {}
+
+    def pull_epics(j):
+        seen["copy"] = (list(mine.PROJECTS), list(mine.RELEASES), mine.CURRENT_RELEASE)
+        seen["main"] = (list(BD.PROJECTS), list(BD.RELEASES), BD.CURRENT_RELEASE, list(BD.PROVISIONAL))      # what a CXone pull reading its globals at this moment would see
+        return []
+    monkeypatch.setattr(mine, "pull_epics", pull_epics)
+    for name, value in (("collect_bugs", []), ("add_changelog", None), ("collect_links", {}), ("planning", {}), ("product_windows", {}), ("derive_windows", [])):
+        monkeypatch.setattr(mine, name, lambda *a, _v=value, **k: _v)
+    out = mine.collect_product(None, "WFM", {"major": {"name": "9.1"}, "releases": ["9.1"], "candidates": []})
+    assert out["projects"] == ["WFM"] and seen["copy"] == (["WFM"], ["9.1"], "9.1")
+    assert seen["main"] == before, "the module the CXone pulls read was not touched"
+    assert (mine.PROJECTS, mine.RELEASES) == (before[0], before[1]), "and the copy is restored afterwards"
+
+
+def test_the_isolated_copy_shares_the_changelog_cache_so_product_epics_are_cached_too(monkeypatch):
+    c = BD.ChangelogCache(None, NOW_C)
+    monkeypatch.setattr(BD, "CHANGELOG_CACHE", c)
+    assert BD.isolated_copy().CHANGELOG_CACHE is c
