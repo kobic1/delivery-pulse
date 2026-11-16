@@ -89,6 +89,12 @@ Israel-local date of the snapshot or of the last Refresh, whatever the viewer's 
 Jira is read once at build time and baked into the file; the build time is shown at the top. The pull is slow
 because cycle time needs one changelog request per Done epic and the burnup needs one per epic (about 3,000).
 
+**Changelog cache (faster scheduled builds).** The changelog of an epic is the slowest read, so the scheduled build keeps what `analyse()` returned for each epic (release join dates; cycle time of Done epics),
+keyed by the epic's Jira `updated` stamp, in `build/changelog_cache.json` (ids, dates and counts only). The next build is given that file in `CHANGELOG_CACHE_FILE`: an epic whose stamp is unchanged
+has the same changelog and the same fields, so its result is reused; a new or edited epic, an epic with no stamp, a cache of another `CHANGELOG_CACHE_VERSION` (bump it when `analyse()` changes) and a cache older than
+24 hours (`CHANGELOG_CACHE_HOURS`, one full read a day) are all read again. The log says how many were reused. The same build also pulls the bugs beside the epic chain (`planning` waits for them) and reads the story-level
+links in parallel (merged in key order, so the result is the same as one read after another).
+
 **Refresh from Jira** (the published artifact only) asks the viewer's own claude.ai Atlassian connector for what changed since the snapshot and
 merges it in. The page also runs it **once, automatically, after the first paint** (button disabled with "Refreshing…", progress as "Updating live data: ...",
 the filters stay usable) on **every open**: there is no 15-minute skip, so a reload never shows older data (the constant `LIVE_GUARD_MS = 0` in the template keeps the old guard switchable;
