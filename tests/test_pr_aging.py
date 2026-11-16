@@ -271,3 +271,71 @@ def test_all_the_waiting_of_one_read_is_capped_so_a_build_never_sits_idle_for_an
     assert slept == [500] and P._waited[0] == 500, "the second wait would have brought the read past 900 s in total"
     P.collect(KEYS, tok="t", post=Fake({}), sleep=lambda s: None)
     assert P._waited[0] == 0, "collect() starts every read with a fresh budget"
+
+
+NOW = dt.datetime(2026, 11, 16, 12, 0, tzinfo=dt.timezone.utc)
+
+
+def rec(n, up="2026-11-15", **kw):
+    return {"r": "svc-a", "n": n, "t": f"PMN-{n} earlier", "ra": "2026-11-10", "up": up, "rv": "none", "ci": "ok", "pj": ["PMN"], "rl": ["27.1"], **kw}
+
+
+def earlier(**kw):
+    return {"org": "nice-cxone", "at": "2026-11-16T08:00+00:00", "fullAt": "2026-11-16T00:00+00:00", "mode": "full", "activeDays": 14, "found": 7, "kept": 4, "drafts": 1, "bots": 2, "labelled": 0, "noKey": 0,
+            "list": [rec(1), rec(2), rec(3), rec(4, up="2026-10-20")], **kw}
+
+
+def test_a_delta_read_needs_an_earlier_list_with_a_full_read_and_a_last_read_under_24_hours_old():
+    assert P.delta_base(earlier(), NOW) is not None
+    assert P.delta_base(None, NOW) is None and P.delta_base({}, NOW) is None
+    assert P.delta_base(earlier(unavailable="x"), NOW) is None and P.delta_base(earlier(releasesUnavailable="x"), NOW) is None
+    e = earlier(); e.pop("fullAt")
+    assert P.delta_base(e, NOW) is None, "a list from before the delta reads has no fullAt: read everything"
+    assert P.delta_base(earlier(fullAt="2026-11-15T11:59+00:00"), NOW) is None, "the last full read is 24 h old: read everything"
+    assert P.delta_base(earlier(fullAt="2026-11-15T12:01+00:00"), NOW) is not None
+    assert P.delta_base(earlier(at="2026-11-15T11:00+00:00"), NOW) is None
+    assert P.delta_base(earlier(at="not a time"), NOW) is None
+    assert P.delta_base(earlier(refreshFailed="the GitHub read failed"), NOW) is not None, "a list kept after a failed read still has its own last good read time"
+
+
+def test_a_delta_read_updates_adds_and_removes_and_leaves_what_nobody_touched():
+    opened = [node(2, title="PMN-2 changed", updated="2026-11-16T09:00:00Z", decision="APPROVED"),       # updated: replaced by the fresh record
+              node(5, title="PMN-5 new"),                                                                 # new
+              node(3, title="PMN-3 now a draft", draft=True)]                                             # turned draft: leaves the list
+    closed = [node(1, title="PMN-1 merged")]                                                             # merged: leaves the list
+    fake = Fake({" is:open updated:>=": opened, " is:closed updated:>=": closed})
+    res = P.collect(KEYS, tok="t", post=fake, sleep=lambda s: None, previous=earlier(), now=NOW)
+    assert res["mode"] == "delta" and res["fullAt"] == "2026-11-16T00:00+00:00" and res["at"] == "2026-11-16T12:00+00:00"
+    by = {r["n"]: r for r in res["list"]}
+    assert sorted(by) == [2, 5], f"kept {sorted(by)}: 1 merged, 3 became a draft, 4 is older than 14 days, 2 and 5 are the fresh ones"
+    assert by[2]["rv"] == "approved" and by[2]["t"] == "PMN-2 changed" and "ik" in by[2] and "rl" not in by[2], "the fresh records carry their issue keys for the release lookup"
+    assert res["kept"] == 2 and res["drafts"] == 1 and res["bots"] == 2 and res["found"] == 2 + 1 + 2, "the dropped counts are those of the last full read"
+    qs = [c["q"] for c in fake.calls]
+    assert all("draft:false" not in q for q in qs), "a delta read must also see a pull request that turned draft"
+    assert all("updated:>=2026-11-16T06:00:00Z" in q for q in qs), "the read starts two hours before the earlier read"
+    assert any(" is:open " in q for q in qs) and any(" is:closed " in q for q in qs)
+    assert len(qs) <= 4 * len(KEYS), "a delta read is a few small searches per key"
+
+
+def test_an_untouched_record_keeps_its_releases_and_a_fresh_one_gets_them():
+    res = {"list": [rec(1), {**rec(2), "ik": ["PMN-2"]}, {**rec(3, rl=[]), "x": 1}]}
+    P.attach_releases(res, fake_jira({"PMN-2": (["27.2"], None)}))
+    by = {r["n"]: r for r in res["list"]}
+    assert by[1]["rl"] == ["27.1"], "a record kept from the earlier read must not lose its releases"
+    assert by[2]["rl"] == ["27.2"] and "ik" not in by[2]
+    assert res["noRelease"] == 1 and res["unknownKeys"] == 0
+
+
+def test_without_a_usable_earlier_list_or_after_24_hours_everything_is_read_again():
+    nodes = [node(i) for i in range(1, 4)]
+    fake = Fake({" PMN in:": nodes})
+    res = P.collect(KEYS, tok="t", post=fake, sleep=lambda s: None, previous=earlier(fullAt="2026-11-15T10:00+00:00"), now=NOW)
+    assert res["mode"] == "full" and res["fullAt"] == res["at"] and res["kept"] == 3
+    assert all("draft:false" in c["q"] for c in fake.calls), "the full read is the open, non-draft search of the last 14 days"
+    res = P.collect(KEYS, tok="t", post=Fake({" PMN in:": nodes}), sleep=lambda s: None)
+    assert res["mode"] == "full" and res["fullAt"] == res["at"]
+
+
+def test_a_failed_delta_read_is_a_failed_read_not_an_empty_list():
+    res = P.collect(KEYS, tok="t", post=Fake({}, fail=[401]), sleep=lambda s: None, previous=earlier(), now=NOW)
+    assert "list" not in res and res["unavailable"] == P.PUBLIC_REASON

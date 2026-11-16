@@ -989,12 +989,21 @@ def fetch_products(j) -> dict:
     return out
 
 
-def collect_prs(j=None, epics=None) -> dict:
+def previous_prs() -> dict | None:
+    """The pull request section of the last good build, from the file named by PRS_PREVIOUS_FILE (the scheduled build keeps it between runs). Never raises: no file or an unreadable one means a full read."""
+    path = os.environ.get("PRS_PREVIOUS_FILE", "").strip()
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8")) if path and Path(path).is_file() else None
+    except (OSError, ValueError):
+        return None
+
+
+def collect_prs(j=None, epics=None, previous=None) -> dict:
     """The open pull requests for the Needs Attention rule (pr_aging.py), each with the releases of the issues it names (their fix versions, or their parent epic's).
     Never sinks the build: on any failure the section says why it is missing, and the page then says the pull requests were not checked instead of showing an empty list.
     A feed that was read but whose releases could not be resolved carries `releasesUnavailable`: the page cannot pick the pull requests of a release and says so."""
     try:
-        res = PRA.collect(PROJECTS + PRODUCTS)
+        res = PRA.collect(PROJECTS + PRODUCTS, previous=previous)
     except Exception as exc:
         print(f"warning: pull requests not read: {type(exc).__name__}: {str(exc)[:200]}", flush=True)       # the build log only
         res = {"org": PRA.ORG, "at": dt.datetime.now().astimezone().isoformat(timespec="minutes"), "unavailable": PRA.PUBLIC_REASON}
@@ -1004,7 +1013,7 @@ def collect_prs(j=None, epics=None) -> dict:
     try:
         known = {e["k"]: e.get("fv") or [] for e in epics or []}
         PRA.attach_releases(res, (j or E.Jira()).search, known)
-        print(f"pull requests: {res['kept']} with a project key, {res['noKey']} without, {res['bots']} by bots; activity within {res['activeDays']} days; "
+        print(f"pull requests ({res.get('mode', 'full')} read): {res['kept']} with a project key, {res['noKey']} without, {res['bots']} by bots; activity within {res['activeDays']} days; "
               f"{res['noRelease']} in no release ({res['unknownKeys']} keys unknown to Jira)", flush=True)
     except Exception as exc:
         for x in res.get("list", []):
@@ -1014,30 +1023,46 @@ def collect_prs(j=None, epics=None) -> dict:
     return res
 
 
+def timed(name: str, fn, *args):
+    """Runs fn and logs how long it took, so the slow parts of a build are visible in the log."""
+    t0 = time.time()
+    out = fn(*args)
+    print(f"  [{name}: {time.time() - t0:.0f} s]", flush=True)
+    return out
+
+
 def fetch() -> dict:
     j = E.Jira()
-    epics = pull_epics(j)
+    epics = timed("epics", pull_epics, j)
 
-    bugs = collect_bugs(j)
+    bugs = timed("bugs", collect_bugs, j)
     bugs_at = dt.datetime.now().astimezone().isoformat(timespec="minutes")
 
-    add_changelog(j, epics)
+    # Five pulls do not depend on the epic chain below (changelogs, links, planning, hierarchy, capabilities): they run beside it instead of after it. The pull request read only
+    # looks at the keys and release names of the epics, which the chain never changes. A failure in any of them stops the build, as before; the pool is always joined first.
+    previous = previous_prs()
+    with ThreadPoolExecutor(max_workers=5) as side:
+        f_cfb = side.submit(timed, "cfb", collect_cfb, j)
+        f_capz = side.submit(timed, "capitalization", collect_capitalization, j)
+        f_win = side.submit(timed, "windows", fetch_windows, j)
+        f_prod = side.submit(timed, "products", fetch_products, j)
+        f_prs = side.submit(timed, "pull requests", collect_prs, j, epics, previous)
 
-    links = collect_links(j, epics)
-    plan = planning(j, epics, bugs, links)
-    plan.update(collect_hier(j, epics, links["capabilities"]))
-    plan.update(collect_cx_priority(j, plan["hier"]))
-    collect_nfr(j, epics)
-    cfbx = collect_cfb(j)
-    capx = collect_capabilities(j, {e["cp"] for e in epics if e.get("cp")})
-    capz = collect_capitalization(j)
+        timed("changelogs", add_changelog, j, epics)
+        links = timed("links", collect_links, j, epics)
+        plan = timed("planning", planning, j, epics, bugs, links)
+        plan.update(timed("hierarchy", collect_hier, j, epics, links["capabilities"]))
+        plan.update(timed("cx priority", collect_cx_priority, j, plan["hier"]))
+        timed("nfr", collect_nfr, j, epics)
+        capx = timed("capabilities", collect_capabilities, j, {e["cp"] for e in epics if e.get("cp")})
+        cfbx, capz, windows, products, prs = f_cfb.result(), f_capz.result(), f_win.result(), f_prod.result(), f_prs.result()
     return {"cfbx": cfbx, "cap": capz, **capx, "generated": dt.datetime.now().astimezone().isoformat(timespec="minutes"), **links, **plan,
             "jiraBase": os.environ["JIRA_BASE_URL"].rstrip("/"),
             "projects": PROJECTS, "releases": RELEASES, "current": CURRENT_RELEASE, "projRules": proj_rules(PROJECTS),
-            "windows": fetch_windows(j),
+            "windows": windows,
             "provisional": PROVISIONAL, "epics": epics, "bugs": bugs,
             "cfbAccount": CFB_ACCOUNT, "bugSince": BUG_SINCE, "bugsPulledAt": bugs_at,
-            "productList": PRODUCTS, "products": fetch_products(j), "prs": collect_prs(j, epics)}
+            "productList": PRODUCTS, "products": products, "prs": prs}
 
 
 SCHEMA = 2           # the payload layout the page expects (PAGE_SCHEMA in dashboard.template.html must be the same number; tests/test_definitions_contract.py checks it)
@@ -1237,7 +1262,7 @@ def main() -> int:
         save_data(data)
     elif args.add_prs:
         data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
-        res = collect_prs(None, data.get("epics"))
+        res = collect_prs(None, data.get("epics"), data.get("prs"))
         failed = res.get("unavailable") or res.get("releasesUnavailable")
         if failed and (data.get("prs") or {}).get("list") is not None and not data["prs"].get("releasesUnavailable"):
             print("keeping the saved pull request list; the render says it was not refreshed", flush=True)

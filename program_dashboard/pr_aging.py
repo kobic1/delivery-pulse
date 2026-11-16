@@ -32,6 +32,8 @@ MIN_QUOTA = 300                         # stop cleanly under this many remaining
 BOTS = {"dependabot", "renovate", "copilot", "github-actions"}          # login without the [bot] suffix
 SKIP_LABELS = {"do-not-review", "wip"}                                  # a pull request carrying one of these is not waiting for a review
 IL = ZoneInfo("Asia/Jerusalem")
+FULL_EVERY_HOURS = 24                   # a full read of every open pull request this often; in between only what changed is read and merged into the earlier list
+DELTA_MARGIN_MINUTES = 120              # a delta read starts this long before the earlier read, so a pull request updated while that read ran is never missed
 MAX_WAIT = 600                          # owner decision 2026-11-16: a refusal that asks for a wait (a secondary rate limit) is waited out up to 10 minutes
 WAIT_BUDGET = 900                       # all the waiting of one read together (the build job has 60 minutes and the read itself takes about 4)
 _waited = [0]                           # seconds waited so far in this read; collect() sets it back to 0
@@ -205,9 +207,10 @@ def search_all(tok: str, query: str, sleep=time.sleep, post=None) -> tuple[list,
         sleep(0.3)
 
 
-def fetch_nodes(tok: str, keys, org: str = ORG, post=None, sleep=time.sleep) -> tuple[list, int]:
-    """The open, non-draft pull requests that mention one of the keys, from one search per key (the organisation has about 18,000 open pull requests, so a
-    search of all of them is not an option). A search that is over the cap is split by creation date. Raises when the count GitHub reports for a search and the
+def fetch_nodes(tok: str, keys, org: str = ORG, post=None, sleep=time.sleep, mode: str = "full", since: str | None = None) -> tuple[list, int]:
+    """The pull requests that mention one of the keys, from one search per key (the organisation has about 18,000 open pull requests, so a search of all of them is not an
+    option). mode "full": the open, non-draft ones active within ACTIVE_DAYS days. mode "delta-open": the open ones of any draft state updated since `since` (UTC, ISO with time);
+    mode "delta-closed": the closed or merged ones updated since `since` (they leave the list). A search that is over the cap is split by creation date. Raises when the count GitHub reports for a search and the
     count received differ: a short list is never passed off as the whole list. Returns (nodes without duplicates, the sum of the counts GitHub reported; a pull request that names two keys is counted by both searches)."""
     seen, total_found = {}, 0
     def window(base: str, lo: dt.date, hi: dt.date) -> tuple[list, int]:
@@ -222,8 +225,11 @@ def fetch_nodes(tok: str, keys, org: str = ORG, post=None, sleep=time.sleep) -> 
         a, fa = window(base, lo, mid); b, fb = window(base, mid + dt.timedelta(days=1), hi)
         return a + b, fa + fb
     for k in keys:
-        since = (dt.datetime.now(IL).date() - dt.timedelta(days=ACTIVE_DAYS)).isoformat()
-        nodes, found = window(f"org:{org} is:pr is:open draft:false updated:>={since} {k} in:title,body", dt.date(2015, 1, 1), dt.date.today() + dt.timedelta(days=1))
+        if mode == "full":
+            base = f"org:{org} is:pr is:open draft:false updated:>={(dt.datetime.now(IL).date() - dt.timedelta(days=ACTIVE_DAYS)).isoformat()} {k} in:title,body"
+        else:
+            base = f"org:{org} is:pr is:{'open' if mode == 'delta-open' else 'closed'} updated:>={since} {k} in:title,body"
+        nodes, found = window(base, dt.date(2015, 1, 1), dt.date.today() + dt.timedelta(days=1))
         total_found += found
         for n in nodes:
             seen[(n["repository"]["name"], n["number"])] = n
@@ -269,24 +275,68 @@ def attach_releases(res: dict, search, known: dict | None = None) -> dict:
     """Adds `rl` (sorted releases of the issues a pull request names, or of their parent epics) to every record and drops the working field `ik`. The page keeps only the pull
     requests of the selected release. `unknownKeys` counts the keys Jira did not know; a pull request left with no release is never listed (it belongs to no release)."""
     recs = res.get("list") or []
-    rel, unknown = release_lookup(search, sorted({k for x in recs for k in x.get("ik", [])}), known)
-    for x in recs:
-        x["rl"] = sorted(set().union(*[rel.get(k, set()) for k in x.get("ik", [])]))
+    fresh = [x for x in recs if "ik" in x]        # a record kept from an earlier read (delta mode) has its releases already
+    rel, unknown = release_lookup(search, sorted({k for x in fresh for k in x["ik"]}), known)
+    for x in fresh:
+        x["rl"] = sorted(set().union(*[rel.get(k, set()) for k in x["ik"]]))
         x.pop("ik", None)
     res["unknownKeys"] = unknown
     res["noRelease"] = sum(1 for x in recs if not x["rl"])
     return res
 
 
-def collect(keys, tok: str | None = None, post=None, sleep=time.sleep) -> dict:
+def _when(text) -> dt.datetime | None:
+    try:
+        t = dt.datetime.fromisoformat(str(text))
+    except ValueError:
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=dt.timezone.utc)
+
+
+def delta_base(previous: dict | None, now: dt.datetime) -> dict | None:
+    """The earlier section when a delta read can build on it: it holds a list, was not marked unavailable, and both its last read (`at`) and its last full read (`fullAt`) are less than
+    FULL_EVERY_HOURS old. Otherwise None, and the caller reads everything."""
+    p = previous or {}
+    if not isinstance(p.get("list"), list) or p.get("unavailable") or p.get("releasesUnavailable"):
+        return None
+    for field in ("at", "fullAt"):
+        t = _when(p.get(field))
+        if t is None or not (-1 <= (now - t).total_seconds() / 3600 <= FULL_EVERY_HOURS):
+            return None
+    return p
+
+
+def merge(old: list, fresh: list, touched: set, now: dt.datetime) -> list:
+    """The earlier list without every pull request the delta touched (updated, closed, merged, turned draft, newly labelled ...), plus the freshly evaluated ones, and without records
+    whose last activity is now older than ACTIVE_DAYS days."""
+    horizon = (now.astimezone(IL).date() - dt.timedelta(days=ACTIVE_DAYS)).isoformat()
+    return [r for r in old if (r["r"], r["n"]) not in touched and (r.get("up") or "") >= horizon] + fresh
+
+
+def collect(keys, tok: str | None = None, post=None, sleep=time.sleep, previous: dict | None = None, now: dt.datetime | None = None) -> dict:
     """The payload section DATA.prs: the records, how many were found and dropped (so the page can show what it did not check), and when. On any failure the section
-    carries `unavailable` instead of a list: the page then says the pull requests were not checked, never that nothing is waiting."""
-    at = dt.datetime.now().astimezone().isoformat(timespec="minutes")
+    carries `unavailable` instead of a list: the page then says the pull requests were not checked, never that nothing is waiting.
+    With `previous` (the section of the last good build) and a full read less than FULL_EVERY_HOURS old, only what changed since is read (open and closed pull requests updated since
+    that read, one search per key) and merged into the earlier list: about a minute instead of four. The review state and checks of a pull request nobody touched are then those of the last full read."""
+    now = now or dt.datetime.now().astimezone()
+    at = now.isoformat(timespec="minutes")
     _waited[0] = 0
     try:
-        nodes, found = fetch_nodes(tok or token(), keys, post=post, sleep=sleep)
+        tok = tok or token()
+        base = delta_base(previous, now)
+        if base:
+            since = (_when(base["at"]) - dt.timedelta(minutes=DELTA_MARGIN_MINUTES)).astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            opened, _ = fetch_nodes(tok, keys, post=post, sleep=sleep, mode="delta-open", since=since)
+            closed, _ = fetch_nodes(tok, keys, post=post, sleep=sleep, mode="delta-closed", since=since)
+            recs, _ = reduce_nodes(opened, keys)
+            touched = {(n["repository"]["name"], n["number"]) for n in opened + closed if n}
+            merged = merge(base["list"], recs, touched, now)
+            drop = {k: base.get(k, 0) for k in ("drafts", "bots", "labelled", "noKey")}
+            print(f"pull requests (delta since {since}): {len(opened)} open and {len(closed)} closed or merged changed; list {len(base['list'])} -> {len(merged)}", flush=True)
+            return {"org": ORG, "at": at, "fullAt": base["fullAt"], "mode": "delta", "activeDays": ACTIVE_DAYS, "found": len(merged) + sum(drop.values()), "kept": len(merged), **drop, "list": merged}
+        nodes, found = fetch_nodes(tok, keys, post=post, sleep=sleep)
         recs, cnt = reduce_nodes(nodes, keys)
-        return {"org": ORG, "at": at, "activeDays": ACTIVE_DAYS, "found": len(nodes), "kept": len(recs), **cnt, "list": recs}
+        return {"org": ORG, "at": at, "fullAt": at, "mode": "full", "activeDays": ACTIVE_DAYS, "found": len(nodes), "kept": len(recs), **cnt, "list": recs}
     except PrFeedError as exc:
         print(f"warning: pull requests not read: {exc}", flush=True)        # the owner's build log only: the page gets the generic line
         return {"org": ORG, "at": at, "unavailable": PUBLIC_REASON}
