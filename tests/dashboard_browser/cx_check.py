@@ -731,5 +731,140 @@ def _(t: T):
     t.check(shown, "the seeded expanded table shows no Capability row: the check for 'collapsed by default' is blind")
 
 
+# ---------------------------------------------------------------------------------------------- the three blocks of items to check
+# Worked out here from the payload, never from the page's code:
+#   later: an open epic of the section whose earliest release version is later than the latest release version of its Capability (the first rule behind "Behind", not the second one);
+#   nope (exactly one project selected): a CXCROSS Capability, not Removed or Done, with the release in its fix versions, that has no epic of that project in the payload (any release; the Teams filter applies);
+#   team: an epic of the section with no Epic Team.
+ATT_TITLES = {"later": "Epic release later than Capability", "nope": "No epic from this project", "team": "Missing Epic Team"}
+ATT_READ = """(() => { const o = {head: (document.querySelector('#cx-att .cxatt-h') || {}).textContent || null, blocks: {}, scrollW: document.documentElement.scrollWidth, clientW: document.documentElement.clientWidth};
+  document.querySelectorAll('#cx-att .attcol').forEach(b => { const btn = b.querySelector('[data-attmore]');
+    o.blocks[b.dataset.att] = {title: b.querySelector('h3 span:last-child').textContent, n: b.querySelector('h3 .n').textContent.trim(), rule: b.querySelector('.rule').textContent, ruleShown: b.querySelector('.rule').getBoundingClientRect().height > 0, none: (b.querySelector('.none') || {}).textContent || null,
+      items: [...b.querySelectorAll('li')].map(li => ({key: li.querySelector('a').textContent, fact: li.querySelector('.f').textContent, href: li.querySelector('a').getAttribute('href')})),
+      btn: btn ? {text: btn.textContent, expanded: btn.getAttribute('aria-expanded'), label: btn.getAttribute('aria-label')} : null, countHref: (b.querySelector('h3 .n a') || {getAttribute: () => null}).getAttribute('href')}; });
+  return o; })()"""
+
+
+def build_att():
+    """The fixture with a few epics of the section left without an Epic Team, so the PMN view has more than five of them."""
+    data = build()
+    eps = sorted(section_epics(data, set(data["projects"])), key=lambda e: natural(e["k"]))
+    pmn = [e for e in eps if e["p"] == "PMN"][:6]
+    for e in pmn + [e for e in eps if e["p"] != "PMN"][:2]:
+        e["tm"] = []
+    # a Done epic planned in the release under a Capability whose latest release is earlier: Done is never "later", so it is in no list, and a rule that forgets Done would put it there
+    live = next(k for k, r in data["hier"].items() if r["ty"] == "Initiative" and r["s"] != "Removed" and k.startswith("CXCROSS"))
+    data["hier"]["CXCROSS-98910"] = {"ty": "Capability", "t": "capability that ended earlier", "s": "In Progress", "fv": ["26.4"], "p": "CXCROSS", "par": live}
+    next(e for e in eps if e["s"] == "Done" and e["p"] == "PMN" and e not in pmn[:0])["cp"] = "CXCROSS-98910"
+    return data
+
+
+def expected_att(data, projects):
+    H = data["hier"]
+    eps = section_epics(data, projects)
+
+    def later(e):
+        cv, ev = rel_versions(H[e["cp"]].get("fv")), rel_versions(e["fv"])
+        return e["s"] != "Done" and bool(cv and ev) and relnum(ev[0]) > relnum(cv[-1])
+
+    out = {"later": sorted((e["k"] for e in eps if later(e)), key=natural), "team": sorted((e["k"] for e in eps if not e.get("tm")), key=natural)}
+    if len(projects) == 1:
+        one = next(iter(projects))
+        ini_ok = lambda c: bool((H.get(c) or {}).get("par") and H[H[c]["par"]]["s"] != "Removed" and H[c]["par"].startswith("CXCROSS")) if (H.get(c) or {}).get("par") in H else False
+        is_cx = lambda c: c.startswith("CXCROSS") or ini_ok(c)
+        have = {e["cp"] for e in data["epics"] if e["p"] == one and e.get("cp")}
+        out["nope"] = sorted((c for c, r in H.items() if r["ty"] == "Capability" and is_cx(c) and r["s"] not in ("Removed", "Done") and REL in rel_versions(r.get("fv")) and c not in have), key=natural)
+    return out
+
+
+def open_all(ch):
+    ch.js("document.querySelectorAll('#cx-att [data-attmore][aria-expanded=\"false\"]').forEach(b => b.click())")
+    time.sleep(0.2)
+
+
+@SUITE.test("attention_the_three_blocks_match_the_recount_and_the_middle_one_needs_exactly_one_project")
+def _(t: T):
+    data = build_att()
+    for hash_, projects in ((f"r={REL}", set(data["projects"])), (f"r={REL}&p=PMN", {"PMN"}), (f"r={REL}&p=PMN|CXWFM", {"PMN", "CXWFM"})):
+        ch = load_page(data, hash_)
+        open_all(ch)
+        r = ch.js(ATT_READ)
+        want = expected_att(data, projects)
+        t.check(r["head"] == "Items to check", f"[{hash_}] the heading of the blocks is {r['head']!r}")
+        t.check(set(r["blocks"]) == set(want), f"[{hash_}] the blocks are {sorted(r['blocks'])}, expected {sorted(want)} ({'the middle block is drawn for ' + str(len(projects)) + ' projects' if 'nope' in r['blocks'] and len(projects) != 1 else 'a block is missing'})")
+        for k, keys in want.items():
+            b = r["blocks"].get(k)
+            if not b:
+                continue
+            t.check(b["title"] == ATT_TITLES[k], f"[{hash_}] block {k} is titled {b['title']!r}")
+            t.check(b["n"] == f"{len(keys):,}", f"[{hash_}] block {k} counts {b['n']}, the recount is {len(keys)}")
+            got = [i["key"] for i in b["items"]]
+            t.check(got == keys, f"[{hash_}] block {k} lists {got[:8]}, the recount is {keys[:8]} (different: {sorted(set(got) ^ set(keys))[:6]})")
+            if keys:
+                t.check(all(i["href"].endswith("/browse/" + i["key"]) for i in b["items"]), f"[{hash_}] an item of block {k} does not open its own issue in Jira")
+                t.check(b["countHref"] and all(x in urllib.parse.unquote(b["countHref"]) for x in keys[:3]), f"[{hash_}] the count of block {k} does not open the items it counts: {b['countHref']}")
+            else:
+                t.check(b["none"], f"[{hash_}] block {k} is empty and says nothing")
+        t.check(not ch.console_errors(), f"[{hash_}] console error: {ch.console_errors()[:2]}")
+
+
+@SUITE.test("attention_the_lists_open_past_five_and_close_again_with_the_state_on_the_button")
+def _(t: T):
+    data = build_att()
+    ch = load_page(data, f"r={REL}&p=PMN")
+    r = ch.js(ATT_READ)
+    for k in ("nope", "team"):
+        b = r["blocks"][k]
+        t.check(len(b["items"]) == 5 and b["btn"] and b["btn"]["expanded"] == "false" and b["btn"]["text"].startswith("Show all "), f"[{k}] opens with {len(b['items'])} items and button {b['btn']}")
+    ch.js("document.querySelector('[data-attmore=\"team\"]').click()")
+    time.sleep(0.2)
+    r2 = ch.js(ATT_READ)
+    want = expected_att(data, {"PMN"})
+    t.check(len(r2["blocks"]["team"]["items"]) == len(want["team"]) and r2["blocks"]["team"]["btn"]["text"] == "Show fewer" and r2["blocks"]["team"]["btn"]["expanded"] == "true", f"after Show all: {r2['blocks']['team']['btn']}")
+    t.check(len(r2["blocks"]["nope"]["items"]) == 5, "opening one block opened the other as well")
+    t.check(ch.js("document.activeElement && document.activeElement.dataset.attmore") == "team", "the button lost keyboard focus after it was pressed")
+    ch.js("document.querySelector('[data-attmore=\"team\"]').click()")
+    time.sleep(0.2)
+    t.check(len(ch.js(ATT_READ)["blocks"]["team"]["items"]) == 5, "Show fewer did not close the list")
+
+
+@SUITE.test("attention_the_wording_is_the_writers_and_holds_no_assignee_or_person")
+def _(t: T):
+    data = build_att()
+    ch = load_page(data, f"r={REL}&p=PMN")
+    r = ch.js(ATT_READ)
+    rules = {k: b["rule"] for k, b in r["blocks"].items()}
+    t.check(all(b["ruleShown"] for b in r["blocks"].values()), "the rule line of a block is not visible")
+    t.check(rules["later"] == "Open epics whose earliest release version is later than the latest release version of their Capability.", f"rule 1: {rules['later']!r}")
+    t.check(rules["nope"] == "Capabilities in scope with no epic from the selected project on this page. Confirm whether the project needs an epic.", f"rule 2: {rules['nope']!r}")
+    t.check(rules["team"] == "Epics in this selection that have no Epic Team.", f"rule 3: {rules['team']!r}")
+    text = ch.js("document.getElementById('cx-att').textContent + ' ' + document.getElementById('cx-cap').textContent").lower()
+    t.check("assign" not in text.replace("assigned to the", ""), "the blocks or their definitions mention an assignee")
+    for term in ("Epic release later than Capability", "No epic from this project", "Missing Epic Team"):
+        t.check(term.lower() in text, f"the definition list has no entry for {term!r}")
+    t.check("appears only when exactly one project is selected" in text, "the definitions do not say when the middle block appears")
+    ch.viewport(390, 800)
+    time.sleep(0.4)
+    t.check(ch.js(ATT_READ)["scrollW"] <= ch.js(ATT_READ)["clientW"] + 1, "at 390 px the page scrolls sideways")
+
+
+@SUITE.test("selftest_the_check_fails_when_a_done_epic_counts_as_later_than_its_capability")
+def _(t: T):
+    data = build_att()
+    ch = seeded("if (cls(e.s) === \"done\") return false;\n    const ev = versionsOf(e.fv).rel, cv", "const ev = versionsOf(e.fv).rel, cv", data)
+    r = ch.js(ATT_READ)
+    done_later = [e for e in section_epics(data, set(data["projects"])) if e["s"] == "Done" and rel_versions(e["fv"]) and rel_versions(data["hier"][e["cp"]].get("fv")) and relnum(rel_versions(e["fv"])[0]) > relnum(rel_versions(data["hier"][e["cp"]]["fv"])[-1])]
+    t.check(done_later, "the fixture has no Done epic planned later than its Capability: the check cannot be tested")
+    t.check(r["blocks"]["later"]["n"] != f"{len(expected_att(data, set(data['projects']))['later']):,}", "a Done epic counted as later passes the recount: the check is blind")
+
+
+@SUITE.test("selftest_the_check_fails_when_the_middle_block_shows_for_two_projects")
+def _(t: T):
+    data = build_att()
+    ch = seeded("const one = state.projects.size === 1 ? [...state.projects][0] : null;", "const one = [...state.projects][0] || null;", data)
+    r = ch.js(ATT_READ)
+    t.check("nope" in r["blocks"], "the seeded middle block for every selection is not drawn: the check is blind")
+
+
 if __name__ == "__main__":
     sys.exit(kit.cli(SUITE, __doc__))
