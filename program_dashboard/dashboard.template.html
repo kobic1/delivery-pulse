@@ -1206,6 +1206,7 @@ const CFB_FIXED_JQL = `(status = Done AND resolution in (Fixed, "Fixed - Config"
 // A customer-found bug (CFB) is a Bug reported by the CFB account OR linked to a Salesforce case (field SF Connection Case Reference). Broader than the alerting rules (reporter only).
 // Bug rules of one project inside the CXone view (WFM: no clones, a Fixes link is customer-found): the collector writes them to DATA.projRules, and a link adds each one for that project only.
 const PROJ_RULES = DATA.projRules || {};
+const BUGS_AS_BUILT = PRODUCT !== "cxone" && !!(DATA.bugClause || DATA.cfbLink);          // a product with its own bug rules (WFM, EMOB, EEM, ESP): Refresh cannot read the links those rules rest on, so its bugs stay as of the last build, as WFM's did on the CXone page
 const BUG_RULES = Object.entries(PROJ_RULES).filter(([, r]) => !r.noBugs);          // the bug rules that apply to bugs this page holds (a project with noBugs has none)
 const noBugs = p => !!(PROJ_RULES[p] && PROJ_RULES[p].noBugs);          // a project that counts only through its epics (WFM on CXone releases): its bugs are not in the data and not in the Jira links
 const cfbFx = () => DATA.cfbLink || BUG_RULES.filter(([, r]) => r.cfbLink).map(([p, r]) => `(project = ${pkey(p)} AND ${r.cfbLink})`).join(" OR ");
@@ -3303,7 +3304,7 @@ function renderAttention() {
       ["Holidays", `the list holds ${CFG.HOLIDAYS.length} dates from 2025-06 to ${esc(CFG.holidaysThrough.slice(0, 7))}${M.holidayStale ? "; the as-of date is beyond the list, so later days are not adjusted for holidays" : ""}. Intermediate festival days such as Chol HaMoed are not excluded. Dates are Israel local dates as Jira returns them.`],
       ["Hover and trend weeks", `the hover shows both the business days and the calendar days. Trend weeks start on Monday.`],
       ["Dependencies", `Overdue dependencies and Dependency Schedule Gaps use the rules on the Dependencies board. The gap group counts provider epics, with the pair count in the hover text, and agrees with the Schedule Gaps figure there.`],
-      ["Data limits", `The open bug count from ${CFG.backlog.days} days ago is rebuilt from creation and resolution dates, because there is no status history. It can differ slightly if a bug was reopened. Status-since is held only for epics in Validation or In Progress, and Refresh does not update it. Refresh updates due dates, Target Sprints and dependency links. Provider epics that this page does not hold (other projects or releases) may be missing. Bugs have no title in this data, so only their key is shown.${BUG_RULES.length ? ` ${BUG_RULES.map(([p]) => p).join(", ")} has its own bug rules (no bugs that clone another; a Fixes link makes a bug customer-found), so Refresh leaves its bugs as of the last build.` : ""} Nothing about these rules is stored between visits: each one is computed from the data this page holds.`],
+      ["Data limits", `The open bug count from ${CFG.backlog.days} days ago is rebuilt from creation and resolution dates, because there is no status history. It can differ slightly if a bug was reopened. Status-since is held only for epics in Validation or In Progress, and Refresh does not update it. Refresh updates due dates, Target Sprints and dependency links. Provider epics that this page does not hold (other projects or releases) may be missing. Bugs have no title in this data, so only their key is shown.${BUG_RULES.length ? ` ${BUG_RULES.map(([p]) => p).join(", ")} has its own bug rules (no bugs that clone another; a Fixes link makes a bug customer-found), so Refresh leaves its bugs as of the last build.` : ""}${BUGS_AS_BUILT ? ` ${prodName(PRODUCT)} has its own bug rules (${DATA.bugClause ? "no bugs that clone another; " : ""}a Fixes link makes a bug customer-found), so Refresh leaves its bugs as of the last build.` : ""} Nothing about these rules is stored between visits: each one is computed from the data this page holds.`],
       ["What was checked", `${checkedTxt}`]
     ]})}</div></details>`;
   const act = (id) => {
@@ -4595,7 +4596,7 @@ const LIVE = {server: "Atlassian", tool: "searchJiraIssuesUsingJql", issueTool: 
 // Two tiers of Refresh steps. LIVE (every open and every click): epics, bugs and accessibility first, then Open CFBs, Dependency links, Capabilities. LIMITED (after those): cycle time, then Capitalization.
 // Per viewer and Israel-local day the FIRST automatic refresh on open runs the limited tier without using a click (SLOW_AUTO = 0: an open runs the live tier only), and SLOW_CLICKS clicks run it too; after that a click runs the live tier only.
 // The count is a courtesy kept in this browser (localStorage "dp.slowRuns" = {day, n, auto}), not an access control: clearing storage or moving the clock resets it. With storage blocked the count lives in memory for this page load.
-const SLOW_AUTO = 1, SLOW_CLICKS = 2, SLOW_KEY = "dp.slowRuns";
+const SLOW_AUTO = 1, SLOW_CLICKS = 2, SLOW_KEY = "dp.slowRuns" + (PRODUCT === "cxone" ? "" : ":" + PRODUCT);      // each product view keeps its own allowance and saved data: they are bound to that view's data version
 let slowMem = null;
 function slowRead() {                                        // the state for the Israel-local day of THIS moment: anything unreadable, invalid or from another day is a fresh {today, 0, 0}, so a clock moved either way never locks a viewer out
   const today = ilDate(new Date());
@@ -4614,7 +4615,7 @@ function slowReserve(auto) {                                 // synchronous read
 }
 // What the limited tier last read is kept in this browser (localStorage "dp.slowData"), so a reload shows it instead of the older data the page was built with. It is bound to the data version it was read on
 // (build time and schema): a newer build discards it. A stored value never overwrites a value the data already has and never makes data look newer than it is. Any storage problem is skipped silently.
-const SLOW_DATA = "dp.slowData", SLOW_DATA_MAX = 1.5e6;
+const SLOW_DATA = "dp.slowData" + (PRODUCT === "cxone" ? "" : ":" + PRODUCT), SLOW_DATA_MAX = 1.5e6;
 let slowStored = {}, slowEdct = {};                         // what is kept so far: {edctAt, edct: {key: [ip, vl, cal]}, cap, capAt}
 function slowSave(part) {                                    // called right after a limited step succeeds
   Object.assign(slowStored, part);
@@ -4792,7 +4793,7 @@ function mergeDelta(nodes, axKeys) {
   for (const n of nodes) {
     const f = n.fields || {}, key = n.key, proj = key.split("-")[0], type = f.issuetype && f.issuetype.name;
     if (!DATA.projects.includes(proj)) continue;
-    if (type === "Bug" && PROJ_RULES[proj]) continue;                          // a project with its own bug rules (WFM) keeps its bugs as of the last build: Refresh cannot read its links
+    if (type === "Bug" && (PROJ_RULES[proj] || BUGS_AS_BUILT)) continue;                          // a project with its own bug rules (WFM) keeps its bugs as of the last build: Refresh cannot read its links
     const status = f.status && f.status.name, created = (f.created || "").slice(0, 10), rd = (f.resolutiondate || "").slice(0, 10) || null;
     if (type === "Epic") {
       const fv = (f.fixVersions || []).map(v => v.name).filter(v => DATA.releases.includes(v)), old = epics.get(key);
@@ -4915,7 +4916,7 @@ async function cfbRefresh(mcp, say) {                            // Open CFBs: t
   return {open: open.nodes.length, left: leftNodes.length, tpl: !!tpl};
 }
 async function capsRefresh(mcp, say, sinceDay) {                  // Capabilities of the dashboard projects and CXCROSS changed since the snapshot: status, fix versions, summary; and the child-epic rows we already hold
-  if (!DATA.capList) return null;
+  if (!DATA.capList || PRODUCT !== "cxone") return null;      // a product view has no Capabilities section
   const rels = DATA.releases.map(r => `"${r}"`).join(", ");
   const res = await fetchAll(mcp, `project in (${pkeys([...DATA.projects, "CXCROSS"])}) AND issuetype = Capability AND (updated >= "${sinceDay}" OR fixVersion in (${rels}))`, (pg, n) => say(`Capabilities: page ${pg}, ${n} issues read so far.`), ["summary", "status", "issuetype", "fixVersions", "project", "parent", "customfield_10136"]);
   if (res.truncated) throw {code: "tool_error", message: "more Capabilities than the page limit; ask for a full rebuild"};
@@ -4978,7 +4979,6 @@ async function linksRefresh(mcp, say, sinceDay) {
   return {pairs: DATA.deps.length, changed};
 }
 async function refresh(opts = {}) {
-  if (PRODUCT !== "cxone") return;                              // Refresh reads the CXone projects; a product view is rebuilt with the page
   const auto = !!(opts && opts.auto), btn = document.getElementById("refresh"), status = document.getElementById("status");
   if (!auto) { const now = Date.now(); if (refresh.last && now - refresh.last < 10000) return; refresh.last = now; }        // a manual retry is rate-limited; the automatic attempt happens once per page load
   const say = (msg, kind = "info") => {
@@ -5002,8 +5002,8 @@ async function refresh(opts = {}) {
     const scope = `project in (${pkeys(DATA.projects)})`;
     const progress = (label) => (p, n) => say(`${label}: page ${p}, ${n} issues read so far.`);
     btn.textContent = "Refreshing…";
-    const changed = await fetchSliced(mcp, `${scope} AND issuetype in (Epic, Bug)`, sinceDay, progress("Reading changes"));
-    const ax = await fetchSliced(mcp, `${scope} AND issuetype = Bug AND (summary ~ "\\"[Accessibility]*\\"" OR labels = DWP_Accessibility_Defect)`, sinceDay, progress("Checking accessibility bugs"));
+    const changed = await fetchSliced(mcp, `${scope} AND issuetype in (${BUGS_AS_BUILT ? "Epic" : "Epic, Bug"})`, sinceDay, progress("Reading changes"));
+    const ax = BUGS_AS_BUILT ? {nodes: []} : await fetchSliced(mcp, `${scope} AND issuetype = Bug AND (summary ~ "\\"[Accessibility]*\\"" OR labels = DWP_Accessibility_Defect)`, sinceDay, progress("Checking accessibility bugs"));
     const counts = mergeDelta(changed.nodes, new Set(ax.nodes.map(n => n.key)));
     DATA.refreshedAt = new Date().toISOString();
     DATA.refreshedStats = {epics: (DATA.refreshedStats ? DATA.refreshedStats.epics : 0) + counts.epics, bugs: (DATA.refreshedStats ? DATA.refreshedStats.bugs : 0) + counts.bugs};
@@ -5073,9 +5073,9 @@ if (DATA.schema != null && DATA.schema !== PAGE_SCHEMA) {      // a payload from
     } else if (m.classList.contains("info")) { const auto = text.startsWith("Updating live data"), step = (text.replace(/^Updating live data: /, "").match(/^([^:…]+?)(?::| from Jira|…|$)/) || [])[1]; put(`${auto ? "Updating live data" : "Refreshing"}${step ? ": " + step : ""}…`, true); }
     else put(baseline(), false);
   }).observe(status, {childList: true, subtree: true, characterData: true});
-  if (!RUNTIME || PRODUCT !== "cxone") {                       // the standalone file cannot read Jira, and Refresh reads the CXone projects only: the button stays present, looks unavailable, and says why on hover or focus
+  if (!RUNTIME) {                                              // the standalone file cannot read Jira: the button stays present, looks unavailable, and says why on hover or focus
     btn.classList.add("unavail"); btn.setAttribute("aria-disabled", "true"); btn.setAttribute("aria-describedby", "refresh-why");
-    why.textContent = PRODUCT !== "cxone" ? `Refresh covers the CXone projects. This ${prodName(PRODUCT)} view shows the data of the last rebuild, as of the time beside it.` : "Live refresh works in the published page in Claude. This file shows the data as of the time beside it.";
+    why.textContent = "Live refresh works in the published page in Claude. This file shows the data as of the time beside it.";
     document.addEventListener("keydown", e => { if (e.key === "Escape") unit.classList.add("nowhy"); });
     ["mouseleave", "blur"].forEach(ev => btn.addEventListener(ev, () => unit.classList.remove("nowhy")));
   } else why.hidden = true;
@@ -5209,7 +5209,7 @@ document.getElementById("footer").innerHTML = `<details class="vd"><summary>How 
       ["Cycles section", `follows the Release, Projects, Teams and Delivery Cycle filters, and its own cycle choice picks one of the cycles the filter leaves in. It uses the same epics as the rest of the page. It states facts only: no verdict, no rating of a group.`],
       ["Scope of use", `Counts describe programs, releases and teams.`]
     ]})}</div></details>`;
-if (RUNTIME && PRODUCT === "cxone") slowLoad();                                     // the last limited refresh kept in this browser, before anything is drawn
+if (RUNTIME) slowLoad();                                     // the last limited refresh kept in this browser, before anything is drawn
 capInit(); cyInit(); loadState(); buildFilters(); buildProductUi(); update({anchor: false}); fitSticky(); SEC.observe();
 // ---------------------------------------------------------------- deep links: open on the section a #token names, and copy a link to the section being read
 function deepOpen() {
@@ -5243,7 +5243,7 @@ if (RUNTIME) window.addEventListener("dp-section", e => {
 // Live data on open (the published page with the connector only): one automatic Refresh after the first paint, on EVERY open: a reload never shows older data. LIVE_GUARD_MS is the length of the old guard (skip when the last
 // refresh without a failed step was younger); 0 = none, 15 * 60 * 1000 restores the 15-minute guard. The limited tier runs only on the first open of the Israel day (SLOW_AUTO). A local file has no connector and says it is a snapshot.
 const LIVE_GUARD_MS = 0;
-if (RUNTIME && PRODUCT === "cxone") setTimeout(() => { let recent = false; try { const l = Number(localStorage.getItem("dp.lastRefresh")); recent = LIVE_GUARD_MS > 0 && l && Date.now() - l < LIVE_GUARD_MS; } catch (e) { /* no storage */ }
+if (RUNTIME) setTimeout(() => { let recent = false; try { const l = Number(localStorage.getItem("dp.lastRefresh")); recent = LIVE_GUARD_MS > 0 && l && Date.now() - l < LIVE_GUARD_MS; } catch (e) { /* no storage */ }
   const fresh = LIVE_GUARD_MS > 0 && Date.now() - new Date(DATA.refreshedAt || DATA.generated) < LIVE_GUARD_MS; if (!recent && !fresh && !refresh.busy) refresh({auto: true}); }, 600);
 window.addEventListener("hashchange", () => {                 // an edited address is a new view (file mode only; the published page keeps filters in storage)
   if (RUNTIME) return;
