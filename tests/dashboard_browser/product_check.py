@@ -7,7 +7,7 @@ The products are fictitious here (make_synthetic.product_sample): PRD1 has dated
     which product and release it is, how the release was chosen and where the dates come from;
   * the release of a product is chosen for the reader: plain text, no Major, Minor or Future control, and a link to another release opens the Major;
   * the filter bar stays ONE row: adding the Product control adds no row to the CXone view, and a product view has one row;
-  * a product with no dates says so and draws no burn-up; Refresh is unavailable in a product view and says why;
+  * a product with no dates says so and draws no burn-up; Refresh works in a product view on the product's own projects and release (tests below, against the fake connector); the standalone file says it cannot refresh;
   * switching product reloads on the other dataset and back; the Teams menu lists only the teams of the product's epics.
 
     python3 product_check.py [--live] [--only NAME]
@@ -112,7 +112,7 @@ def _(t: T):
     t.check(js(ch, "return document.getElementById('prod-note').getBoundingClientRect().height") < 40, "the notice is more than one line at 1400 px")
     tip = js(ch, "return document.querySelector('#prod-note [data-tip]').dataset.tip") or ""
     t.check("rule v1" in tip and "not shown: Minor 7.4.1, Future 7.5" in tip and "verified only for CXone" in tip and "1" in tip, f"the details on hover are incomplete: {tip!r}")
-    t.check(js(ch, "return document.getElementById('refresh').classList.contains('unavail')") is True and "CXone projects" in (js(ch, "return document.getElementById('refresh-why').textContent") or ""), "Refresh is not unavailable with a reason")
+    t.check(js(ch, "return document.getElementById('refresh').classList.contains('unavail')") is True and "published page" in (js(ch, "return document.getElementById('refresh-why').textContent") or ""), "the standalone file does not say live refresh needs the published page")
     body = js(ch, "return document.body.innerText") or ""
     t.check("Delivery Cycle 1 (ends" not in body, "the burn-up draws the CXone Delivery Cycle 1 marker in a product view")
     t.check(not ch.console_errors(), f"console error: {ch.console_errors()[:2]}")
@@ -455,6 +455,98 @@ def _(t: T):
     r = pmstnd_read("PMSTND", Path(f.name))
     Path(f.name).unlink()
     t.check(r["hidden"] != [True, True, True] or "Delivery" in r["strip"], "the check passed with the sections left in: it is blind")
+
+
+
+
+# ---------------------------------------------------------------- Refresh in a product view (the fake connector answers in the shape of the Atlassian tool)
+def load_live(prod="PRD1", rules=None, ls="recent", nodes=None, shift=0):
+    """The product page with the mocked connector. `rules`: a bug rule the product carries (bugClause / cfbLink), as WFM, EMOB, EEM and ESP do. The product's issue keys are renamed to PRD1-n so the
+    page's own project test (the key's prefix) accepts them, as it does for a real product."""
+    import json
+    ch = ctx.chrome
+    data = MS.make(MS.il_today())
+    data["build"] = {"sha": "abc1234", "dirty": False, "at": "2026-01-01T00:00+02:00"}
+    data["productList"], data["products"] = ["PRD1", "PRD2"], MS.product_sample(data)
+    pr = data["products"]["PRD1"]
+    for e in pr["epics"]:
+        e["k"] = "PRD1-" + e["k"].split("-")[1]
+    for b in pr["bugs"]:
+        b["k"] = "PRD1-" + b["k"].split("-")[1]
+    pr.update(rules or {})
+    day = MS.il_today().isoformat()
+    epic = lambda k, st, fv=("7.4",), rd=None: {"key": k, "fields": {"issuetype": {"name": "Epic"}, "summary": "Refresh test " + k, "status": {"name": st}, "fixVersions": [{"name": v} for v in fv],
+                                                                    "created": day + "T08:00:00.000+0200", "resolutiondate": rd}}
+    bug = lambda k: {"key": k, "fields": {"issuetype": {"name": "Bug"}, "status": {"name": "Open"}, "created": day + "T09:00:00.000+0200", "priority": {"name": "High"}}}
+    first = pr["epics"][0]["k"]
+    page1 = nodes if nodes is not None else [epic(first, "Done", rd=day + "T10:00:00.000+0200"), epic("PRD1-91001", "In Progress"), bug("PRD1-92001")]
+    cfg = dict(mode="ok", ls=ls, shift=int(shift), slow=0, fastTimers=False, page1=page1, page2=[], capsnodes=[], opencfb=[], linknodes=[], farnodes=[], leftcfb=[], capnodes=[], axkey="PRD1-0")
+    prelude = "<script data-harness>" + (HERE / "mock_claude.js").read_text().replace("/*__CFG__*/null", json.dumps(cfg)).replace("/*__HOOK__*/null", "null") + "</script>"
+    page = MS.render_page(data)
+    ch.cmd("Emulation.setTimezoneOverride", timezoneId="Asia/Jerusalem")
+    ch.viewport(1400, 900)
+    ch.goto(ctx.write(kit.wrap(page, prelude), "prodlive") + "#prod=" + prod)
+    assert kit.wait_ready(ch), "the page did not draw: " + str(ch.console_errors()[:2])
+    time.sleep(0.3)
+    return ch, data, first
+
+
+def click_refresh(ch):
+    ch.js("document.getElementById('refresh').click()")
+    ok = ch.wait_for("(document.getElementById('status').textContent || '').startsWith('Refreshed') || /not available|Not refreshed|failed/i.test(document.getElementById('status').textContent || '')", 25)
+    return ok, ch.js("document.getElementById('status').textContent")
+
+
+def calls(ch):
+    return ch.js("window.__calls.map(c => c.jql)") or []
+
+
+@SUITE.test("refresh_in_a_product_view_reads_the_product_only_and_merges_epics_and_bugs")
+def _(t: T):
+    ch, data, first = load_live("PRD1")
+    t.check(js(ch, "return document.getElementById('refresh').classList.contains('unavail')") is False, "Refresh looks unavailable in a product view with the connector")
+    n0 = js(ch, "return DATA.epics.length")
+    b0 = js(ch, "return DATA.bugs.length")
+    ok, status = click_refresh(ch)
+    t.check(ok and status.startswith("Refreshed"), f"the refresh did not finish: {status!r}")
+    q = calls(ch)
+    main = [c for c in q if "issuetype in (Epic, Bug)" in c]
+    t.check(main and all("project in (PRD1)" in c for c in main), f"the changes were not read for the product's project only: {main[:2]}")
+    t.check(not [c for c in q if "Capability" in c or "CXCROSS" in c or "cf[10329]" in c or "Bug, Story, Task" in c], f"a CXone-only read ran in a product view: {[c for c in q if 'Capability' in c or 'CXCROSS' in c or 'cf[10329]' in c or 'Bug, Story, Task' in c][:3]}")
+    t.check(js(ch, f"return DATA.epics.length") == n0 + 1, "the new epic of the release was not added")
+    t.check(js(ch, f"return DATA.epics.find(e => e.k === {first!r}).s") == "Done", "the changed epic did not take its new status")
+    t.check(js(ch, "return DATA.epics.some(e => e.k === 'PRD1-91001')") is True, "the new epic is not in the data")
+    t.check(js(ch, "return DATA.bugs.some(b => b.k === 'PRD1-92001')") is True and js(ch, "return DATA.bugs.length") == b0 + 1, "the new bug of a product without its own bug rules was not added")
+    t.check(js(ch, "return DATA.cap && !DATA.cap.rows") is True and js(ch, "return Object.keys(DATA.capList || {}).length") == 0, "a product view gained Capabilities or Capitalization data")
+    t.check(js(ch, "return !!DATA.refreshedAt") is True and "Refreshed" in (js(ch, "return document.getElementById('asof').textContent") or ""), "the stamp does not show the refresh")
+    t.check(js(ch, "return localStorage.getItem('dp.slowRuns:PRD1') !== null && localStorage.getItem('dp.slowRuns') === null") is True, "the daily allowance is not kept for this view alone")
+    t.check(not ch.console_errors(), f"console error: {ch.console_errors()[:2]}")
+
+
+@SUITE.test("refresh_in_a_product_with_its_own_bug_rules_leaves_its_bugs_as_built")
+def _(t: T):
+    ch, data, first = load_live("PRD1", rules={"bugClause": '(issueLinkType is EMPTY OR issueLinkType != "clones")', "cfbLink": 'issueLinkType = "fixes"'})
+    b0 = js(ch, "return DATA.bugs.length")
+    ok, status = click_refresh(ch)
+    t.check(ok and status.startswith("Refreshed"), f"the refresh did not finish: {status!r}")
+    q = calls(ch)
+    main = [c for c in q if "project in (PRD1)" in c and "issuetype in" in c and "updated" in c]
+    t.check(main and all("issuetype in (Epic)" in c for c in main) and not [c for c in q if "[Accessibility]" in c], f"bugs were read for a product whose bug rules Refresh cannot read: {main[:2]}")
+    t.check(js(ch, "return DATA.bugs.length") == b0 and js(ch, "return DATA.bugs.some(b => b.k === 'PRD1-92001')") is False, "a bug was merged into a product with its own bug rules")
+    t.check(js(ch, f"return DATA.epics.find(e => e.k === {first!r}).s") == "Done" and js(ch, "return DATA.epics.some(e => e.k === 'PRD1-91001')") is True, "the epics were not refreshed")
+    t.check("Refresh leaves its bugs as of the last build" in (js(ch, "return document.body.innerText") or "") or "Refresh leaves its bugs as of the last build" in (js(ch, "return document.documentElement.innerHTML") or ""), "the page does not say that its bugs stay as built")
+
+
+@SUITE.test("refresh_on_open_runs_in_a_product_view_and_the_cxone_view_keeps_its_own_state")
+def _(t: T):
+    ch, data, first = load_live("PRD1", ls="none")
+    ok = ch.wait_for("(document.getElementById('status').textContent || '').startsWith('Refreshed') || window.__calls.length > 3", 25)
+    ch.wait_for("(document.getElementById('status').textContent || '').startsWith('Refreshed')", 20)
+    t.check(any("project in (PRD1)" in c for c in calls(ch)), "no automatic refresh ran when the product view opened")
+    ch2, data2, _ = load_live("cxone", ls="recent")
+    ok, status = click_refresh(ch2)
+    t.check(ok and status.startswith("Refreshed"), f"the CXone view no longer refreshes: {status!r}")
+    t.check(js(ch2, "return localStorage.getItem('dp.slowRuns') !== null") is True, "the CXone view lost its own allowance key")
 
 
 if __name__ == "__main__":

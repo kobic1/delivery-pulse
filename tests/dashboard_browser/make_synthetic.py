@@ -277,7 +277,7 @@ class Gen:
         cap = self.capitalization(cap_start, windows)
         data = {
             "generated": il_stamp(gen_day, 8, 30), "jiraBase": JIRA_BASE, "projects": list(PROJECTS), "releases": list(RELEASES), "current": CURRENT,
-            "windows": windows, "provisional": list(PROVISIONAL), "epics": epics, "bugs": bugs, "cfbAccount": CFB_ACCOUNT, "bugSince": windows[RELEASES[0]][0],
+            "windows": windows, "provisional": list(PROVISIONAL), "epics": epics, "bugs": bugs, "cfbAccount": CFB_ACCOUNT, "projRules": {}, "bugSince": windows[RELEASES[0]][0],
             "quality": {"cycleTimeErrors": [], "edctDiffersFromEmail": []},
             "productList": [], "products": {},                       # the non-CXone products: none in the standard fixture (product_sample builds two for product_check.py), so the page has no Product switch
             "deps": deps, "ext": ext, "capabilities": caps, "depsDropped": {"removed": 7}, "sprints": sprints, "hier": hier, "cloudId": CLOUD_ID,
