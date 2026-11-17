@@ -3363,27 +3363,21 @@ function cxModel() {
   const P = cxPrioOf(), pm = g => P && P.map[g] && Number.isInteger(P.map[g].g) && Number.isInteger(P.map[g].r) && typeof P.groups[P.map[g].g] === "string" && P.groups[P.map[g].g] ? P.map[g] : null;
   const order = [...groups.keys()].sort((a, b) => a === "" ? 1 : b === "" ? -1 : (pm(a) && pm(b)) ? (pm(a).g - pm(b).g || pm(a).r - pm(b).r || titleCmp(a, b)) : pm(a) ? -1 : pm(b) ? 1 : titleCmp(a, b));
   order.forEach(g => groups.get(g).sort(titleCmp));
-  const mismatch = e => {                                          // an open epic planned later than the latest release of its Capability
-    if (cls(e.s) === "done") return false;
-    const ev = versionsOf(e.fv).rel, cv = versionsOf((H[e.cp] || {}).fv).rel;
-    return !!(ev.length && cv.length && relNum(ev[0]) > relNum(cv[cv.length - 1]));
-  };
-  const mism = epics.filter(mismatch);
   const noFv = [...byCap.keys()].filter(c => H[c] && !["Done", "Removed"].includes(H[c].s) && !(H[c].fv || []).length);
   const unsch = [...byCap.keys()].filter(c => H[c] && !["Done", "Removed"].includes(H[c].s) && (H[c].fv || []).length && !versionsOf(H[c].fv).rel.length && versionsOf(H[c].fv).unsched);
   const allCx = Object.keys(H).filter(k => H[k].ty === "Capability" && isCxCap(H, k));
   const withEpicsEver = new Set(DATA.epics.filter(e => e.cp).map(e => e.cp));
   const noEpics = allCx.filter(c => !removedCap(c) && !byCap.has(c));
-  return {H, rel, scope, all, epics, leftOut, byCap, groups, order, iniOf, P, pm, mism, noFv, unsch, noneEver: noEpics.filter(c => !withEpicsEver.has(c)), noneHere: noEpics.filter(c => withEpicsEver.has(c)),
+  return {H, rel, scope, all, epics, leftOut, byCap, groups, order, iniOf, P, pm, noFv, unsch, noneEver: noEpics.filter(c => !withEpicsEver.has(c)), noneHere: noEpics.filter(c => withEpicsEver.has(c)),
     removedCaps: allCx.filter(removedCap).length, removedIni: Object.keys(H).filter(k => H[k].ty === "Initiative" && H[k].s === "Removed").length,
     capsUnderRemovedIni: [...byCap.keys()].filter(c => { const p = H[c] && H[c].par; return p && H[p] && H[p].s === "Removed"; }).length};
 }
-// Three tiles in the CXCROSS row: items to check. Epics Planned Later Than Required ignores the Release filter; the other two follow it. Facts about versions and a blank Epic Team field, never a verdict on a team. Each number opens its items in Jira.
+// Three tiles in the CXCROSS row: items to check. All three follow the Release filter; Release Mismatch does so through the Capability's release. Facts about versions and a blank Epic Team field, never a verdict on a team. Each number opens its items in Jira.
 // The wording is the technical writer's. The middle tile is drawn only when exactly one project is selected.
 const CX_ATT_TXT = {
-  later: {label: "Epics Planned Later Than Required", sub: n => n ? "All releases, Release filter not applied" : "None across all releases",
-    tip: n => n ? `${nn(n, "open epic is", "open epics are")} planned for a later release than ${n === 1 ? "its" : "their"} Capability requires, across all releases on this page. This tile ignores the Release filter so that such plans show whichever release is selected.` : "No open epic is planned for a later release than its Capability requires, across all releases on this page.",
-    term: "Epics Planned Later Than Required", def: `an open (not Done) epic under a CXCROSS Capability that is not Removed, whose earliest release version is later than the latest release version of that Capability. For example, the Capability needs 27.1 and the epic is planned for 27.2. It counts epics in any release the page holds, and it follows Projects, Teams and Commitment Type but not the Release filter, which makes it the one tile in the row that is not release-scoped. Project Cells Behind is release-scoped, counts project cells and has a second rule (an open epic after the Capability's release has ended), so the two numbers are not expected to match. A Capability with no Required Fix Version cannot be assessed here; it shows in the last column of the table, flagged "No Required Fix Version".`},
+  mism: {label: "Release Mismatch", sub: n => n ? "Epics outside their Capability's release" : "None outside their Capability's release",
+    tip: n => n ? `${nn(n, "open epic is", "open epics are")} planned only in releases other than those of ${n === 1 ? "its" : "their"} Capability. Capabilities are those that include the selected release.` : "No open epic is planned only in releases other than those of its Capability, for Capabilities that include the selected release.",
+    term: "Release Mismatch", def: `an open (not Done, not Removed) epic that has a release but none of whose releases is a release of its CXCROSS Capability, whether the epic is planned earlier or later. Only Capabilities that are not Removed and whose Fix Version includes the selected release are checked, so the tile follows the Release filter through the Capability, not the epic. It also follows Projects, Teams and Commitment Type. For example, with 27.1 selected, a Capability that needs 27.1 and an epic planned for 27.2 or 26.4 is counted. With 27.2 selected, that Capability is not in scope and the epic is not counted. Epics with no Fix Version are not on this page. A Capability with no Fix Version cannot be assessed, and the table's last column flags it as "No Required Fix Version". Project Cells Behind is anchored on the epic's release and counts project cells, so the two numbers are not expected to match.`},
   nope: {label: "No Epic From This Project", sub: n => n ? "Capabilities in this release" : "Each Capability has one on this page",
     tip: n => `${nn(n, "Capability in this release has", "Capabilities in this release have")} no epic from the selected project and teams on this page. Confirm whether the project needs an epic or the Capability does not apply.`,
     term: "No Epic From This Project", def: `a CXCROSS Capability that is not Removed or Done, whose Fix Version includes the selected release, and that has no epic from the selected project and teams in any release on this page. Epics with no release Fix Version are not on this page, so a Capability can appear here although such an epic exists in Jira. This tile appears only when exactly one project is selected.`},
@@ -3393,14 +3387,14 @@ const CX_ATT_TXT = {
 };
 function cxAttSets(M) {
   const H = M.H, rel = M.rel, byKey = (a, b) => keyCmp(a.k || a, b.k || b);
-  // Epics Planned Later Than Required does not follow the Release filter: a plan that puts an epic after the release its Capability needs is late whichever release is on screen.
-  // Every open epic of the selected projects, teams and Commitment Type under a live CXCROSS Capability, in any release the page holds, whose earliest release is after the Capability's latest.
-  const later = DATA.epics.filter(e => base(e) && cxPass(e) && isCxCap(H, e.cp) && !(H[e.cp] && H[e.cp].s === "Removed") && cls(e.s) !== "done").filter(e => {
-    const ev = versionsOf(e.fv).rel, cv = versionsOf((H[e.cp] || {}).fv).rel; return !!(ev.length && cv.length && relNum(ev[0]) > relNum(cv[cv.length - 1])); }).sort(byKey), team = M.epics.filter(e => !(e.tm && e.tm.length)).sort(byKey);
+  // Release Mismatch follows the Release filter through the CAPABILITY's release, not the epic's: the Capabilities that need the selected release, and their open epics wherever those are planned.
+  // An epic counts when it has a release and none of them is one of its Capability's releases (earlier or later). Done epics and Removed Capabilities never count. Same rule as the CrossCX tracker's Release mismatch.
+  const mism = DATA.epics.filter(e => base(e) && cxPass(e) && isCxCap(H, e.cp) && !(H[e.cp] && H[e.cp].s === "Removed") && cls(e.s) !== "done" && versionsOf(H[e.cp].fv).rel.includes(rel)).filter(e => {
+    const ev = e.fv || [], cv = H[e.cp].fv || []; return ev.length > 0 && !ev.some(v => cv.includes(v)); }).sort(byKey), team = M.epics.filter(e => !(e.tm && e.tm.length)).sort(byKey);
   const one = state.projects.size === 1 ? [...state.projects][0] : null;
   const have = one ? new Set(DATA.epics.filter(e => e.p === one && e.cp && inTeams(e)).map(e => e.cp)) : null;
   const nope = one ? Object.keys(H).filter(c => H[c].ty === "Capability" && isCxCap(H, c) && !["Removed", "Done"].includes(H[c].s) && versionsOf(H[c].fv).rel.includes(rel) && !have.has(c)).sort(keyCmp) : null;
-  return {later: later.map(e => e.k), nope, team: team.map(e => e.k)};
+  return {mism: mism.map(e => e.k), nope, team: team.map(e => e.k)};
 }
 function renderCx() {
   const host = document.getElementById("cx-body"), kp = document.getElementById("cx-kpis"); if (!host) return;
@@ -3426,12 +3420,12 @@ function renderCx() {
   document.getElementById("cx-sub").innerHTML = noProj ? "" : `${tlink(ep.length, ep.length ? cxJira({extra: par(capKeys)}) : null, `${nn(ep.length, "epic", "epics")} under CXCROSS Capabilities${parentNote(capKeys.length)}`)} of ${M.scope.length.toLocaleString("en-US")} epics ${ep.length === 1 ? "sits" : "sit"} under ${rows.length} CXCROSS ${rows.length === 1 ? "Capability" : "Capabilities"}${state.cx === "all" ? "" : ` (Commitment Type ${CX_TYPES[state.cx][0]})`}.`;
   const doneN = ep.filter(e => cls(e.s) === "done").length;
   kp.className = "kpis " + (!noProj && att.nope ? "cyhl" : "five");              // six tiles in a row with the middle one, five without it
-  if (noProj) kpiCards(kp, ["CXCROSS Items in Scope", "Epics Under Them", "Project Cells Behind", AT.later.label, AT.team.label].map(l => ({c: "cx", v: "–", l, s: "No project is selected"})));
+  if (noProj) kpiCards(kp, ["CXCROSS Items in Scope", "Epics Under Them", "Project Cells Behind", AT.mism.label, AT.team.label].map(l => ({c: "cx", v: "–", l, s: "No project is selected"})));
   else kpiCards(kp, [
     {c: "cx", v: rows.length ? tlink(rows.length, keyIn(rows.map(r => r.c)), `${nn(rows.length, "CXCROSS Capability", "CXCROSS Capabilities")} with epics in ${rel}`) : "0", l: "CXCROSS Items in Scope", s: "Capabilities with epics in this release"},
     {c: "cx", v: ep.length ? tlink(ep.length, cxJira({extra: par(capKeys)}), `${nn(ep.length, "epic", "epics")} under CXCROSS Capabilities${parentNote(capKeys.length)}`) : "0", l: "Epics Under Them", s: ep.length ? `${doneN ? tlink(doneN, cxJira({kind: "done", extra: par(capKeys)}), `${nn(doneN, "Done epic", "Done epics")} under CXCROSS Capabilities${parentNote(capKeys.length)}`) : "0"} Done${ep.length >= MIN_N ? ` (${pct(doneN, ep.length)}%)` : ""}` : "none in this selection"},
     {c: "cx", v: behindCells ? tlink(behindCells, keyIn([...new Set(behindEpics.map(e => e.k))]), `${nn(behindCells, "project cell", "project cells")} Behind Required Fix Version, from ${nn(new Set(behindEpics.map(e => e.k)).size, "epic", "epics")}`) : "0", l: "Project Cells Behind", s: "Behind Required Fix Version"},
-    attTile("later"),
+    attTile("mism"),
     ...(att.nope ? [attTile("nope")] : []),
     attTile("team")
   ]);
@@ -3445,7 +3439,7 @@ function renderCx() {
       ["Order", M.P ? `Initiatives follow the order of the CrossCX Projects page; those not on it come last.` : `Initiatives are sorted by title.`],
       ["Required Fix Version", `the Fix Version on the CXCROSS Capability, taken as the required release. This is an owner assumption, not verified.`],
       ["Behind Required Fix Version", `a cell is marked when an open epic is planned later than the Capability, or is still open although the Capability's latest release version has ended.`],
-      [AT.later.term, AT.later.def],
+      [AT.mism.term, AT.mism.def],
       ...(att.nope ? [[AT.nope.term, AT.nope.def]] : []),
       [AT.team.term, AT.team.def]
     ],

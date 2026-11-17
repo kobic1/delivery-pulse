@@ -733,12 +733,12 @@ def _(t: T):
 
 # ---------------------------------------------------------------------------------------------- the three tiles of items to check
 # Worked out here from the payload, never from the page's code:
-#   later: an open epic of the section whose earliest release version is later than the latest release version of its Capability (the first rule behind "Behind", not the second one);
+#   mism (Release Mismatch, the CrossCX tracker's rule): the Capabilities (CXCROSS, not Removed) whose fix versions include the SELECTED release, and their epics that are not Done, wherever those are planned: an epic counts when it has a release and none of them is one of its Capability's;
 #   nope (exactly one project selected): a CXCROSS Capability, not Removed or Done, with the release in its fix versions, that has no epic of that project in the payload (any release; the Teams filter applies);
 #   team: an epic of the section with no Epic Team.
 # They are KPI tiles of the section's row (the number opens the items in Jira), after the three tiles that were there; the old fourth tile, Capabilities Without a Required Fix Version, is gone.
-ATT_LABELS = {"later": "Epics Planned Later Than Required", "nope": "No Epic From This Project", "team": "Epics Without Epic Team"}
-ATT_SUB = {"later": lambda n: "All releases, Release filter not applied" if n else "None across all releases",
+ATT_LABELS = {"mism": "Release Mismatch", "nope": "No Epic From This Project", "team": "Epics Without Epic Team"}
+ATT_SUB = {"mism": lambda n: "Epics outside their Capability's release" if n else "None outside their Capability's release",
            "nope": lambda n: "Capabilities in this release" if n else "Each Capability has one on this page",
            "team": lambda n: "Field is blank in Jira" if n else "Each epic has an Epic Team"}
 FIRST3 = ["CXCROSS Items in Scope", "Epics Under Them", "Project Cells Behind"]
@@ -755,38 +755,47 @@ def build_att():
     pmn = [e for e in eps if e["p"] == "PMN"][:6]
     for e in pmn + [e for e in eps if e["p"] != "PMN"][:2]:
         e["tm"] = []
-    # Done is never "later", so that epic is in no count, and a rule that forgets Done would count it
+    # a Done epic is in no count, and a rule that forgets Done would count it
     live = next(k for k, r in data["hier"].items() if r["ty"] == "Initiative" and r["s"] != "Removed" and k.startswith("CXCROSS"))
     data["hier"]["CXCROSS-98910"] = {"ty": "Capability", "t": "capability that ended earlier", "s": "In Progress", "fv": ["26.4"], "p": "CXCROSS", "par": live}
     next(e for e in eps if e["s"] == "Done" and e["p"] == "PMN")["cp"] = "CXCROSS-98910"
-    # an open PMN epic planned for 27.2 under a Capability that needs 27.1: not in the 27.1 scope of the section, but late all the same; a CXWFM one that is Done (never counted)
+    # Capability CXCROSS-98911 needs 27.1 (REL). Its epics, none of them in the 27.1 scope of the section when they are planned elsewhere:
+    #   PMN-98911 open, planned 27.2 (later)         -> counts at 27.1
+    #   PMN-98913 open, planned 26.4 (earlier)       -> counts at 27.1
+    #   PMN-98914 open, planned 26.4 and 27.1        -> does NOT count: one of its releases is the Capability's
+    #   CXWFM-98912 Done, planned 27.2               -> never counts
+    # Capability CXCROSS-98912 needs 27.1 and 27.2: PMN-98916 planned 27.2 does NOT count. Capability CXCROSS-98913 is Removed: PMN-98915 planned 27.2 does NOT count.
     import copy
     data["hier"]["CXCROSS-98911"] = {"ty": "Capability", "t": "capability needed now", "s": "In Progress", "fv": [REL], "p": "CXCROSS", "par": live}
+    data["hier"]["CXCROSS-98912"] = {"ty": "Capability", "t": "capability needed in two releases", "s": "In Progress", "fv": [REL, "27.2"], "p": "CXCROSS", "par": live}
+    data["hier"]["CXCROSS-98913"] = {"ty": "Capability", "t": "capability removed", "s": "Removed", "fv": [REL], "p": "CXCROSS", "par": live}
     donor = next(e for e in sorted(data["epics"], key=lambda e: e["k"]) if e["p"] == "PMN")
-    for k, proj, st in (("PMN-98911", "PMN", "New"), ("CXWFM-98912", "CXWFM", "Done")):
+    for k, proj, st, fv, cp in (("PMN-98911", "PMN", "New", ["27.2"], "CXCROSS-98911"), ("CXWFM-98912", "CXWFM", "Done", ["27.2"], "CXCROSS-98911"),
+                                ("PMN-98913", "PMN", "In Progress", ["26.4"], "CXCROSS-98911"), ("PMN-98914", "PMN", "New", ["26.4", REL], "CXCROSS-98911"),
+                                ("PMN-98915", "PMN", "New", ["27.2"], "CXCROSS-98913"), ("PMN-98916", "PMN", "New", ["27.2"], "CXCROSS-98912")):
         e = copy.deepcopy(donor)
-        e.update({"k": k, "p": proj, "s": st, "fv": ["27.2"], "cp": "CXCROSS-98911", "tm": ["Team Quebec"]})
+        e.update({"k": k, "p": proj, "s": st, "fv": fv, "cp": cp, "tm": ["Team Quebec"]})
         data["epics"].append(e)
     return data
 
 
-def expected_att(data, projects):
+def expected_att(data, projects, rel=REL):
     H = data["hier"]
     eps = section_epics(data, projects)
-
-    def later(e):
-        cv, ev = rel_versions(H[e["cp"]].get("fv")), rel_versions(e["fv"])
-        return e["s"] != "Done" and bool(cv and ev) and relnum(ev[0]) > relnum(cv[-1])
-
     ini_ok0 = lambda c: bool((H.get(c) or {}).get("par") in H and H[H[c]["par"]]["s"] != "Removed" and H[c]["par"].startswith("CXCROSS"))
-    anyrel = [e for e in data["epics"] if e["p"] in projects and e.get("cp") and (e["cp"].startswith("CXCROSS") or ini_ok0(e["cp"])) and (H.get(e["cp"]) or {}).get("s") != "Removed"]
-    out = {"later": sorted((e["k"] for e in anyrel if later(e)), key=natural), "team": sorted((e["k"] for e in eps if not e.get("tm")), key=natural)}
+
+    def mism(e):
+        c = H.get(e.get("cp")) or {}
+        return (e["p"] in projects and (e["cp"].startswith("CXCROSS") or ini_ok0(e["cp"])) and c.get("s") != "Removed" and rel in rel_versions(c.get("fv"))
+                and e["s"] != "Done" and bool(e["fv"]) and not (set(e["fv"]) & set(c.get("fv") or [])))
+
+    out = {"mism": sorted((e["k"] for e in data["epics"] if e.get("cp") and mism(e)), key=natural), "team": sorted((e["k"] for e in eps if not e.get("tm")), key=natural)}
     if len(projects) == 1:
         one = next(iter(projects))
         ini_ok = lambda c: bool((H.get(c) or {}).get("par") in H and H[H[c]["par"]]["s"] != "Removed" and H[c]["par"].startswith("CXCROSS"))
         is_cx = lambda c: c.startswith("CXCROSS") or ini_ok(c)
         have = {e["cp"] for e in data["epics"] if e["p"] == one and e.get("cp")}
-        out["nope"] = sorted((c for c, r in H.items() if r["ty"] == "Capability" and is_cx(c) and r["s"] not in ("Removed", "Done") and REL in rel_versions(r.get("fv")) and c not in have), key=natural)
+        out["nope"] = sorted((c for c, r in H.items() if r["ty"] == "Capability" and is_cx(c) and r["s"] not in ("Removed", "Done") and rel in rel_versions(r.get("fv")) and c not in have), key=natural)
     return out
 
 
@@ -803,7 +812,7 @@ def _(t: T):
         ch = load_page(data, hash_)
         r = ch.js(ATT_READ)
         want = expected_att(data, projects)
-        order = FIRST3 + [ATT_LABELS[k] for k in ("later", "nope", "team") if k in want]
+        order = FIRST3 + [ATT_LABELS[k] for k in ("mism", "nope", "team") if k in want]
         labels = [x["label"] for x in r["tiles"]]
         t.check(labels == order, f"[{hash_}] the tiles are {labels}, expected {order}")
         t.check("Capabilities Without a Required Fix Version" not in " ".join(labels) and "Capability Without a Required Fix Version" not in " ".join(labels), f"[{hash_}] the removed tile is still there")
@@ -824,18 +833,23 @@ def _(t: T):
         t.check(not ch.console_errors(), f"[{hash_}] console error: {ch.console_errors()[:2]}")
 
 
-@SUITE.test("attention_epics_later_than_capability_does_not_follow_the_release_and_the_others_do")
+@SUITE.test("attention_release_mismatch_follows_the_release_through_the_capability_and_either_direction_counts")
 def _(t: T):
     data = build_att()
-    base_want = expected_att(data, set(data["projects"]))
-    t.check("PMN-98911" in base_want["later"] and "CXWFM-98912" not in base_want["later"], "the fixture does not hold the late epic outside the release and the Done one: the check is blind")
+    allp = set(data["projects"])
     seen = {}
     for rel in ("26.4", "27.1", "27.2"):
-        r = load_page(data, f"r={rel}").js(ATT_READ)
-        x = next(y for y in r["tiles"] if y["label"] == ATT_LABELS["later"])
-        seen[rel] = (x["v"], keys_of(x["href"]))
-        t.check(x["v"] == f"{len(base_want['later']):,}" and keys_of(x["href"]) == base_want["later"], f"[r={rel}] the tile shows {x['v']} {keys_of(x['href'])[:5]}, the recount over all releases is {base_want['later'][:5]}")
-    t.check(len({v[0] for v in seen.values()}) == 1, f"the tile changes with the release: {seen}")
+        want = expected_att(data, allp, rel)["mism"]
+        x = next(y for y in load_page(data, f"r={rel}").js(ATT_READ)["tiles"] if y["label"] == ATT_LABELS["mism"])
+        seen[rel] = keys_of(x["href"])
+        t.check(x["v"] == f"{len(want):,}" and seen[rel] == want, f"[r={rel}] the tile shows {x['v']} {seen[rel][:6]}, the recount through the Capability's release is {want[:6]}")
+    t.check("PMN-98911" in seen["27.1"] and "PMN-98913" in seen["27.1"], f"at 27.1 the epic planned later (27.2) and the one planned earlier (26.4) are not both counted: {seen['27.1']}")
+    t.check("CXWFM-98912" not in seen["27.1"], "a Done epic is counted")
+    t.check("PMN-98914" not in seen["27.1"], "an epic with one of its releases equal to the Capability's is counted")
+    t.check("PMN-98915" not in seen["27.1"] and "PMN-98915" not in seen["27.2"], "an epic under a Removed Capability is counted")
+    t.check("PMN-98916" not in seen["27.1"] and "PMN-98916" not in seen["27.2"], "an epic planned in one of its Capability's two releases is counted")
+    t.check("PMN-98911" not in seen["27.2"], "the Capability needs 27.1 only, and the epic shows when 27.2 is selected")
+    t.check(seen["27.1"] != seen["27.2"], "the tile does not change with the release")
     # the Epic Team tile is of the release's epics: it must change with the release
     teams = {rel: next(y for y in load_page(data, f"r={rel}").js(ATT_READ)["tiles"] if y["label"] == ATT_LABELS["team"])["v"] for rel in ("26.4", "27.1")}
     t.check(teams["26.4"] != teams["27.1"], f"Epics Without Epic Team does not follow the release: {teams}")
@@ -861,10 +875,10 @@ def _(t: T):
     data = build_att()
     ch = load_page(data, f"r={REL}&p=PMN")
     text = ch.js("document.getElementById('cx-cap').textContent")
-    for term in ("Epics Planned Later Than Required", "No Epic From This Project", "Epics Without Epic Team"):
+    for term in ("Release Mismatch", "No Epic From This Project", "Epics Without Epic Team"):
         t.check(term in text, f"the definition list has no entry for {term!r}")
     t.check("appears only when exactly one project is selected" in text, "the definitions do not say when the middle tile appears")
-    t.check("flagged \"No Required Fix Version\"" in text and "counted in Capabilities Without" not in text, "the definition still points to the removed tile")
+    t.check("flags it as \"No Required Fix Version\"" in text and "counted in Capabilities Without" not in text, "the definition still points to the removed tile")
     t.check("assign" not in (text + ch.js("document.getElementById('cx-kpis').textContent")).lower(), "a tile or its definition mentions an assignee")
     ch2 = load_page(data, f"r={REL}&p=PMN", 390)
     r = ch2.js(ATT_READ)
@@ -873,24 +887,46 @@ def _(t: T):
     t.check(all(x["w"] > 120 for x in all_["tiles"]), f"a tile is narrower than 120 px at 1400: {[x['w'] for x in all_['tiles']]}")
 
 
-@SUITE.test("selftest_the_check_fails_when_a_done_epic_counts_as_later_than_its_capability")
-def _(t: T):
-    data = build_att()
-    ch = seeded('!(H[e.cp] && H[e.cp].s === "Removed") && cls(e.s) !== "done").filter(', '!(H[e.cp] && H[e.cp].s === "Removed")).filter(', data)
-    r = ch.js(ATT_READ)
-    done_later = [e for e in section_epics(data, set(data["projects"])) if e["s"] == "Done" and rel_versions(e["fv"]) and rel_versions(data["hier"][e["cp"]].get("fv")) and relnum(rel_versions(e["fv"])[0]) > relnum(rel_versions(data["hier"][e["cp"]]["fv"])[-1])]
-    t.check(done_later, "the fixture has no Done epic planned later than its Capability: the check cannot be tested")
-    x = next(y for y in r["tiles"] if y["label"] == ATT_LABELS["later"])
-    t.check(x["v"] != f"{len(expected_att(data, set(data['projects']))['later']):,}", "a Done epic counted as later passes the recount: the check is blind")
+def _mism_tile(ch):
+    return keys_of(next(y for y in ch.js(ATT_READ)["tiles"] if y["label"] == ATT_LABELS["mism"])["href"])
 
 
-@SUITE.test("selftest_the_check_fails_when_epics_later_than_capability_follows_the_release")
+SEED_BASE = 'const mism = DATA.epics.filter(e => base(e) && cxPass(e) && isCxCap(H, e.cp) && !(H[e.cp] && H[e.cp].s === "Removed") && cls(e.s) !== "done" && versionsOf(H[e.cp].fv).rel.includes(rel))'
+
+
+@SUITE.test("selftest_the_check_fails_when_a_done_epic_counts_as_a_release_mismatch")
 def _(t: T):
     data = build_att()
-    ch = seeded("const later = DATA.epics.filter(e => base(e) && cxPass(e)", "const later = M.epics.filter(e => base(e) && cxPass(e)", data)
-    r = ch.js(ATT_READ)
-    x = next(y for y in r["tiles"] if y["label"] == ATT_LABELS["later"])
-    t.check("PMN-98911" not in keys_of(x["href"]), "the seeded release-scoped rule still counts the epic planned outside the release: the check is blind")
+    ch = seeded(' && cls(e.s) !== "done" && versionsOf(H[e.cp].fv).rel.includes(rel))', ' && versionsOf(H[e.cp].fv).rel.includes(rel))', data)
+    t.check("CXWFM-98912" in _mism_tile(ch), "the seeded rule that forgets Done does not count the Done epic: the check is blind")
+
+
+@SUITE.test("selftest_the_check_fails_when_release_mismatch_follows_the_epics_release")
+def _(t: T):
+    data = build_att()
+    ch = seeded("const mism = DATA.epics.filter(e => base(e) && cxPass(e)", "const mism = M.epics.filter(e => base(e) && cxPass(e)", data)
+    t.check("PMN-98911" not in _mism_tile(ch), "the seeded epic-release scope still counts the epic planned outside the release: the check is blind")
+
+
+@SUITE.test("selftest_the_check_fails_when_release_mismatch_counts_only_later_plans")
+def _(t: T):
+    data = build_att()
+    ch = seeded("return ev.length > 0 && !ev.some(v => cv.includes(v)); }", "return ev.length > 0 && !ev.some(v => cv.includes(v)) && relNum(ev[0]) > relNum(cv[cv.length - 1]); }", data)
+    t.check("PMN-98913" not in _mism_tile(ch), "the seeded later-only rule still counts the epic planned earlier: the check is blind")
+
+
+@SUITE.test("selftest_the_check_fails_when_release_mismatch_looks_at_the_first_release_only")
+def _(t: T):
+    data = build_att()
+    ch = seeded("return ev.length > 0 && !ev.some(v => cv.includes(v)); }", "return ev.length > 0 && !cv.includes(ev[0]); }", data)
+    t.check("PMN-98914" in _mism_tile(ch), "the seeded first-release rule does not count the epic that has the Capability's release second: the check is blind")
+
+
+@SUITE.test("selftest_the_check_fails_when_release_mismatch_counts_a_removed_capability")
+def _(t: T):
+    data = build_att()
+    ch = seeded('isCxCap(H, e.cp) && !(H[e.cp] && H[e.cp].s === "Removed") && cls(e.s) !== "done" && versionsOf', 'isCxCap(H, e.cp) && cls(e.s) !== "done" && versionsOf', data)
+    t.check("PMN-98915" in _mism_tile(ch), "the seeded rule that forgets Removed does not count the epic: the check is blind")
 
 
 @SUITE.test("selftest_the_check_fails_when_the_middle_tile_shows_for_two_projects")
