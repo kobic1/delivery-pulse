@@ -3378,12 +3378,12 @@ function cxModel() {
     removedCaps: allCx.filter(removedCap).length, removedIni: Object.keys(H).filter(k => H[k].ty === "Initiative" && H[k].s === "Removed").length,
     capsUnderRemovedIni: [...byCap.keys()].filter(c => { const p = H[c] && H[c].par; return p && H[p] && H[p].s === "Removed"; }).length};
 }
-// Three tiles in the CXCROSS row: items to check. Facts about versions and a blank Epic Team field, never a verdict on a team. Each number opens its items in Jira.
+// Three tiles in the CXCROSS row: items to check. Epics Planned Later Than Required ignores the Release filter; the other two follow it. Facts about versions and a blank Epic Team field, never a verdict on a team. Each number opens its items in Jira.
 // The wording is the technical writer's. The middle tile is drawn only when exactly one project is selected.
 const CX_ATT_TXT = {
-  later: {label: "Epics Later Than Capability", sub: n => n ? "Open, release after the Capability's" : "None later than their Capability",
-    tip: n => `${nn(n, "open epic has", "open epics have")} an earliest release later than the latest release of ${n === 1 ? "its" : "their"} Capability. It counts epics, not project cells.`,
-    term: "Epics Later Than Capability", def: `an open (not Done) epic in this selection whose earliest release version is later than the latest release version of its CXCROSS Capability. It counts epics, not project cells, and covers only one of the two rules behind Project Cells Behind. A Capability with no Required Fix Version cannot be assessed here. It shows in the last column of the table, flagged "No Required Fix Version".`},
+  later: {label: "Epics Planned Later Than Required", sub: n => n ? "All releases, Release filter not applied" : "None across all releases",
+    tip: n => n ? `${nn(n, "open epic is", "open epics are")} planned for a later release than ${n === 1 ? "its" : "their"} Capability requires, across all releases on this page. This tile ignores the Release filter so that such plans show whichever release is selected.` : "No open epic is planned for a later release than its Capability requires, across all releases on this page.",
+    term: "Epics Planned Later Than Required", def: `an open (not Done) epic under a CXCROSS Capability that is not Removed, whose earliest release version is later than the latest release version of that Capability. For example, the Capability needs 27.1 and the epic is planned for 27.2. It counts epics in any release the page holds, and it follows Projects, Teams and Commitment Type but not the Release filter, which makes it the one tile in the row that is not release-scoped. Project Cells Behind is release-scoped, counts project cells and has a second rule (an open epic after the Capability's release has ended), so the two numbers are not expected to match. A Capability with no Required Fix Version cannot be assessed here; it shows in the last column of the table, flagged "No Required Fix Version".`},
   nope: {label: "No Epic From This Project", sub: n => n ? "Capabilities in this release" : "Each Capability has one on this page",
     tip: n => `${nn(n, "Capability in this release has", "Capabilities in this release have")} no epic from the selected project and teams on this page. Confirm whether the project needs an epic or the Capability does not apply.`,
     term: "No Epic From This Project", def: `a CXCROSS Capability that is not Removed or Done, whose Fix Version includes the selected release, and that has no epic from the selected project and teams in any release on this page. Epics with no release Fix Version are not on this page, so a Capability can appear here although such an epic exists in Jira. This tile appears only when exactly one project is selected.`},
@@ -3393,7 +3393,10 @@ const CX_ATT_TXT = {
 };
 function cxAttSets(M) {
   const H = M.H, rel = M.rel, byKey = (a, b) => keyCmp(a.k || a, b.k || b);
-  const later = M.mism.slice().sort(byKey), team = M.epics.filter(e => !(e.tm && e.tm.length)).sort(byKey);
+  // Epics Planned Later Than Required does not follow the Release filter: a plan that puts an epic after the release its Capability needs is late whichever release is on screen.
+  // Every open epic of the selected projects, teams and Commitment Type under a live CXCROSS Capability, in any release the page holds, whose earliest release is after the Capability's latest.
+  const later = DATA.epics.filter(e => base(e) && cxPass(e) && isCxCap(H, e.cp) && !(H[e.cp] && H[e.cp].s === "Removed") && cls(e.s) !== "done").filter(e => {
+    const ev = versionsOf(e.fv).rel, cv = versionsOf((H[e.cp] || {}).fv).rel; return !!(ev.length && cv.length && relNum(ev[0]) > relNum(cv[cv.length - 1])); }).sort(byKey), team = M.epics.filter(e => !(e.tm && e.tm.length)).sort(byKey);
   const one = state.projects.size === 1 ? [...state.projects][0] : null;
   const have = one ? new Set(DATA.epics.filter(e => e.p === one && e.cp && inTeams(e)).map(e => e.cp)) : null;
   const nope = one ? Object.keys(H).filter(c => H[c].ty === "Capability" && isCxCap(H, c) && !["Removed", "Done"].includes(H[c].s) && versionsOf(H[c].fv).rel.includes(rel) && !have.has(c)).sort(keyCmp) : null;
