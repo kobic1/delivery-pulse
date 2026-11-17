@@ -236,18 +236,34 @@ def fetch_nodes(tok: str, keys, org: str = ORG, post=None, sleep=time.sleep, mod
     return list(seen.values()), total_found
 
 
-def release_lookup(search, keys: list, known: dict | None = None) -> tuple[dict, int]:
+EPIC_TEAM, TEAM_NAME = "customfield_10040", "customfield_10098"      # Epic Team (multi-select, on epics) and Team Name (single select, on stories and bugs)
+
+
+def own_teams(fields: dict) -> set:
+    """The team(s) an issue carries itself: its Epic Team values, else its Team Name. Empty when it has neither."""
+    got = {(v or {}).get("value") if isinstance(v, dict) else v for v in (fields.get(EPIC_TEAM) or [])}
+    if not got - {None, ""}:
+        tn = fields.get(TEAM_NAME)
+        got = {tn.get("value") if isinstance(tn, dict) else tn}
+    return {str(t) for t in got if t}
+
+
+def release_lookup(search, keys: list, known: dict | None = None, teams_out: dict | None = None, pods_out: dict | None = None, pod_of=None) -> tuple[dict, int]:
     """The releases (Jira fix versions) of each issue key: its own, plus those of its parent epic (a pull request usually names a story, task or bug, whose release is the
     epic's). `search(jql, fields)` is the Jira search; `known` maps an epic key to its releases when the page already holds it (saves a call). Returns ({key: set of releases},
-    number of keys Jira did not know). A key Jira rejects (a typo in a title) never fails the lot: the chunk is split until the bad key stands alone."""
-    rel, parent, bad = dict(known or {}), {}, set()
-    rel = {k: set(v) for k, v in rel.items()}
+    number of keys Jira did not know). A key Jira rejects (a typo in a title) never fails the lot: the chunk is split until the bad key stands alone.
+    With `teams_out` and/or `pods_out` (dicts the caller passes) it also fills {key: set of team names} (the team the issue carries itself, its Epic Team else its Team Name, else its
+    parent epic's Epic Team) and {key: set of pod labels} (those of the epic: the issue itself when it is one, else its parent; `pod_of(project key, labels)` picks them). Reading those
+    needs every key and every parent read, so `known` is then not used to skip a read."""
+    extras = teams_out is not None or pods_out is not None
+    rel, parent, bad = ({} if extras else {k: set(v) for k, v in (known or {}).items()}), {}, set()
+    own, kind, pods = {}, {}, {}
 
     def read(batch: list, with_parent: bool) -> None:
         if not batch:
             return
         try:
-            rows = search(f'key in ({", ".join(batch)})', ["fixVersions", "parent"])
+            rows = search(f'key in ({", ".join(batch)})', ["fixVersions", "parent", "issuetype", "project", "labels", EPIC_TEAM, TEAM_NAME])
         except Exception:
             if len(batch) == 1:
                 bad.add(batch[0]); return
@@ -256,6 +272,9 @@ def release_lookup(search, keys: list, known: dict | None = None) -> tuple[dict,
         for i in rows:
             f = i["fields"]
             rel[i["key"]] = {v["name"] for v in f.get("fixVersions") or []}
+            own[i["key"]] = own_teams(f)
+            kind[i["key"]] = ((f.get("issuetype") or {}).get("name") or "")
+            pods[i["key"]] = set(pod_of(((f.get("project") or {}).get("key") or ""), f.get("labels") or [])) if pod_of and kind[i["key"]] == "Epic" else set()
             pk = (f.get("parent") or {}).get("key")
             if pk and with_parent:
                 parent[i["key"]] = pk
@@ -267,18 +286,31 @@ def release_lookup(search, keys: list, known: dict | None = None) -> tuple[dict,
     for n in range(0, len(need), 80):
         read(need[n:n + 80], False)
     out = {k: set(rel.get(k, set())) | set(rel.get(parent.get(k), set())) for k in keys}
+    if teams_out is not None:
+        for k in keys:
+            teams_out[k] = set(own.get(k) or own.get(parent.get(k)) or set())
+    if pods_out is not None:
+        for k in keys:
+            pods_out[k] = set(pods.get(k) or (pods.get(parent.get(k)) if kind.get(parent.get(k)) == "Epic" else None) or set())
     unknown = len([k for k in keys if k not in rel])
     return out, unknown
 
 
-def attach_releases(res: dict, search, known: dict | None = None) -> dict:
+def attach_releases(res: dict, search, known: dict | None = None, pod_of=None) -> dict:
     """Adds `rl` (sorted releases of the issues a pull request names, or of their parent epics) to every record and drops the working field `ik`. The page keeps only the pull
     requests of the selected release. `unknownKeys` counts the keys Jira did not know; a pull request left with no release is never listed (it belongs to no release)."""
     recs = res.get("list") or []
     fresh = [x for x in recs if "ik" in x]        # a record kept from an earlier read (delta mode) has its releases already
-    rel, unknown = release_lookup(search, sorted({k for x in fresh for k in x["ik"]}), known)
+    teams, pods = {}, {}
+    rel, unknown = release_lookup(search, sorted({k for x in fresh for k in x["ik"]}), known, teams, pods, pod_of)
     for x in fresh:
         x["rl"] = sorted(set().union(*[rel.get(k, set()) for k in x["ik"]]))
+        x["tm"] = sorted(set().union(*[teams.get(k, set()) for k in x["ik"]]))        # the teams of the issues it names, [] when none carries one
+        seen: dict = {}
+        for k in x["ik"]:
+            for pl in sorted(pods.get(k, set())):
+                seen.setdefault(pl.lower(), pl)
+        x["pd"] = sorted(seen.values(), key=str.lower)                                  # the pod labels of the epics it names (case-insensitive, first spelling)
         x.pop("ik", None)
     res["unknownKeys"] = unknown
     res["noRelease"] = sum(1 for x in recs if not x["rl"])
@@ -298,6 +330,8 @@ def delta_base(previous: dict | None, now: dt.datetime) -> dict | None:
     FULL_EVERY_HOURS old. Otherwise None, and the caller reads everything."""
     p = previous or {}
     if not isinstance(p.get("list"), list) or p.get("unavailable") or p.get("releasesUnavailable"):
+        return None
+    if any("tm" not in r or "pd" not in r for r in p["list"]):        # a list kept from before the teams and pods were read: read everything once
         return None
     for field in ("at", "fullAt"):
         t = _when(p.get(field))

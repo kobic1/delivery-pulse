@@ -208,6 +208,45 @@ def test_attach_releases_sets_rl_drops_ik_and_counts_the_pull_requests_in_no_rel
     assert out["noRelease"] == 2 and out["unknownKeys"] == 1
 
 
+def fake_jira_rich(issues):
+    """{key: dict(fv, parent, type, project, labels, epic_team, team_name)}: the answer of a Jira search with the fields the team and pod lookup asks for."""
+    def search(jql, fields):
+        keys = [k.strip() for k in jql[jql.index("(") + 1:jql.rindex(")")].split(",")]
+        out = []
+        for k in keys:
+            if k not in issues:
+                continue
+            i = issues[k]
+            out.append({"key": k, "fields": {"fixVersions": [{"name": v} for v in i.get("fv", [])], "parent": ({"key": i["parent"]} if i.get("parent") else None), "issuetype": {"name": i.get("type", "Story")},
+                                              "project": {"key": k.split("-")[0]}, "labels": i.get("labels", []), P.EPIC_TEAM: [{"value": t} for t in i.get("epic_team", [])],
+                                              P.TEAM_NAME: ({"value": i["team_name"]} if i.get("team_name") else None)}})
+        return out
+    return search
+
+
+POD = lambda proj, labels: [l for l in labels if "pod" in l.lower()]
+
+
+def test_the_team_and_pod_of_a_pull_request_come_from_the_issue_it_names_or_its_parent_epic():
+    s = fake_jira_rich({"PMN-1": dict(type="Story", parent="PMN-9", team_name="Ascenders", fv=["27.1"]),                       # a story with its own Team Name: that team, the epic's pod
+                        "PMN-2": dict(type="Bug", parent="PMN-9", fv=["27.1"]),                                                # no team of its own: the epic's Epic Team
+                        "PMN-3": dict(type="Epic", epic_team=["Team B", "Team A"], labels=["POD-C", "other"], fv=["27.1"]),    # an epic: its own teams and pod
+                        "PMN-4": dict(type="Story", fv=["27.1"]),                                                              # nothing anywhere
+                        "PMN-9": dict(type="Epic", epic_team=["Epic Team X"], labels=["POD-A"], fv=["27.1"])})
+    teams, pods = {}, {}
+    P.release_lookup(s, ["PMN-1", "PMN-2", "PMN-3", "PMN-4"], teams_out=teams, pods_out=pods, pod_of=POD)
+    assert teams == {"PMN-1": {"Ascenders"}, "PMN-2": {"Epic Team X"}, "PMN-3": {"Team A", "Team B"}, "PMN-4": set()}
+    assert pods == {"PMN-1": {"POD-A"}, "PMN-2": {"POD-A"}, "PMN-3": {"POD-C"}, "PMN-4": set()}
+
+
+def test_attach_releases_gives_every_record_the_teams_and_pods_of_all_the_keys_it_names_without_duplicates():
+    s = fake_jira_rich({"PMN-3": dict(type="Epic", epic_team=["Team A"], labels=["POD-C"], fv=["27.1"]), "PMN-5": dict(type="Epic", epic_team=["Team A", "Team Z"], labels=["pod-c", "POD-D"], fv=["27.1"])})
+    res = {"list": [{"n": 1, "ik": ["PMN-3", "PMN-5"]}, {"n": 2, "ik": ["PMN-7"]}]}
+    out = P.attach_releases(res, s, pod_of=POD)
+    assert out["list"][0]["tm"] == ["Team A", "Team Z"] and out["list"][0]["pd"] == ["POD-C", "POD-D"]        # pod-c and POD-C are one pod, the first spelling is kept
+    assert out["list"][1]["tm"] == [] and out["list"][1]["pd"] == []
+
+
 def test_a_jira_failure_is_a_failure_of_the_lookup_the_collector_turns_into_a_notice(monkeypatch):
     def down(jql, fields):
         raise RuntimeError("jira down")
@@ -277,7 +316,7 @@ NOW = dt.datetime(2026, 11, 16, 12, 0, tzinfo=dt.timezone.utc)
 
 
 def rec(n, up="2026-11-15", **kw):
-    return {"r": "svc-a", "n": n, "t": f"PMN-{n} earlier", "ra": "2026-11-10", "up": up, "rv": "none", "ci": "ok", "pj": ["PMN"], "rl": ["27.1"], **kw}
+    return {"r": "svc-a", "n": n, "t": f"PMN-{n} earlier", "ra": "2026-11-10", "up": up, "rv": "none", "ci": "ok", "pj": ["PMN"], "rl": ["27.1"], "tm": [], "pd": [], **kw}
 
 
 def earlier(**kw):
@@ -295,6 +334,10 @@ def test_a_delta_read_needs_an_earlier_list_with_a_full_read_and_a_last_read_und
     assert P.delta_base(earlier(fullAt="2026-11-15T12:01+00:00"), NOW) is not None
     assert P.delta_base(earlier(at="2026-11-15T11:00+00:00"), NOW) is None
     assert P.delta_base(earlier(at="not a time"), NOW) is None
+    old = earlier(); old["list"][0].pop("tm")
+    assert P.delta_base(old, NOW) is None, "a record from before the teams were read: read everything once"
+    old = earlier(); old["list"][1].pop("pd")
+    assert P.delta_base(old, NOW) is None, "a record from before the pod labels were read: read everything once"
     assert P.delta_base(earlier(refreshFailed="the GitHub read failed"), NOW) is not None, "a list kept after a failed read still has its own last good read time"
 
 

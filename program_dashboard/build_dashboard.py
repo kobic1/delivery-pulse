@@ -1104,7 +1104,8 @@ def collect_prs(j=None, epics=None, previous=None) -> dict:
         return res
     try:
         known = {e["k"]: e.get("fv") or [] for e in epics or []}
-        PRA.attach_releases(res, (j or E.Jira()).search, known)
+        rx = pod_patterns()
+        PRA.attach_releases(res, (j or E.Jira()).search, known, lambda proj, labels: RPM.pod_labels(labels, rx.get(proj) or POD_DEFAULT_RX))
         print(f"pull requests ({res.get('mode', 'full')} read): {res['kept']} with a project key, {res['noKey']} without, {res['bots']} by bots; activity within {res['activeDays']} days; "
               f"{res['noRelease']} in no release ({res['unknownKeys']} keys unknown to Jira)", flush=True)
     except Exception as exc:

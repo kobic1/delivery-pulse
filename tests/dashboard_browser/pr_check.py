@@ -60,19 +60,19 @@ def fixture(data, hol: set):
     ago = lambda n: (now - dt.timedelta(days=n)).isoformat()
     rows = []
 
-    def add(n, proj, bd, repo="svc-alpha", up=1, rv="none", ci="ok", title=None, rl=("27.1",)):
+    def add(n, proj, bd, repo="svc-alpha", up=1, rv="none", ci="ok", title=None, rl=("27.1",), tm=(), pd=()):
         ra = ready_day(bd, now, hol)
-        rows.append({"r": repo, "n": n, "t": title or f"Invented change {n}", "ra": ra.isoformat(), "up": ago(up), "rv": rv, "ci": ci, "pj": proj, "rl": list(rl)})
+        rows.append({"r": repo, "n": n, "t": title or f"Invented change {n}", "ra": ra.isoformat(), "up": ago(up), "rv": rv, "ci": ci, "pj": proj, "rl": list(rl), "tm": list(tm), "pd": list(pd)})
     add(101, ["PMN"], 2)
     add(102, ["PMN"], 3)
-    add(103, ["PMN"], 4, rv="commented")
-    add(104, ["PMN"], 7, repo="svc-bravo", rv="approved", ci="pend")
+    add(103, ["PMN"], 4, rv="commented", tm=("Team Alpha",), pd=("POD-A",))
+    add(104, ["PMN"], 7, repo="svc-bravo", rv="approved", ci="pend", tm=("Team Alpha", "Team Bravo"), pd=("POD-A", "POD-B"))              # the issues it names carry two teams and two pods
     add(105, ["PMN"], 12, repo="svc-bravo", rv="none", ci="none")
     add(106, ["PMN"], 6, up=ACTIVE + 1)
-    add(107, ["PMN"], 6, up=ACTIVE)
-    add(108, ["PMN", "CXCO"], 5)
+    add(107, ["PMN"], 6, up=ACTIVE, tm=("Team Alpha",))                  # a team and no pod
+    add(108, ["PMN", "CXCO"], 5, tm=("Team Charlie",), pd=("POD-C",))
     add(109, ["CXSUP"], 5, repo="svc-charlie")
-    add(110, ["CXWFM"], 9, repo="svc-charlie", rv="changes", ci="fail")
+    add(110, ["CXWFM"], 9, repo="svc-charlie", rv="changes", ci="fail", tm=("Team Charlie",))
     add(111, ["PMN"], 6, repo="svc-delta", rl=("27.2",))                 # another release only
     add(112, ["PMN"], 8, repo="svc-delta", rl=())                        # no release at all: never a row
     add(113, ["PMN"], 5, repo="svc-delta", rl=("26.4", "27.1"))          # two releases: a row under each
@@ -169,12 +169,33 @@ def _(t: T):
         t.check(x["aria"] == f"{rec['r']} pull request {rec['n']}, {rec['t']}, {bd} business days since ready for review. Evidence, opens on GitHub.", f"{key}: aria {x['aria']!r}")
         rv = {"none": "no review yet", "commented": "reviewed, no decision", "changes": "changes requested", "approved": "approved, not merged"}[rec["rv"]]
         ci = {"ok": "checks passing", "fail": "checks failing", "pend": "checks running", "none": "no checks"}[rec["ci"]]
-        t.check(x["sub"] == f"{', '.join(sel)} · {rv} · {ci}", f"{key}: second line {x['sub']!r}")
+        team = (f"{', '.join(rec['tm'])} · " if rec["tm"] else "") + (f"{', '.join(rec['pd'])} · " if rec["pd"] else "")
+        t.check(x["sub"] == f"{', '.join(sel)} · {team}{rv} · {ci}", f"{key}: second line {x['sub']!r}")
         t.check(x["conf"] == "Single-source" and x["title"] == rec["t"], f"{key}: confidence {x['conf']!r}, title {x['title']!r}")
     t.check(r["openAll"] == [] or all("Jira" not in a for a in r["openAll"]), f"the group offers an 'Open all in Jira' link for pull requests: {r['openAll']}")
     t.check("an open pull request of the example-org organisation" in r["limits"] and "more than 3 business days since it was last marked ready for review" in r["limits"]
             and "No author or reviewer is held." in r["limits"], "the Limits and Thresholds text has no definition")
     t.check("pull request rules follow the selected release and the Projects filter (not Teams)" in r["limits"], "the Limits text does not say which filters the rule follows")
+
+
+@SUITE.test("the_second_line_shows_the_team_then_the_pod_after_the_project_and_nothing_for_what_is_missing_or_an_older_payload")
+def _(t: T):
+    url, data, hol = page()
+    r = load(url)
+    by = {x["key"]: x for x in r["rows"]}
+    t.check(by["svc-alpha#103"]["sub"] == "PMN · Team Alpha · POD-A · reviewed, no decision · checks passing", f"team and pod: {by['svc-alpha#103']['sub']!r}")
+    t.check(by["svc-bravo#104"]["sub"] == "PMN · Team Alpha, Team Bravo · POD-A, POD-B · approved, not merged · checks running", f"two teams and two pods: {by['svc-bravo#104']['sub']!r}")
+    t.check(by["svc-alpha#107"]["sub"] == "PMN · Team Alpha · no review yet · checks passing", f"a team and no pod: {by['svc-alpha#107']['sub']!r}")
+    t.check(by["svc-alpha#108"]["sub"] == "PMN, CXCO · Team Charlie · POD-C · no review yet · checks passing", f"two projects, a team and a pod: {by['svc-alpha#108']['sub']!r}")
+    t.check(by["svc-bravo#105"]["sub"] == "PMN · no review yet · no checks", f"no team, no pod: {by['svc-bravo#105']['sub']!r}")
+    # a payload from before the teams and pods were read: no key at all, no error, no 'undefined'
+    def old(d):
+        for x in d["prs"]["list"]:
+            x.pop("tm", None); x.pop("pd", None)
+    url2, data2, _ = page(mutate=old)
+    r2 = load(url2)
+    t.check(r2["rows"] and all("undefined" not in x["sub"] and x["sub"].count("·") == 2 for x in r2["rows"]), f"an older payload breaks the second line: {[x['sub'] for x in r2['rows']][:3]}")
+    t.check(not ctx.chrome.console_errors(), f"console error: {ctx.chrome.console_errors()[:2]}")
 
 
 @SUITE.test("a_pull_request_naming_two_projects_is_one_row_and_shows_only_the_selected_ones")
@@ -264,6 +285,21 @@ def _(t: T):
     Path(f.name).unlink()
     r = load(url)
     t.check([x["key"] for x in r["rows"]] != [w[0] for w in oracle(data, hol)], "the check passed with exactly 3 business days counted: it is blind")
+
+
+@SUITE.test("selftest_the_check_fails_when_the_team_is_left_out_of_the_second_line")
+def _(t: T):
+    src = ctx.template.read_text(encoding="utf-8")
+    marker = '${[Array.isArray(x.tm) && x.tm.length ? x.tm.join(", ") : "", Array.isArray(x.pd) && x.pd.length ? x.pd.join(", ") : ""].filter(Boolean).map(v => v + " · ").join("")}'
+    if marker not in src:
+        raise kit.Skip("this template does not show the team")
+    with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False, encoding="utf-8") as f:
+        f.write(src.replace(marker, ""))
+    url, data, hol = page(Path(f.name))
+    Path(f.name).unlink()
+    r = load(url)
+    by = {x["key"]: x for x in r["rows"]}
+    t.check("Team Alpha" not in by["svc-alpha#103"]["sub"], "the seeded page without teams still shows one: the check is blind")
 
 
 if __name__ == "__main__":
