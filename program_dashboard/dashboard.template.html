@@ -260,20 +260,6 @@ tbody tr:hover > * { background:var(--panel); }
 .kpi .x::before { content:""; width:8px; height:8px; border-radius:50%; background:var(--gc,#9AA0AA); flex:none; transform:translateY(-1px); }
 .kpi .x.ok { --gc:var(--green); } .kpi .x.watch { --gc:var(--amber); }
 .kpi .x.plain::before { display:none; }
-/* CXCROSS: three blocks of items to check under the tiles. A block is a count, a title, the rule it counts by, and a list that opens past five items. */
-.cxatt-h { font-size:var(--t-body); font-weight:600; margin:2px 0 4px; }
-.cxatt { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr)); gap:0 28px; margin:0 0 22px; }
-.attcol { border-top:2px solid var(--line); padding:10px 0 4px; min-width:0; }
-.attcol.warn { border-top-color:var(--amber); }
-.attcol h3 { display:flex; gap:10px; align-items:baseline; font-size:var(--t-body); font-weight:600; margin:0; }
-.attcol h3 .n { font-size:var(--t-title); font-weight:600; font-variant-numeric:tabular-nums; line-height:1.15; }
-.attcol h3 .n a { color:inherit; text-decoration:underline dotted 1px; text-underline-offset:.16em; }
-.attcol .rule { color:var(--muted); font-size:var(--t-cap); margin:4px 0 8px; line-height:1.4; }
-.attcol ul { list-style:none; margin:0; padding:0; }
-.attcol li { padding:7px 0; border-top:1px solid var(--line-soft); font-size:var(--t-body); line-height:1.4; overflow-wrap:anywhere; }
-.attcol li .f { display:block; color:var(--muted); font-size:var(--t-cap); }
-.attcol .none { color:var(--muted); font-size:var(--t-cap); margin:0 0 8px; }
-.attcol .attmore { margin-top:2px; }
 
 section.sec { --acc:var(--line); --acc-ink:var(--ink); border-left:3px solid var(--acc); padding:2px 0 2px 20px; margin-bottom:44px; min-width:0; }
 section.sec.d { --acc:var(--blue); --acc-ink:var(--blue-ink); }
@@ -843,7 +829,6 @@ footer.f b { color:var(--ink); }
     </div>
     <div class="sub" id="cx-sub"></div>
     <div class="kpis five" id="cx-kpis"></div>
-    <div id="cx-att"></div>
     <div class="cap" id="cx-facts"></div>
     <div id="cx-cap"></div>
     <div id="cx-body"></div>
@@ -3393,45 +3378,26 @@ function cxModel() {
     removedCaps: allCx.filter(removedCap).length, removedIni: Object.keys(H).filter(k => H[k].ty === "Initiative" && H[k].s === "Removed").length,
     capsUnderRemovedIni: [...byCap.keys()].filter(c => { const p = H[c] && H[c].par; return p && H[p] && H[p].s === "Removed"; }).length};
 }
-// Three blocks under the CXCROSS tiles: items to check. Facts about versions and a blank Epic Team field, never a verdict on a team; the lists run in key order, so nothing here ranks a team.
-// The wording below is the technical writer's. Block 2 is shown only when exactly one project is selected; with any other selection it is not drawn.
-const CX_ATT_SHOW = 5, cxAttOpen = new Set();
+// Three tiles in the CXCROSS row: items to check. Facts about versions and a blank Epic Team field, never a verdict on a team. Each number opens its items in Jira.
+// The wording is the technical writer's. The middle tile is drawn only when exactly one project is selected.
 const CX_ATT_TXT = {
-  head: "Items to check",
-  later: {title: "Epic release later than Capability", rule: "Open epics whose earliest release version is later than the latest release version of their Capability.",
-    none: "No open epic is later than its Capability.", tip: n => `${nn(n, "open epic has", "open epics have")} an earliest release later than the latest release of their Capability.`,
-    aria: n => `${nn(n, "open epic", "open epics")} with a release later than their Capability`},
-  nope: {title: "No epic from this project", rule: "Capabilities in scope with no epic from the selected project on this page. Confirm whether the project needs an epic.",
-    none: "Each Capability in scope has an epic from this project on this page.", tip: n => `${nn(n, "Capability in this release has", "Capabilities in this release have")} no epic from the selected project on this page. Confirm whether the project needs an epic or the Capability does not apply.`,
-    aria: n => `${nn(n, "Capability", "Capabilities")} with no epic from the selected project`},
-  team: {title: "Missing Epic Team", rule: "Epics in this selection that have no Epic Team.",
-    none: "Every epic in this selection has an Epic Team.", tip: n => `${nn(n, "epic in this selection has", "epics in this selection have")} no Epic Team.`,
-    aria: n => `${nn(n, "epic", "epics")} with no Epic Team`}
+  later: {label: "Epics Later Than Capability", sub: n => n ? "Open, release after the Capability's" : "None later than their Capability",
+    tip: n => `${nn(n, "open epic has", "open epics have")} an earliest release later than the latest release of ${n === 1 ? "its" : "their"} Capability. It counts epics, not project cells.`,
+    term: "Epics Later Than Capability", def: `an open (not Done) epic in this selection whose earliest release version is later than the latest release version of its CXCROSS Capability. It counts epics, not project cells, and covers only one of the two rules behind Project Cells Behind. A Capability with no Required Fix Version cannot be assessed here. It shows in the last column of the table, flagged "No Required Fix Version".`},
+  nope: {label: "No Epic From This Project", sub: n => n ? "Capabilities in this release" : "Each Capability has one on this page",
+    tip: n => `${nn(n, "Capability in this release has", "Capabilities in this release have")} no epic from the selected project and teams on this page. Confirm whether the project needs an epic or the Capability does not apply.`,
+    term: "No Epic From This Project", def: `a CXCROSS Capability that is not Removed or Done, whose Fix Version includes the selected release, and that has no epic from the selected project and teams in any release on this page. Epics with no release Fix Version are not on this page, so a Capability can appear here although such an epic exists in Jira. This tile appears only when exactly one project is selected.`},
+  team: {label: "Epics Without Epic Team", sub: n => n ? "Field is blank in Jira" : "Each epic has an Epic Team",
+    tip: n => `${nn(n, "epic in this selection has", "epics in this selection have")} no Epic Team.`,
+    term: "Epics Without Epic Team", def: `an epic in this selection whose Epic Team field is empty. The tile reports a blank field only.`}
 };
-let cxAttLast = null;
-function renderCxAtt(M) {
-  const host = document.getElementById("cx-att"); if (!host) return;
-  if (M) cxAttLast = M; else M = cxAttLast;
-  if (!M || !state.projects.size) { host.innerHTML = ""; return; }
-  const H = M.H, rel = M.rel, T = CX_ATT_TXT, byKey = (a, b) => keyCmp(a.k || a, b.k || b);
-  const later = M.mism.slice().sort(byKey), noTeam = M.epics.filter(e => !(e.tm && e.tm.length)).sort(byKey);
+function cxAttSets(M) {
+  const H = M.H, rel = M.rel, byKey = (a, b) => keyCmp(a.k || a, b.k || b);
+  const later = M.mism.slice().sort(byKey), team = M.epics.filter(e => !(e.tm && e.tm.length)).sort(byKey);
   const one = state.projects.size === 1 ? [...state.projects][0] : null;
   const have = one ? new Set(DATA.epics.filter(e => e.p === one && e.cp && inTeams(e)).map(e => e.cp)) : null;
   const nope = one ? Object.keys(H).filter(c => H[c].ty === "Capability" && isCxCap(H, c) && !["Removed", "Done"].includes(H[c].s) && versionsOf(H[c].fv).rel.includes(rel) && !have.has(c)).sort(keyCmp) : null;
-  const link = (key, text, tip) => `<a href="${BASE}/browse/${esc(key)}" target="_blank" rel="noopener" ${tipAttr(tip, "x")} aria-label="${esc(key + ", " + shortText(text, 80))}. Opens in Jira.">${esc(key)}</a>`;
-  const count = (n, keys, tip, aria) => { const h = n ? keyIn(keys) : null;
-    return n && h && h.length <= CY_URL_MAX ? `<a href="${h}" target="_blank" rel="noopener" ${tipAttr(tip, h)} aria-label="${esc(aria)}. Opens in Jira.">${n.toLocaleString("en-US")}</a>` : n.toLocaleString("en-US"); };
-  const block = (id, cls, t, items, keys, li) => { const n = items.length, open = cxAttOpen.has(id), shown = open ? items : items.slice(0, CX_ATT_SHOW);
-    return `<div class="attcol ${cls}" data-att="${id}"><h3><span class="n">${count(n, keys, t.tip(n), t.aria(n))}</span><span>${esc(t.title)}</span></h3><p class="rule">${esc(t.rule)}</p>` +
-      (n ? `<ul>${shown.map(li).join("")}</ul>` : `<p class="none">${esc(t.none)}</p>`) +
-      (n > CX_ATT_SHOW ? `<button type="button" class="btn link attmore" data-attmore="${id}" aria-expanded="${open}" aria-label="${esc(open ? "Show fewer items in " + t.title : `Show all ${n} items in ${t.title}`)}">${open ? "Show fewer" : `Show all ${n}`}</button>` : "") + `</div>`; };
-  const epicLi = fact => e => `<li>${link(e.k, e.t, `${e.k}\n${shortText(e.t, 120)}\n${e.s}${e.cp ? `\nCapability ${e.cp}` : ""}`)} ${esc(shortText(e.t, 80))}<span class="f">${esc(fact(e))}</span></li>`;
-  host.innerHTML = `<div class="cxatt-h">${esc(T.head)}</div><div class="cxatt">` +
-    block("later", "warn", T.later, later, later.map(e => e.k), epicLi(e => `Epic ${versionText(e.fv)}, Capability ${versionText((H[e.cp] || {}).fv)}`)) +
-    (nope ? block("nope", "", T.nope, nope, nope, c => { const C = H[c] || {}; return `<li>${link(c, C.t, `${c}\n${shortText(C.t, 120)}\n${C.s || "status unknown"}`)} ${esc(shortText(C.t, 80))}<span class="f">${esc(`${C.s || "–"}, Required Fix Version ${versionText(C.fv)}`)}</span></li>`; }) : "") +
-    block("team", "", T.team, noTeam, noTeam.map(e => e.k), epicLi(e => `${e.p}, ${e.s}`)) + `</div>`;
-  host.querySelectorAll("[data-attmore]").forEach(b => b.onclick = () => { const id = b.dataset.attmore; cxAttOpen.has(id) ? cxAttOpen.delete(id) : cxAttOpen.add(id);
-    renderCxAtt(); const nb = host.querySelector(`[data-attmore="${id}"]`); if (nb) nb.focus({preventScroll: true}); });
+  return {later: later.map(e => e.k), nope, team: team.map(e => e.k)};
 }
 function renderCx() {
   const host = document.getElementById("cx-body"), kp = document.getElementById("cx-kpis"); if (!host) return;
@@ -3452,17 +3418,20 @@ function renderCx() {
   rows.forEach(r => { r.cells = new Map(); projects.forEach(p => { const l = r.list.filter(e => e.p === p); if (!l.length) return;
     const bh = l.map(e => ({e, w: behindOf(r.c, e)})).filter(x => x.w); r.cells.set(p, {l, bh}); epicsByProj.get(p).push(...l);
     if (bh.length) { behindCells++; behindByProj.set(p, behindByProj.get(p) + 1); behindEpics.push(...bh.map(x => x.e)); } }); });
-  const noRel = rows.filter(r => !r.L), noneAtAll = rows.filter(r => !(H[r.c].fv || []).length).length;
+  const att = cxAttSets(M), AT = CX_ATT_TXT, attTile = (k, label) => { const keys = att[k], n = keys.length, h = n ? keyIn(keys) : null;
+    return {c: "cx", v: n ? tlink(n, h && h.length <= CY_URL_MAX ? h : null, AT[k].tip(n)) : "0", l: AT[k].label, s: AT[k].sub(n)}; };
   document.getElementById("cx-sub").innerHTML = noProj ? "" : `${tlink(ep.length, ep.length ? cxJira({extra: par(capKeys)}) : null, `${nn(ep.length, "epic", "epics")} under CXCROSS Capabilities${parentNote(capKeys.length)}`)} of ${M.scope.length.toLocaleString("en-US")} epics ${ep.length === 1 ? "sits" : "sit"} under ${rows.length} CXCROSS ${rows.length === 1 ? "Capability" : "Capabilities"}${state.cx === "all" ? "" : ` (Commitment Type ${CX_TYPES[state.cx][0]})`}.`;
   const doneN = ep.filter(e => cls(e.s) === "done").length;
-  if (noProj) kpiCards(kp, ["CXCROSS Items in Scope", "Epics Under Them", "Project Cells Behind", "Capabilities Without a Required Fix Version"].map(l => ({c: "cx", v: "–", l, s: "No project is selected"})));
+  kp.className = "kpis " + (!noProj && att.nope ? "cyhl" : "five");              // six tiles in a row with the middle one, five without it
+  if (noProj) kpiCards(kp, ["CXCROSS Items in Scope", "Epics Under Them", "Project Cells Behind", AT.later.label, AT.team.label].map(l => ({c: "cx", v: "–", l, s: "No project is selected"})));
   else kpiCards(kp, [
     {c: "cx", v: rows.length ? tlink(rows.length, keyIn(rows.map(r => r.c)), `${nn(rows.length, "CXCROSS Capability", "CXCROSS Capabilities")} with epics in ${rel}`) : "0", l: "CXCROSS Items in Scope", s: "Capabilities with epics in this release"},
     {c: "cx", v: ep.length ? tlink(ep.length, cxJira({extra: par(capKeys)}), `${nn(ep.length, "epic", "epics")} under CXCROSS Capabilities${parentNote(capKeys.length)}`) : "0", l: "Epics Under Them", s: ep.length ? `${doneN ? tlink(doneN, cxJira({kind: "done", extra: par(capKeys)}), `${nn(doneN, "Done epic", "Done epics")} under CXCROSS Capabilities${parentNote(capKeys.length)}`) : "0"} Done${ep.length >= MIN_N ? ` (${pct(doneN, ep.length)}%)` : ""}` : "none in this selection"},
     {c: "cx", v: behindCells ? tlink(behindCells, keyIn([...new Set(behindEpics.map(e => e.k))]), `${nn(behindCells, "project cell", "project cells")} Behind Required Fix Version, from ${nn(new Set(behindEpics.map(e => e.k)).size, "epic", "epics")}`) : "0", l: "Project Cells Behind", s: "Behind Required Fix Version"},
-    {c: "cx", v: noRel.length ? tlink(noRel.length, keyIn(noRel.map(r => r.c)), `${nn(noRel.length, "Capability", "Capabilities")} with no release-named fix version\n${noRel.length === 1 ? "Its cell cannot" : "Their cells cannot"} be assessed.`) : "0", l: `${plural(noRel.length, "Capability", "Capabilities")} Without a Required Fix Version`, s: noRel.length ? `${noneAtAll} with none at all, ${noRel.length - noneAtAll} Unscheduled or sprint-named only` : "a hygiene gap, not a risk"},
+    attTile("later"),
+    ...(att.nope ? [attTile("nope")] : []),
+    attTile("team")
   ]);
-  renderCxAtt(M);
   document.getElementById("cx-facts").innerHTML = "";
   document.getElementById("cx-cap").innerHTML = defs(howBody({id: "cx",
     bl: `Use this to see, for each CXCROSS Capability, how far each project's epics have progressed and which projects are behind the required fix version.`,
@@ -3473,9 +3442,9 @@ function renderCx() {
       ["Order", M.P ? `Initiatives follow the order of the CrossCX Projects page; those not on it come last.` : `Initiatives are sorted by title.`],
       ["Required Fix Version", `the Fix Version on the CXCROSS Capability, taken as the required release. This is an owner assumption, not verified.`],
       ["Behind Required Fix Version", `a cell is marked when an open epic is planned later than the Capability, or is still open although the Capability's latest release version has ended.`],
-      [CX_ATT_TXT.later.title, `an open epic whose earliest release version is later than the latest release version of its CXCROSS Capability. This is one of the two rules behind Project Cells Behind (the other is an open epic whose Capability's release has ended). A Capability without a Required Fix Version cannot be assessed here and is counted in Capabilities Without a Required Fix Version.`],
-      [CX_ATT_TXT.nope.title, `a CXCROSS Capability that is not Removed or Done, whose Fix Version includes the selected release, and that has no epic from the selected project in any release on this page. Epics with no release Fix Version are not on this page, so a Capability can appear here although such an epic exists in Jira. This block appears only when exactly one project is selected. With any other selection, it is hidden.`],
-      [CX_ATT_TXT.team.title, `an epic in this selection whose Epic Team field is empty. The block reports a blank field only.`]
+      [AT.later.term, AT.later.def],
+      ...(att.nope ? [[AT.nope.term, AT.nope.def]] : []),
+      [AT.team.term, AT.team.def]
     ],
     left: `Removed items, and epics owned by CXCROSS itself. A Capability with no release-named fix version cannot be assessed and says so in the last column.`,
     know: `The marking is a fact about versions and dates, not a verdict on a project or a team. ${M.P ? "Initiatives follow the page order, Capabilities are sorted by title, and columns follow the standard project order, so none of them expresses lateness." : "Rows are sorted by title and columns follow the standard project order, so neither expresses lateness."}`,
