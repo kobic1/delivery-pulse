@@ -388,6 +388,7 @@ def _(t: T):
 # --------------------------------------------------------------------------------------------- tests: behaviour of the expandable tables
 TABLES = [("bugs", "Quality bug table", "r=27.1"), ("capkids", "Capabilities child-epic table", "r=27.1"), ("capstat", "Capability Status Summary", "r=27.1")]
 KID = {"bugs": "team:", "capkids": "team:", "capstat": "cap:"}
+CAPABILITY_TABLES = ("capkids", "capstat")      # these start collapsed whatever the selection; the bug table opens to its teams when one project is selected
 VIS_JS = """(id) => [...document.querySelectorAll('#xt-' + id + ' tbody tr[data-id]')].filter(r => !r.hidden).map(r => r.dataset.lvl + ':' + r.querySelector('.xtname').textContent.trim())"""
 
 
@@ -423,14 +424,17 @@ def _(t: T):
         t.check(ch.js(f"[...document.querySelectorAll('#xt-{tid} .cytgl')].every(b => b.getAttribute('aria-expanded') === 'false')") is True, f"{what}: after Collapse All every chevron says Expand")
 
 
-@SUITE.test("xt_a_project_selected_alone_opens_to_its_teams_and_the_open_rows_survive_a_filter_change")
+@SUITE.test("xt_a_project_selected_alone_opens_the_bug_table_to_its_teams_not_the_capabilities_tables_and_the_open_rows_survive_a_filter_change")
 def _(t: T):
     F = fixture()
     ch = ctx.chrome
     for tid, what, _spec in TABLES:
         go(F["u_var"], "r=27.1&p=PMN")
         v = vis(ch, tid)
-        t.check(any(x.startswith(KID[tid]) for x in v) and not any(x.startswith("pod:") for x in v), f"{what}: one project selected: expanded to its first level, not to its pods: {v[:6]}")
+        if tid in CAPABILITY_TABLES:
+            t.check(v and all(x.startswith("project:") for x in v), f"{what}: one project selected: the Capabilities tables still start collapsed: {v[:6]}")
+        else:
+            t.check(any(x.startswith(KID[tid]) for x in v) and not any(x.startswith("pod:") for x in v), f"{what}: one project selected: expanded to its first level, not to its pods: {v[:6]}")
         go(F["u_var"], "r=27.1")
         ch.js(f"document.querySelector('[data-xtact=expall][data-xttable={tid}]').click()")
         n = len(vis(ch, tid))
