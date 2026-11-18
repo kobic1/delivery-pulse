@@ -2978,7 +2978,7 @@ function renderCapabilities() {
       an.add("cap", c.k, pn, {project: p, key: c.k, list: [c], cap: c, nameHtml: `<a href="${BASE}/browse/${esc(c.k)}" target="_blank" rel="noopener" ${tipAttr(`${c.k}\n${shortText(c.t, 120)}\n${c.s}`, "x")} aria-label="${esc(c.k + ", " + shortText(c.t, 120))}. Opens in Jira.">${esc(c.k)}</a> ${esc(shortText(c.t || "–", 90))}`,
         note: `${esc(c.s || "–")} · Commitment Level ${esc(c.cl || "–")} · Fix version ${esc((c.fv || []).join(", ") || "–")} · ${nn(ke.length, "child epic", "child epics")}${ke.length ? `, ${dn} Done` : ""}`}); });
     return pn; });
-  const ax = xtTable({id: "capstat", roots: aRoots, cls: "captable matrix", caption: `Capabilities with fix version ${rel} by status, one row per project of the Capability; a project row opens into its Capabilities.`, first: "Project and Capability",
+  const ax = xtTable({id: "capstat", roots: aRoots, collapsed: true, cls: "captable matrix", caption: `Capabilities with fix version ${rel} by status, one row per project of the Capability; a project row opens into its Capabilities.`, first: "Project and Capability",
     heads: `${cols.map(c => `<th class="n" scope="col">${c}</th>`).join("")}<th class="n" scope="col">Total</th>`,
     cells: n => n.level === "cap" ? cols.map(st => `<td class="n">${(st === "Other Status" ? !known.has(n.cap.s) : n.cap.s === st) ? nc(1, `key = ${n.key}`, `${n.key}, ${st}${lvNote ? "\n" + lvNote.trim() : ""}`, [n.project]) : ""}</td>`).join("") + `<td class="n">${nc(1, `key = ${n.key}`, `${n.key}${lvNote ? "\n" + lvNote.trim() : ""}`, [n.project])}</td>` : aCells(n.list, n.name, [n.project], false),
     tail: `<tr class="total"><th scope="row">All Selected Projects (Each Capability Once)</th>${aCells(caps, "", selProj, true)}</tr>`});
@@ -3020,7 +3020,7 @@ function renderCapabilities() {
     return pn; });
   const bLabel = n => n.level === "project" ? n.name : n.level === "team" ? `${n.name}, ${n.project}` : `${n.name}, ${n.team}, ${n.project}`;
   const bLine = n => n.unknown ? (n.whole ? `project = ${pkey(n.project)} AND ${noRel}` : false) : cyNodeClause(n);        // the project, team and pod clause of a row, as the Cycles table builds it
-  const bx = xtTable({id: "capkids", roots, cls: "captable matrix", caption: `All child epics of the Capabilities with fix version ${rel}, by project of the epic, its team and its pod, and status.`, first: "Project, Team and Pod",
+  const bx = xtTable({id: "capkids", roots, collapsed: true, cls: "captable matrix", caption: `All child epics of the Capabilities with fix version ${rel}, by project of the epic, its team and its pod, and status.`, first: "Project, Team and Pod",
     heads: `${bcols.map(([, nm]) => `<th class="n" scope="col">${nm}</th>`).join("")}<th class="n" scope="col">Total</th><th class="n" scope="col">% Done</th>`,
     cells: n => bCells(n.list, bLine(n), bLabel(n), false, n.level !== "project"),
     tail: `<tr class="total"><th scope="row">All Projects</th>${bCells(kids, "", "", true)}</tr>`});
