@@ -662,7 +662,7 @@ CAP_PROJECTS = PROJECTS + ["CXCROSS"]
 CAP_RELEASES = [r for r in RELEASES if r != "25.4"]                 # Capabilities are read for 26.1 to 27.2
 
 
-def collect_capabilities(j, known: dict) -> dict:
+def collect_capabilities(j, known: dict, hier: dict = None) -> dict:
     """capList: the Capabilities of the six projects and CXCROSS that carry a release fix version (26.1 to 27.2), plus the Capabilities our epics point to
     (any project), each as {t, s, p, fv, cl}: cl is the Commitment Level option ("" when empty). capEpics: ALL non-Removed child epics, in any project and with any fix version, of the six-project Capabilities, as compact rows
     [key, project, status, release fix versions, Issue Category, Capability]. capNoFv: Capabilities with no fix version at all (a count, no records)."""
@@ -695,7 +695,29 @@ def collect_capabilities(j, known: dict) -> dict:
         if (n // 80) % 5 == 4:
             print(f"  child epics: {min(n + 80, len(keys))}/{len(keys)} capabilities read, {len(rows)} epics", flush=True)
     print(f"capabilities: {len(rows)} child epics of {len(keys)} six-project Capabilities; {no_fv['total']} Capabilities have no fix version", flush=True)
-    return {"capList": caps, "capEpics": rows, "capNoFv": no_fv, "capPulledAt": dt.datetime.now().astimezone().isoformat(timespec="minutes")}
+    off = collect_off_release_epics(j, sorted(k for k, v in caps.items() if any(r in CAP_RELEASES for r in v["fv"]) and (hier is None or k in hier)))      # with the hierarchy given: only the Capabilities the CXCROSS view knows
+    return {"capList": caps, "capEpics": rows, "cxNoRel": off, "capNoFv": no_fv, "capPulledAt": dt.datetime.now().astimezone().isoformat(timespec="minutes")}
+
+
+def collect_off_release_epics(j, cap_keys: list) -> list:
+    """cxNoRel: the epics (any status but Removed) under a Capability that the epic pull never sees, because none of their fix versions is a release (no fix version at all, or only
+    "Future Release" or a sprint name). The CXCROSS Release Mismatch tile needs them: the CrossCX tracker counts an epic with no fix version as a mismatch.
+    Compact records shaped like the epic rows the filters read: {k, p, s, c (Commitment Type), tm (teams), fv (every fix version name), cp (Capability)}."""
+    quoted = ", ".join(f'"{r}"' for r in RELEASES)
+    out = []
+    for n in range(0, len(cap_keys), 80):
+        jql = (f'parent in ({", ".join(cap_keys[n:n + 80])}) AND issuetype = Epic AND status != Removed AND project in ({pkeys(PROJECTS)}) '
+               f'AND (fixVersion is EMPTY OR fixVersion not in ({quoted}))')
+        for i in j.search(jql, ["status", "project", "fixVersions", "parent", "summary", "customfield_10094", "customfield_10040", "customfield_10098"]):
+            f = i["fields"]
+            teams = [t for t in (val(f.get("customfield_10040")) or []) if t]
+            tn = val(f.get("customfield_10098"))
+            if tn and tn not in teams:
+                teams.append(tn)
+            out.append({"k": i["key"], "p": (f.get("project") or {}).get("key") or i["key"].split("-")[0], "t": f.get("summary") or "", "s": (f.get("status") or {}).get("name"),
+                        "c": val(f.get("customfield_10094")), "tm": teams, "fv": [v["name"] for v in f.get("fixVersions") or []], "cp": f["parent"]["key"]})
+    print(f"capabilities: {len(out)} epics under {len(cap_keys)} release Capabilities have no release fix version (cxNoRel)", flush=True)
+    return out
 
 
 def collect_epic_bugs(j, epics) -> dict:
@@ -1041,7 +1063,7 @@ def collect_product(j, project: str, resolution: dict) -> dict:
         return {"project": project, "resolution": resolution, "projects": [project], "releases": names, "current": CURRENT_RELEASE, "provisional": names,
                 "windows": windows, "windowsDerived": derived, "epics": epics, "bugs": bugs, **links, **plan,
                 **({"bugClause": BUG_EXCLUDE_JQL[project]} if project in BUG_EXCLUDE_JQL else {}), **({"cfbLink": CFB_LINK_JQL} if project in FIXES_LINK_PRODUCTS else {}),
-                "hier": {}, "capabilities": {}, "capList": {}, "capEpics": [], "cfbx": {}, "cap": {},
+                "hier": {}, "capabilities": {}, "capList": {}, "capEpics": [], "cxNoRel": [], "cfbx": {}, "cap": {},
                 "generated": dt.datetime.now().astimezone().isoformat(timespec="minutes"), "bugsPulledAt": bugs_at}
     finally:
         PROJECTS, RELEASES, CURRENT_RELEASE, PROVISIONAL = saved
@@ -1155,7 +1177,7 @@ def fetch() -> dict:
         plan.update(timed("hierarchy", collect_hier, j, epics, links["capabilities"]))
         plan.update(timed("cx priority", collect_cx_priority, j, plan["hier"]))
         timed("nfr", collect_nfr, j, epics)
-        capx = timed("capabilities", collect_capabilities, j, {e["cp"] for e in epics if e.get("cp")})
+        capx = timed("capabilities", collect_capabilities, j, {e["cp"] for e in epics if e.get("cp")}, plan.get("hier"))
         cfbx, capz, windows, products, prs = f_cfb.result(), f_capz.result(), f_win.result(), f_prod.result(), f_prs.result()
     if CHANGELOG_CACHE.new:
         CHANGELOG_CACHE_OUT.parent.mkdir(parents=True, exist_ok=True)
@@ -1174,7 +1196,7 @@ SCHEMA = 2           # the payload layout the page expects (PAGE_SCHEMA in dashb
 REQUIRED = {"generated": str, "jiraBase": str, "projects": list, "releases": list, "current": str, "windows": dict, "epics": list, "bugs": list,
             "cfbAccount": str}          # without these the page cannot draw: stop the build instead of publishing an empty page
 NONEMPTY = {"projects", "releases", "windows", "epics", "generated", "jiraBase"}      # an empty bug list is a real (if unlikely) state; an empty epic list is a failed pull
-EXPECTED = {"hier": dict, "capabilities": dict, "capList": dict, "capEpics": list, "cfbx": dict, "deps": list, "cap": dict, "podRx": dict, "sprints": list}      # optional sections: a build without them still renders, the page shows a notice
+EXPECTED = {"hier": dict, "capabilities": dict, "capList": dict, "capEpics": list, "cxNoRel": list, "cfbx": dict, "deps": list, "cap": dict, "podRx": dict, "sprints": list}      # optional sections: a build without them still renders, the page shows a notice
 
 
 def definitions() -> dict:
@@ -1412,7 +1434,7 @@ def main() -> int:
         save_data(data)
     elif args.add_capabilities:
         data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
-        data.update(collect_capabilities(E.Jira(), {e["cp"] for e in data["epics"] if e.get("cp")}))
+        data.update(collect_capabilities(E.Jira(), {e["cp"] for e in data["epics"] if e.get("cp")}, data.get("hier")))
         save_data(data)
     elif args.add_bugs:
         data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
