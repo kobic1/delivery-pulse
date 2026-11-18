@@ -734,7 +734,7 @@ def _(t: T):
 # ---------------------------------------------------------------------------------------------- the three tiles of items to check
 # Worked out here from the payload, never from the page's code:
 #   mism (Release Mismatch, the CrossCX tracker's rule): the Capabilities (CXCROSS, not Removed) whose fix versions include the SELECTED release, and their epics that are not Done, wherever those are planned: an epic counts when none of its fix versions is one of its Capability's, an epic with no fix version at all (or only Future Release / a sprint name, the payload's cxNoRel) included;
-#   nope (exactly one project selected): a CXCROSS Capability, not Removed or Done, with the release in its fix versions, that has no epic of that project in the payload (any release; the Teams filter applies);
+#   nope (exactly one project selected): a CXCROSS Capability, not Removed or Done, with the release in its fix versions, that has no epic of that project in the payload (any release, or none: the payload's cxNoRel counts too; the Teams filter applies);
 #   team: an epic of the section with no Epic Team.
 # They are KPI tiles of the section's row (the number opens the items in Jira), after the three tiles that were there; the old fourth tile, Capabilities Without a Required Fix Version, is gone.
 ATT_LABELS = {"mism": "Release Mismatch", "nope": "No Epic From This Project", "team": "Epics Without Epic Team"}
@@ -784,10 +784,12 @@ def build_att():
     #   PMN-98925 open, no fix version, Capability of 27.1 and 27.2 -> counts at 27.1 and at 27.2
     #   PMN-98927 open, only "Future Release", Capability CXCROSS-98914 (27.1 + Future Release) -> does NOT count: it shares a version
     data["hier"]["CXCROSS-98914"] = {"ty": "Capability", "t": "capability with an unscheduled version", "s": "In Progress", "fv": [REL, "Future Release"], "p": "CXCROSS", "par": live}
+    #   CXCROSS-98915 (27.1) has no carried epic; its only epic is PMN-98928 (no fix version) -> NOT in "No Epic From This Project" for PMN, but is for CXWFM
+    data["hier"]["CXCROSS-98915"] = {"ty": "Capability", "t": "capability whose only epic has no release", "s": "In Progress", "fv": [REL], "p": "CXCROSS", "par": live}
     data["cxNoRel"] = [{"k": k, "p": proj, "t": "an epic without a release", "s": st, "c": None, "tm": ["Team Quebec"], "fv": fv, "cp": cp}
                        for k, proj, st, fv, cp in (("PMN-98921", "PMN", "New", [], "CXCROSS-98911"), ("PMN-98922", "PMN", "New", ["Future Release"], "CXCROSS-98911"),
                                                    ("CXWFM-98923", "CXWFM", "Done", [], "CXCROSS-98911"), ("PMN-98924", "PMN", "New", [], "CXCROSS-98913"),
-                                                   ("PMN-98925", "PMN", "In Progress", [], "CXCROSS-98912"), ("PMN-98927", "PMN", "New", ["Future Release"], "CXCROSS-98914"))]
+                                                   ("PMN-98925", "PMN", "In Progress", [], "CXCROSS-98912"), ("PMN-98927", "PMN", "New", ["Future Release"], "CXCROSS-98914"), ("PMN-98928", "PMN", "New", [], "CXCROSS-98915"))]
     return data
 
 
@@ -806,7 +808,7 @@ def expected_att(data, projects, rel=REL):
         one = next(iter(projects))
         ini_ok = lambda c: bool((H.get(c) or {}).get("par") in H and H[H[c]["par"]]["s"] != "Removed" and H[c]["par"].startswith("CXCROSS"))
         is_cx = lambda c: c.startswith("CXCROSS") or ini_ok(c)
-        have = {e["cp"] for e in data["epics"] if e["p"] == one and e.get("cp")}
+        have = {e["cp"] for e in data["epics"] + data.get("cxNoRel", []) if e["p"] == one and e.get("cp")}
         out["nope"] = sorted((c for c, r in H.items() if r["ty"] == "Capability" and is_cx(c) and r["s"] not in ("Removed", "Done") and rel in rel_versions(r.get("fv")) and c not in have), key=natural)
     return out
 
@@ -962,6 +964,19 @@ def _(t: T):
     data = build_att()
     ch = seeded("return !ev.some(v => cv.includes(v)); }", "return !ev.some(v => versionsOf(cv).rel.includes(v)); }", data)
     t.check("PMN-98927" in _mism_tile(ch), "the seeded rule that compares release names only does not count the epic with Future Release: the check is blind")
+
+
+@SUITE.test("selftest_the_check_fails_when_the_middle_tile_ignores_the_epics_without_a_release")
+def _(t: T):
+    data = build_att()
+    ch = seeded("new Set([...DATA.epics, ...(DATA.cxNoRel || [])].filter(e => e.p === one", "new Set([...DATA.epics].filter(e => e.p === one", data)
+    ch.js(f"location.hash = '#r={REL}&p=PMN'; location.reload()")
+    time.sleep(0.5)
+    kit.wait_ready(ch)
+    time.sleep(0.5)
+    r = ch.js(ATT_READ)
+    x = next((y for y in r["tiles"] if y["label"] == ATT_LABELS["nope"]), None)
+    t.check(x is not None and x["href"] and "CXCROSS-98915" in keys_of(x["href"]), "the seeded rule that reads only the carried epics does not list the Capability whose only epic has no release: the check is blind")
 
 
 @SUITE.test("selftest_the_check_fails_when_the_middle_tile_shows_for_two_projects")
