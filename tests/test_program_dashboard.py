@@ -269,6 +269,34 @@ def test_a_capability_record_carries_its_commitment_level_or_an_empty_string():
     assert all("customfield_10136" in f for j, f in asked if "issuetype = Capability" in j and "fixVersion in" in j)
 
 
+def test_the_capability_read_also_carries_the_epics_with_no_release_fix_version_under_the_capabilities_the_view_knows():
+    """cxNoRel feeds the CXCROSS Release Mismatch tile: the epics under a release Capability that the epic pull never sees (no fix version, or only a non-release one)."""
+    asked = []
+
+    def cap(key, fv):
+        return {"key": key, "fields": {"summary": "c", "status": {"name": "New"}, "fixVersions": [{"name": v} for v in fv], "project": {"key": key.split("-")[0]}}}
+
+    class Jira:
+        def search(self, jql, fields):
+            asked.append(jql)
+            if jql.startswith("project in") and "issuetype = Capability" in jql and "fixVersion in" in jql:
+                return [cap("CXCROSS-1", ["27.1"]), cap("CXCROSS-2", ["27.1"]), cap("CXCROSS-3", ["Future Release"])]
+            if jql.startswith("parent in") and "fixVersion is EMPTY" in jql:
+                return [{"key": "PMN-9", "fields": {"summary": "e", "status": {"name": "New"}, "project": {"key": "PMN"}, "fixVersions": [], "parent": {"key": "CXCROSS-1"},
+                                                    "customfield_10094": None, "customfield_10040": [{"value": "Team A"}], "customfield_10098": {"value": "Team B"}}},
+                        {"key": "PMN-8", "fields": {"summary": "f", "status": {"name": "Done"}, "project": {"key": "PMN"}, "fixVersions": [{"name": "Future Release"}], "parent": {"key": "CXCROSS-1"},
+                                                    "customfield_10094": {"value": "Committed"}, "customfield_10040": None, "customfield_10098": None}}]
+            return []
+    out = BD.collect_capabilities(Jira(), set(), {"CXCROSS-1": {}})
+    off = [q for q in asked if "fixVersion is EMPTY OR fixVersion not in" in q]
+    assert len(off) == 1 and "parent in (CXCROSS-1)" in off[0] and "CXCROSS-2" not in off[0] and "CXCROSS-3" not in off[0], off      # only the release Capabilities the hierarchy holds
+    assert "status != Removed" in off[0] and "project in (" in off[0] and "issuetype = Epic" in off[0]
+    rows = {r["k"]: r for r in out["cxNoRel"]}
+    assert rows["PMN-9"] == {"k": "PMN-9", "p": "PMN", "t": "e", "s": "New", "c": None, "tm": ["Team A", "Team B"], "fv": [], "cp": "CXCROSS-1"}
+    assert rows["PMN-8"]["fv"] == ["Future Release"] and rows["PMN-8"]["c"] == "Committed" and rows["PMN-8"]["s"] == "Done"
+    assert "cxNoRel" in BD.EXPECTED
+
+
 def test_the_sandbox_build_gets_its_own_title_and_a_banner_and_keeps_the_page_otherwise():
     page = '<title>Delivery Pulse</title>\n<style></style>\n<header class="top gutter"><h1>Delivery Pulse</h1></header>\n<main></main>'
     out = BD.sandbox_fragment(page, {"sha": "abc1234", "dirty": True, "at": "2026-01-01T00:00+02:00"})
