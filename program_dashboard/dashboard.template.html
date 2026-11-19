@@ -1788,7 +1788,15 @@ function renderBurnup() {
   const finalDone = done[dEnd], added = target.length - N;
   const p0 = kind === "c2" ? Math.min(before ? nP : w6Done, N) : 0;      // Delivery Cycle 2's pace starts at the Done count at the end of W6, or before W7 at the planned count nP
   const paceAt = d => kind === "all" ? (D ? N * d / D : 0) : kind === "c1" ? (de ? nP * d / de : 0) : p0 + (N - p0) * (de > ds ? (d - ds) / (de - ds) : 1);      // even pace: whole release 0 to the scope at the release end; Cycle 1 0 to nP at the end of W6; Cycle 2 from its start to the release scope at the release end
-  const W = chartWidth(el, 300), narrow = W < 520, H = 344, pl = 44, pr = 14, pt = narrow ? 40 : 22, pb = 48, pw = W - pl - pr, ph = H - pt - pb;
+  const W = chartWidth(el, 300), narrow = W < 520, H = 344, pl = 44, pr = 14, pb = 48, pw = W - pl - pr;
+  // The two labels above the plot (the end of the window and the as-of day) share one row; when they would overlap, the as-of label moves up a row, as it always does on a narrow chart.
+  const endTxt = kind === "c1" ? `end of ${cy1} ${shortDate(w1 + de * DAY)}` : `release end ${shortDate(end)}`, snapTxt = `${DATA.refreshedAt ? "refreshed" : "snapshot"} ${shortDate(snap)}`;
+  const xEnd = pl + pw * (de - ds) / span, xSnap = pl + pw * (snapD - ds) / span;
+  const endAnc = xEnd > W - pr - 70 ? "end" : "middle", snapAnc = xSnap > W - pr - 110 ? "end" : xSnap - pl < 70 ? "start" : "middle";
+  const lblSpan = (cx, anc, s) => { const w = s.length * 6.2; return anc === "end" ? [cx - w, cx] : anc === "start" ? [cx, cx + w] : [cx - w / 2, cx + w / 2]; };      // about 6 px a character at 11 px, a little over so a near touch counts as an overlap
+  const [e0, e1] = lblSpan(xEnd, endAnc, endTxt), [s0, s1] = lblSpan(xSnap, snapAnc, snapTxt);
+  const stackLbl = narrow || (inWin && s1 + 8 > e0 && e1 + 8 > s0);
+  const pt = stackLbl ? 40 : 22, ph = H - pt - pb;
   const sc = niceScale(Math.max(kind === "c1" ? nP : N, ...(kind === "all" ? done : before ? [nP] : done.slice(Math.max(0, ds - 1), de + 1))) * 1.04);
   const x = d => pl + pw * (d - ds) / span, y = v => pt + ph * (1 - v / sc.max);
   let g = "";
@@ -1807,9 +1815,9 @@ function renderBurnup() {
          `<text x="${x(de)}" y="${pt + ph + 18}" text-anchor="end" font-size="11" fill="#4A4F57">${shortDate(w1 + de * DAY)}</text>` +
          `<text x="${x(de)}" y="${pt + ph + 32}" text-anchor="end" font-size="11" font-weight="600" fill="#5A5F6B">W${Math.floor(Math.min(de, D - 1) / 7) + 1} end</text>`;
   g += `<line x1="${x(de)}" x2="${x(de)}" y1="${pt}" y2="${pt + ph}" stroke="#8A8F98" stroke-dasharray="4 3"/>` +
-       `<text x="${x(de)}" y="${pt - 7}" text-anchor="${x(de) > W - pr - 70 ? "end" : "middle"}" font-size="11" fill="#4A4F57">${kind === "c1" ? `end of ${cy1} ${shortDate(w1 + de * DAY)}` : `release end ${shortDate(end)}`}</text>`;
+       `<text x="${x(de)}" y="${pt - 7}" text-anchor="${endAnc}" font-size="11" fill="#4A4F57">${endTxt}</text>`;
   if (inWin) g += `<line x1="${x(snapD)}" x2="${x(snapD)}" y1="${pt}" y2="${pt + ph}" stroke="#5A5F6B" stroke-opacity=".7" stroke-dasharray="2 3"/>` +
-       `<text x="${x(snapD)}" y="${narrow ? pt - 25 : pt - 7}" text-anchor="${x(snapD) > W - pr - 110 ? "end" : x(snapD) - pl < 70 ? "start" : "middle"}" font-size="11" fill="#3B3F4A">${DATA.refreshedAt ? "refreshed" : "snapshot"} ${shortDate(snap)}</text>`;
+       `<text x="${x(snapD)}" y="${stackLbl ? pt - 25 : pt - 7}" text-anchor="${snapAnc}" font-size="11" fill="#3B3F4A">${snapTxt}</text>`;
   g += `<line x1="${x(ds)}" y1="${y(p0)}" x2="${x(de)}" y2="${y(kind === "c1" ? nP : N)}" stroke="#6E737C" stroke-width="1.5" stroke-dasharray="6 4"/>`;
   const doneLine = (() => { let d = `M${x(ds)},${y(done[kind === "c2" ? ds - 1 : 0])}`; for (let i = kind === "c2" ? ds : 1; i <= dEnd; i++) if (done[i] !== done[i - 1]) d += ` H${x(i)} V${y(done[i])}`; return d + ` H${x(dEnd)}`; })();
   if (!before) {
