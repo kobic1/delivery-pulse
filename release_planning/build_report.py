@@ -32,6 +32,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "dashboards"))
+import subscriptions  # noqa: E402  the EMAIL_SUBSCRIPTIONS variable (who gets which email)
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from model import BUILD, HERE, NO_TEAM, build_model  # noqa: E402
 
@@ -49,15 +52,22 @@ def recipients(cfg: dict, key: str, audience: str, to: str | None) -> str:
         if not to:
             sys.exit("--audience test needs --to.")
         return to
+    given = subscriptions.release_planning(key)                    # the EMAIL_SUBSCRIPTIONS variable wins over the secrets
+    if given is not None:
+        return ";".join(subscriptions.drop_excluded(given))
     try:
         found = json.loads(os.environ.get("RELEASE_PLANNING_RECIPIENTS", "") or "{}").get(key, "")
     except ValueError:
         found = ""
     if found:
-        return found
+        return ";".join(subscriptions.drop_excluded(subscriptions.addresses(found)))
     team = key.split(":", 1)[1] if ":" in key else None
     env = (cfg.get("team_recipients_env") or {}).get(team or "")
-    return os.environ.get(env, "") if env else ""
+    if not env:
+        return ""
+    team_list = subscriptions.dashboard(subscriptions.key_of_env(env), "to")      # a team report follows the team's dashboard list
+    raw = ";".join(team_list) if team_list is not None else os.environ.get(env, "")
+    return ";".join(subscriptions.drop_excluded(subscriptions.addresses(raw)))
 
 
 def deliver(cfg: dict, key: str, subject: str, path: Path, audience: str, to: str | None, cc: str | None = None) -> None:
