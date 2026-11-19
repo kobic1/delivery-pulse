@@ -2,13 +2,15 @@
 """The 'Even pace' label of the burnup never overlaps another text of the chart (the 'Done N · +M vs even pace' readout, the Scope label, the window labels), wherever today falls in the release.
 
 The release window of the fictitious data is shifted so the as-of day sits at many points of the release (before it starts, early, middle, late, at the end), with Both cycles, Delivery Cycle 1 and
-Delivery Cycle 2, at a wide and a narrow window. In each drawing 'Even pace' overlaps no other text. Other label pairs that touch when today is near the end of a window are counted and reported, not failed.
+Delivery Cycle 2, at a wide and a narrow window. In each drawing 'Even pace' overlaps no other text. The two labels above the plot (the end of the window and the as-of day, "refreshed ..." or "snapshot ...") never overlap either: when they would, the as-of label moves up a row.
+Other label pairs that touch when today is near the end of a window are counted and reported, not failed.
 
     python3 burnup_labels_check.py [--live] [--only NAME]
 """
 from __future__ import annotations
 
 import datetime as dt
+import re
 import sys
 import time
 from pathlib import Path
@@ -31,6 +33,9 @@ READ = """(() => {
   }
   return {n: items.length, bad};
 })()"""
+
+
+TOP = re.compile(r"(end of Delivery Cycle \d|release end|refreshed|snapshot) \d{4}-\d\d-\d\d$")      # the labels above the plot: the end of the window and the as-of day
 
 
 def page(shift: int) -> str:
@@ -61,12 +66,12 @@ def _(t: T):
                 if not r:
                     continue
                 drawn += 1
-                mine = [b for b in r["bad"] if "Even pace" in b]
+                mine = [b for b in r["bad"] if "Even pace" in b or all(TOP.match(x) for x in b.split(" / "))]
                 others += len(r["bad"]) - len(mine)
                 if mine:
                     problems.append(f"{width}px, today {shift} days later in the window, {dc or 'both cycles'}: {mine[:2]}")
     t.check(drawn >= 30, f"only {drawn} drawings were checked")
-    t.check(not problems, f"{len(problems)} drawings have the Even pace label on another text: {problems[:4]}")
+    t.check(not problems, f"{len(problems)} drawings have the Even pace label on another text, or the two labels above the plot on each other: {problems[:4]}")
     t.note(f"{drawn} drawings checked; other label pairs that touch near the end of a window: {others}")
 
 
