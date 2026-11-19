@@ -2252,6 +2252,34 @@ def period_values(rows: list, th: dict) -> dict:
     return out
 
 
+DAY_ABBR = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")                 # English three-letter weekday names, whatever the locale (date.weekday(): Monday is 0)
+
+
+def same_days_window(m: Model):
+    """The complete days of the week in progress against the same weekdays of the week before, for the key figures while there is no full-week comparison yet. Complete days only: the current window is the Sunday of the week in progress
+    through the day before `ref` (the day of the data is still in progress and is left out); the previous window is the same weekdays one week earlier. None when there is nothing to compare: no complete day yet (`ref` is a Sunday), no session in the previous
+    window, the data starts after the previous window starts (a window touching the start of the data is never compared, like a mid-week first week), or the recording rules of the two windows differ.
+    Otherwise {n_days, days (the label: 'Sun' or 'Sun to Wed'), short ('Sun' or 'Sun-Wed' with an en dash), cur_lo, cur_hi, prev_lo, prev_hi, cur (the visits of the current window), prev (the visits of the previous one)}."""
+    cur, ref = m.cur, m.ref
+    n_days = (ref - cur).days
+    if n_days == 0:
+        return None
+    prev_lo = cur - dt.timedelta(days=7)
+    if not m.data_start or m.data_start > prev_lo:
+        return None
+    cur_hi, prev_hi = ref - dt.timedelta(days=1), prev_lo + dt.timedelta(days=n_days - 1)
+    rows_now = [r for r in m.visits(cur) if r["day"] <= cur_hi]
+    rows_before = [r for r in m.visits(prev_lo) if r["day"] <= prev_hi]
+    if not rows_before:
+        return None
+    mix = lambda rows: {"v2" if r["v2"] else "v1" for r in rows}
+    if rows_now and mix(rows_now) != mix(rows_before):
+        return None
+    days = "Sun" if n_days == 1 else f"Sun to {DAY_ABBR[cur_hi.weekday()]}"
+    short = "Sun" if n_days == 1 else f"Sun\u2013{DAY_ABBR[cur_hi.weekday()]}"
+    return {"n_days": n_days, "days": days, "short": short, "cur_lo": cur, "cur_hi": cur_hi, "prev_lo": prev_lo, "prev_hi": prev_hi, "cur": rows_now, "prev": rows_before}
+
+
 DEVICE_SHORT = {"l": "Desktop", "m": "Tablet", "s": "Phone"}
 
 
@@ -2391,7 +2419,8 @@ def _kpi(title: str, fig: str, delta: tuple | None, den: str, spark_html: str, h
     if skel:
         return f'<div class="{cls}"{i}><h3>{e(title)}</h3><p class="fig">{e(skel)}</p><p class="den">{e(den)}</p><div class="sp"><div class="skbar" aria-hidden="true"></div></div></div>'
     dl = f'<p class="dl {delta[0]}">{delta[1]}</p>' if delta else ""
-    return f'<div class="{cls}"{i}><h3>{e(title)}</h3><p class="fig{" " + fig_cls if fig_cls else ""}">{fig}</p>{dl}<p class="den">{den}</p><div class="sp">{spark_html}</div></div>'
+    dn = f'<p class="den">{den}</p>' if den else ""
+    return f'<div class="{cls}"{i}><h3>{e(title)}</h3><p class="fig{" " + fig_cls if fig_cls else ""}">{fig}</p>{dl}{dn}<div class="sp">{spark_html}</div></div>'
 
 
 def device_counts(rows: list) -> dict:
@@ -2450,12 +2479,18 @@ def _pl(n: int, one: str, many: str) -> str:
     return f"{n} {one if n == 1 else many}"
 
 
+def first_full_comparison(m: Model) -> dt.date:
+    """The Sunday on which the first full-week comparison appears: the first usable week plus 14 days. The last completed week is then the second usable week (the week before it is the first one); a week is complete only once its Saturday has passed,
+    so the data day must reach that Sunday (on the Saturday before, the second week is still in progress)."""
+    first_usable = m.first_week + dt.timedelta(days=7) if m.provisional_first else m.first_week
+    return first_usable + dt.timedelta(days=14)
+
+
 def _first_comparison_note(m: Model) -> str:
     """Why there is nothing to compare yet and when there will be: a week of data that starts mid-week is never compared, and a change needs two complete weeks."""
-    first_usable = m.first_week + dt.timedelta(days=7) if m.provisional_first else m.first_week
-    sat = first_usable + dt.timedelta(days=13)
+    first_full = first_full_comparison(m)
     start = f"Data starts {d_label(m.data_start)}, mid-week: that week is not compared. " if m.provisional_first else f"Data starts {d_label(m.data_start)}. "
-    return start + f"Comparisons appear after two complete weeks (from Sat {d_label(sat)})."
+    return start + f"Comparisons appear after two complete weeks (from Sun {d_label(first_full)})."
 
 
 def device_period_lines(a: dict) -> list:
@@ -2489,11 +2524,35 @@ def _kpis(a: dict) -> str:
         why = "No comparison yet: first week of data"
     elif L not in run:
         why = "No comparison: recording rules changed" if m.regime(L) is not None else "No comparison: no visits that week"
-    elif not has_prev:
-        why = "No comparison yet: first complete week"
     else:
-        why = ""
-    note = ("nt", why)
+        why = ""                                                                    # no full-week comparison yet (the first usable week): the cards print no note, the heading says when it starts
+    note = ("nt", why) if why else None
+    # while there is no full-week comparison, the complete days of this week against the same days of the last one: one short muted line on a card (no arrow, no good or bad, never a percentage)
+    sd = same_days_window(m) if week_mode and L in run and not has_prev else None
+    sd_shown = []
+    if sd:
+        sdc, sdp = period_values(sd["cur"], th), period_values(sd["prev"], th)
+    sd_few = "Too few to compare"
+    sd_fig = lambda dl: bool(sd) and dl[1] != sd_few                                # this card prints the same-days figures: its own second line (the numbers behind it) moves into the line's title
+
+    def sd_note(cv, pv, unit="", pos=None, counts=""):
+        sd_shown.append(True)
+        withheld = lambda x: x is None or x == SMALL
+        if pos is None:
+            if withheld(cv) or withheld(pv):
+                return ("nt", sd_few)
+        elif cv == SMALL or pv == SMALL or withheld(cv) or withheld(pv) or min(pos) < th["min_den"]:
+            return ("nt", sd_few)
+        long = f"This week, {sd['days']}: {num(cv, unit)} · same days last week: {num(pv, unit)}" + (f" ({counts})" if counts else "")
+        return ("nt", f'<span title="{e(long)}"><span aria-hidden="true">{sd["short"]}: {num(cv)} vs {num(pv, unit)}</span><span class="sr">{e(long)}</span></span>')
+
+    def sd_new(rows, vals, lo, hi):
+        """The people of a same-days window who were first seen inside it (as the weekly new people), guarded like the weekly figure."""
+        n = vals["n"]
+        if 0 < n < MIN_USERS:
+            return SMALL
+        new_n = sum(1 for u in {r["u"] for r in rows} if lo <= m.first_seen[u] <= hi)
+        return protect_partition({"new": new_n, "other": n - new_n}, n)["new"]
     so = ", so far" if P["so_far"] else ""
     def strip_of(key):
         """(values, incomplete flags) of a strip: an incomplete week at either end that cannot be drawn (no figure, or a group under the minimum) takes no room."""
@@ -2517,7 +2576,7 @@ def _kpis(a: dict) -> str:
     else:
         cur = vals["n"]
         pp = ser["people"].get(prev)
-        dl = _delta(cur, pp, pp not in (None, SMALL) and pp >= th["min_den"], good_up=True) if has_prev else note
+        dl = _delta(cur, pp, pp not in (None, SMALL) and pp >= th["min_den"], good_up=True) if has_prev else sd_note(sdc["people"], sdp["people"]) if sd else note
         if week_mode and c and c["state"] == "ok":
             where = "above" if c["above"] else "below" if c["below"] else "inside"
             den = f"Usual {e(c['median'])} (range {e(c['lo'])} to {e(c['hi'])}): {where} the usual range"
@@ -2526,9 +2585,10 @@ def _kpis(a: dict) -> str:
         else:
             den = e(P["label"][0].upper() + P["label"][1:]) + "<br>No usual range yet: it needs 5 complete weeks"
         if au:
-            den += (f"<br>{num(au['x'])} of an audience of {au['size']}" + (f" ({au['pct']}%)" if au["pct"] is not None else "") + ", a lower bound") if (au["x"] is not None and week_mode) else f"<br>Audience of {au['size']} supplied"
+            aud = (f"{num(au['x'])} of an audience of {au['size']}" + (f" ({au['pct']}%)" if au["pct"] is not None else "") + ", a lower bound") if (au["x"] is not None and week_mode) else f"Audience of {au['size']} supplied"
         else:
-            den += "<br>No audience size supplied"
+            aud = "No audience size supplied"
+        den = (aud if au else "") if sd_fig(dl) else den + "<br>" + aud
         cells.append(_kpi("People active", num(vals["people"]), dl, den, sp("people", "People active", cur), hero=True, hid="kpi-people"))
     # 2 new people
     if week_mode:
@@ -2545,8 +2605,9 @@ def _kpis(a: dict) -> str:
         cells.append(_kpi("New people", "", None, f"A group under {MIN_USERS} people is not shown", "", skel=SMALL, hid="kpi-new"))
     else:
         pv = ser["new"].get(prev)
-        dl = _delta(new, pv, False, good_up=True) if has_prev else note
-        cells.append(_kpi("New people", num(new), dl, e(f"of {vals['people'] if vals['people'] == SMALL else _pl(vals['n'], 'person', 'people')} active{so}"), sp("new", "New people", new), hid="kpi-new"))
+        dl = _delta(new, pv, False, good_up=True) if has_prev else sd_note(sd_new(sd["cur"], sdc, sd["cur_lo"], sd["cur_hi"]), sd_new(sd["prev"], sdp, sd["prev_lo"], sd["prev_hi"]), counts=f"this week of {_pl(sdc['n'], 'person', 'people')} active, last week of {_pl(sdp['n'], 'person', 'people')} active") if sd else note
+        den = "" if sd and sd_fig(dl) else e(f"of {vals['people'] if vals['people'] == SMALL else _pl(vals['n'], 'person', 'people')} active{so}")
+        cells.append(_kpi("New people", num(new), dl, den, sp("new", "New people", new), hid="kpi-new"))
     # 3 engaged visits per active person
     v = vals["vpp"]
     if v is None:
@@ -2555,8 +2616,9 @@ def _kpis(a: dict) -> str:
         cells.append(_kpi("Engaged visits per person", "", None, f"Fewer than {MIN_USERS} people", "", skel=SMALL, hid="kpi-vpp"))
     else:
         pv = ser["vpp"].get(prev)
-        dl = _delta(v, pv, pv not in (None, SMALL) and cn["vpp"][prev][1] >= th["min_den"], 1, good_up=None) if has_prev else note
-        cells.append(_kpi("Engaged visits per person", num(v), dl, e(f"{_pl(vals['eng'], 'engaged visit', 'engaged visits')}, {_pl(vals['n'], 'person', 'people')}{so}"), sp("vpp", "Engaged visits per active person", v), hid="kpi-vpp"))
+        dl = _delta(v, pv, pv not in (None, SMALL) and cn["vpp"][prev][1] >= th["min_den"], 1, good_up=None) if has_prev else sd_note(sdc["vpp"], sdp["vpp"], counts=f"this week {_pl(sdc['eng'], 'engaged visit', 'engaged visits')}, {_pl(sdc['n'], 'person', 'people')}; last week {_pl(sdp['eng'], 'engaged visit', 'engaged visits')}, {_pl(sdp['n'], 'person', 'people')}") if sd else note
+        den = "" if sd and sd_fig(dl) else e(f"{_pl(vals['eng'], 'engaged visit', 'engaged visits')}, {_pl(vals['n'], 'person', 'people')}{so}")
+        cells.append(_kpi("Engaged visits per person", num(v), dl, den, sp("vpp", "Engaged visits per active person", v), hid="kpi-vpp"))
     # 4 median active minutes
     v = vals["min"]
     if v is None:
@@ -2565,8 +2627,9 @@ def _kpis(a: dict) -> str:
         cells.append(_kpi("Median visit length", "", None, f"Fewer than {MIN_USERS} people", "", skel=SMALL, hid="kpi-min"))
     else:
         pv = ser["min"].get(prev)
-        dl = _delta(v, pv, False, 1, unit=" min", good_up=None) if has_prev else note
-        cells.append(_kpi("Median visit length", f"{num(v)}<span class=\"small\"> min</span>", dl, e(f"active minutes, {_pl(vals['pos'][0], 'engaged visit', 'engaged visits')}{so}"), sp("min", "Median active minutes per engaged visit", v), hid="kpi-min"))
+        dl = _delta(v, pv, False, 1, unit=" min", good_up=None) if has_prev else sd_note(sdc["min"], sdp["min"], " min", (sdc["pos"][0], sdp["pos"][0]), f"this week {_pl(sdc['pos'][0], 'engaged visit', 'engaged visits')}, last week {_pl(sdp['pos'][0], 'engaged visit', 'engaged visits')}") if sd else note
+        den = "" if sd and sd_fig(dl) else e(f"active minutes, {_pl(vals['pos'][0], 'engaged visit', 'engaged visits')}{so}")
+        cells.append(_kpi("Median visit length", f"{num(v)}<span class=\"small\"> min</span>", dl, den, sp("min", "Median active minutes per engaged visit", v), hid="kpi-min"))
     # 5 device (twice as wide as the others: the donut and its legend sit side by side)
     dev = device_card(vals["dev"], th)
     if dev["state"] == "none":
@@ -2587,9 +2650,12 @@ def _kpis(a: dict) -> str:
     for w in reversed(run):
         body.append(trow(week_label(w), ser["people"].get(w), ser["new"].get(w), ser["vpp"].get(w), ser["min"].get(w)))
     usable_n = len([w for w in m.weeks if not m.is_prov(w)])
+    cap2 = ([f"{usable_n - len(run)} earlier completed week(s) are left out: the page recorded visits under other rules, so the figures are not comparable."] if usable_n > len(run) else [])
+    if week_mode and not has_prev:                                                  # the reason the first week is not compared leaves the heading for here
+        cap2.append(f"Data starts {d_label(m.data_start)}, mid-week: that week is not compared." if m.provisional_first else f"Data starts {d_label(m.data_start)}.")
     table = ('<table id="kpi-table"><thead><tr><th scope="col">Period</th><th scope="col" class="n">People active</th><th scope="col" class="n">New people</th><th scope="col" class="n">Engaged visits per person</th><th scope="col" class="n">Median visit length (min)</th>'
              f'</tr></thead><tbody>{"".join(body)}</tbody></table>'
-             + (f'<p class="cap2">{usable_n - len(run)} earlier completed week(s) are left out: the page recorded visits under other rules, so the figures are not comparable.</p>' if usable_n > len(run) else ""))
+             + (f'<p class="cap2">{e(" ".join(cap2))}</p>' if cap2 else ""))
     drows = []
     for label, dc in device_period_lines(a):
         if not dc["n"]:
@@ -2603,7 +2669,9 @@ def _kpis(a: dict) -> str:
     if week_mode:
         sub = f"Last completed week: {week_label(L)}. Each figure is compared with the week before; the line shows the weeks since the last change of the recording rules."
         if not has_prev:
-            sub = f"Last completed week: {week_label(L)}. " + _first_comparison_note(m)
+            first_full = first_full_comparison(m)
+            sub = " ".join([f"Last completed week: {week_label(L)}."] + (["The line on a tile compares the complete days of this week with the same days last week; small numbers move a lot."] if sd_shown else [])
+                           + ([f"Full-week comparison from Sun {d_label(first_full)}."] if first_full > m.ref else []))
     elif P["kind"] == "todate":
         sub = P["label"][0].upper() + P["label"][1:] + ". " + _first_comparison_note(m)
     else:
