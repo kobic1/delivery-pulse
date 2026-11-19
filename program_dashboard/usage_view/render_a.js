@@ -306,6 +306,32 @@ function period_values(rows, th) {
 }
 
 
+const DAY_ABBR = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];                 // English three-letter weekday names, whatever the locale (Monday is 0, like d_weekday)
+
+
+function same_days_window(m) {
+  // The complete days of the week in progress against the same weekdays of the week before, for the key figures while there is no full-week comparison yet. Complete days only: the current window is the Sunday of the week in progress
+  // through the day before `ref` (the day of the data is still in progress and is left out); the previous window is the same weekdays one week earlier. null when there is nothing to compare: no complete day yet (`ref` is a Sunday), no session in the previous
+  // window, the data starts after the previous window starts (a window touching the start of the data is never compared, like a mid-week first week), or the recording rules of the two windows differ.
+  // Otherwise {n_days, days (the label: 'Sun' or 'Sun to Wed'), short ('Sun' or 'Sun-Wed' with an en dash), cur_lo, cur_hi, prev_lo, prev_hi, cur (the visits of the current window), prev (the visits of the previous one)}.
+  const cur = m.cur, ref = m.ref;
+  const n_days = d_diff(ref, cur);
+  if (n_days === 0) return null;
+  const prev_lo = d_add(cur, -7);
+  if (!m.data_start || m.data_start > prev_lo) return null;
+  const cur_hi = d_add(ref, -1), prev_hi = d_add(prev_lo, n_days - 1);
+  const rows_now = m.visits(cur).filter(r => r["day"] <= cur_hi);
+  const rows_before = m.visits(prev_lo).filter(r => r["day"] <= prev_hi);
+  if (!rows_before.length) return null;
+  const mix = rows => new Set(rows.map(r => r["v2"] ? "v2" : "v1"));
+  const same_mix = (x, y) => x.size === y.size && [...x].every(k => y.has(k));
+  if (rows_now.length && !same_mix(mix(rows_now), mix(rows_before))) return null;
+  const days = n_days === 1 ? "Sun" : `Sun to ${DAY_ABBR[d_weekday(cur_hi)]}`;
+  const short = n_days === 1 ? "Sun" : `Sun\u2013${DAY_ABBR[d_weekday(cur_hi)]}`;
+  return {"n_days": n_days, "days": days, "short": short, "cur_lo": cur, "cur_hi": cur_hi, "prev_lo": prev_lo, "prev_hi": prev_hi, "cur": rows_now, "prev": rows_before};
+}
+
+
 const DEVICE_SHORT = {"l": "Desktop", "m": "Tablet", "s": "Phone"};
 
 
@@ -453,7 +479,8 @@ function _kpi(title, fig, delta, den, spark_html, hero = false, skel = null, hid
   const i = hid ? ` id="${hid}"` : "";
   if (skel) return `<div class="${cls}"${i}><h3>${e(title)}</h3><p class="fig">${e(skel)}</p><p class="den">${e(den)}</p><div class="sp"><div class="skbar" aria-hidden="true"></div></div></div>`;
   const dl = delta ? `<p class="dl ${delta[0]}">${delta[1]}</p>` : "";
-  return `<div class="${cls}"${i}><h3>${e(title)}</h3><p class="fig${fig_cls ? " " + fig_cls : ""}">${fig}</p>${dl}<p class="den">${den}</p><div class="sp">${spark_html}</div></div>`;
+  const dn = den ? `<p class="den">${den}</p>` : "";
+  return `<div class="${cls}"${i}><h3>${e(title)}</h3><p class="fig${fig_cls ? " " + fig_cls : ""}">${fig}</p>${dl}${dn}<div class="sp">${spark_html}</div></div>`;
 }
 
 
@@ -527,12 +554,19 @@ function _pl(n, one, many) {
 }
 
 
+function first_full_comparison(m) {
+  // The Sunday on which the first full-week comparison appears: the first usable week plus 14 days. The last completed week is then the second usable week (the week before it is the first one); a week is complete only once its Saturday has passed,
+  // so the data day must reach that Sunday (on the Saturday before, the second week is still in progress).
+  const first_usable = m.provisional_first ? d_add(m.first_week, 7) : m.first_week;
+  return d_add(first_usable, 14);
+}
+
+
 function _first_comparison_note(m) {
   // Why there is nothing to compare yet and when there will be: a week of data that starts mid-week is never compared, and a change needs two complete weeks.
-  const first_usable = m.provisional_first ? d_add(m.first_week, 7) : m.first_week;
-  const sat = d_add(first_usable, 13);
+  const first_full = first_full_comparison(m);
   const start = m.provisional_first ? `Data starts ${d_label(m.data_start)}, mid-week: that week is not compared. ` : `Data starts ${d_label(m.data_start)}. `;
-  return start + `Comparisons appear after two complete weeks (from Sat ${d_label(sat)}).`;
+  return start + `Comparisons appear after two complete weeks (from Sun ${d_label(first_full)}).`;
 }
 
 
@@ -567,9 +601,36 @@ function _kpis(a) {
   let why;
   if (!week_mode) why = "No comparison yet: first week of data";
   else if (!run.includes(L)) why = (m.regime(L) !== null && m.regime(L) !== undefined) ? "No comparison: recording rules changed" : "No comparison: no visits that week";
-  else if (!has_prev) why = "No comparison yet: first complete week";
-  else why = "";
-  const note = ["nt", why];
+  else why = "";                                                                    // no full-week comparison yet (the first usable week): the cards print no note, the heading says when it starts
+  const note = why ? ["nt", why] : null;
+  // while there is no full-week comparison, the complete days of this week against the same days of the last one: one short muted line on a card (no arrow, no good or bad, never a percentage)
+  const sd = (week_mode && run.includes(L) && !has_prev) ? same_days_window(m) : null;
+  const sd_shown = [];
+  let sdc = null, sdp = null;
+  if (sd) {
+    sdc = period_values(sd["cur"], th);
+    sdp = period_values(sd["prev"], th);
+  }
+  const sd_few = "Too few to compare";
+  const sd_fig = dl => !!sd && dl[1] !== sd_few;                                    // this card prints the same-days figures: its own second line (the numbers behind it) moves into the line's title
+  const sd_note = (cv, pv, unit = "", fl = false, pos = null, counts = "") => {
+    sd_shown.push(true);
+    const withheld = x => x === null || x === undefined || x === SMALL;
+    if (pos === null) {
+      if (withheld(cv) || withheld(pv)) return ["nt", sd_few];
+    } else if (cv === SMALL || pv === SMALL || withheld(cv) || withheld(pv) || Math.min(...pos) < th["min_den"]) {
+      return ["nt", sd_few];
+    }
+    const long = `This week, ${sd["days"]}: ${num(cv, unit, fl)} · same days last week: ${num(pv, unit, fl)}` + (counts ? ` (${counts})` : "");
+    return ["nt", `<span title="${e(long)}"><span aria-hidden="true">${sd["short"]}: ${num(cv, "", fl)} vs ${num(pv, unit, fl)}</span><span class="sr">${e(long)}</span></span>`];
+  };
+  const sd_new = (rows, vals, lo, hi) => {
+    // The people of a same-days window who were first seen inside it (as the weekly new people), guarded like the weekly figure.
+    const n = vals["n"];
+    if (0 < n && n < MIN_USERS) return SMALL;
+    const new_n = [...new Set(rows.map(r => r["u"]))].filter(u => lo <= _ra_get(m.first_seen, u) && _ra_get(m.first_seen, u) <= hi).length;
+    return protect_partition({"new": new_n, "other": n - new_n}, n)["new"];
+  };
   const so = P["so_far"] ? ", so far" : "";
   const get = (key, w) => { const x = ser[key].get(w); return x === undefined ? null : x; };
   const get2 = (key, w) => { const x = sser[key].get(w); return x === undefined ? null : x; };
@@ -593,7 +654,7 @@ function _kpis(a) {
   } else {
     const cur = vals["n"];
     const pp = get("people", prev);
-    dl = has_prev ? _delta(cur, pp, pp !== null && pp !== SMALL && pp >= th["min_den"], 0, "", true) : note;
+    dl = has_prev ? _delta(cur, pp, pp !== null && pp !== SMALL && pp >= th["min_den"], 0, "", true) : sd ? sd_note(sdc["people"], sdp["people"]) : note;
     if (week_mode && c && c["state"] === "ok") {
       const where = c["above"] ? "above" : c["below"] ? "below" : "inside";
       den = `Usual ${e(c['median'])} (range ${e(c['lo'])} to ${e(c['hi'])}): ${where} the usual range`;
@@ -602,13 +663,15 @@ function _kpis(a) {
     } else {
       den = e(P["label"].charAt(0).toUpperCase() + P["label"].slice(1)) + "<br>No usual range yet: it needs 5 complete weeks";
     }
+    let aud;
     if (au) {
-      den += (au["x"] !== null && au["x"] !== undefined && week_mode)
-        ? (`<br>${num(au['x'])} of an audience of ${au['size']}` + (au["pct"] !== null && au["pct"] !== undefined ? ` (${au['pct']}%)` : "") + ", a lower bound")
-        : `<br>Audience of ${au['size']} supplied`;
+      aud = (au["x"] !== null && au["x"] !== undefined && week_mode)
+        ? (`${num(au['x'])} of an audience of ${au['size']}` + (au["pct"] !== null && au["pct"] !== undefined ? ` (${au['pct']}%)` : "") + ", a lower bound")
+        : `Audience of ${au['size']} supplied`;
     } else {
-      den += "<br>No audience size supplied";
+      aud = "No audience size supplied";
     }
+    den = sd_fig(dl) ? (au ? aud : "") : den + "<br>" + aud;
     cells.push(_kpi("People active", num(vals["people"]), dl, den, sp("people", "People active", cur), true, null, "kpi-people"));
   }
   // 2 new people
@@ -628,8 +691,9 @@ function _kpis(a) {
     cells.push(_kpi("New people", "", null, `A group under ${MIN_USERS} people is not shown`, "", false, SMALL, "kpi-new"));
   } else {
     pv = get("new", prev);
-    dl = has_prev ? _delta(nw, pv, false, 0, "", true) : note;
-    cells.push(_kpi("New people", num(nw), dl, e(`of ${vals['people'] === SMALL ? vals['people'] : _pl(vals['n'], 'person', 'people')} active${so}`), sp("new", "New people", nw), false, null, "kpi-new"));
+    dl = has_prev ? _delta(nw, pv, false, 0, "", true) : sd ? sd_note(sd_new(sd["cur"], sdc, sd["cur_lo"], sd["cur_hi"]), sd_new(sd["prev"], sdp, sd["prev_lo"], sd["prev_hi"]), "", false, null, `this week of ${_pl(sdc['n'], 'person', 'people')} active, last week of ${_pl(sdp['n'], 'person', 'people')} active`) : note;
+    den = (sd && sd_fig(dl)) ? "" : e(`of ${vals['people'] === SMALL ? vals['people'] : _pl(vals['n'], 'person', 'people')} active${so}`);
+    cells.push(_kpi("New people", num(nw), dl, den, sp("new", "New people", nw), false, null, "kpi-new"));
   }
   // 3 engaged visits per active person
   v = vals["vpp"];
@@ -639,8 +703,9 @@ function _kpis(a) {
     cells.push(_kpi("Engaged visits per person", "", null, `Fewer than ${MIN_USERS} people`, "", false, SMALL, "kpi-vpp"));
   } else {
     pv = get("vpp", prev);
-    dl = has_prev ? _delta(v, pv, pv !== null && pv !== SMALL && cn["vpp"].get(prev)[1] >= th["min_den"], 1, "", null) : note;
-    cells.push(_kpi("Engaged visits per person", num(v, "", true), dl, e(`${_pl(vals['eng'], 'engaged visit', 'engaged visits')}, ${_pl(vals['n'], 'person', 'people')}${so}`), sp("vpp", "Engaged visits per active person", pystr(v, true), true), false, null, "kpi-vpp"));
+    dl = has_prev ? _delta(v, pv, pv !== null && pv !== SMALL && cn["vpp"].get(prev)[1] >= th["min_den"], 1, "", null) : sd ? sd_note(sdc["vpp"], sdp["vpp"], "", true, null, `this week ${_pl(sdc['eng'], 'engaged visit', 'engaged visits')}, ${_pl(sdc['n'], 'person', 'people')}; last week ${_pl(sdp['eng'], 'engaged visit', 'engaged visits')}, ${_pl(sdp['n'], 'person', 'people')}`) : note;
+    den = (sd && sd_fig(dl)) ? "" : e(`${_pl(vals['eng'], 'engaged visit', 'engaged visits')}, ${_pl(vals['n'], 'person', 'people')}${so}`);
+    cells.push(_kpi("Engaged visits per person", num(v, "", true), dl, den, sp("vpp", "Engaged visits per active person", pystr(v, true), true), false, null, "kpi-vpp"));
   }
   // 4 median active minutes
   v = vals["min"];
@@ -650,8 +715,9 @@ function _kpis(a) {
     cells.push(_kpi("Median visit length", "", null, `Fewer than ${MIN_USERS} people`, "", false, SMALL, "kpi-min"));
   } else {
     pv = get("min", prev);
-    dl = has_prev ? _delta(v, pv, false, 1, " min", null) : note;
-    cells.push(_kpi("Median visit length", `${num(v, "", true)}<span class="small"> min</span>`, dl, e(`active minutes, ${_pl(vals['pos'][0], 'engaged visit', 'engaged visits')}${so}`), sp("min", "Median active minutes per engaged visit", pystr(v, true), true), false, null, "kpi-min"));
+    dl = has_prev ? _delta(v, pv, false, 1, " min", null) : sd ? sd_note(sdc["min"], sdp["min"], " min", true, [sdc["pos"][0], sdp["pos"][0]], `this week ${_pl(sdc['pos'][0], 'engaged visit', 'engaged visits')}, last week ${_pl(sdp['pos'][0], 'engaged visit', 'engaged visits')}`) : note;
+    den = (sd && sd_fig(dl)) ? "" : e(`active minutes, ${_pl(vals['pos'][0], 'engaged visit', 'engaged visits')}${so}`);
+    cells.push(_kpi("Median visit length", `${num(v, "", true)}<span class="small"> min</span>`, dl, den, sp("min", "Median active minutes per engaged visit", pystr(v, true), true), false, null, "kpi-min"));
   }
   // 5 device (twice as wide as the others: the donut and its legend sit side by side)
   const dev = device_card(vals["dev"], th);
@@ -671,9 +737,13 @@ function _kpis(a) {
   if (!week_mode) body.push(trow(P["label"].charAt(0).toUpperCase() + P["label"].slice(1), vals["people"], nw, vals["vpp"], vals["min"]));
   for (const w of run.slice().reverse()) body.push(trow(week_label(w), get("people", w), get("new", w), get("vpp", w), get("min", w)));
   const usable_n = m.weeks.filter(w => !m.is_prov(w)).length;
+  const cap2 = usable_n > run.length ? [`${usable_n - run.length} earlier completed week(s) are left out: the page recorded visits under other rules, so the figures are not comparable.`] : [];
+  if (week_mode && !has_prev) {                                                     // the reason the first week is not compared leaves the heading for here
+    cap2.push(m.provisional_first ? `Data starts ${d_label(m.data_start)}, mid-week: that week is not compared.` : `Data starts ${d_label(m.data_start)}.`);
+  }
   let table = ('<table id="kpi-table"><thead><tr><th scope="col">Period</th><th scope="col" class="n">People active</th><th scope="col" class="n">New people</th><th scope="col" class="n">Engaged visits per person</th><th scope="col" class="n">Median visit length (min)</th>'
                + `</tr></thead><tbody>${body.join("")}</tbody></table>`
-               + (usable_n > run.length ? `<p class="cap2">${usable_n - run.length} earlier completed week(s) are left out: the page recorded visits under other rules, so the figures are not comparable.</p>` : ""));
+               + (cap2.length ? `<p class="cap2">${e(cap2.join(" "))}</p>` : ""));
   const drows = [];
   for (const [label, dc] of device_period_lines(a)) {
     if (!dc["n"]) {
@@ -688,7 +758,11 @@ function _kpis(a) {
   let sub;
   if (week_mode) {
     sub = `Last completed week: ${week_label(L)}. Each figure is compared with the week before; the line shows the weeks since the last change of the recording rules.`;
-    if (!has_prev) sub = `Last completed week: ${week_label(L)}. ` + _first_comparison_note(m);
+    if (!has_prev) {
+      const first_full = first_full_comparison(m);
+      sub = [`Last completed week: ${week_label(L)}.`].concat(sd_shown.length ? ["The line on a tile compares the complete days of this week with the same days last week; small numbers move a lot."] : [],
+                                                               first_full > m.ref ? [`Full-week comparison from Sun ${d_label(first_full)}.`] : []).join(" ");
+    }
   } else if (P["kind"] === "todate") {
     sub = P["label"].charAt(0).toUpperCase() + P["label"].slice(1) + ". " + _first_comparison_note(m);
   } else {
