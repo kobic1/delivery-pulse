@@ -44,6 +44,8 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import subscriptions  # noqa: E402  the EMAIL_SUBSCRIPTIONS variable (who gets which email)
 
 # Field IDs (per-instance, stable across releases -- see the skill's jira_field_ids.md)
 CF_IMPLEMENTED_BY_AI = "cf[15229]"   # "Implemented by AI Agent" (Yes/No)
@@ -751,14 +753,18 @@ def resolve_recipients(cfg, audience):
         return None
     if audience == "managers":
         var = cfg.get("recipients_env", f"{cfg['project']}_DASHBOARD_RECIPIENTS")
-        raw = os.environ.get(var, "")
+        given = subscriptions.dashboard(subscriptions.key_of_env(var), "to")      # the EMAIL_SUBSCRIPTIONS variable wins over the secret
+        if given is not None:
+            raw = ";".join(given)
+        else:
+            raw = os.environ.get(var, "")
         if not raw.strip():
-            sys.exit(f"FATAL: {var} is not set — refusing to guess the distribution list. "
+            sys.exit(f"FATAL: neither the EMAIL_SUBSCRIPTIONS variable nor {var} gives a distribution list — refusing to guess it. "
                      f"Nothing was sent.")
     else:
         # 'test' and 'personal' both go to Kobi; only 'test' brands the subject.
         raw = os.environ.get("PMN_DASHBOARD_TEST_RECIPIENT", "kobi.cohen@nice.com")
-    return [a.strip() for a in raw.replace(",", ";").split(";") if a.strip()]
+    return subscriptions.drop_excluded([a.strip() for a in raw.replace(",", ";").split(";") if a.strip()])
 
 
 def resolve_cc(cfg, audience) -> list[str]:
@@ -769,8 +775,9 @@ def resolve_cc(cfg, audience) -> list[str]:
     var = cfg.get("cc_env")
     if not var:
         return []
-    raw = os.environ.get(var, "")
-    return [a.strip() for a in raw.replace(",", ";").split(";") if a.strip()]
+    given = subscriptions.dashboard(subscriptions.key_of_env(var), "cc")        # an entry in the variable (even an empty list) wins over the secret
+    raw = ";".join(given) if given is not None else os.environ.get(var, "")
+    return subscriptions.drop_excluded([a.strip() for a in raw.replace(",", ";").split(";") if a.strip()])
 
 
 def run(cmd: list[str], label: str) -> None:
