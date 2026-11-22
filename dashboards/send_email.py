@@ -29,6 +29,9 @@ import sys
 import urllib.request
 import urllib.error
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import subscriptions  # noqa: E402  the EMAIL_SUBSCRIPTIONS variable: the exclude list applies to every email
+
 DEFAULT_URL = None  # intentionally absent: this copy lives in a PUBLIC repo.
 # The flow trigger URL carries its own sig= signature and is a credential, so it is
 # supplied only via the POWER_AUTOMATE_EMAIL_URL env var (a GitHub Actions secret).
@@ -55,6 +58,13 @@ def main() -> int:
     p.add_argument("--dry-run", action="store_true",
                    help="Print the payload that would be sent and exit without sending.")
     args = p.parse_args()
+
+    if subscriptions.excluded():                       # a person on the exclude list gets no email at all, whatever list they are on
+        to, cc = subscriptions.drop_excluded(subscriptions.addresses(args.to)), subscriptions.drop_excluded(subscriptions.addresses(args.cc))
+        if not to:
+            print("ERROR: every To address is on the exclude list (EMAIL_SUBSCRIPTIONS); nothing was sent.", file=sys.stderr)
+            return 2
+        args.to, args.cc = ";".join(to), ";".join(cc)
 
     if args.body_file:
         try:

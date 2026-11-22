@@ -114,3 +114,11 @@ fit under-predicts). Set it to `null` to fall back to the regression.
 `first_send_date` is `2026-08-10` in both configs. Manager sends before that date
 exit cleanly — the cron would otherwise have fired Thu Aug 6, and the distributions
 were asked to start Mon Aug 10. Remove the key once it has served its purpose.
+
+## Who gets which email: the `EMAIL_SUBSCRIPTIONS` variable
+
+The distribution lists live in ONE repository **variable** (Settings > Secrets and variables > Actions > Variables), not in a file (the repo is public) and not only in
+secrets (a secret can never be read back). See `subscriptions.py` for the shape: `exclude` (a person removed from every email), `dashboards` (`to` / `cc` per release
+status email: pmn, cxco, ascenders, fellowship, cxsup, cv_tech, phoenix, cv_combined) and `release_planning` (per report key). An entry in the variable wins over the
+same-named recipients secret; where there is no entry the secret is used exactly as before, so each email can move over on its own. Invalid JSON stops the send.
+Read it with `gh variable get EMAIL_SUBSCRIPTIONS --repo kobic1/delivery-pulse`, change it with `gh variable set EMAIL_SUBSCRIPTIONS --repo kobic1/delivery-pulse < file.json`.
