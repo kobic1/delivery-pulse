@@ -130,6 +130,26 @@ def _strip_people(first: int, mid: int, last: int, cur: int) -> list:
     return people
 
 
+def _sd_people(n_old: int = 25, n_new_prev: int = 6, n_new_cur: int = 7, twice: int = 10, prev_v1: bool = False) -> list:
+    """Fictitious people for the key figures before the first full-week comparison (data day Wed 11 Nov 2026; the data starts Wed 28 Oct, so the last completed week, 1 to 7 Nov, is the first usable one).
+    One person has a session on 28 Oct only. n_old people: Mon 2 Nov (previous window, 90 s), Mon 9 (current window, 60 s), `twice` of them also Tue 10, the first three also Wed 4 and Wed 11 (not the same days).
+    n_new_prev people are first seen on Tue 3 and return on Tue 10; n_new_cur people are first seen on Tue 10. prev_v1: the sessions of the previous window are written by the old page (other recording rules)."""
+    nov = lambda n: dt.date(2026, 11, n)
+    mk = lambda s: {"s": s, "vs": max(s, 10), "lv": 0, "fa": 0, "d": "l"}
+    before = (lambda: {"s": 90, "d": "l"}) if prev_v1 else (lambda: mk(90))
+    people = [[(dt.date(2026, 10, 28), mk(60))]]
+    for i in range(n_old):
+        v = [(dt.date(2026, 10, 28), mk(60)), (nov(2), before()), (nov(9), mk(60))]
+        if i < twice:
+            v.append((nov(10), mk(60)))
+        if i < 3:
+            v += [(nov(4), mk(60)), (nov(11), mk(60))]
+        people.append(v)
+    people += [[(nov(3), before()), (nov(10), mk(60))] for _ in range(n_new_prev)]
+    people += [[(nov(10), mk(60))] for _ in range(n_new_cur)]
+    return people
+
+
 def scenarios() -> dict:
     sa = dict(UR.SHOW_ALL)
     d = UR.demo_bodies
@@ -163,6 +183,15 @@ def scenarios() -> dict:
         "strip_first_under_five_default": dict(bodies=wtd_bodies(_strip_people(3, 8, 10, 8)), th=_thresholds(None), **at(dt.date(2026, 11, 11))),
         "strip_two_points_default": dict(bodies=wtd_bodies([[(dt.date(2026, 10, 30), {"s": 60, "vs": 60, "lv": 0, "fa": 0, "d": "l"}), (dt.date(2026, 11, 3), {"s": 90 + i, "vs": 90 + i, "lv": 0, "fa": 0, "d": "s"})] for i in range(7)]), th=_thresholds(None), **at(dt.date(2026, 11, 4))),
         "strip_so_far_only_showall": dict(bodies=wtd_bodies(_strip_people(0, 0, 0, 4)), th=_thresholds(sa), **at(dt.date(2026, 11, 11))),
+        "sd_wednesday_default": dict(bodies=wtd_bodies(_sd_people()), th=_thresholds(None), **at(dt.date(2026, 11, 11))),
+        "sd_monday_one_day_default": dict(bodies=wtd_bodies(_sd_people() + [[(dt.date(2026, 11, 1), {"s": 60, "vs": 60, "lv": 0, "fa": 0, "d": "l"}), (dt.date(2026, 11, 8), {"s": 60, "vs": 60, "lv": 0, "fa": 0, "d": "l"})] for _ in range(6)]), th=_thresholds(None), **at(dt.date(2026, 11, 9))),
+        "sd_sunday_fallback_default": dict(bodies=wtd_bodies(_sd_people()), th=_thresholds(None), **at(sun2)),
+        "sd_saturday_fallback_default": dict(bodies=wtd_bodies(_sd_people()), th=_thresholds(None), **at(dt.date(2026, 11, 14))),
+        "sd_small_default": dict(bodies=wtd_bodies(_sd_people(n_old=0, n_new_prev=3, n_new_cur=8) + [[(dt.date(2026, 11, 5), {"s": 60, "vs": 60, "lv": 0, "fa": 0, "d": "l"})] for _ in range(20)]), th=_thresholds(None), **at(dt.date(2026, 11, 11))),
+        "sd_few_visits_default": dict(bodies=wtd_bodies(_sd_people(n_old=8, n_new_prev=0, n_new_cur=0, twice=0)), th=_thresholds(None), **at(dt.date(2026, 11, 11))),
+        "sd_rules_differ_default": dict(bodies=wtd_bodies(_sd_people(prev_v1=True)), th=_thresholds(None), **at(dt.date(2026, 11, 11))),
+        "sd_audience_default": dict(bodies=wtd_bodies(_sd_people()), th=_thresholds(None), audience=100, **at(dt.date(2026, 11, 11))),
+        "sd_showall": dict(bodies=wtd_bodies(_sd_people(n_old=4, n_new_prev=2, n_new_cur=1, twice=2)), th=_thresholds(sa), **at(dt.date(2026, 11, 11))),
         "wtd_hand_no_current_showall": dict(bodies=wtd_bodies([[(dt.date(2026, 11, 2), {"s": 60}), (dt.date(2026, 11, 7), {"s": 60})], [(dt.date(2026, 11, 3), {"s": 30})]]), th=_thresholds(sa), **at(sun2)),
     }
 

@@ -1189,7 +1189,7 @@ def test_the_key_figures_show_their_values_for_the_data_to_date_and_only_the_com
     assert "Phone 50% · Tablet 0% · 2 visits" in k and "Desktop 50% (1 of 2)" in k and "Phone 50% (1 of 2)" in k
     assert k.count("No comparison yet: first week of data") >= 4 and 'class="skbar"' in k
     note = re.search(r'id="kpi-note">(.*?)</p>', k).group(1)
-    assert note == "So far, 1 Nov to 2 Nov (week in progress). Data starts 2 Nov, mid-week: that week is not compared. Comparisons appear after two complete weeks (from Sat 21 Nov)."
+    assert note == "So far, 1 Nov to 2 Nov (week in progress). Data starts 2 Nov, mid-week: that week is not compared. Comparisons appear after two complete weeks (from Sun 22 Nov)."
     assert 'id="device-caveat">Device is by browser window width, not device type: a narrow desktop window counts as phone.' in k
     assert "1 Nov to 2 Nov" in k[k.index("<details"):] and "People active" in k[k.index("<details"):]
     five = UR.html_report(agg(real_like_bodies()))                                      # the default minimum of 5: the same period, its numbers withheld, no false alarm about the recording rules
@@ -1709,6 +1709,180 @@ def check_week_to_date(mod):
 
 def test_the_week_so_far_check_passes_on_the_real_report():
     check_week_to_date(UR)
+
+
+# ------------------------------------------------------------------------------------------------ the key figures before the first full-week comparison: the complete days of this week against the same days of the last one
+def sd_people(n_old: int = 25, n_new_prev: int = 6, n_new_cur: int = 7, twice: int = 10, make_prev=lambda: v2(s=90, d="l"), make_cur=lambda: v2(s=60, d="l")) -> list:
+    """Fictitious people (one more person has a session on 28 Oct only); the data starts on Wednesday 28 Oct (the week of 25 Oct is the provisional first week), the last completed week is Sunday 1 to Saturday 7 Nov (the first usable one).
+    n_old people were first seen on 28 Oct and visit on Monday 2 (previous window), Monday 9 (current window), `twice` of them also on Tuesday 10, and the first three also on Wednesday 4 and Wednesday 11 (not the same days);
+    n_new_prev people are first seen on Tuesday 3 and come back on Tuesday 10; n_new_cur people are first seen on Tuesday 10."""
+    people = [[(dt.date(2026, 10, 28), v2(s=60, d="l"))]]                                         # the person who starts the data on 28 Oct, even when n_old is 0
+    for i in range(n_old):
+        v = [(dt.date(2026, 10, 28), v2(s=60, d="l")), (nov(2), make_prev()), (nov(9), make_cur())]
+        if i < twice:
+            v.append((nov(10), make_cur()))
+        if i < 3:
+            v += [(nov(4), v2(s=60, d="l")), (nov(11), v2(s=60, d="l"))]
+        people.append(v)
+    people += [[(nov(3), make_prev()), (nov(10), make_cur())] for _ in range(n_new_prev)]
+    people += [[(nov(10), make_cur())] for _ in range(n_new_cur)]
+    return people
+
+
+def sd_notes(h: str) -> dict:
+    """{key figure id: (class, the short line under its figure, its long form for reading aids or None)}; a card without a line is missing"""
+    k = kpi_section(h)
+    out = {}
+    for i in ("kpi-people", "kpi-new", "kpi-vpp", "kpi-min", "kpi-device"):
+        card = re.search(rf'id="{i}">(.*?)<div class="sp">', k, re.S).group(1)
+        m = re.search(r'<p class="dl ([^"]*)">(.*?)</p>', card, re.S)
+        if m:
+            f = re.fullmatch(r'<span title="([^"]*)"><span aria-hidden="true">(.*?)</span><span class="sr">(.*?)</span></span>', m.group(2))
+            if f:
+                assert f.group(1) == f.group(3)                                                     # the title and the hidden text are the same sentence
+                out[i] = (m.group(1), f.group(2), f.group(1))
+            else:
+                out[i] = (m.group(1), m.group(2), None)
+    return out
+
+
+def sd_dens(h: str) -> dict:
+    """{key figure id: its second descriptor line (the den paragraph), or None}"""
+    k = kpi_section(h)
+    return {i: (lambda m: m.group(1) if m else None)(re.search(r'<p class="den">(.*?)</p>', re.search(rf'id="{i}">(.*?)<div class="sp">', k, re.S).group(1))) for i in ("kpi-people", "kpi-new", "kpi-vpp", "kpi-min", "kpi-device")}
+
+
+def sd_agg(people: list, ref: dt.date, **kw):
+    return wtd_at(people, ref, anchor=False, th=with_min_group(5), **kw)
+
+
+def test_same_days_window_arithmetic_on_a_wednesday():
+    m = sd_agg(sd_people(), nov(11))["model"]
+    sd = UR.same_days_window(m)
+    assert (sd["n_days"], sd["days"]) == (3, "Sun to Tue")                                       # Wednesday 11 is the data day, still in progress: it is left out
+    assert [sd[k].isoformat() for k in ("cur_lo", "cur_hi", "prev_lo", "prev_hi")] == ["2026-11-08", "2026-11-10", "2026-11-01", "2026-11-03"]
+    assert {r["day"] for r in sd["cur"]} == {nov(9), nov(10)} and {r["day"] for r in sd["prev"]} == {nov(2), nov(3)}      # Wednesday 4 and Wednesday 11 are not in the windows
+    assert len({r["u"] for r in sd["cur"]}) == 38 and len({r["u"] for r in sd["prev"]}) == 31
+
+
+def test_same_days_window_on_a_monday_is_one_day_and_on_a_sunday_there_is_none():
+    assert UR.same_days_window(sd_agg(sd_people(), nov(9))["model"]) is None                    # Monday 9: one complete day (Sunday 8) but nobody on Sunday 1 or Sunday 8 in this data: no previous session
+    people = sd_people() + [[(nov(1), v2(s=60)), (nov(8), v2(s=60))] for _ in range(5)]
+    sd = UR.same_days_window(sd_agg(people, nov(9))["model"])
+    assert (sd["n_days"], sd["days"], sd["cur_hi"], sd["prev_hi"]) == (1, "Sun", nov(8), nov(1)) and len(sd["cur"]) == 5 and len(sd["prev"]) == 5
+    assert UR.same_days_window(sd_agg(people, nov(8))["model"]) is None                          # a Sunday data day: no complete day yet
+    assert UR.same_days_window(sd_agg(sd_people(), nov(14))["model"])["days"] == "Sun to Fri"
+
+
+def test_same_days_window_is_not_compared_when_it_touches_the_start_of_the_data_or_the_rules_differ_or_there_is_no_previous_session():
+    started_late = [[(nov(3), v2(s=60)), (nov(9), v2(s=60))] for _ in range(6)]                  # the data starts on Tuesday 3 Nov, after the previous window starts (Sunday 1)
+    m = sd_agg(started_late, nov(11))["model"]
+    assert m.data_start == nov(3) and UR.same_days_window(m) is None
+    on_data_start = [[(nov(1), v2(s=60)), (nov(8), v2(s=60))] for _ in range(6)]                 # the data starts exactly on the previous window's first day: compared
+    assert UR.same_days_window(sd_agg(on_data_start, nov(11))["model"])["days"] == "Sun to Tue"
+    mixed = sd_people(make_prev=lambda: sess(s=60))                                              # v1 sessions in the previous window, v2 in the current one
+    a = sd_agg(mixed, nov(11))
+    assert UR.same_days_window(a["model"]) is None
+    k = kpi_section(UR.html_report(a))
+    assert "same days last week" not in k.replace("compares the complete days of this week with the same days last week", "") and "Sun\u2013" not in k and sd_notes(UR.html_report(a)) == {}
+    assert "Full-week comparison from Sun 15 Nov." in k and "compares the complete days" not in k                                         # no line shown on any card: the heading does not talk about one
+    assert UR.same_days_window(sd_agg([[(nov(9), v2(s=60))] for _ in range(6)] + [[(nov(5), v2(s=60))]], nov(11))["model"]) is None   # nobody in the previous window
+
+
+def test_the_key_figures_show_one_short_same_days_line_before_the_first_full_week_comparison():
+    a = sd_agg(sd_people(), nov(11))
+    h = UR.html_report(a)
+    n = sd_notes(h)
+    assert n["kpi-people"] == ("nt", "Sun\u2013Tue: 38 vs 31", "This week, Sun to Tue: 38 \u00b7 same days last week: 31")
+    assert n["kpi-new"] == ("nt", "Sun\u2013Tue: 7 vs 6", "This week, Sun to Tue: 7 \u00b7 same days last week: 6 (this week of 38 people active, last week of 31 people active)")        # people first seen inside each window
+    assert n["kpi-vpp"] == ("nt", "Sun\u2013Tue: 1.3 vs 1.0", "This week, Sun to Tue: 1.3 \u00b7 same days last week: 1.0 (this week 48 engaged visits, 38 people; last week 31 engaged visits, 31 people)")
+    assert n["kpi-min"] == ("nt", "Sun\u2013Tue: 1.0 vs 1.5 min", "This week, Sun to Tue: 1.0 min \u00b7 same days last week: 1.5 min (this week 48 engaged visits, last week 31 engaged visits)")
+    assert "kpi-device" not in n                                                                 # the Device card has no line at all
+    for _, short, long in [v for v in n.values() if v[2]]:
+        assert not any(w in short + long for w in ("Up", "Down", "%", "&#9650;", "&#9660;"))
+    k = kpi_section(h)
+    assert not re.search(r'class="dl (up|down|flat)"', k) and "Full-week comparison starts" not in k and "No comparison" not in k and "Too few" not in k
+    assert re.search(r'<span title="[^"]*"><span aria-hidden="true">Sun\u2013Tue: 38 vs 31</span><span class="sr">', k)
+    d = sd_dens(h)                                                                               # the second descriptor line goes where the figures are on the line (its content is in the title); the Device card keeps its own
+    assert d == {"kpi-people": None, "kpi-new": None, "kpi-vpp": None, "kpi-min": None, "kpi-device": "Phone 0% \u00b7 Tablet 0% \u00b7 34 visits"}
+    assert "Usual range building" not in k and "No audience size supplied" not in k
+    sub = re.search(r'id="kpi-note">(.*?)</p>', k).group(1)
+    assert sub == "Last completed week: 1 Nov to 7 Nov. The line on a tile compares the complete days of this week with the same days last week; small numbers move a lot. Full-week comparison from Sun 15 Nov."
+    cap = re.findall(r'<p class="cap2">(.*?)</p>', k)
+    assert cap[0] == "Data starts 28 Oct, mid-week: that week is not compared."                  # the reason moved under Show data
+    assert "Data starts" not in sub
+    assert "wtd" in a and "same_days" not in " ".join(a)                                         # aggregate is unchanged: the windows are computed by the tiles
+
+
+def test_the_audience_line_stays_when_an_audience_size_is_supplied():
+    h = UR.html_report(sd_agg(sd_people(), nov(11), audience=100))
+    assert sd_dens(h)["kpi-people"] == "31 of an audience of 100 (31%), a lower bound"
+    assert "Usual range building" not in h.split('id="kpis"')[1].split("</section>")[0]
+
+
+def test_the_same_days_line_says_sun_for_one_day():
+    people = sd_people(n_old=25) + [[(nov(1), v2(s=60)), (nov(8), v2(s=60))] for _ in range(6)]
+    n = sd_notes(UR.html_report(sd_agg(people, nov(9))))
+    assert n["kpi-people"][1:] == ("Sun: 6 vs 6", "This week, Sun: 6 \u00b7 same days last week: 6")
+
+
+def test_same_days_lines_say_too_few_to_compare_for_small_groups_and_few_visits():
+    people = sd_people(n_old=0, n_new_prev=3, n_new_cur=8) + [[(nov(5), v2(s=60))] for _ in range(20)]       # 3 people in the previous window, 8 in the current one; the last completed week has plenty
+    h = UR.html_report(sd_agg(people, nov(11)))
+    n = sd_notes(h)
+    for key in ("kpi-people", "kpi-vpp", "kpi-min"):
+        assert n[key] == ("nt", "Too few to compare", None), key
+    assert sd_dens(h)["kpi-vpp"] is not None                                                     # no figures on the line: the card keeps its own second line
+    few = [[(dt.date(2026, 10, 28), v2(s=60, d="l"))]] + [[(nov(2), v2(s=60, d="l")), (nov(9), v2(s=60, d="l"))] for _ in range(8)] + [[(nov(5), v2(s=60, d="l"))] for _ in range(20)]    # 8 people and 8 visits in each window: the median needs 20 visits
+    n = sd_notes(UR.html_report(sd_agg(few, nov(11))))
+    assert n["kpi-people"][1] == "Sun\u2013Tue: 8 vs 8" and n["kpi-vpp"][1] == "Sun\u2013Tue: 1.0 vs 1.0"
+    assert n["kpi-min"] == ("nt", "Too few to compare", None)
+    enough = [[(dt.date(2026, 10, 28), v2(s=60, d="l"))]] + [[(nov(2), v2(s=60, d="l")), (nov(9), v2(s=120, d="l"))] for _ in range(20)]                       # exactly 20 visits in each window
+    n = sd_notes(UR.html_report(sd_agg(enough, nov(11))))
+    assert n["kpi-min"][1] == "Sun\u2013Tue: 2.0 vs 1.0 min"
+    for text in [v[1] for v in n.values()] + [v[1] for v in sd_notes(UR.html_report(sd_agg(people, nov(11)))).values()]:
+        assert "people" not in text and "visits" not in text
+
+
+def test_without_a_same_days_comparison_the_cards_print_no_line_and_the_heading_says_when_the_full_comparison_starts():
+    people = sd_people()
+    for ref, shown in ((nov(8), False), (nov(11), True), (nov(14), True), (nov(15), None)):
+        h = UR.html_report(sd_agg(people, ref))
+        k = kpi_section(h)
+        sub = re.search(r'id="kpi-note">(.*?)</p>', k).group(1)
+        assert "Full-week comparison starts" not in k and "No comparison yet: first complete week" not in k, ref
+        if shown is None:                                                                         # Sunday 15: the second usable week is complete (on Saturday 14 it was still in progress): arrows are back
+            assert "&#9650; Up" in k or "&#9660; Down" in k or "- No change" in k
+            assert "Full-week comparison from" not in sub and "compares the complete days" not in sub
+            continue
+        assert not re.search(r'class="dl ', k) if not shown else sd_notes(h).keys() == {"kpi-people", "kpi-new", "kpi-vpp", "kpi-min"}
+        assert sub.endswith("Full-week comparison from Sun 15 Nov.") and ("compares the complete days" in sub) is shown, ref
+    a = sd_agg(people, nov(8))
+    assert UR.same_days_window(a["model"]) is None and UR.first_full_comparison(a["model"]) == nov(15)
+    assert sd_notes(UR.html_report(a)) == {}
+    assert re.search(r'id="kpi-note">(.*?)</p>', kpi_section(UR.html_report(a))).group(1) == "Last completed week: 1 Nov to 7 Nov. Full-week comparison from Sun 15 Nov."
+    start_on_sunday = [[(nov(1), v2(s=60)), (nov(8), v2(s=60))] for _ in range(6)]                 # data from a Sunday: the first week is complete and usable at once
+    assert UR.first_full_comparison(sd_agg(start_on_sunday, nov(11))["model"]) == nov(15)
+    assert UR.first_full_comparison(sd_agg(wtd_bodies_none(), nov(11))["model"]) == nov(22)       # data from Monday 2 Nov: provisional first week, first usable 8 Nov
+    k = kpi_section(UR.html_report(sd_agg(start_on_sunday, nov(11))))
+    assert re.findall(r'<p class="cap2">(.*?)</p>', k)[0] == "Data starts 1 Nov."                  # a first week that is complete: no mid-week reason
+
+
+def wtd_bodies_none() -> list:
+    return [[(nov(2), v2(s=60)), (nov(9), v2(s=60))] for _ in range(6)]
+
+
+def test_the_first_comparison_note_says_sunday_not_saturday():
+    m = sd_agg(wtd_bodies_none(), nov(11))["model"]
+    assert UR._first_comparison_note(m) == "Data starts 2 Nov, mid-week: that week is not compared. Comparisons appear after two complete weeks (from Sun 22 Nov)."
+    assert "from Sat" not in UR._first_comparison_note(m)
+
+
+def test_when_the_week_before_is_not_comparable_for_another_reason_the_heading_does_not_name_a_past_date():
+    a = wtd_at([on(5, 12) for _ in range(6)], nov(11), th=with_min_group(5))                          # data from 20 Oct, nobody in the week of 25 Oct: the first usable week is long past
+    k = kpi_section(UR.html_report(a))
+    assert "Full-week comparison" not in k and "No comparison yet: first complete week" not in k
+    assert re.search(r'id="kpi-note">(.*?)</p>', k).group(1).startswith("Last completed week: 1 Nov to 7 Nov.")
 
 
 # ------------------------------------------------------------------------------------------------ the strips of the key figures draw the incomplete weeks too

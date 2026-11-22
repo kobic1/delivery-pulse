@@ -4,7 +4,7 @@
 program_dashboard/usage_view/*.js is a literal port of the Python usage report, so the Python report decides what is right. Each test runs the bundle (program_dashboard/usage_bundle.py, the same code the
 page build inlines) in headless Chrome on the fictitious exports of usage_port/fixtures.py and compares:
   model      the Model (every week's people, sections, controls, baselines, regimes) with the Python Model's dump
-  aggregate  every number, string and list of `aggregate(...)` (27 scenarios: thresholds, audience, since, calendar, empty, v1-only, young, stale, Sunday, rollover, the week-so-far block in every state, and the key-figure strips with their incomplete weeks)
+  aggregate  every number, string and list of `aggregate(...)` (36 scenarios: thresholds, audience, since, calendar, empty, v1-only, young, stale, Sunday, rollover, the week-so-far block in every state, and the key-figure strips with their incomplete weeks)
   blocks     each page block (_kpis, _trend, _breakdowns, _heatmap_block, _back_block, _health_block, _measure_block) and the helpers, byte for byte
   html       the whole page, byte for byte
   mutations  the demo export changed so that every signal fires (S0 to S9), under four threshold sets, with duplicates and a calendar, and 16 randomly generated exports: aggregate and page equal
