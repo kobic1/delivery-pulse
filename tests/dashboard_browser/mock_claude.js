@@ -56,6 +56,13 @@
       if (jql.includes("issuetype = Capability AND (updated")) { if (MODE === "capsfail") throw {code: "tool_error", message: "capabilities boom"}; return ok(CFG.capsnodes); }
       if (jql.includes("cf[10329] is not EMPTY") && jql.includes("status not in")) { if (MODE === "cfbfail") throw {code: "tool_error", message: "cfb boom"}; return ok(CFG.opencfb); }
       if (jql.includes("issuetype = Epic AND status != Removed AND fixVersion in (")) { if (MODE === "linksfail") throw {code: "tool_error", message: "links boom"}; return ok(CFG.linknodes); }
+      // Moved bugs step: the open bugs of the dashboard projects. By default Jira agrees with the page (every stored open bug is still in its project, so the step reads nothing more); CFG.notopen names keys that Jira no longer lists in the project (moved, say), CFG.movedread answers the by-key read of the ones that left it.
+      if (/^project in \(.*\) AND issuetype = Bug AND status not in \(/.test(jql)) {
+        if (MODE === "movedfail") throw {code: "tool_error", message: "moved boom"};
+        const closed = ["Done", "Ready for Deploy", "Closed", "Resolved", "Removed"];
+        return ok(typeof DATA === "undefined" ? [] : DATA.bugs.filter(b => !closed.includes(b.s) && DATA.projects.includes(b.p) && !(CFG.notopen || []).includes(b.k)).map(b => ({key: b.k, fields: {status: {name: b.s}}})));
+      }
+      if (/^issuetype = Bug AND key in \(/.test(jql)) return ok(CFG.movedread || []);
       if (/^key in \(/.test(jql) && farHasProject) return ok(CFG.farnodes);
       if (/^key in \(/.test(jql)) return ok(CFG.leftcfb);
       if (jql.includes("issuetype in (Bug, Story, Task)")) {

@@ -842,6 +842,48 @@ def _(t: T):
     t.check(not r["errors"], f"no uncaught page errors: {r['errors'][:2]}")
 
 
+@SUITE.test("f15mv_a_an_open_bug_that_left_its_project_stops_counting")
+def _(t: T):
+    """A bug moved to another project is invisible to the changed-bugs read (it searches the dashboard projects only), so Refresh read the old key as open for ever.
+    The Moved bugs step reads the open set again and the stored open bugs that are missing from it, by key: Jira answers a moved bug with its new key (or nothing), and the old key is dropped."""
+    fx = build_fixture()
+    base = scenario("ok")
+    page1 = {n["key"] for n in fx.page1 + fx.page2}
+    open_pmn = [b for b in fx.data["bugs"] if b["p"] == "PMN" and b["s"] not in {"Done", "Ready for Deploy", "Closed", "Resolved", "Removed"} and not b.get("ax") and b["k"] not in page1]
+    t.check(len(open_pmn) >= 2, f"the fixture holds open PMN bugs to move ({len(open_pmn)})")
+    moved = open_pmn[0]["k"]
+    r = scenario("ok", notopen=[moved], movedread=[])
+    keys = ctx.chrome.js("DATA.bugs.map(b => b.k)")
+    t.check(moved not in keys, f"the moved bug {moved} is no longer in the data")
+    t.check(r["after"]["bugs"] == base["after"]["bugs"] - 1, f"exactly one bug fewer ({base['after']['bugs']} -> {r['after']['bugs']})")
+    t.check(r["after"]["pmn_open"] == base["after"]["pmn_open"] - 1, f"PMN open bugs {base['after']['pmn_open']} -> {r['after']['pmn_open']}")
+    t.check(not r["timed_out"] and r["status"].startswith("Refreshed ") and "Not refreshed" not in r["status"], f"refresh completed without a failed step -> {r['status'][:90]}")
+    t.check(len(calls_of(r, f"key in ({moved}")) == 1 and len(calls_of(r, "issuetype = Bug AND status not in (")) == 1, "one open-bugs read and one by-key read, no more")
+    t.check(not r["errors"], f"no uncaught page errors: {r['errors'][:2]}")
+
+
+@SUITE.test("f15mv_b_an_open_bug_that_closed_after_the_changed_read_is_merged_not_dropped")
+def _(t: T):
+    """The open set no longer holds the key, and Jira answers the by-key read with the same key in a closed status: the bug is kept, closed, with its dates."""
+    fx = build_fixture()
+    page1 = {n["key"] for n in fx.page1 + fx.page2}
+    cand = [b for b in fx.data["bugs"] if b["p"] == "PMN" and b["s"] not in {"Done", "Ready for Deploy", "Closed", "Resolved", "Removed"} and not b.get("ax") and b["k"] not in page1][0]["k"]
+    node = fx.node(cand, "Bug", status="Done", resolutiondate=stamp(TODAY, "10:00"), resolution={"name": "Fixed"})
+    r = scenario("ok", notopen=[cand], movedread=[node])
+    b = ctx.chrome.js(f"DATA.bugs.find(b => b.k === '{cand}') || null")
+    t.check(b is not None and b["s"] == "Done" and b.get("rd") == str(TODAY), f"{cand} is kept as Done with today's resolution date (page: {b})")
+    t.check(not r["errors"], f"no uncaught page errors: {r['errors'][:2]}")
+
+
+@SUITE.test("f15mv_c_a_failed_moved_bugs_read_changes_nothing_and_the_other_steps_still_run")
+def _(t: T):
+    base = scenario("ok")
+    r = scenario("movedfail")
+    t.check("Moved bugs" in r["status"] and "Not refreshed, data unchanged" in r["status"], f"the failed step is named: {r['status'][:160]}")
+    t.check(r["after"]["bugs"] == base["after"]["bugs"] and r["after"]["epics"] == base["after"]["epics"], "epics and bugs are those of a plain refresh")
+    t.check(r["after"]["cfbAt"] is not None, "the Open CFBs step still ran")
+
+
 @SUITE.test("f15g_an_issue_returned_in_two_windows_is_counted_once")
 def _(t: T):
     """Shift the page clock 25 days forward so the snapshot is old and the page reads the `updated` range in weekly windows; the mock answers the SAME nodes in every window."""

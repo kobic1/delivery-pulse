@@ -4950,6 +4950,24 @@ async function cfbRefresh(mcp, say) {                            // Open CFBs: t
   X.pulledAt = new Date().toISOString(); DATA.cfbRefreshedAt = X.pulledAt;
   return {open: open.nodes.length, left: leftNodes.length, tpl: !!tpl};
 }
+async function movedBugsRefresh(mcp, say) {                       // Open bugs that left their project: Refresh reads recently changed bugs inside the selected projects, so a bug moved to another project is never seen. Read the open set again, then the stored open bugs that are no longer in it, by key.
+  if (BUGS_AS_BUILT) return null;
+  const projs = DATA.projects.filter(p => !PROJ_RULES[p]), mine = DATA.bugs.filter(b => isOpenBug(b) && projs.includes(b.p));
+  if (!projs.length || !mine.length) return null;
+  const open = await fetchAll(mcp, `project in (${pkeys(projs)}) AND issuetype = Bug AND status not in (${BUG_CLOSED_JQL_LIST})`, (pg, n) => say(`Open bugs: page ${pg}, ${n} issues read so far.`), ["status"]);
+  if (open.truncated) throw {code: "tool_error", message: "more open bugs than the page limit; ask for a full rebuild"};
+  const now = new Set(open.nodes.map(n => n.key)), left = mine.map(b => b.k).filter(k => !now.has(k)), nodes = [];
+  for (let i = 0; i < left.length; i += 100) {
+    const r = await fetchAll(mcp, `issuetype = Bug AND key in (${left.slice(i, i + 100).join(", ")})`, (pg, n) => say(`Open bugs that left the list: page ${pg}, ${n} issues read so far.`));
+    if (r.truncated) throw {code: "tool_error", message: "more bugs than the page limit; ask for a full rebuild"};
+    nodes.push(...r.nodes);
+  }
+  // nothing is applied half-way: any failure above left everything untouched. A stored key that Jira answers with the same key is merged (it closed or changed status); one it answers with another key (moved), or not at all, is dropped; the moved bug comes back through the normal merge when its new project is on this page.
+  const back = new Set(nodes.map(n => n.key)), gone = new Set(left.filter(k => !back.has(k)));
+  const keep = DATA.bugs.filter(b => !gone.has(b.k)), ax = new Set(keep.filter(b => b.ax).map(b => b.k));
+  DATA.bugs = keep; mergeDelta(nodes, ax);
+  return {left: left.length, gone: gone.size};
+}
 async function capsRefresh(mcp, say, sinceDay) {                  // Capabilities of the dashboard projects and CXCROSS changed since the snapshot: status, fix versions, summary; and the child-epic rows we already hold
   if (!DATA.capList || PRODUCT !== "cxone") return null;      // a product view has no Capabilities section
   const rels = DATA.releases.map(r => `"${r}"`).join(", ");
@@ -5046,6 +5064,7 @@ async function refresh(opts = {}) {
     const slow = slowReserve(auto);                                   // decided once, here: step 1 succeeded, so this run counts against the starting day's allowance; a failed run is not refunded
     const steps = [], run = async (label, fn) => { try { const r = await fn(); if (r) steps.push({label, ok: true, r}); } catch (err) { const msg = String((err && (err.message || err.code)) || "unknown error").slice(0, 120); if (label === "Capitalization") DATA.capRefreshFailed = msg; if (label === "Cycle time") DATA.edctFailed = msg; steps.push({label, ok: false, msg}); } update(); syncTip(); };
     await run("Open CFBs", () => cfbRefresh(mcp, msg => say(msg)));
+    await run("Moved bugs", () => movedBugsRefresh(mcp, msg => say(msg)));
     await run("Dependency links", () => linksRefresh(mcp, msg => say(msg), sinceDay));
     await run("Capabilities", () => capsRefresh(mcp, msg => say(msg), sinceDay));
     if (slow.run) {
