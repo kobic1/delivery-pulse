@@ -177,7 +177,11 @@ NESTED = """(async () => {
   await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 80))));
   const outer = [...box.querySelectorAll('#cy-ovtable > thead th')].map(th => th.getBoundingClientRect());
   const oTop = Math.min(...outer.map(r => r.top)), oBot = Math.max(...outer.map(r => r.bottom));
-  const clash = inner.map(th => th.getBoundingClientRect()).filter(r => r.bottom > oTop + 1 && r.top < oBot - 1).length;
+  // a nested header that merely scrolls under the sticky table header is fine (it is covered); a clash is a nested header painted ON TOP of it, so look at what is drawn at the middle of the overlap
+  const outerHead = box.querySelector('#cy-ovtable > thead');
+  const clash = inner.filter(th => { const r = th.getBoundingClientRect(); if (!(r.bottom > oTop + 1 && r.top < oBot - 1)) return false;
+    const y = (Math.max(r.top, oTop) + Math.min(r.bottom, oBot)) / 2, w = Math.min(r.width, 120);
+    return [0.15, 0.5, 0.85].some(f => { const el = document.elementFromPoint(r.left + w * f, y); return !el || !outerHead.contains(el); }); }).length;      // fails closed: a point with nothing drawn there counts as a clash, and three points per header are looked at
   return {found: true, nested: inner.length, scrolled: box.scrollTop > 0, clash, position: getComputedStyle(inner[0]).position};
 })()"""
 

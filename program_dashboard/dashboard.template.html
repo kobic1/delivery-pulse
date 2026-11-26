@@ -815,6 +815,7 @@ footer.f b { color:var(--ink); }
     <div class="seclabel">NFRs <span class="state" id="nfr-state" hidden>In Progress</span></div>
     <h2 id="h-nfr" tabindex="-1">NFR Epics (Label or Category)</h2>
     <div class="sub" id="nfr-sub"></div>
+    <div class="sub" id="nfr-uncyc" hidden></div>
     <div class="kpis five" id="nfr-kpis"></div>
     <div id="nfr-cap"></div>
     <div id="nfr-body"></div>
@@ -1740,6 +1741,11 @@ function dcDomain(rel, dc) {
   if (dc.shown[0] === "1") return {s: 0, e: Math.min(W6, D), D, w1, kind: "c1"};
   return {s: W6 + 1, e: D, D, w1, kind: "c2"};      // a release with a Delivery Cycle 2 is longer than W6, so the window is never empty
 }
+function buUndated() {                                       // the burnup has no place for an epic with no planned date; the Cycles section counts it at the release end: say so, with the number and a link
+  CY_SPR = cySprints();
+  const un = scopeOf(state.release).filter(e => !plannedDue(e) && state.projects.has(e.p) && inTeams(e));
+  return un.length ? ` ${tlink(un.length, jira({extra: `(${cyNoDateQ()})`}), `${nn(un.length, "epic", "epics")} in ${state.release} with no due date and no Target Sprint the calendar knows`)} ${epicWord(un.length)} with no planned date ${un.length === 1 ? "is" : "are"} not on this chart; the Cycles section counts ${un.length === 1 ? "it" : "them"} at the release end.` : "";
+}
 function renderBurnup() {
   const el = document.getElementById("burnup"), cap = document.getElementById("bu-cap"), dataEl = document.getElementById("bu-data");
   const legend = document.getElementById("bu-legend"), rel = state.release, win = DATA.windows && DATA.windows[rel];
@@ -1906,7 +1912,7 @@ function renderBurnup() {
   });
 
   legend.innerHTML = "";
-  cap.innerHTML = (nm ? `<b>${esc(nm)}</b>: the ${kind === "c1" ? "first six weeks (W1 to W6)" : "last six weeks (W7 to W12)"} of the whole release; the numbers are the whole release's. ` : "") + (TB.pre ? `Target scope so far ${tlink(N, scopeHref, scopeTip)}; W1 starts ${shortDate(w1)}.` : `Scope ${tlink(N, scopeHref, scopeTip)} on ${shortDate(w1)}, ${added >= 0 ? "+" : ""}${added.toLocaleString("en-US")} since (${tlink(target.length, todayHref, `${nn(target.length, "target epic", "target epics")} in ${rel} today (Committed or Not Set)`)} today).`) + ` Target is always Committed + Not Set.` +
+  cap.innerHTML = (nm ? `<b>${esc(nm)}</b>: the ${kind === "c1" ? "first six weeks (W1 to W6)" : "last six weeks (W7 to W12)"} of the whole release; the numbers are the whole release's. ` : "") + (TB.pre ? `Target scope so far ${tlink(N, scopeHref, scopeTip)}; W1 starts ${shortDate(w1)}.` : `Scope ${tlink(N, scopeHref, scopeTip)} on ${shortDate(w1)}, ${added >= 0 ? "+" : ""}${added.toLocaleString("en-US")} since (${tlink(target.length, todayHref, `${nn(target.length, "target epic", "target epics")} in ${rel} today (Committed or Not Set)`)} today).`) + ` Target is always Committed + Not Set.` + buUndated() +
     defs(howBody({id: "bu",
     bl: `Use this to see whether delivery keeps pace with the target scope. The line adds up epics that are Done, by resolution date.`,
     defs: [
@@ -3533,13 +3539,48 @@ function nfrSelect(tab, viaKey) {                                       // switc
 // Two populations, never mixed. The headline count is every NFR epic under the page filters (all Commitment Types). The SHARE is the Committed NFR epics of the target scope, taken of the target scope, the same set
 // as the Forecast Epics tile: Committed + Not Set epics that were in the release on the first day of W1 (the target so far before W1), under the Projects and Teams filters.
 // Its denominator is that tile's number, printed and linked; a share only from a denominator of 5.
-function nfrTargetShare(isNfr, rel = state.release) {
-  const TB = targetBase(rel), X = TB.members.filter(e => isNfr(e) && e.c === "Committed"), D = TB.N;     // the numerator is the NFR epics that are Committed, the denominator the whole target scope
-  const o = {release: rel, commit: new Set(["Committed"]), extra: NFR_Q};
+// The Delivery Cycle filter in the NFR section: one cycle selected = only the epics planned in it (the planned date of the Cycles section: the due date, else the Target Sprint end). Cycle 1 holds every planned date up to the end of W6
+// (carry-over included, the filter's rule), Cycle 2 W7 to the release end. An epic planned after the release end is in neither cycle and shows only with Both cycles.
+// An epic with NO planned date (no due date, no Target Sprint the calendar knows) is planned at the release end (the last day of W12, the owner's rule, the same as in the Cycles section), so it is in Delivery Cycle 2; the burnup still leaves
+// such epics out of both cycles. The line under the headline says how many they are. Null: Both cycles, or a release with no cycle dates: the section as before.
+const cyNoDateQ = () => { const known = cyNames(() => true); return `duedate is EMPTY${known ? ` AND (${CY_TS} is EMPTY OR ${CY_TS} not in (${known}))` : ""}`; };      // no due date and no Target Sprint the calendar knows
+function nfrCycle(rel, dc) {
+  if (!dc.win || dc.all) return null;
+  const c = (cyCycles(rel) || []).find(x => x.id.slice(2) === dc.shown[0]); if (!c) return null;
+  const lo = dc.shown[0] === "1" ? null : c.start, hi = c.end, two = dc.shown[0] === "2", relEnd = cyCycles(rel).slice(-1)[0].end; CY_SPR = cySprints();
+  return {id: dc.shown[0], name: DC_NAME(dc.shown[0]), lo, hi, two, q: cyPlan(lo, hi),                       // cyPlan already holds the epics with no planned date in the window that has the release end
+    has: e => { const d = plannedDue(e) || relEnd; return (lo == null || d >= lo) && d <= hi; },
+    span: lo == null ? `planned on or before ${hi}` : `planned from ${lo} to ${hi}, plus epics with no planned date (counted at the release end)`};
+}
+// One cycle selected: a line under the headline for the NFR epics outside the plain planned-date rule. No planned date: shown under Delivery Cycle 2 although not assigned to it, so Cycle 2 says they are included and Cycle 1 says where they are.
+// Planned after the release end: in no cycle (shown only with Both cycles). Each count is a Jira query. Both cycles (or no cycle dates): the line is hidden, every epic is in the totals.
+function nfrUncycled(cyc, rel, nfrAll, noProj) {
+  const el = document.getElementById("nfr-uncyc"); if (!el) return;
+  const cs = cyCycles(rel), end = cs && cs[cs.length - 1].end;
+  if (!cyc || noProj || !end) { el.hidden = true; el.innerHTML = ""; return; }
+  const none = nfrAll.filter(e => !plannedDue(e)), after = nfrAll.filter(e => { const d = plannedDue(e); return !!d && d > end; });
+  if (!none.length && !after.length) { el.hidden = true; el.innerHTML = ""; return; }
+  const noneQ = cyNoDateQ(), aft = cyNames(s => s.end > end), afterQ = `(duedate > "${end}"${aft ? ` OR (duedate is EMPTY AND ${CY_TS} in (${aft}))` : ""})`;
+  const E = n => nn(n, "NFR epic", "NFR epics"), lk = (n, clause, tip) => n ? tlink(n.toLocaleString("en-US"), jira({extra: `${NFR_Q} AND ${clause}`}), `${E(n)} in ${rel}: ${tip}`) : "0";
+  const by = {ns: none.filter(e => cls(e.s) === "notStarted"), ip: none.filter(e => ["In Progress", "Validation"].includes(e.s)), done: none.filter(e => cls(e.s) === "done")};
+  by.oth = none.filter(e => !by.ns.includes(e) && !by.ip.includes(e) && !by.done.includes(e));
+  const st = [[by.ns, "not started", `status in (${CLASS.notStarted.map(q).join(", ")})`], [by.ip, "in progress or validation", `status in ("In Progress", Validation)`], [by.done, "done", "status = Done"],
+    [by.oth, "other status", `status not in (${NFR_KNOWN_STATUS().map(q).join(", ")})`]].filter(x => x[0].length).map(([l, w, c]) => `${lk(l.length, `${noneQ} AND ${c}`, `no planned date, ${w}`)} ${w}`);
+  const parts = [];
+  if (none.length) parts.push(`<b>No planned date:</b> ${lk(none.length, noneQ, "no due date and no Target Sprint")} ${plural(none.length, "epic", "epics")} (${st.join(", ")}) ${cyc.two ? `${plural(none.length, "is", "are")} counted here: planned at the release end (W12)` : `${plural(none.length, "is", "are")} counted in Delivery Cycle 2: planned at the release end (W12)`}.`);
+  if (after.length) parts.push(`<b>Planned after the release end:</b> ${lk(after.length, afterQ, `planned after the release end, ${end}`)} ${plural(after.length, "epic is", "epics are")} in no cycle; select Both cycles to see ${after.length === 1 ? "it" : "them"}.`);
+  el.hidden = false;
+  el.innerHTML = parts.join(" ");
+}
+function nfrTargetShare(isNfr, rel = state.release, cyc = null) {
+  const TB = targetBase(rel), mem = cyc ? TB.members.filter(cyc.has) : TB.members, X = mem.filter(e => isNfr(e) && e.c === "Committed"), D = mem.length;     // the numerator is the NFR epics that are Committed, the denominator the whole target scope (one cycle: the part planned in it)
+  const CQ = cyc ? ` AND ${cyc.q}` : "";
+  const o = {release: rel, commit: new Set(["Committed"]), extra: NFR_Q + CQ};
   if (!TB.pre && TB.win) o.wasOn = {release: rel, date: iso(TB.w1)};          // the same basis as the Forecast Epics link
-  const den = D ? tlink(D.toLocaleString("en-US"), TB.href, TB.tip) : "0";
+  const dh = cyc ? jira({release: rel, commit: new Set(TARGET_COMMIT), wasOn: o.wasOn, extra: cyc.q}) : TB.href;
+  const den = D ? tlink(D.toLocaleString("en-US"), dh, cyc ? `${nn(D, "target epic", "target epics")} planned in ${cyc.name}` : TB.tip) : "0";
   const xl = X.length ? tlink(X.length.toLocaleString("en-US"), jira(o), `${nn(X.length, "Committed NFR epic", "Committed NFR epics")} in the target scope\nIn ${rel}${TB.pre || !TB.win ? " so far" : ` on ${iso(TB.w1)}, the first day of W1`}; same basis as Forecast Epics.`) : "0";
-  return {X: X.length, D, html: D >= MIN_N ? `<b>${pct(X.length, D)}%</b> of ${den} target-scope epics are Committed NFR epics (${xl} of ${den}): the Forecast Epics scope` : `${xl} Committed NFR epics of ${den} target-scope epics; no share under ${MIN_N}`};
+  return {X: X.length, D, html: D >= MIN_N ? `<b>${pct(X.length, D)}%</b> of ${den} target-scope epics${cyc ? ` planned in ${esc(cyc.name)}` : ""} are Committed NFR epics (${xl} of ${den})${cyc ? "" : ": the Forecast Epics scope"}` : `${xl} Committed NFR epics of ${den} target-scope epics${cyc ? ` planned in ${esc(cyc.name)}` : ""}; no share under ${MIN_N}`};
 }
 function nfrHeadline(N, scope, commitTxt) {                      // the count under the page filters, with its own denominator
   const M = scope.length, den = M ? tlink(M.toLocaleString("en-US"), jira({}), `${nn(M, "epic", "epics")} in ${state.release}\nUnder the Projects and Teams filters.`) : "0";
@@ -3548,18 +3589,20 @@ function nfrHeadline(N, scope, commitTxt) {                      // the count un
 function renderNfr() {
   const host = document.getElementById("nfr-body"), kp = document.getElementById("nfr-kpis"); if (!host) return;
   document.getElementById("nfr-state").hidden = !isRunning(state.release);
-  const rel = state.release, scope = scopeOf(rel), noProj = !state.projects.size;
+  const rel = state.release, cyc = nfrCycle(rel, dcState(rel)), scopeAll = scopeOf(rel), scope = cyc ? scopeAll.filter(cyc.has) : scopeAll, noProj = !state.projects.size;
+  const CQ = cyc ? ` AND ${cyc.q}` : "", NQ = NFR_Q + CQ;               // every Jira link of the section carries the cycle's planned-date clause
   const isLabel = e => !!e.nf, isCat = e => NFR_CATEGORIES.includes(e.cat);
   const nfr = scope.filter(e => isLabel(e) || isCat(e)), N = nfr.length;
   const stat = l => ({ns: l.filter(e => cls(e.s) === "notStarted").length, ip: l.filter(e => e.s === "In Progress").length, val: l.filter(e => e.s === "Validation").length, done: l.filter(e => cls(e.s) === "done").length,
     oth: l.filter(e => cls(e.s) === "other" || (cls(e.s) === "flight" && !["In Progress", "Validation"].includes(e.s))).length, total: l.length});
   const T = stat(nfr), commitTxt = "all Commitment Types";
-  document.getElementById("nfr-sub").innerHTML = noProj ? "" : `${tlink(N, N ? jira({extra: NFR_Q}) : null, `${nn(N, "NFR epic", "NFR epics")} in ${rel} under the page filters`)} NFR ${N === 1 ? "epic" : "epics"}${N ? `; ${T.done} Done${N >= MIN_N ? ` (${pct(T.done, N)}%)` : ""}, ${T.ns} not started` : ""}.${followsRow(["Release", "Projects", "Teams"])}`;
-  const fig = (n, extra, label, kind) => n ? tlink(n, jira({kind, extra: `${NFR_Q}${extra ? " AND " + extra : ""}`}), label ? `${n.toLocaleString("en-US")} of ${nn(N, "NFR epic", "NFR epics")} in ${rel}: ${label}; ${commitTxt}` : `${nn(N, "NFR epic", "NFR epics")} in ${rel} under the page filters`) : "0";
+  document.getElementById("nfr-sub").innerHTML = noProj ? "" : `${tlink(N, N ? jira({extra: NQ}) : null, `${nn(N, "NFR epic", "NFR epics")} in ${rel} under the page filters${cyc ? `, ${cyc.span}` : ""}`)} NFR ${N === 1 ? "epic" : "epics"}${N ? `; ${T.done} Done${N >= MIN_N ? ` (${pct(T.done, N)}%)` : ""}, ${T.ns} not started` : ""}.${cyc ? ` ${esc(cyc.name)} only: epics ${cyc.span}.` : ""} ${followsRow(["Release", "Projects", "Teams", "Delivery Cycle"])}`;
+  nfrUncycled(cyc, rel, scopeAll.filter(e => isLabel(e) || isCat(e)), noProj);
+  const fig = (n, extra, label, kind) => n ? tlink(n, jira({kind, extra: `${NQ}${extra ? " AND " + extra : ""}`}), label ? `${n.toLocaleString("en-US")} of ${nn(N, "NFR epic", "NFR epics")} in ${rel}: ${label}; ${commitTxt}` : `${nn(N, "NFR epic", "NFR epics")} in ${rel} under the page filters`) : "0";
   const sub = n => N ? tipFocus(N >= MIN_N ? `${pct(n, N)}% of ${N.toLocaleString("en-US")}` : `${n} of ${N}`, `${n} of ${nn(N, "NFR epic", "NFR epics")} in ${rel}`) : "none in this selection";
   if (noProj) kpiCards(kp, ["NFR Epics in Scope", "Done", "In Progress", "Validation", "Not Started"].map(l => ({c: "nf", v: "–", l, s: "No project is selected"})));
   else kpiCards(kp, [
-    {c: "nf", v: fig(N, "", "", undefined), l: "NFR Epics in Scope", s: `of ${scope.length.toLocaleString("en-US")} epics in the release`, x: nfrTargetShare(e => isLabel(e) || isCat(e)).html},
+    {c: "nf", v: fig(N, "", "", undefined), l: "NFR Epics in Scope", s: cyc ? `of ${scope.length.toLocaleString("en-US")} epics planned in ${esc(cyc.name)}` : `of ${scope.length.toLocaleString("en-US")} epics in the release`, x: nfrTargetShare(e => isLabel(e) || isCat(e), rel, cyc).html},
     {c: "nf", v: fig(T.done, "", "Done", "done"), l: "Done", s: sub(T.done)},
     {c: "nf", v: fig(T.ip, 'status = "In Progress"', "In Progress"), l: "In Progress", s: sub(T.ip)},
     {c: "nf", v: fig(T.val, "status = Validation", "in Validation"), l: "Validation", s: sub(T.val)},
@@ -3570,23 +3613,24 @@ function renderNfr() {
     defs: [
       ["NFR epic", `an epic with the label NFR (this exact spelling) or an Issue Category of ${NFR_CATEGORIES.map(esc).join(", ")}. Both are self-reported in Jira.`],
       ["Status shares", `each status as a share of the NFR epics under the filters, for 5 or more epics.`],
-      ["Target-scope share", `Committed NFR epics over the target scope, the Forecast Epics number. It uses a different population from the headline count.`]
+      ["Target-scope share", `Committed NFR epics over the target scope, the Forecast Epics number. It uses a different population from the headline count.`],
+      ["Delivery Cycle", `Both cycles: every NFR epic of the release. One cycle: only the NFR epics planned in it. The planned date is the due date, or the end of the Target Sprint when there is no due date. Cycle 1 holds every epic planned on or before the end of W6, Cycle 2 those planned from W7 to the release end. An epic with no planned date is planned at the release end (the last day of W12), so it is in Cycle 2, as in the Cycles section; the burnup leaves such epics out of both cycles. The line under the headline says how many they are. An epic planned after the release end is in no cycle and shows only with Both cycles.`]
     ],
     left: `Removed epics, and epics owned by CXCROSS.`,
     know: `An epic with several fix versions counts in each release, so totals across releases do not add up. ${isProv(rel) ? `${esc(rel)} is still running, so these counts can still change. ` : ""}By Team counts an epic under each team it lists, By Pod under each pod; the total row counts each epic once.`,
-    this: ["This selection", `${N.toLocaleString("en-US")} NFR epics, ${esc(commitTxt)}, projects ${state.projects.size === projectsAll.length ? "all" : esc([...state.projects].join(", "))}${state.teams.size ? ", teams " + esc([...state.teams].join(", ")) : ""}, data as of ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}.`],
+    this: ["This selection", `${N.toLocaleString("en-US")} NFR epics, ${esc(commitTxt)}, projects ${state.projects.size === projectsAll.length ? "all" : esc([...state.projects].join(", "))}${state.teams.size ? ", teams " + esc([...state.teams].join(", ")) : ""}${cyc ? ", " + esc(cyc.name) + " only" : ""}, data as of ${esc(ilLabel(DATA.refreshedAt || DATA.generated))}.`],
     more: [
-      ["Headline count", `every NFR epic under the page filters (Release, Projects, Teams), out of all epics under those filters.`],
+      ["Headline count", `every NFR epic under the page filters (Release, Projects, Teams, Delivery Cycle), out of all epics under those filters. With one cycle selected the count and the target-scope share are limited to the epics planned in that cycle.`],
       ["Target-scope share, detail", `the target scope is the Committed and Not Set epics that were in the release on the first day of W1 (the target so far before W1), under the Projects and Teams filters. A share needs a target scope of 5 or more.`],
       ["Status", `Not Started is New, In Definition, Ready for Dev or Candidate. In Progress, Validation and Done are the statuses of those names. Done is the status named Done, not Jira's Done category. A status that fits none shows as Other Status. In Definition counts as Not Started because that status is unmaintained. The workflow of some projects is not documented, so the mapping can differ there.`],
       ["Tabs", `each tab regroups the same NFR epics. By Capability uses the epic's parent Capability. By Pod uses the pod label; an epic with none is in No Pod Label. No team or pod is compared with another.`]
     ]}));
   if (noProj) { host.innerHTML = `<div class="empty">${whyEmpty("epics")}</div>`; return; }
-  if (!N) { host.innerHTML = `<div class="empty">${scope.length ? "No NFR epic in this selection." : whyEmpty("epics")}</div>`; return; }
+  if (!N) { host.innerHTML = `<div class="empty">${scope.length || cyc ? `No NFR epic in this selection${cyc ? ` planned in ${esc(cyc.name)}` : ""}.` : whyEmpty("epics")}</div>`; return; }
   const showOther = T.oth > 0, tab = NFR_TABS.some(x => x[0] === state.nfrTab) ? state.nfrTab : "project";
   const otherJql = `status not in (${NFR_KNOWN_STATUS().map(q).join(", ")})`;
   const bar = s => s.total < MIN_N ? `<span class="muted">${tipFocus("–", `Fewer than ${MIN_N} epics, so no share is shown`)}</span>` : `<span class="mbar" tabindex="0" role="img" aria-label="${nn(s.total, "NFR epic", "NFR epics")}: ${s.done} Done, ${s.ip + s.val} in-progress, ${s.ns} Not Started. In-Progress: status In Progress or Validation." ${tipAttr(`${nn(s.total, "NFR epic", "NFR epics")}: ${s.done} Done, ${s.ip + s.val} in-progress, ${s.ns} Not Started\nIn-Progress: status In Progress or Validation.`, "")}><i style="width:${100 * s.done / s.total}%;background:#025AFB"></i><i style="width:${100 * (s.ip + s.val) / s.total}%;background:#3694FC"></i><i style="width:${100 * s.ns / s.total}%;background:#E3E0D8"></i></span>`;
-  const row = (label, list, extra, o = {}) => { const s = stat(list), tip = k => `${k}\n${label}, ${rel}`, jx = extra || NFR_Q, E = n => nn(n, "NFR epic", "NFR epics");
+  const row = (label, list, extra, o = {}) => { const s = stat(list), tip = k => `${k}\n${label}, ${rel}`, jx = (extra || NFR_Q) + CQ, E = n => nn(n, "NFR epic", "NFR epics");
     const nl = (v, st, tp, kind) => v ? tlink(v, jira({kind, extra: `${jx}${st ? " AND " + st : ""}`, projects: o.projects, commit: o.commit, teams: o.teams}), tip(tp)) : `<span class="muted">0</span>`;
     return `<tr><th scope="row">${o.labelHtml || esc(label)}</th><td class="n">${nl(s.ns, "", `${E(s.ns)} Not Started`, "notStarted")}</td><td class="n">${nl(s.ip, 'status = "In Progress"', `${E(s.ip)} In Progress`)}</td><td class="n">${nl(s.val, "status = Validation", `${E(s.val)} in Validation`)}</td><td class="n">${nl(s.done, "", `${E(s.done)} Done`, "done")}</td>${showOther ? `<td class="n">${nl(s.oth, otherJql, `${E(s.oth)} in Other Status`)}</td>` : ""}<td class="n">${nl(s.total, "", E(s.total))}</td><td class="shr">${bar(s)}</td></tr>`; };
   const head = first => `<thead><tr><th scope="col">${first}</th><th class="n" scope="col">Not Started</th><th class="n" scope="col">In Progress</th><th class="n" scope="col">Validation</th><th class="n" scope="col">Done</th>${showOther ? '<th class="n" scope="col">Other Status</th>' : ""}<th class="n" scope="col">Total</th><th scope="col">Share</th></tr></thead>`;
@@ -3643,17 +3687,17 @@ const CY_DAY = s => Math.round(utc(s) / DAY);
 const cyAdd = (s, n) => iso(utc(s) + n * DAY);
 let CYM = null;                                                // the model of the last render: the cycle set (sel) as one window (c), epics, groups
 const cyDone = e => e.s === "Done";
-const cyLate = e => !cyDone(e) && !!e.due && e.due < CY.asOf;
+const cyLate = e => !cyDone(e) && !e.und && !!e.due && e.due < CY.asOf;      // an epic with no planned date (und) has an assumed date at the release end: it is never overdue, stale or due soon
 const cyDaysLate = e => CY_DAY(CY.asOf) - CY_DAY(e.due);
 const cyStale = e => cyLate(e) && cyDaysLate(e) > CY.stale;
-const cyNext = list => list.filter(e => !cyDone(e) && e.due && e.due >= CY.asOf && e.due <= cyAdd(CY.asOf, CY.next));
+const cyNext = list => list.filter(e => !cyDone(e) && !e.und && e.due && e.due >= CY.asOf && e.due <= cyAdd(CY.asOf, CY.next));
 const cyShare = (a, m) => m >= MIN_N ? ` (${pct(a, m)}%)` : "";
 const cyEp = n => nn(n, "epic", "epics");
 // a Cycles number: the count and what it counts, one line of detail at most; the caveat that Jira recounts when a link is opened lives in the Links line of How this is calculated, not on every number
 const cyNumT = (list, tip, ...qa) => list.length ? tlink(list.length, cyQ(...qa), tip) : "0";
 const cyNum = (list, what, detail, ...qa) => cyNumT(list, `${cyEp(list.length)} ${what}${detail ? "\n" + detail : ""}`, ...qa);
 const cyKeyTitle = 120;
-const cyKey = e => `<a href="${BASE}/browse/${esc(e.k)}" target="_blank" rel="noopener" ${tipAttr(`${e.k}\n${shortText(e.t, cyKeyTitle)}\n${e.s}${e.due ? `, planned ${e.due}` : ", no planned date"}`, "x")} aria-label="${esc(`${e.k}, ${shortText(e.t, 60)}. Opens in Jira.`)}">${esc(e.k)}</a>`;
+const cyKey = e => `<a href="${BASE}/browse/${esc(e.k)}" target="_blank" rel="noopener" ${tipAttr(`${e.k}\n${shortText(e.t, cyKeyTitle)}\n${e.s}${e.und ? `, no planned date: counted at the release end, ${e.due}` : `, planned ${e.due}`}`, "x")} aria-label="${esc(`${e.k}, ${shortText(e.t, 60)}. Opens in Jira.`)}">${esc(e.k)}</a>`;
 const plural = (n, one, many) => n === 1 ? one : many;
 const cySlug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "team";
 const CY_RAW_OK = () => !!DATA.eb;                              // Flagged and the bugs under epics come from the planning pull
@@ -3681,9 +3725,9 @@ function cySpan(sel) {
   return {ids, multi, set: sel, name: multi ? `Delivery Cycles ${ids.join(" and ")}` : sel[0].name, first: sel[0].name, start: sel[0].start, end: sel[sel.length - 1].end,
     from: multi ? "the release start date" : "the cycle start date"};
 }
-// ---- the Delivery Cycle filter (filter bar): the Delivery burnup, this section and the Epics Delivered and Forecast Epics tiles (deliveryTiles); every other section and tile keeps its numbers.
+// ---- the Delivery Cycle filter (filter bar): the Delivery burnup, this section, the NFRs section (nfrCycle) and the Epics Delivered and Forecast Epics tiles (deliveryTiles); every other section and tile keeps its numbers.
 // A cycle holds the epics whose planned date (the due date, else the Target Sprint end, plannedDue) falls in it: Delivery Cycle 1 on or before the end of W6 (earlier dates, such as carry-over, included: the rule of the
-// burnup's Delivery Cycle 1 line), Delivery Cycle 2 from W7 to the release end. An epic with no planned date, or planned after the release end (the Cycles section's "in no cycle"), is in neither cycle: it counts only when every cycle is shown.
+// burnup's Delivery Cycle 1 line), Delivery Cycle 2 from W7 to the release end. An epic planned after the release end is in neither cycle: it counts only when every cycle is shown. An epic with no planned date is planned at the release end (the last day of W12) in the Cycles and NFRs sections, so it is in Delivery Cycle 2; the burnup still leaves it out of both cycles.
 // A release shorter than W6 has Delivery Cycle 1 only; a stored choice that names a cycle the release does not have falls back to the cycles it has.
 const DC_NAME = id => `Delivery Cycle ${id}`;
 function dcState(rel = state.release) {
@@ -3736,9 +3780,11 @@ const cyUp = hi => { const after = cyNames(s => s.end > hi);   // the planned da
 const cyLow = (lo, hi) => { const nm = lo == null ? cyNames(s => s.end <= hi) : cyNames(s => s.end >= lo);       // on or after lo; with no lo, there is a planned date (cyUp bounds it)
   return `(${lo == null ? `duedate <= "${hi}"` : `duedate >= "${lo}"`}${nm ? ` OR ${CY_TS} in (${nm})` : ""})`; };
 const cyPlanLater = (lo, hi) => `${cyUp(hi)} AND ${cyLow(lo, hi)}`;            // the burnup's rule (the later of the two): planned date in [lo, hi]; lo null: any planned date up to hi
-// The Cycles section's rule: the due date; the Target Sprint end only when there is no due date. Planned date in [lo, hi]; lo null: any planned date up to hi.
-const cyPlan = (lo, hi) => { const nm = cyNames(s => s.end <= hi && (lo == null || s.end >= lo));
-  return `(${lo == null ? `duedate <= "${hi}"` : `(duedate >= "${lo}" AND duedate <= "${hi}")`}${nm ? ` OR (duedate is EMPTY AND ${CY_TS} in (${nm}))` : ""})`; };
+// The Cycles section's rule: the due date; the Target Sprint end only when there is no due date; an epic with neither (no due date and no Target Sprint the calendar knows) is planned at the RELEASE END (the last day of W12, the owner's rule), so
+// it is in the window that holds the release end. Planned date in [lo, hi]; lo null: any planned date up to hi.
+const cyReleaseEnd = () => { const cs = cyCycles(); return cs ? cs[cs.length - 1].end : null; };
+const cyPlan = (lo, hi, dated) => { const nm = cyNames(s => s.end <= hi && (lo == null || s.end >= lo)), re = cyReleaseEnd(), und = !dated && re && hi >= re && (lo == null || lo <= re);      // dated: only epics that really have a planned date (overdue, stale and due soon never count the assumed date)
+  return `(${lo == null ? `duedate <= "${hi}"` : `(duedate >= "${lo}" AND duedate <= "${hi}")`}${nm ? ` OR (duedate is EMPTY AND ${CY_TS} in (${nm}))` : ""}${und ? ` OR (${cyNoDateQ()})` : ""})`; };
 const cyMin = (a, b) => a < b ? a : b;
 const cyMax = (a, b) => a > b ? a : b;
 const cyPodSp = p => [...((podRegistry().per[p]) || [])].sort();
@@ -3759,7 +3805,7 @@ function cyNodeClause(g) {                                     // the project, t
 function cyQ(kind, g, c, arg) {
   const A = CY.asOf, S = c && c.start, E = c && c.end, ND = "status != Done";
   const late = c && cyMin(E, cyAdd(A, -1)), stale = c && cyMin(E, cyAdd(A, -(CY.stale + 1))), win = c && [cyMax(S, A), cyMin(E, cyAdd(A, CY.next))];
-  const span = (lo, hi, more = "") => lo != null && lo > hi ? null : cyPlan(lo, hi) + more;       // an empty window holds no epics, so it has no link
+  const span = (lo, hi, more = "", dated = false) => lo != null && lo > hi ? null : cyPlan(lo, hi, dated) + more;       // an empty window holds no epics, so it has no link
   const NS = ` AND status in (${CLASS.notStarted.map(q).join(",")})`;
   let w;
   if (kind === "flagCarry" && A < S) return null;      // carry-over exists only once the cycle has started, as in the model
@@ -3767,12 +3813,15 @@ function cyQ(kind, g, c, arg) {
     case "scope": w = ""; break;
     case "planned": w = span(S, E); break;
     case "done": w = span(S, E, " AND status = Done"); break;
-    case "over": w = span(S, late, ` AND ${ND}`); break;
-    case "stale": w = span(S, stale, ` AND ${ND}`); break;
-    case "next": w = span(win[0], win[1], ` AND ${ND}`); break;
-    case "nextNs": w = span(win[0], win[1], NS); break;
+    case "over": w = span(S, late, ` AND ${ND}`, true); break;
+    case "stale": w = span(S, stale, ` AND ${ND}`, true); break;
+    case "next": w = span(win[0], win[1], ` AND ${ND}`, true); break;
+    case "nextNs": w = span(win[0], win[1], NS, true); break;
     case "flag": w = span(S, E, ` AND ${ND} AND ${CY_FLAG}`); break;
     case "flagCarry": w = span(null, cyAdd(S, -1), ` AND ${ND} AND ${CY_FLAG}`); break;
+    case "undated": w = `${cyPlan(S, E)} AND (${cyNoDateQ()})`; break;                     // planned in the cycles with no planned date of their own (counted at the release end)
+    case "undatedFlight": w = `${cyPlan(S, E)} AND (${cyNoDateQ()}) AND ${CY_FLIGHT}`; break;    // ... of them In Progress or Validation
+    case "weekUndated": w = `${span(arg[0], arg[1])} AND (${cyNoDateQ()})`; break;
     case "week": w = span(arg[0], arg[1]); break;
     case "weekDone": w = span(arg[0], arg[1], " AND status = Done"); break;
     case "weekOpen": w = span(arg[0], arg[1], ` AND ${ND}`); break;
@@ -3785,8 +3834,8 @@ function cyQ(kind, g, c, arg) {
         return `(project = ${pkey(p)}${sp ? ` AND (labels is EMPTY OR labels not in (${sp}))` : ""})`; });
       w = parts.length ? `(${parts.join(" OR ")}) AND ${CY_FLIGHT} AND ${cyPlan(S, E)}` : null; break;
     }
-    case "nsSoon": w = span(win[0], win[1], NS); break;                                             // not started and planned from today to today plus 7, inside the selected cycles
-    case "nsSoonRfd": w = span(win[0], win[1], ` AND status = "Ready for Dev"`); break;             // ... of them Ready for Dev
+    case "nsSoon": w = span(win[0], win[1], NS, true); break;                                             // not started and planned from today to today plus 7, inside the selected cycles
+    case "nsSoonRfd": w = span(win[0], win[1], ` AND status = "Ready for Dev"`, true); break;             // ... of them Ready for Dev
     case "flightIn": w = `${CY_FLIGHT} AND ${cyPlan(S, E)}`; break;                              // in-progress, planned in the selected cycles, under the row g (a team, or a pod of a team; null: every epic under the page filters)
     case "noPodFlight": w = [CY_FLIGHT, cyNoPodQ(g.project), cyPlan(S, E)].filter(Boolean).join(" AND "); break;   // a team's in-progress epics planned in the cycles with no pod label (g: the team)
     default: w = null;
@@ -3803,7 +3852,8 @@ function cyBuild() {
   if (!cycles) return (CYM = {none: "window", cycles: null});
   const dcs = dcState(), shown = cycles.filter(x => dcs.shown.includes(x.id.slice(2)));      // the cycles the Delivery Cycle filter leaves in: the section shows all of them together
   const c = cySpan(shown);
-  const every = scopeOf(state.release).map(e => ({k: e.k, t: e.t, s: e.s, p: e.p, pl: e.pl || [], due: plannedDue(e), dd: e.dd || null, ts: e.ts || null, fl: !!e.fl, tm: teamsOf(e), ed: cycleOf(e), ex: cycleExcluded(e)}));      // ed: the cycle time (EDCT) of the epic; ex: it is in an Issue Category the cycle time leaves out
+  const relEnd = cycles[cycles.length - 1].end;                 // an epic with no planned date is planned at the release end (the last day of W12): due is that date, und marks it
+  const every = scopeOf(state.release).map(e => ({k: e.k, t: e.t, s: e.s, p: e.p, pl: e.pl || [], due: plannedDue(e) || relEnd, und: !plannedDue(e), dd: e.dd || null, ts: e.ts || null, fl: !!e.fl, tm: teamsOf(e), ed: cycleOf(e), ex: cycleExcluded(e)}));      // ed: the cycle time (EDCT) of the epic; ex: it is in an Issue Category the cycle time leaves out
   let eps = every.filter(cyPodPass);                                // the pod filter, once: everything below counts these epics
   // The hierarchy: Project > Team (under its project) > Pod (under its team). Every node holds the DISTINCT epics it counts (an epic with two teams or several pods is under each, once per node).
   const nodes = [], byId = new Map(), used = new Set(), R = cyLabelOk() ? podRegistry() : null;
@@ -3828,7 +3878,7 @@ function cyBuild() {
   });
   nodes.forEach(n => n.epics.forEach(e => e.gs.push(n.id)));
   const last = cycles[cycles.length - 1];
-  const m = {cycles, shown, sel: shown, dcAll: dcs.all, c, epics: eps, every, groups: nodes, byId, noDue: dcs.all ? eps.filter(e => !e.due && !cyDone(e) && ["In Progress", "Validation"].includes(e.s)) : [],      // epics with no planned date are in no cycle: active ones keep their rows alive only when every cycle is shown
+  const m = {cycles, shown, sel: shown, dcAll: dcs.all, c, epics: eps, every, groups: nodes, byId, noDue: [],      // no epic is undated any more: one with no planned date is planned at the release end (due), so it is in the cycle that holds it
     after: dcs.all ? eps.filter(e => e.due && e.due > last.end) : []};      // planned after the release end: in no cycle, counted in the Planned tile's caption only when every cycle is shown
   m.planned = (cc = c) => eps.filter(e => e.due && e.due >= cc.start && e.due <= cc.end);
   m.carry = (cc = c) => CY.asOf >= cc.start ? eps.filter(e => !cyDone(e) && e.due && e.due < cc.start) : [];      // only once the cycle has started
@@ -3846,7 +3896,7 @@ const cyLong = e => cyCtPop(e) && e.ed > CY.longCycle;
 function cyStats(planned, carry) {
   const over = planned.filter(cyLate), next = cyNext(planned);
   return {planned, done: planned.filter(cyDone), ctPop: planned.filter(cyCtPop), long: planned.filter(cyLong), over, staleIn: over.filter(cyStale), next, nextNs: next.filter(e => cls(e.s) === "notStarted"),
-    flag: planned.filter(e => e.fl && !cyDone(e)), flagCarry: carry.filter(e => e.fl)};
+    flag: planned.filter(e => e.fl && !cyDone(e)), flagCarry: carry.filter(e => e.fl), un: planned.filter(e => e.und), unFlight: planned.filter(e => e.und && cyInFlight(e))};
 }
 const cyWindow = () => `${CY.asOf} to ${cyAdd(CY.asOf, CY.next)}`;
 
@@ -3877,7 +3927,7 @@ const cyPodBtn = (kind, n, what) => { const on = CY_PODLIST === kind;
 //   wait: open dependencies (depModel) whose provider is an epic planned in the selected cycles and whose waiting item is planned (the Dependencies rule: due date first) from the as-of day to CY.next days later.
 //   noPod: in progress (In Progress or Validation) with no pod label (podLabelsOf, as stored in pl).
 const cyInFlight = e => CLASS.flight.includes(e.s);
-const cyNsSoon = e => cls(e.s) === "notStarted" && !!e.due && e.due >= CY.asOf && e.due <= cyAdd(CY.asOf, CY.next);
+const cyNsSoon = e => cls(e.s) === "notStarted" && !e.und && !!e.due && e.due >= CY.asOf && e.due <= cyAdd(CY.asOf, CY.next);
 const cyPh = e => CYM.pset.has(e);                                // the population of the Pods tiles: planned in the selected cycles
 const cyPodNs = e => cyPh(e) && cyNsSoon(e);
 const cyPodFlight = e => cyPh(e) && cyInFlight(e);
@@ -3940,10 +3990,13 @@ function cyPodFilterQ() {
 }
 const cyPodNames = () => { const R = podRegistry(); return [...state.pods].sort().map(k => k === CY_NOPOD ? "No Pod Label" : (R.reg.get(k) || {name: k}).name); };
 
+// the epics with no planned date, counted at the release end: always said where they are counted (the Planned tile, the last week row), with a link, and how many of them are in progress (never Overdue, Stale or due soon: the date is assumed)
+const cyUndatedCaption = (s, c) => !s.un.length ? "" : ` · ${cyNum(s.un, `with no planned date, counted at the release end (${CYM.cycles[CYM.cycles.length - 1].end})`, "Assumed date, not a commitment. Never overdue.", "undated", null, c)} with no planned date, counted at the release end` +
+  (s.unFlight.length ? ` (${cyNum(s.unFlight, "with no planned date, In Progress or Validation", "Counted at the release end.", "undatedFlight", null, c)} in progress)` : "");
 // ---- the tiles, by id: CY_KPI builds one tile from the stats (x.s), the cycle (x.c), the epics planned after the release end (x.after) and the pod figures (x.fig); CY_STRIP lists the tiles of each strip, in order. A tile carries data-kpi="<id>".
 const CY_KPI = {
   planned: ({s, c, after}) => ({c: "cy", v: cyNum(s.planned, `planned in ${c.name}`, `Planned date ${c.start} to ${c.end}.`, "planned", null, c), l: "Planned",
-    s: `epics planned in ${c.name}` + (after.length ? ` · ${cyNum(after, `planned after the release end (${CYM.cycles[CYM.cycles.length - 1].end})`, "In no cycle.", "after", null, CYM.cycles[CYM.cycles.length - 1])} after release end` : "")}),
+    s: `epics planned in ${c.name}` + cyUndatedCaption(s, c) + (after.length ? ` · ${cyNum(after, `planned after the release end (${CYM.cycles[CYM.cycles.length - 1].end})`, "In no cycle.", "after", null, CYM.cycles[CYM.cycles.length - 1])} after release end` : "")}),
   done: ({s, c}) => ({c: "cy", v: cyNumT(s.done, `${s.done.length.toLocaleString("en-US")} of ${nn(s.planned.length, "planned epic is", "planned epics are")} Done in ${c.name}`, "done", null, c), l: "Done",
     s: `of ${cyNum(s.planned, `planned in ${c.name}`, `Planned date ${c.start} to ${c.end}.`, "planned", null, c)} planned ${epicWord(s.planned.length)}${cyShare(s.done.length, s.planned.length)}`}),
   long: ({s, c}) => { const n = s.long.length, m = s.ctPop.length;       // cycle time is not a Jira field, so the number opens the exact keys
@@ -4003,13 +4056,13 @@ function cyFlags(e) {                                            // facts about 
   const f = [];
   if (cyLate(e)) f.push(`${cyDaysLate(e)} ${cyDaysLate(e) === 1 ? "day" : "days"} overdue`);
   if (e.fl && !cyDone(e)) f.push("Flagged as blocked in Jira");
-  if (!e.due) f.push("no planned date");
+  if (e.und) f.push("no planned date: counted at the release end");
   return f.join("; ");
 }
 function cyEpicList(n) {                                         // the epics a pod row counts under Epics in Release (a team with no pod rows: its own epics), in planned-date order
   const viaTs = e => !e.dd && e.ts && e.due ? `<div class="cysub">from the Target Sprint end</div>` : "";
   const rows = n.epics.slice().sort((a, b) => (a.due || "9999").localeCompare(b.due || "9999") || keyCmp(a.k, b.k)).map(e =>
-    `<tr><th scope="row">${cyKey(e)}</th><td>${esc(e.t)}</td><td>${e.due || "–"}${viaTs(e)}</td><td>${cyWeekOf(e)}</td><td>${esc(e.s)}</td><td>${esc(cyFlags(e))}</td></tr>`).join("");
+    `<tr><th scope="row">${cyKey(e)}</th><td>${esc(e.t)}</td><td>${e.due || "–"}${e.und ? ` <span class="muted">(assumed)</span>` : ""}${viaTs(e)}</td><td>${cyWeekOf(e)}</td><td>${esc(e.s)}</td><td>${esc(cyFlags(e))}</td></tr>`).join("");
   return `<div class="cyepwrap"><table class="cyepl"><caption class="sr">Epics of ${esc(cyCtx(n))} in ${esc(state.release)}, in planned-date order</caption>` +
     `<colgroup><col style="width:112px"><col><col style="width:150px"><col style="width:120px"><col style="width:130px"><col style="width:210px"></colgroup>` +
     `<thead><tr><th scope="col">Jira</th><th scope="col">Summary</th><th scope="col">Planned</th><th scope="col">Week</th><th scope="col">Status</th><th scope="col">Flags</th></tr></thead><tbody>${rows}</tbody></table></div>`;
@@ -4027,7 +4080,8 @@ function cyWeekly(M) {
     const tip = (l, what, kind) => cyNum(l, `${what} ${sp.what} of ${c.name}`, `${sp.ws} to ${sp.we}.`, kind, null, c, [sp.ws, sp.we]);
     const res = !list.length ? "–" : sp.we < CY.asOf ? (nd.length ? `${tip(nd, "planned and not Done", "weekOpen")} Not Done` : "All Done") : sp.ws > CY.asOf ? "Upcoming" : "Current Week";
     const cur = sp.ws <= CY.asOf && CY.asOf <= sp.we;               // the week (or the first seven days) that holds the as-of date: marked with a dot, bold and a tint, and aria-current
-    rows += `<tr${cur ? ' class="cycur" aria-current="date"' : ""}><th scope="row">${cur ? '<span class="cydot" aria-hidden="true">●</span> ' : ""}${sp.label}</th><td>${sp.ws} to ${sp.we}</td><td class="n">${tip(list, "planned", "week")}</td><td class="n">${tip(dn, "planned and Done", "weekDone")}</td><td class="n">${tip(nd, "planned and not Done", "weekOpen")}</td><td class="n">${list.length >= MIN_N ? pct(dn.length, list.length) + "%" : "–"}</td><td>${res}</td></tr>`;     // % Done: Done over Planned, a share only from MIN_N planned epics (the page's rule), a dash under it and for 0; no link
+    const un = list.filter(e => e.und), unTxt = un.length ? `<div class="cysub">${tip(un, "with no planned date, counted here", "weekUndated")} with no planned date, counted at the release end</div>` : "";
+    rows += `<tr${cur ? ' class="cycur" aria-current="date"' : ""}><th scope="row">${cur ? '<span class="cydot" aria-hidden="true">●</span> ' : ""}${sp.label}</th><td>${sp.ws} to ${sp.we}${unTxt}</td><td class="n">${tip(list, "planned", "week")}</td><td class="n">${tip(dn, "planned and Done", "weekDone")}</td><td class="n">${tip(nd, "planned and not Done", "weekOpen")}</td><td class="n">${list.length >= MIN_N ? pct(dn.length, list.length) + "%" : "–"}</td><td>${res}</td></tr>`;     // % Done: Done over Planned, a share only from MIN_N planned epics (the page's rule), a dash under it and for 0; no link
   });
   const wk = spans.find(x => x.label !== "Before W1" && CY_DAY(x.we) - CY_DAY(x.ws) === 6) || spans.find(x => x.label !== "Before W1"), DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   const dayName = d => DAYS[new Date(utc(d)).getUTCDay()];                  // the weekday of a date of the table itself, never a fixed name
@@ -4054,7 +4108,7 @@ function cyOverview(c, planned) {
   const sharedWith = n => n.level !== "pod" || n.virtual ? [] : M.live.filter(o => o.level === "pod" && !o.virtual && o.project === n.project && o.id !== n.id && o.name.toLowerCase() === n.name.toLowerCase()).map(o => o.team);
   const rowOf = n => {
     const kids = cyKids(n), s = cyStats(n.epics.filter(e => plannedSet.has(e)), []), lvl = n.level, ctx = cyCtx(n);
-    const href = n.virtual ? cyQ("scope", n) : jira({projects: [n.project], ...(n.level === "project" ? {} : {teams: new Set([n.team])}), extra: [n.level === "pod" ? podSpellingsClause(n.spellings) : "", cyPodFilterQ()].filter(Boolean).join(" AND ")});
+    const href = cyQ("scope", n);                                  // the row's project, team and pod AND the page filters (the Teams filter included): the number printed is the epics under those filters
     const tip = cyLabelTip(n, n.epics.length);
     const ctl = (kids.length ? kids.map(k => "cyr-" + esc(k.id)) : [`cye-${esc(n.id)}`]).join(" ");
     const tgl = cyExpandable(n) ? `<button type="button" class="linkbtn cytgl" data-cyact="tgl" data-cyval="${esc(n.id)}" data-what="${esc(`${lvl} ${ctx}`)}" aria-expanded="false" aria-controls="${ctl}" aria-label="Expand ${esc(`${lvl} ${ctx}`)}"><span class="chev" aria-hidden="true">▸</span></button>` : `<span class="cytgl-gap" aria-hidden="true"></span>`;
@@ -4104,12 +4158,12 @@ function cyDefs() {
     bl: `Use this to spot work that will miss its cycle. A number opens the matching epics in Jira; the six Pods tiles open lists in the page.`,
     defs: [
       ["Delivery Cycle 1 and 2", `Cycle 1 runs from the release start to the end of W6. Cycle 2 runs from W7 to the release end. The Delivery Cycle filter at the top of the page picks which of them the section shows: one cycle, or both combined.`],
-      ["Planned date", `the due date. Only when an epic has no due date, the end of its Target Sprint. If neither, the epic is not planned. When both exist and differ, the due date is used and the Target Sprint is ignored.`],
+      ["Planned date", `the due date. Only when an epic has no due date, the end of its Target Sprint. If neither, the epic is planned at the release end (the last day of W12), so it is in Delivery Cycle 2 and counted in W12. That date is assumed, not a commitment: the Planned tile and the last week row say how many epics have no planned date, and the burn-up leaves them out. When both exist and differ, the due date is used and the Target Sprint is ignored.`],
       ["Planned", `epics whose planned date is in the selected Delivery Cycles. With both selected, that is every epic planned from the release start to the release end, each counted once; the caption also counts epics planned after the release end.`],
       ["Done", `planned epics with the status Done.`],
       [`Took over ${CY.longCycle} days`, `Done epics planned in the selected Delivery Cycles whose cycle time is more than ${CY.longCycle} days; cycle time as in Efficiency. Only Done epics that have a cycle time count, and epics in ${esc(AI_EXCL_TEXT)} are left out, as in Cycle Time per Release. The share is out of those epics.`],
-      ["Overdue", `planned in the selected Delivery Cycles, before the as-of date, and not Done.`],
-      [`Due next ${CY.next} days`, `planned in the selected Delivery Cycles, not Done, from the as-of date up to ${CY.next} days later.`],
+      ["Overdue", `planned in the selected Delivery Cycles, before the as-of date, and not Done. An epic with no planned date is never overdue (its date is assumed).`],
+      [`Due next ${CY.next} days`, `planned in the selected Delivery Cycles, not Done, from the as-of date up to ${CY.next} days later. An epic with no planned date is never counted here (its date is assumed).`],
       ["Flagged", `planned in the selected Delivery Cycles, not Done, and flagged as blocked in Jira (the Flagged field is set).`],
       ["In progress", `status In Progress or Validation.`],
       ["Idle pods", `pods that have at least one epic in ${esc(state.release)} and no epic planned in the selected Delivery Cycles, under the Release, Projects and Teams filters (and the chosen pods, when pods are chosen).`],
@@ -4119,7 +4173,7 @@ function cyDefs() {
       ["Pods with uneven workload", `for each team with at least two pods, the epics in progress of each pod. A team is flagged when its busiest and lightest pods differ by ${Math.round(CY.levelSpread * 100)}% or more of its epics in progress, and it has at least ${MIN_N}. The tile counts those two pods. A pod takes part when it has an epic planned in the selected Delivery Cycles that is not Done.`],
       ["In-progress epics without a pod label", `epics in progress planned in the selected Delivery Cycles with no pod label, out of all epics in progress planned in them. The share shows from ${MIN_N} epics in progress.`]
     ],
-    left: `Removed epics. Epics with no planned date, or planned after the release end, are in no cycle.`,
+    left: `Removed epics. Epics planned after the release end are in no cycle.`,
     know: `The section has one filter of its own, Filter by Pod, shown when exactly one project is selected; it narrows every tile and table of the section to the chosen pods, and the banner then says so. Apart from it, it follows the Release, Projects, Teams and Delivery Cycle filters, and the banner under the heading says which cycles it shows. With Both cycles selected (the default) it shows both combined: an epic planned in either counts once, and the epics planned after the release end are counted in the caption of the Planned tile. With one cycle selected it shows that cycle only and leaves those epics out. The Epics in Release column does not follow the Delivery Cycle filter. The Pods tiles count the epics planned in the selected cycles, as the Planned tile does; Idle Pods lists the pods of the release that have none. The as-of date is the date of the data, shown at the top of the page. No team or person is ranked or scored. The Pods tiles are facts about the plan, not a verdict on people, and are not ranked.`,
     this: ["This release", `${esc(state.release)}: ${esc(win[0].name)} ${win[0].start} to ${win[0].end}${win[1] ? `; ${esc(win[1].name)} ${win[1].start} to ${win[1].end}` : ""}. Shown now: ${esc(c.name)}, ${c.start} to ${c.end}. As-of date ${esc(CY.asOf)}.`],
     more: [
@@ -4376,7 +4430,7 @@ function buildFilters() {
   dce.innerHTML = DC_OPTS.map(([v, n]) => `<label class="chip"><input type="radio" name="f-dc" value="${v}"> ${n}</label>`).join("");
   dce.onchange = e => {                                           // one click selects exactly the option it names: Both cycles, Cycle 1 or Cycle 2 (never a toggle)
     state.dc = new Set(e.target.value === "both" ? DC_IDS : [e.target.value]); update({hold: holdSel(e.target)});
-    const n = dcState(); announce(n.all ? "Showing every delivery cycle in the Delivery chart, the Cycles section and the Epics Delivered and Forecast Epics tiles" : `Showing ${dcWord(n)} in the Delivery chart, the Cycles section and the Epics Delivered and Forecast Epics tiles`);
+    const n = dcState(); announce(n.all ? "Showing every delivery cycle in the Delivery chart, the Cycles section, the NFRs section and the Epics Delivered and Forecast Epics tiles" : `Showing ${dcWord(n)} in the Delivery chart, the Cycles section, the NFRs section and the Epics Delivered and Forecast Epics tiles`);
   };
   document.getElementById("f-ax").onchange = e => { state.ax = e.target.value; update({hold: holdSel(e.target)}); };
   const bp = document.getElementById("f-bpri");
@@ -5260,6 +5314,7 @@ document.getElementById("footer").innerHTML = `<details class="vd"><summary>How 
       ["Read only when the page is built", `story-level dependency links, the sprint calendar, bugs under epics, status-since dates and the pod label pattern.`],
       ["Section strip", `The strip under the Release heading jumps between the sections and marks the one being read. Tab reaches it once; then Left, Right, Home and End move along it, Enter jumps and Esc returns focus to the current section heading. Alt + Down and Alt + Up go to the next and previous section from anywhere outside a form field.`],
       ["Hover text", `Hover or keyboard focus shows a short explanation, and Esc closes it. The same values are in each chart's data table.`],
+      ["NFRs section", `follows the Release, Projects, Teams and Delivery Cycle filters. With one cycle selected it shows only the NFR epics planned in that cycle; NFR epics with no planned date are planned at the release end, so in Cycle 2, and a line says how many.`],
       ["Cycles section", `follows the Release, Projects, Teams and Delivery Cycle filters, and its own cycle choice picks one of the cycles the filter leaves in. It uses the same epics as the rest of the page. It states facts only: no verdict, no rating of a group.`],
       ["Scope of use", `Counts describe programs, releases and teams.`]
     ]})}</div></details>`;

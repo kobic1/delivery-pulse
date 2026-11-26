@@ -456,7 +456,8 @@ POD_MUTANTS = [
     ("Idle Pods lists the pods of an epic that were not chosen", "const pods = cyPodsOf(epics).filter(p => !cyPodsOn() || state.pods.has(p.key)), ps = new Set(planned);", "const pods = cyPodsOf(epics), ps = new Set(planned);"),
     ("the pod rows of the table hold the pods of an epic that were not chosen", " || (cyPodsOn() && !state.pods.has(k))) return; seen.add(k);", ") return; seen.add(k);"),
     ("the Jira links ignore the chosen pods", "[cyNodeClause(g), cyPodFilterQ(), w].filter(Boolean)", "[cyNodeClause(g), w].filter(Boolean)"),
-    ("the total row and the row links ignore the chosen pods", "extra: [n.level === \"pod\" ? podSpellingsClause(n.spellings) : \"\", cyPodFilterQ()].filter(Boolean).join(\" AND \")", "extra: n.level === \"pod\" ? podSpellingsClause(n.spellings) : \"\""),
+    ("the row links ignore the chosen pods", "jira({extra: [cyNodeClause(g), cyPodFilterQ(), w].filter(Boolean).join(\" AND \") || undefined})", "jira({extra: [cyNodeClause(g), w].filter(Boolean).join(\" AND \") || undefined})"),
+    ("the total row link ignores the chosen pods", "tlink(M.epics.length, jira({extra: cyPodFilterQ() || undefined})", "tlink(M.epics.length, jira({})"),
     ("the Jira clause of a chosen pod leaves out its other spellings", "state.pods.forEach(k => (R.psp.get(proj + \"\\n\" + k) || []).forEach(l => sp.add(l)));", "state.pods.forEach(k => (R.psp.get(proj + \"\\n\" + k) || []).forEach(l => sp.size || sp.add(l)));"),
 ]
 BEHAVIOUR_MUTANTS = [

@@ -72,7 +72,7 @@ PAGE_JS = r"""(() => {
   const hidden0 = ov ? [...ov.querySelectorAll('#cy-ovbody tr[data-id]')].map(r => ({id: r.dataset.id, lvl: r.dataset.lvl, hidden: r.hidden})) : [];
   const out = {
     release: state.release, projects: [...state.projects], teams: [...state.teams], dc: [...state.dc], pods: [...state.pods], asof: CY.asOf,
-    weekly: wk ? {hdr: [...wk.querySelectorAll('thead th')].map(txt), hdrCls: [...wk.querySelectorAll('thead th')].map(h => h.className), rows: [...wk.querySelectorAll('tbody tr')].map(r => ({pctCls: r.children[5].className, pctLinks: r.children[5].querySelectorAll('a').length, cells: [...r.children].map((c, i) => i === 0 ? txt(c).replace(/^\u25cf\s*/, '') : txt(c)), cur: r.getAttribute('aria-current'), dot: !!r.querySelector('th .cydot'), weight: +getComputedStyle(r.children[0]).fontWeight, tint: getComputedStyle(r.children[1]).backgroundColor, cls: r.className, links: [...r.querySelectorAll('a[href]')].map(a => ({href: a.getAttribute('href'), text: txt(a)}))})), caption: txt(wk.querySelector('caption')), note: txt(document.querySelector('#cy-weekly > .cymeta'))} : null,
+    weekly: wk ? {hdr: [...wk.querySelectorAll('thead th')].map(txt), hdrCls: [...wk.querySelectorAll('thead th')].map(h => h.className), rows: [...wk.querySelectorAll('tbody tr')].map(r => ({pctCls: r.children[5].className, pctLinks: r.children[5].querySelectorAll('a').length, cells: [...r.children].map((c, i) => i === 0 ? txt(c).replace(/^\u25cf\s*/, '') : i === 1 ? c.firstChild.textContent.trim() : txt(c)), und: (u => u ? +u.textContent.replace(/,/g, '') : 0)(r.children[1].querySelector('.cysub a')), undTxt: txt(r.children[1].querySelector('.cysub') || document.createElement('i')), cur: r.getAttribute('aria-current'), dot: !!r.querySelector('th .cydot'), weight: +getComputedStyle(r.children[0]).fontWeight, tint: getComputedStyle(r.children[1]).backgroundColor, cls: r.className, links: [...r.querySelectorAll('a[href]')].map(a => ({href: a.getAttribute('href'), text: txt(a)}))})), caption: txt(wk.querySelector('caption')), note: txt(document.querySelector('#cy-weekly > .cymeta'))} : null,
     order: ['cy-banner', 'cy-kpis1', 'cy-pods', 'cy-weekly', 'cy-ovtable', 'cy-cap'].map(id => { const e = document.getElementById(id); return e ? Math.round(e.getBoundingClientRect().top + scrollY) : null; }),
     heads, firstHeadings: [...document.querySelectorAll('#cy-sec > *')].map(e => e.id || e.className || e.tagName).slice(0, 8),
     gone: {find: !!document.getElementById('cy-find') || !!document.getElementById('cy-findstat'), chips: document.querySelectorAll('#cy-sec .pill, #cy-sec .chips:not(#f-cypod)').length, after: !!document.getElementById('cy-after'), sub: !!document.getElementById('cy-sub'),
@@ -145,8 +145,8 @@ def epic_tiles(epics: list, asof: str, win: dict, calendar: dict) -> dict:
     pl = [e for e in epics if planned_date(e, calendar) and win["start"] <= planned_date(e, calendar) <= win["end"]]
     nd = [e for e in pl if e["s"] != "Done"]
     hi = _days(asof, SOON_DAYS)
-    return {"planned": len(pl), "done": len(pl) - len(nd), "long": len(long_tile(epics, asof, win, calendar)["keys"]), "overdue": sum(1 for e in nd if planned_date(e, calendar) < asof),
-            "next": sum(1 for e in nd if asof <= planned_date(e, calendar) <= hi), "flagged": sum(1 for e in nd if e.get("fl"))}
+    return {"planned": len(pl), "done": len(pl) - len(nd), "long": len(long_tile(epics, asof, win, calendar)["keys"]), "overdue": sum(1 for e in nd if raw_date(e, calendar) and raw_date(e, calendar) < asof),      # an epic with no planned date has an assumed date: never overdue or due soon
+            "next": sum(1 for e in nd if raw_date(e, calendar) and asof <= raw_date(e, calendar) <= hi), "flagged": sum(1 for e in nd if e.get("fl"))}
 
 
 def check_long(res: dict, st: dict, es: list, win: dict, cal: dict, tag: str) -> None:
@@ -213,7 +213,7 @@ def check_pods(res: dict, data: dict, st, tag: str, ch) -> None:
     win = window_of(data, st["release"], st["dc"])
     if not st["shown"] or st["heading"] != f"Pods in {win['name']}":
         bad.append(f"{tag}: the Pods block is hidden or its heading is '{st['heading']}', expected 'Pods in {win['name']}'")
-    cal = {s["n"]: s["end"] for s in data["sprints"]}
+    cal = calendar_of(data, st["release"])
     want_banner = f"Showing {win['name']}{' combined' if len(win['shown']) > 1 else ''} · {win['start']} to {win['end']}"
     if st["banner"] != want_banner or st["cycleName"] != win["name"] or st["bannerCycles"] != "+".join(map(str, win["shown"])):
         bad.append(f"{tag}: the banner says {st['banner']!r} ({st['bannerCycles']}), the recount {want_banner!r}")
@@ -339,7 +339,7 @@ def weekly_expected(data: dict, es: list, st: dict, win: dict, cal: dict) -> dic
     spans = [(f"W{n}", ws, we) for n, ws, we in weeks if lo <= n <= hi]
     if first:
         spans.insert(0, ("Before W1", start, start + dt.timedelta(days=6)))
-    rows = []
+    rows, undated = [], []
     for label, ws, we in spans:
         inw = [e for e in es if (d := planned_date(e, cal)) and ws.isoformat() <= d <= we.isoformat()]
         if label == "Before W1" and not inw:
@@ -348,31 +348,32 @@ def weekly_expected(data: dict, es: list, st: dict, win: dict, cal: dict) -> dic
         share = f"{jround(100 * (len(inw) - nd) / len(inw))}%" if len(inw) >= MIN_SAMPLE else "–"      # % Done: Done over Planned, from MIN_SAMPLE (5) planned epics, a dash under that and for 0; JavaScript's rounding
         res = "–" if not inw else (("All Done" if not nd else f"{nd} Not Done") if we.isoformat() < asof else ("Upcoming" if ws.isoformat() > asof else "Current Week"))
         rows.append([label, f"{ws.isoformat()} to {we.isoformat()}", str(len(inw)), str(len(inw) - nd), str(nd), share, res])
+        undated.append(sum(1 for e in inw if not raw_date(e, cal)))      # epics with no planned date of their own, counted in this week (the last one): the row says how many, under its dates
     planned = [e for e in es if (d := planned_date(e, cal)) and win["start"] <= d <= win["end"]]
     after = [e for e in es if (d := planned_date(e, cal)) and d > end.isoformat()] if win["all"] else []
-    return {"rows": rows, "planned": len(planned), "after": len(after)}
+    return {"rows": rows, "undated": undated, "planned": len(planned), "after": len(after)}
 
 
 def _live(e: dict, win: dict, cal: dict, asof: str) -> bool:
-    """An epic keeps its row alive: planned in the selected cycles, carried over (not Done, planned before the window, once the window has started), or (with every cycle shown) active with no planned date."""
+    """An epic keeps its row alive: planned in the selected cycles (an epic with no planned date is planned at the release end), or carried over (not Done, planned before the window, once the window has started)."""
     d = planned_date(e, cal)
     if d and win["start"] <= d <= win["end"]:
         return True
     if d and e["s"] != "Done" and d < win["start"] and asof >= win["start"]:
         return True
-    return win["all"] and not d and e["s"] in N_FLIGHT
+    return False
 
 
 def epic_flags(e: dict, asof: str, cal: dict) -> str:
     out = []
-    d = planned_date(e, cal)
+    d = raw_date(e, cal)                                  # the assumed date of an epic with no planned date never makes it overdue
     if d and e["s"] != "Done" and d < asof:
         n = (dt.date.fromisoformat(asof) - dt.date.fromisoformat(d)).days
         out.append(f"{n} {'day' if n == 1 else 'days'} overdue")
     if e.get("fl") and e["s"] != "Done":
         out.append("Flagged as blocked in Jira")
-    if not d:
-        out.append("no planned date")
+    if not raw_date(e, cal):
+        out.append("no planned date: counted at the release end")
     return "; ".join(out)
 
 
@@ -452,7 +453,7 @@ def check_page(res: dict, data: dict, st, exp_st, tag: str, ch) -> None:
     if st["ovBlock"] and sorted(set(st["toggles"])) != ["tgl"]:
         bad.append(f"{tag}: the table has controls other than the row arrows: {sorted(set(st['toggles']))}")
     win = window_of(data, st["release"], st["dc"])
-    cal = {s["n"]: s["end"] for s in data["sprints"]}
+    cal = calendar_of(data, st["release"])
     es = _scope(data, st)
     want = weekly_expected(data, es, st, win, cal)
     wk = st["weekly"]
@@ -469,6 +470,11 @@ def check_page(res: dict, data: dict, st, exp_st, tag: str, ch) -> None:
             got = [r["cells"] for r in wk["rows"]]
             if got != want["rows"]:
                 bad.append(f"{tag}: the weekly rows are {got[:3]}..., the independent recount {want['rows'][:3]}... ({len(got)} vs {len(want['rows'])} rows)")
+            if [r["und"] for r in wk["rows"]] != want["undated"]:
+                bad.append(f"{tag}: the weekly rows say {[r['und'] for r in wk['rows']]} epics with no planned date, the recount {want['undated']}")
+            for r in wk["rows"]:
+                if r["und"] and not r["undTxt"].endswith("with no planned date, counted at the release end"):
+                    bad.append(f"{tag}: the {r['cells'][0]} row names the epics with no planned date as {r['undTxt']!r}")
             _check_week_caption_and_marker(res, wk, want["rows"], st["asof"], win, tag)
             labels = [r[0] for r in got]
             if any(re.fullmatch(r"W(1[3-9]|[2-9]\d)", x) for x in labels) or "Week 13" in labels:
@@ -494,14 +500,16 @@ def check_page(res: dict, data: dict, st, exp_st, tag: str, ch) -> None:
                 bad.append(f"{tag}: the blocks are not in the order banner, tiles, Pods, weekly table, Projects table, disclosure: {st['order']}")
     cap = exp_st["plannedCap"]
     after_txt = f" · {want['after']} after release end"
-    if want["after"]:
-        if not cap["text"].endswith(after_txt) or not cap["text"].startswith(f"epics planned in {win['name']}"):
-            bad.append(f"{tag}: the Planned caption is {cap['text']!r}, the recount says {want['after']} planned after the release end")
-        seen["after>0"] += 1
-    elif "after release end" in cap["text"] or cap["text"] != f"epics planned in {win['name']}":
-        bad.append(f"{tag}: the Planned caption is {cap['text']!r} but nothing is planned after the release end (or one cycle is shown)")
-    else:
-        seen["after==0"] += 1
+    pl_es = [e for e in es if (d := planned_date(e, cal)) and win["start"] <= d <= win["end"]]
+    un = [e for e in pl_es if not raw_date(e, cal)]                  # planned in the cycles with no planned date of their own: counted at the release end, said in the caption
+    unf = [e for e in un if e["s"] in N_FLIGHT]
+    und_txt = (f" · {len(un)} with no planned date, counted at the release end" + (f" ({len(unf)} in progress)" if unf else "")) if un else ""
+    want_cap = f"epics planned in {win['name']}{und_txt}" + (after_txt if want["after"] else "")
+    if cap["text"] != want_cap:
+        bad.append(f"{tag}: the Planned caption is {cap['text']!r}, the recount says {want_cap!r}")
+    seen["after>0" if want["after"] else "after==0"] += 1
+    seen["undated>0" if un else "undated==0"] += 1
+    seen["undated_in_progress>0"] += 1 if unf else 0
     # ---- the table opened to the epics
     ex = ch.js(EXPAND_JS)
     if not ex:
@@ -637,16 +645,31 @@ def _pods(e: dict) -> set:
     return {l.lower() for l in (e.get("pl") or [])}
 
 
-def planned_date(e: dict, calendar: dict):
-    """The due date; the end of the Target Sprint only when there is no due date (a Target Sprint outside the calendar counts as none)."""
+RELEASE_END = "__release_end__"                                  # the calendar dict also carries the release end under this key (see calendar_of)
+
+
+def calendar_of(data: dict, release: str) -> dict:
+    """The sprint calendar (name -> end date) plus the release end, which is the planned date of an epic with no planned date."""
+    cal = {s["n"]: s["end"] for s in data["sprints"]}
+    cal[RELEASE_END] = data["windows"][release][1]
+    return cal
+
+
+def raw_date(e: dict, calendar: dict):
+    """The due date; the end of the Target Sprint only when there is no due date (a Target Sprint outside the calendar counts as none); None with neither."""
     return e.get("dd") or calendar.get(e.get("ts"))
+
+
+def planned_date(e: dict, calendar: dict):
+    """The Cycles section's planned date: raw_date, and an epic with no planned date is planned at the RELEASE END (the last day of W12, the owner's rule)."""
+    return raw_date(e, calendar) or calendar.get(RELEASE_END)
 
 
 def act_oracle(data: dict, st: dict) -> dict:
     scope = _scope(data, st)
     asof = st["asof"]
     hi = _days(asof, SOON_DAYS)
-    cal = {s["n"]: s["end"] for s in data["sprints"]}
+    cal = calendar_of(data, st["release"])
     win = window_of(data, st["release"], st["dc"])
     P = {e["k"] for e in scope if (d := planned_date(e, cal)) and win["start"] <= d <= win["end"]}      # the population of the Pods tiles: epics planned in the selected cycles
     by_team: dict = collections.defaultdict(list)                  # (project, team) -> the team's epics under the filters (every status)
@@ -673,7 +696,7 @@ def act_oracle(data: dict, st: dict) -> dict:
                     out[(p, t, "")] = n
         return out
 
-    is_ns = lambda e: e["k"] in P and e["s"] in NS_STATUSES and (lambda d: bool(d) and asof <= d <= hi)(planned_date(e, cal))     # noqa: E731
+    is_ns = lambda e: e["k"] in P and e["s"] in NS_STATUSES and (lambda d: bool(d) and asof <= d <= hi)(raw_date(e, cal))     # noqa: E731
     in_flight = lambda e: e["k"] in P and e["s"] in N_FLIGHT                                                      # noqa: E731
     ns = [e for e in scope if is_ns(e)]
     flight = [e for e in scope if in_flight(e)]

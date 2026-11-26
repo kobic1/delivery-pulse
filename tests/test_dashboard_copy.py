@@ -502,7 +502,7 @@ def test_the_cycles_banner_is_the_heading_of_the_headline_tiles_and_the_tiles_do
     assert re.search(r"\n  long: \(\{s, c\}\) => \{.*?\{c: \"cy\", v:", TEMPLATE, re.S)                          # the sixth tile, Took Over 10 Days, has no kicker either
     assert TEMPLATE.index('id="cy-banner"') < TEMPLATE.index('id="cy-kpis1"') < TEMPLATE.index('id="cy-pods"') < TEMPLATE.index('id="cy-body"') < TEMPLATE.index('id="cy-cap"')      # banner, the tiles it heads, the Pod health block, the weekly table and the Projects table, the disclosure
     assert 'id="cy-after"' not in TEMPLATE and "After Release End" not in TEMPLATE                                   # the epics planned after the release end are folded into the Planned caption
-    assert "s: `epics planned in ${c.name}` + (after.length ? ` · ${cyNum(" in TEMPLATE and "} after release end` : \"\")" in TEMPLATE and "with no epic planned in ${c.name}.\\n" in TEMPLATE
+    assert "s: `epics planned in ${c.name}` + cyUndatedCaption(s, c) + (after.length ? ` · ${cyNum(" in TEMPLATE and "} after release end` : \"\")" in TEMPLATE and "with no epic planned in ${c.name}.\\n" in TEMPLATE
     assert "`Pods in ${M.c.name}`" in TEMPLATE                                                        # the Pods heading names the cycles its tiles count: the same epics as the Planned tile
 
 
