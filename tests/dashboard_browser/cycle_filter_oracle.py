@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Delivery Cycle filter oracle: the header filter (Cycle 1, Cycle 2) and what it changes, recounted independently in Python and compared with the page.
 
-The filter changes the Delivery burnup, the Cycles section and the Epics Delivered and Forecast Epics tiles only. A cycle holds the epics whose planned date (the due date, else the Target Sprint end; the burnup alone keeps the later of the due date and the Target Sprint end) falls in it:
+The filter changes the Delivery burnup, the Cycles section, the NFRs section and the Epics Delivered and Forecast Epics tiles only. A cycle holds the epics whose planned date (the due date, else the Target Sprint end; the burnup alone keeps the later of the due date and the Target Sprint end) falls in it:
 Delivery Cycle 1 on or before the end of W6 (release start + 48 days; earlier dates included), Delivery Cycle 2 from the next day to the release end. An epic with no planned date,
 or planned after the release end, is in neither cycle and counts only when every cycle is shown. This file spells the rule again, on purpose, and never imports it from the page.
 
@@ -18,7 +18,7 @@ or planned after the release end, is in neither cycle and counts only when every
      caption ("... · N after release end") and appears only when every cycle is shown. An older link with a removed key (cy=DC1, or the detail view keys ct= and cs=) is ignored without an error.
   3. The header control: present, no Commitment Type control, the hash round trip (dc), an older c= link ignored, the last cycle cannot be unticked, keyboard operation, no sideways scroll at 320 and
      800 px, a release with only Delivery Cycle 1 (Cycle 2 disabled with its reason; a stored dc=2 falls back to Cycle 1).
-  4. Other sections do not read the filter (the page outside the burnup, the Cycles section, the filter bar and the two epic-delivery tiles Epics Delivered and Forecast Epics, which tile_oracle.py checks, is identical with Cycle 1 only, Cycle 2 only and both).
+  4. Other sections do not read the filter (the page outside the burnup, the Cycles section, the NFRs section, the filter bar and the two epic-delivery tiles Epics Delivered and Forecast Epics, which tile_oracle.py checks, is identical with Cycle 1 only, Cycle 2 only and both).
   5. Seeded defects must be caught: Cycles ignoring the filter, both cycles counted as Cycle 1 only, the banner naming the wrong cycle, the removed selector coming back, the old key read again, the after-release-end number or the undated rows shown for one cycle, Cycle 1 ending a day early in the Cycles section; and for the burnup:
      Done or Scope narrowed to the cycle's epics, the domain not narrowed, Done restarting at zero in Cycle 2, the Done line or label drawn before W7, the Cycle 1 pace not through the end state,
      the Cycle 2 pace starting at scope minus N / ignoring the end of W6 / at Done now before W7, the planned-start label missing, the release scope drawn in the Cycle 1 view, the dotted marker
@@ -124,8 +124,11 @@ class Recount:
         ts, dd = self.sprint_end.get(e.get("ts")), e.get("dd")
         return max(dd, ts) if dd and ts else (dd or ts)
 
-    def planned_due(self, e):                               # the Cycles section's rule: the due date; the Target Sprint end only when there is no due date
+    def raw_due(self, e):                                   # the due date; the Target Sprint end only when there is no due date; None when there is neither
         return e.get("dd") or self.sprint_end.get(e.get("ts"))
+
+    def planned_due(self, e):                               # the Cycles section's rule (and the NFRs section's): raw_due, and an epic with neither is planned at the RELEASE END (the last day of W12, the owner's rule)
+        return self.raw_due(e) or self.end.isoformat()
 
     def cycle(self, e):
         p = self.planned_due(e)
@@ -197,16 +200,14 @@ class Recount:
         lo, hi, _n = self.window()
         pl = [e for e in self.sel if self.planned_due(e) and lo <= day(self.planned_due(e)) <= hi]
         nd = lambda e: e["s"] != "Done"
-        over = [e for e in pl if nd(e) and day(self.planned_due(e)) < self.asof]
-        nxt = [e for e in pl if nd(e) and self.asof <= day(self.planned_due(e)) <= self.asof + dt.timedelta(days=7)]
+        over = [e for e in pl if nd(e) and self.raw_due(e) and day(self.raw_due(e)) < self.asof]      # an epic with no planned date has an assumed date: never overdue, stale or due soon
+        nxt = [e for e in pl if nd(e) and self.raw_due(e) and self.asof <= day(self.raw_due(e)) <= self.asof + dt.timedelta(days=7)]
         long_ = [e for e in pl if not nd(e) and e.get("edct") is not None and (e.get("cat") or "").lower() not in ("maintenance", "sow") and e["edct"] > 10]      # Took Over 10 Days: Done, with a cycle time, outside the excluded Issue Categories, MORE than 7 days
         return {"planned": len(pl), "done": sum(1 for e in pl if not nd(e)), "long": len(long_), "overdue": len(over), "next": len(nxt), "flagged": sum(1 for e in pl if nd(e) and e.get("fl"))}
 
     def after_count(self):
         return sum(1 for e in self.sel if self.planned_due(e) and day(self.planned_due(e)) > self.end)
 
-    def nodue(self, project: str):
-        return sum(1 for e in self.sel if e["p"] == project and e["s"] in ("In Progress", "Validation") and not self.planned_due(e))
 
 
 # --------------------------------------------------------------------------------------------- pages
@@ -540,7 +541,16 @@ def check_view(t_problems: list, data: dict, universe: list, h: str, r: dict, la
         want_today = {e["k"] for e in B["tgt"]}
         if not any(j for l, j in cap_jql):
             p.append(f"{tag} the burnup caption has no scope link")
+        und_links = [(l, j) for l, j in cap_jql if j and "duedate is EMPTY" in j]                      # the link of the epics with no planned date (not a scope link): it finds exactly those epics of the release under the page filters
+        want_und = {e["k"] for e in R.sel if not R.raw_due(e)}
+        for l, j in und_links:
+            if keys_of(j, universe) != want_und:
+                p.append(f"{tag} the burnup caption link to the epics with no planned date does not find the {len(want_und)} recounted ones")
+        if bool(want_und) != bool(und_links) or (want_und and "with no planned date" not in (r.get("cap") or "")):
+            p.append(f"{tag} the burnup caption {'has no link to' if want_und else 'links'} the {len(want_und)} epics with no planned date")
         for i, (l, j) in enumerate(cap_jql):
+            if j and "duedate is EMPTY" in j:
+                continue
             if j and keys_of(j, universe) != want_today:                        # the scope link (without its 'was in the release on W1' clause) and the target-today link: the target epics planned in the cycle
                 p.append(f"{tag} the burnup caption link {i + 1} does not find the {len(want_today)} recounted target epics of the release")
         for l, j in cap_jql:
@@ -573,7 +583,11 @@ def check_view(t_problems: list, data: dict, universe: list, h: str, r: dict, la
         if got_t.get(names[k]) != v:
             p.append(f"{tag} Cycles ({cname}) {k}: the page shows {got_t.get(names[k])}, the recount {v}")
     after = R.after_count()
-    want_cap = f"epics planned in {cname}" + (f" \u00b7 {after} after release end" if R.all and after else "")
+    lo_, hi_, _n = R.window()
+    pl_ = [e for e in R.sel if R.planned_due(e) and lo_ <= day(R.planned_due(e)) <= hi_]
+    un_ = [e for e in pl_ if not R.raw_due(e)]                                  # planned at the release end: said in the caption, with how many are in progress
+    unf_ = [e for e in un_ if e["s"] in ("In Progress", "Validation")]
+    want_cap = f"epics planned in {cname}" + ((f" \u00b7 {len(un_)} with no planned date, counted at the release end" + (f" ({len(unf_)} in progress)" if unf_ else "")) if un_ else "") + (f" \u00b7 {after} after release end" if R.all and after else "")
     if r["plannedCap"] != want_cap:
         p.append(f"{tag} the Planned caption says {r['plannedCap']!r}, expected {want_cap!r} ({'every cycle shown' if R.all else 'one cycle shown: epics in no cycle are left out'})")
     if r["gone"]:
@@ -615,7 +629,7 @@ def _(t: T):
             t.check(not cap["line"], f"{h}: the separate After Release End element is back")
             if n:
                 seen += 1
-                link = [x for x in cap["links"] if x["text"] == str(n)]
+                link = [x for x in cap["links"] if x["text"] == str(n) and 'duedate > "' in urllib.parse.unquote(x["href"])]      # the other links of the caption (no planned date, in progress) can print the same number
                 t.check(len(link) == 1 and "duedate >" in urllib.parse.unquote(link[0]["href"]), f"{h}: the caption has no link with {n} to the after-release-end query: {cap}")
             else:
                 t.check("after release end" not in cap["text"], f"{h}: the caption mentions the after-release-end number with nothing to show: {cap['text']!r}")
@@ -921,7 +935,7 @@ def _(t: T):
 OTHER_JS = r"""(async () => {
   await document.fonts.ready; updateCore();
   const m = document.querySelector('main').cloneNode(true);
-  ['#filters', '#f-live', '#burnup', '#bu-sub', '#bu-plain', '#bu-w6', '#bu-cap', '#bu-data', '#bu-legend', '#cycles', '#cy-body', '#cy-kpis1', '#cy-kpis2', '#cy-pods', '#cy-cap', '#cy-banner', '#cy-podlist', '#cy-pods-h'].forEach(s => m.querySelectorAll(s).forEach(n => n.remove()));
+  ['#filters', '#f-live', '#burnup', '#bu-sub', '#bu-plain', '#bu-w6', '#bu-cap', '#bu-data', '#bu-legend', '#cycles', '#cy-body', '#cy-kpis1', '#cy-kpis2', '#cy-pods', '#cy-cap', '#cy-banner', '#cy-podlist', '#cy-pods-h', '#nfr-sub', '#nfr-uncyc', '#nfr-kpis', '#nfr-cap', '#nfr-body', '#nfr-state'].forEach(s => m.querySelectorAll(s).forEach(n => n.remove()));
   [...m.querySelectorAll('#kpis .kpi')].filter(k => /^(Epics Delivered|Forecast Epics)$/.test(k.querySelector('.l').textContent.trim())).forEach(n => n.remove());      // the two epic-delivery tiles follow the filter (tile_oracle.py); the three others must not
   return m.innerHTML;
 })()"""
@@ -944,6 +958,142 @@ def _(t: T):
                 import difflib
                 diff = [x for x in difflib.unified_diff(b, a, n=0, lineterm="") if not x.startswith(("---", "+++", "@@"))]
                 t.check(False, f"{rel} with {d}: {len(diff)} lines differ outside the burnup and Cycles, e.g. {diff[:2]}")
+
+
+# --------------------------------------------------------------------------------------------- 4b: the NFRs section follows the filter
+NFR_CATS = ["R&D - 3rd party upgrades", "R&D - Arch/infra refactoring", "R&D Infra", "R&D - Low env. cost optimization"]
+NFR_NOT_STARTED = ("New", "In Definition", "Ready for Dev", "Candidate")
+NFR_JS = r"""(async () => {
+  await document.fonts.ready;
+  const t = n => n ? n.textContent.replace(/\s+/g, ' ').trim() : null;
+  const heads = [...document.querySelectorAll('#nfr-panel thead th')].map(t);
+  const cells = tr => Object.fromEntries([...tr.querySelectorAll('td.n')].map((c, i) => [heads[i + 1], t(c)]));
+  return {kpis: [...document.querySelectorAll('#nfr-kpis .kpi')].map(k => ({l: t(k.querySelector('.l')), v: t(k.querySelector('.v')), href: (k.querySelector('.v a') || {getAttribute: () => null}).getAttribute('href'), s: t(k.querySelector('.s')), x: t(k.querySelector('.x'))})),
+    uncyc: (u => ({hidden: u.hidden, text: t(u), links: [...u.querySelectorAll('a')].map(a => ({text: t(a), href: a.getAttribute('href')}))}))(document.getElementById('nfr-uncyc')),
+    sub: t(document.getElementById('nfr-sub')), empty: t(document.querySelector('#nfr-body .empty')), subHref: (document.querySelector('#nfr-sub a') || {getAttribute: () => null}).getAttribute('href'),
+    rows: [...document.querySelectorAll('#nfr-panel tbody tr')].map(tr => ({name: t(tr.querySelector('th')), ...cells(tr)})), total: [...document.querySelectorAll('#nfr-panel tfoot tr')].map(tr => cells(tr))[0] || null,
+    totalHref: (document.querySelector('#nfr-panel tfoot td.n a') || {getAttribute: () => null}).getAttribute('href'), follows: t(document.querySelector('#nfr-sub .follows')), errors: []};
+})()"""
+
+
+def nfr_keep(R: Recount, e: dict) -> bool:
+    """The NFRs section's rule, the Cycles section's: the cycle that holds the planned date; an epic with NO planned date is planned at the release end (W12), so it is in Cycle 2; planned after the release end: only with Both cycles."""
+    if R.all:
+        return True
+    return R.cycle(e) in R.shown                           # an epic with no planned date is planned at the release end, so it is in Cycle 2
+
+
+def nfr_expected(R: Recount) -> dict:
+    """The NFR epics of the selection, recounted: label NFR or an NFR Issue Category, status not Removed, not CXCROSS, and (one cycle selected) planned in the cycle."""
+    eps = [e for e in R.sel if e["s"] != "Removed" and e["p"] != "CXCROSS"]
+    scope = [e for e in eps if nfr_keep(R, e)]
+    nfr = [e for e in scope if e.get("nf") or e.get("cat") in NFR_CATS]
+    f = lambda pred: {e["k"] for e in nfr if pred(e)}
+    anfr = [e for e in eps if e.get("nf") or e.get("cat") in NFR_CATS]                     # every NFR epic of the selection, whatever the cycle: the ones in no cycle
+    undated = {e["k"] for e in anfr if not R.raw_due(e)}
+    after = {e["k"] for e in anfr if R.planned_due(e) and day(R.planned_due(e)) > R.end}
+    return {"scope": len(scope), "undated": undated, "after": after, "all": {e["k"] for e in nfr}, "done": f(lambda e: e["s"] == "Done"), "ip": f(lambda e: e["s"] == "In Progress"), "val": f(lambda e: e["s"] == "Validation"),
+            "ns": f(lambda e: e["s"] in NFR_NOT_STARTED), "byproject": collections.Counter(e["p"] for e in nfr)}
+
+
+@SUITE.test("nfrs_section_follows_the_delivery_cycle_filter_and_equals_an_independent_recount")
+def _(t: T):
+    data, url, universe = payload("variant")
+    ch = ctx.chrome
+    probs: list[str] = []
+    views = 0
+    both_n: dict = {}
+    for rel in ("27.1", "26.4"):
+        for s in STATES:
+            for d in DCS:
+                h = "&".join(x for x in (f"r={rel}", s, d) if x)
+                r_, projects, teams, dc = parse_state(h)
+                R = Recount(data, r_, projects, teams, dc, data["generated"][:10])
+                E = nfr_expected(R)
+                ch.goto(url + "#" + h)
+                kit.wait_ready(ch)
+                time.sleep(0.12)
+                P = ch.js(NFR_JS)
+                views += 1
+                if not isinstance(P, dict) or "__error" in P:
+                    probs.append(f"#{h}: probe failed {str(P)[:160]}")
+                    continue
+                U = P["uncyc"]
+                want_line = (not R.all) and bool(E["undated"] or E["after"])
+                if want_line == U["hidden"]:
+                    probs.append(f"#{h}: the Not in a cycle line is {'hidden' if U['hidden'] else 'shown'}, expected {'shown' if want_line else 'hidden'} (undated {len(E['undated'])}, after the end {len(E['after'])}): {U['text']!r}")
+                if want_line and not U["hidden"]:
+                    L = U["links"]
+                    n_none, n_after = len(E["undated"]), len(E["after"])
+                    if n_none:
+                        if not L or L[0]["text"].replace(",", "") != str(n_none) or keys_of(jql_of(L[0]["href"]) or "", universe) != E["undated"]:
+                            probs.append(f"#{h}: the no planned date count/link is wrong: {L[:1]}, the recount {n_none}")
+                        split = [x for x in L[1:(len(L) - (1 if n_after else 0))]]
+                        if sum(int(x["text"].replace(",", "")) for x in split) != n_none:
+                            probs.append(f"#{h}: the status split {[x['text'] for x in split]} does not add up to {n_none}")
+                        for x in split:
+                            if not keys_of(jql_of(x["href"]) or "", universe) <= E["undated"]:
+                                probs.append(f"#{h}: a status link finds epics that have a planned date")
+                    if n_after and (not L or L[-1]["text"].replace(",", "") != str(n_after) or keys_of(jql_of(L[-1]["href"]) or "", universe) != E["after"]):
+                        probs.append(f"#{h}: the planned after the release end count/link is wrong: {L[-1:]}, the recount {n_after}")
+                    if n_after and "select both cycles" not in U["text"].lower():
+                        probs.append(f"#{h}: the planned after the release end part does not point to Both cycles")
+                    if n_none and (("are counted here" in U["text"] or "is counted here" in U["text"]) != (2 in R.shown)):
+                        probs.append(f"#{h}: the no planned date part says the wrong cycle: {U['text'][:160]!r}")
+                if not E["all"]:
+                    if not P["empty"] or "No NFR epic" not in P["empty"]:
+                        probs.append(f"#{h}: no NFR epic expected, the page says {P['empty']!r}")
+                    continue
+                kp = {k["l"]: k for k in P["kpis"]}
+                want = {"NFR Epics in Scope": E["all"], "Done": E["done"], "In Progress": E["ip"], "Validation": E["val"], "Not Started": E["ns"]}
+                for lab, keys in want.items():
+                    k = kp.get(lab)
+                    if not k:
+                        probs.append(f"#{h}: no {lab} tile")
+                        continue
+                    got = int(k["v"].replace(",", "") or 0) if k["v"].replace(",", "").isdigit() else 0
+                    if got != len(keys):
+                        probs.append(f"#{h}: {lab} says {k['v']}, the recount {len(keys)}")
+                    if keys and k["href"]:
+                        found = keys_of(jql_of(k["href"]) or "", universe)
+                        if found != keys:
+                            probs.append(f"#{h}: the {lab} link finds {len(found)} epics, the recount {len(keys)} (e.g. {sorted(found ^ keys)[:3]})")
+                    elif keys:
+                        probs.append(f"#{h}: the {lab} tile has no link")
+                sc = kp.get("NFR Epics in Scope", {}).get("s", "")
+                if f"of {E['scope']:,} epics" not in sc.replace("\u00a0", " "):
+                    probs.append(f"#{h}: the scope caption {sc!r} does not say {E['scope']:,} epics")
+                if not R.all and (R.has2 and f"Delivery Cycle {sorted(R.shown)[0]}" not in sc):
+                    probs.append(f"#{h}: the scope caption does not name the cycle: {sc!r}")
+                if R.all and "planned in" in sc:
+                    probs.append(f"#{h}: Both cycles, and the caption names a cycle: {sc!r}")
+                if P["total"] and str(len(E["all"])) != (P["total"].get("Total") or "").replace(",", ""):
+                    probs.append(f"#{h}: the table total says {P['total'].get('Total')}, the recount {len(E['all'])}")
+                for row in P["rows"]:
+                    want_n = E["byproject"].get(row["name"], 0)
+                    if row["name"] in {e["p"] for e in R.sel} or row["name"] in E["byproject"]:
+                        if (row.get("Total") or "0").replace(",", "") != str(want_n):
+                            probs.append(f"#{h}: the {row['name']} row says {row.get('Total')}, the recount {want_n}")
+                if P["follows"] and "Delivery Cycle" not in P["follows"]:
+                    probs.append(f"#{h}: the Follows line does not name the Delivery Cycle filter: {P['follows']!r}")
+                if R.all:
+                    both_n[(rel, s)] = len(E["all"])
+                elif (rel, s) in both_n and len(E["all"]) > both_n[(rel, s)]:
+                    probs.append(f"#{h}: one cycle shows more NFR epics ({len(E['all'])}) than both ({both_n[(rel, s)]})")
+                if not R.all and "planned" not in (P["sub"] or ""):
+                    probs.append(f"#{h}: the sub line does not say which cycle it shows: {P['sub']!r}")
+    t.note(f"{views} views")
+    # the filter must really bite on the fixture: with one cycle there are fewer NFR epics than with both, in at least one state
+    R0 = Recount(data, "27.1", {"PMN", "CXCO", "CXSUP", "CXWFM", "WFM", "CXINT", "INT"}, set(), None, data["generated"][:10])
+    n_all = len(nfr_expected(R0)["all"])
+    n1 = len(nfr_expected(Recount(data, "27.1", R0.sel and {e["p"] for e in R0.sel}, set(), {1}, data["generated"][:10]))["all"])
+    n2 = len(nfr_expected(Recount(data, "27.1", R0.sel and {e["p"] for e in R0.sel}, set(), {2}, data["generated"][:10]))["all"])
+    t.check(n_all > 0 and 0 < n1 < n_all and 0 < n2 < n_all, f"the fixture reaches the cases: NFR epics both {n_all}, Cycle 1 {n1}, Cycle 2 {n2}")
+    E0 = nfr_expected(R0)
+    t.check(bool(E0["undated"]) and bool(E0["after"]), f"the fixture reaches the Not in a cycle line: undated {len(E0['undated'])}, planned after the release end {len(E0['after'])}")
+    for x in probs[:12]:
+        t.check(False, x)
+    t.check(not probs, f"{len(probs)} differences in {views} views")
 
 
 # --------------------------------------------------------------------------------------------- 3: the header control
@@ -1301,7 +1451,10 @@ KEEP_JS = 'e => { const p = plannedDue(e), w = DATA.windows[rel], m = !p ? null 
 MUTANTS = [
     ("Cycles ignores the filter", "dcs = dcState(), shown = cycles.filter(x => dcs.shown.includes(x.id.slice(2)));", "dcs = dcState(), shown = cycles;"),
     ("the after-release-end number is shown with one cycle", "after: dcs.all ? eps.filter(", "after: true ? eps.filter("),
-    ("undated in-progress epics keep rows alive with one cycle", "noDue: dcs.all ? eps.filter(", "noDue: true ? eps.filter("),
+    ("an epic with no planned date is left in no cycle instead of planned at the release end", "due: plannedDue(e) || relEnd, und: !plannedDue(e)", "due: plannedDue(e), und: !plannedDue(e)"),
+    ("an epic with no planned date is overdue on its assumed date", "const cyLate = e => !cyDone(e) && !e.und && !!e.due", "const cyLate = e => !cyDone(e) && !!e.due"),
+    ("the NFRs section ignores the cycle for the epics it counts", "has: e => { const d = plannedDue(e) || relEnd; return (lo == null || d >= lo) && d <= hi; },", "has: e => true,"),
+    ("the links leave out the epics with no planned date", "${und ? ` OR (${cyNoDateQ()})` : \"\"}", "${\"\"}"),
     ("Delivery Cycle 1 ends a day early in the Cycles section", "const w6 = cyAdd(w[0], 48);", "const w6 = cyAdd(w[0], 47);"),
     ("both cycles are counted as Cycle 1 only", "end: sel[sel.length - 1].end,", "end: sel[0].end,"),
     ("the Cycle 2 epics are dropped from the combined view", "e.due >= cc.start && e.due <= cc.end);", "e.due >= cc.start && e.due <= (cc.multi ? cc.set[0].end : cc.end));"),
@@ -1309,7 +1462,8 @@ MUTANTS = [
     ("the banner does not say the cycles are counted together", "${c.multi ? \"Both cycles together: an epic planned in either counts once. \" : \"Epics planned outside it are not counted. \"}", ""),
     ("the banner line a picture shows does not say 'combined'", "`Showing ${c.name}${c.multi ? \" combined\" : \"\"}`", "`Showing ${c.name}`"),
     ("the Planned tile repeats the cycle in a kicker", "planned: ({s, c, after}) => ({c: \"cy\", v:", "planned: ({s, c, after}) => ({c: \"cy\", k: esc(c.name), v:"),
-    ("the Planned caption lost the cycle", "s: `epics planned in ${c.name}` + (after.length", "s: `epics planned` + (after.length"),
+    ("the Planned caption lost the cycle", "s: `epics planned in ${c.name}` + cyUndatedCaption(s, c)", "s: `epics planned` + cyUndatedCaption(s, c)"),
+    ("the Planned caption does not say how many epics have no planned date", "cyUndatedCaption(s, c) + (after.length", "(after.length"),
     ("a line sits between the banner and the tiles it heads", '<div class="kpis cyhl" id="cy-kpis1"></div>', '<div class="sub">A line.</div>\n    <div class="kpis cyhl" id="cy-kpis1"></div>'),
     ("a subtitle is back under the heading", '<h2 id="h-cycles" tabindex="-1">Delivery Cycle Governance</h2>\n', '<h2 id="h-cycles" tabindex="-1">Delivery Cycle Governance</h2>\n    <div class="sub" id="cy-sub">Delivery Cycle 1: release start to the end of W6.</div>\n'),
     ("the Pods heading does not name the cycles", "`Pods in ${M.c.name}`", "`Pods in ${state.release}`"),

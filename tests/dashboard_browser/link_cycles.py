@@ -48,7 +48,7 @@ MODEL_JS = r"""(() => {
     const s = cyStats(planned, carry);
     const add = (kind, list, arg) => { const u = cyQ(kind, g, c, arg); out.push({tag: sc.tag, kind: arg ? kind + ":w" + arg[2] : kind, jql: dec(u), len: u ? u.length : 0, exp: K(list)}); };
     add("planned", s.planned); add("done", s.done); add("over", s.over); add("stale", s.staleIn); add("next", s.next); add("nextNs", s.nextNs);
-    add("flag", s.flag); add("flagCarry", s.flagCarry);
+    add("flag", s.flag); add("flagCarry", s.flagCarry); add("undated", s.un); add("undatedFlight", s.unFlight);
     add("nsSoon", (g ? g.epics : M.epics).filter(cyPodNs)); add("flightIn", (g ? g.epics : M.epics).filter(cyPodFlight));      // the Pods population: planned in the selected cycles
     if (g && g.level === "team") add("noPodFlight", g.epics.filter(e => cyPodFlight(e) && !e.pl.length));
     add("scope", g ? g.epics : M.epics);
@@ -57,7 +57,7 @@ MODEL_JS = r"""(() => {
       const spans = [...(first ? [[c.start, cyAdd(c.start, 6), "pre"]] : []), ...cyWeekList().filter(w => w.n >= lo && w.n <= hi).map(w => [w.ws, w.we, w.n])];
       for (const [ws, we, w] of spans) {
         const list = planned.filter(e => e.due >= ws && e.due <= we);
-        add("week", list, [ws, we, w]); add("weekDone", list.filter(cyDone), [ws, we, w]); add("weekOpen", list.filter(e => !cyDone(e)), [ws, we, w]);
+        add("week", list, [ws, we, w]); add("weekDone", list.filter(cyDone), [ws, we, w]); add("weekOpen", list.filter(e => !cyDone(e)), [ws, we, w]); add("weekUndated", list.filter(e => e.und), [ws, we, w]);
       }
       if (M.dcAll) { const u = cyQ("after", null, last); out.push({tag: "top", kind: "after", jql: dec(u), len: u ? u.length : 0, exp: K(M.after)}); }      // with one cycle shown the page offers no such number
       if (cyLabelOk()) {
@@ -132,11 +132,12 @@ def seed_pods(d: dict) -> None:
     """Pods for the variant payload (release 27.1, fictitious labels). D1 is inside Delivery Cycle 1, D2 inside Delivery Cycle 2.
     Pod-Seed-Three: 3 In Progress (not over the level), planned in DC1. Pod-Seed-Four: 4 In Progress, DC1 (over). Pod-Seed-Mix: 3 In Progress + 1 Validation, DC2 (NOT over: Validation is not counted by the wip tile).
     Pod-Seed-MixTwo: 3 In Progress + 2 Validation, DC2 (NOT over). Pod-Seed-AllVal: 4 Validation only, DC1 (NOT over). Pod-Seed-FourV: 4 In Progress + 2 Validation, DC1 (over, with 4). Pod-Seed-Done: 2 Done, DC1.
-    Pod-Seed-Late: 2 New, DC2 only (idle in DC1). Pod-Seed-Undated: 1 epic with no planned date (idle in both). Pod-Seed-Shared: 4 In Progress in PMN and 2 in CXCO (over the level in one project only).
+    Pod-Seed-Late: 2 New, DC2 only (idle in DC1). Pod-Seed-Undated: 1 epic with no planned date, planned at the release end (in DC2, so idle in DC1 only). Pod-Seed-After: 1 epic planned after the release end (idle in both). Pod-Seed-Shared: 4 In Progress in PMN and 2 in CXCO (over the level in one project only).
     Pod-Seed-Case / pod-seed-case / POD-SEED-CASE: 2 + 1 + 1 In Progress (one pod, 4 epics). Pod-Seed-TwoA and TwoB: 3 In Progress each plus ONE epic that carries both labels.
     4 In Progress epics with no pod label. POD-21 .. POD-24: 4 In Progress each, labels that look like issue keys."""
     start = dt.date.fromisoformat(d["windows"]["27.1"][0])
     d1, d2 = start + dt.timedelta(days=10), start + dt.timedelta(days=60)
+    after = dt.date.fromisoformat(d["windows"]["27.1"][1]) + dt.timedelta(days=30)      # planned after the release end: in no cycle
     n = [95000]
     teams = {"PMN": ["Team Alpha", "Team Bravo"], "CXCO": ["Team Echo", "Team Foxtrot"]}
 
@@ -167,6 +168,7 @@ def seed_pods(d: dict) -> None:
         add("PMN", ["Pod-Seed-Done"], "Done", d1)
         add("PMN", ["Pod-Seed-Late"], "New", d2)
     add("PMN", ["Pod-Seed-Undated"], "In Definition", None)
+    add("PMN", ["Pod-Seed-After"], "New", after)      # a pod whose only epic is planned after the release end: idle in Cycle 1, in Cycle 2 and with both combined
     for _ in range(4):
         add("PMN", ["Pod-Seed-Shared"], "In Progress", d1)
     for _ in range(2):
@@ -444,7 +446,7 @@ def _(t: T):
     t.check(not r["pod_bad"], f"{len(r['pod_bad'])} differences from the independent recount, e.g. {r['pod_bad'][:3]}")
     seen = r["pod_seen"]
     for k in ("views", "idle>0", "wip>0", "pods==0", "ns>0", "wait>0", "level>0", "noPod>0", "wait_withpod>0", "wait_nopod>0",
-              "weekly_views", "cur_marked", "cur_none", "pct_share", "pct_dash_small", "before_w1", "no_before_w1", "weekly_1_1", "weekly_2_2", "weekly_1_2", "after>0", "after==0", "lists", "list_pod", "list_team", "list_nopod", "list_other", "flag_overdue", "flag_blocked", "flag_nodate"):
+              "weekly_views", "cur_marked", "cur_none", "pct_share", "pct_dash_small", "before_w1", "no_before_w1", "weekly_1_1", "weekly_2_2", "weekly_1_2", "after>0", "after==0", "lists", "list_pod", "list_team", "list_nopod", "list_other", "flag_overdue", "flag_blocked", "flag_nodate", "undated>0", "undated==0", "undated_in_progress>0"):
         t.check(seen[k] > 0, f"the matrix never reached '{k}' (a blind recount): {dict(seen)}")
     t.note(f"{seen['views']} views recounted; idle>0 in {seen['idle>0']}, wip>0 in {seen['wip>0']}, no pods in {seen['pods==0']}; weekly tables {seen['weekly_views']} (Cycle 1 only {seen['weekly_1_1']}, Cycle 2 only {seen['weekly_2_2']}, both {seen['weekly_1_2']}; a Before W1 row in {seen['before_w1']}, none in {seen['no_before_w1']}); "
            f"opened rows {seen['lists']} ({seen['list_pod']} pods, {seen['list_team']} teams without pod rows, {seen['list_nopod']} No Pod Label); after release end >0 in {seen['after>0']}; "
@@ -474,11 +476,11 @@ def _(t: T):
     t.check(wip[("PMN", "pod-seed-four")][2] == "4", "exactly 4 In Progress is over the level")
     n1 = {n for _, n in names["DC1", "idle"]}
     n2 = {n for _, n in names["DC2", "idle"]}
-    t.check({"pod-seed-late", "pod-seed-mix", "pod-seed-undated"} <= n1 and not ({"pod-seed-three", "pod-seed-four", "pod-seed-done", "pod-seed-shared", "pod-seed-case"} & n1), f"idle in Delivery Cycle 1: {sorted(n1)[:12]}")
-    t.check({"pod-seed-three", "pod-seed-four", "pod-seed-done", "pod-seed-undated"} <= n2 and not ({"pod-seed-late", "pod-seed-mix"} & n2), f"idle in Delivery Cycle 2: {sorted(n2)[:12]}")
+    t.check({"pod-seed-late", "pod-seed-mix", "pod-seed-undated", "pod-seed-after"} <= n1 and not ({"pod-seed-three", "pod-seed-four", "pod-seed-done", "pod-seed-shared", "pod-seed-case"} & n1), f"idle in Delivery Cycle 1: {sorted(n1)[:12]}")
+    t.check({"pod-seed-three", "pod-seed-four", "pod-seed-done", "pod-seed-after"} <= n2 and not ({"pod-seed-late", "pod-seed-mix", "pod-seed-undated"} & n2), f"idle in Delivery Cycle 2 (an epic with no planned date is planned at the release end, so the Undated pod is not idle here): {sorted(n2)[:12]}")
     n3 = {n for _, n in names["BOTH", "idle"]}
-    t.check({"pod-seed-undated"} <= n3 and not ({"pod-seed-late", "pod-seed-mix", "pod-seed-three", "pod-seed-four", "pod-seed-done", "pod-seed-shared", "pod-seed-case"} & n3),
-            f"idle with both cycles combined: a pod is idle only when it has no epic planned in either cycle (Late and Mix are planned in Cycle 2, Three and Four in Cycle 1): {sorted(n3)[:12]}")
+    t.check({"pod-seed-after"} <= n3 and not ({"pod-seed-undated", "pod-seed-late", "pod-seed-mix", "pod-seed-three", "pod-seed-four", "pod-seed-done", "pod-seed-shared", "pod-seed-case"} & n3),
+            f"idle with both cycles combined: a pod is idle only when it has no epic planned in either cycle (After is planned after the release end; Late, Mix and Undated are planned in Cycle 2, Three and Four in Cycle 1): {sorted(n3)[:12]}")
     t.check(n3 == (n1 & n2), f"idle in both cycles combined is exactly the pods idle in Cycle 1 AND in Cycle 2: {sorted(n3 ^ (n1 & n2))[:6]}")
     w1, w2, wb = ({n for _, n in names[k, "wip"]} for k in ("DC1", "DC2", "BOTH"))
     t.check(not (over & w2) and over <= wb and wb >= (w1 | w2) and w1 != w2, f"pods over the level count the epics planned in the selected cycles: the seeded pods (planned in Cycle 1) are over the level in Cycle 1 and in both cycles, not in Cycle 2: {sorted(over & w2)}")
@@ -495,7 +497,7 @@ def _(t: T):
     """Both cycles combined must differ from Cycle 1 alone and from Cycle 2 alone on every headline figure it can, or the union tests prove nothing: epics planned in both windows, Done in both,
     overdue and due soon in Cycle 1, flagged in each, carry-over before the release start, epics planned after the release end and undated ones (in no cycle). Recounted from the baked epics."""
     data, url = page("variant")
-    cal = {s["n"]: s["end"] for s in data["sprints"]}
+    cal = PO.calendar_of(data, "27.1")
     asof = data["generated"][:10]
     scope = [e for e in data["epics"] if "27.1" in e["fv"]]
     w = {k: PO.window_of(data, "27.1", dc) for k, dc in (("1", {"1"}), ("2", {"2"}), ("both", {"1", "2"}))}
@@ -508,7 +510,7 @@ def _(t: T):
     start = w["both"]["start"]
     carry = [e for e in scope if e["s"] != "Done" and (d := PO.planned_date(e, cal)) and d < start]
     after = [e for e in scope if (d := PO.planned_date(e, cal)) and d > w["both"]["end"]]
-    undated = [e for e in scope if not PO.planned_date(e, cal)]
+    undated = [e for e in scope if not PO.raw_date(e, cal)]
     t.check(carry and after and undated, f"carry-over {len(carry)}, after the release end {len(after)}, undated {len(undated)}: all must exist, so the epics in no cycle are tested")
     t.check(len({f["1"]["planned"], f["2"]["planned"], f["both"]["planned"]}) == 3, f"the three selections print three different Planned figures: {f}")
 
@@ -625,7 +627,8 @@ MUTANTS = [
     ("Idle Pods ignores the selected cycle", "p.planned = p.epics.filter(e => ps.has(e)).length;", "p.planned = p.epics.filter(e => e.due).length;"),
     ("the in-progress union link drops the project guard", "arg.map(p => `(${cyPodClause(p)})`).join(\" OR \")", "arg.map(p => `(labels in (${p.sp.map(q).join(\", \")}))`).join(\" OR \")"),
     ("Not-started due soon counts 8 days instead of 7", "e.due <= cyAdd(CY.asOf, CY.next);\nconst cyPh", "e.due <= cyAdd(CY.asOf, CY.next + 1);\nconst cyPh"),
-    ("Not-started due soon uses the due date alone instead of the planned date", "cls(e.s) === \"notStarted\" && !!e.due && e.due >= CY.asOf && e.due <= cyAdd(CY.asOf, CY.next);", "cls(e.s) === \"notStarted\" && !!e.dd && e.dd >= CY.asOf && e.dd <= cyAdd(CY.asOf, CY.next);"),
+    ("Not-started due soon uses the due date alone instead of the planned date", "cls(e.s) === \"notStarted\" && !e.und && !!e.due && e.due >= CY.asOf && e.due <= cyAdd(CY.asOf, CY.next);", "cls(e.s) === \"notStarted\" && !e.und && !!e.dd && e.dd >= CY.asOf && e.dd <= cyAdd(CY.asOf, CY.next);"),
+    ("an epic with no planned date is not started and due soon on its assumed date", "cls(e.s) === \"notStarted\" && !e.und && !!e.due && e.due >= CY.asOf", "cls(e.s) === \"notStarted\" && !!e.due && e.due >= CY.asOf"),
         ("Pods With Uneven Workload flags from 30% instead of 40%", "levelSpread: 0.40,", "levelSpread: 0.30,"),
     ("Pods With Uneven Workload flags from 50% instead of 40%", "levelSpread: 0.40,", "levelSpread: 0.50,"),
     ("Pods With Uneven Workload ignores the minimum of 5 in-progress", "const flagged = total >= MIN_N && spread >= CY.levelSpread - 1e-9;", "const flagged = spread >= CY.levelSpread - 1e-9;"),
@@ -683,6 +686,8 @@ MUTANTS += [                                                                    
     ("the wip link still carries the Validation clause", "(${arg.map(p => `(${cyPodClause(p)})`).join(\" OR \")}) AND ${CY_WIP_CLAUSE}", "(${arg.map(p => `(${cyPodClause(p)})`).join(\" OR \")}) AND ${CY_FLIGHT}"),
     ("a pod's wip list link still carries the Validation clause", "case \"podWipIn\": w = `${cyPodClause(arg)} AND ${CY_WIP_CLAUSE} AND", "case \"podWipIn\": w = `${cyPodClause(arg)} AND ${CY_FLIGHT} AND"),
     ("the wip sub line counts Validation", "wipEpics: [...new Set(wip.flatMap(p => p.inProg))]", "wipEpics: [...new Set(wip.flatMap(p => p.epics.filter(cyInFlight)))]"),
+    ("the overdue link counts the epics with no planned date", "und = !dated && re && hi >= re", "und = re && hi >= re"),
+    ("the row links drop the page's Teams filter", '    const href = cyQ("scope", n);', '    const href = jira({projects: [n.project], ...(n.level === "project" ? {} : {teams: new Set([n.team])}), extra: [n.level === "pod" ? podSpellingsClause(n.spellings) : "", cyPodFilterQ()].filter(Boolean).join(" AND ")});'),
     ("the wip list counts Validation", "const n = idle ? p.epics.length : p.inProg.length;", "const n = idle ? p.epics.length : p.epics.filter(cyInFlight).length;"),
     ("the wip threshold is applied with Validation", "const wip = pods.filter(p => p.inProg.length > CY.podWip);", "const wip = pods.filter(p => p.epics.filter(cyInFlight).length > CY.podWip);"),
 ]
