@@ -996,14 +996,13 @@ def nfr_expected(R: Recount) -> dict:
             "ns": f(lambda e: e["s"] in NFR_NOT_STARTED), "byproject": collections.Counter(e["p"] for e in nfr)}
 
 
-@SUITE.test("nfrs_section_follows_the_delivery_cycle_filter_and_equals_an_independent_recount")
-def _(t: T):
-    data, url, universe = payload("variant")
+def nfr_view_problems(url: str, data: dict, universe: list, rels=("27.1", "26.4")):
+    """Every state x Delivery Cycle choice of the NFRs section against the independent recount; returns (problems, views). The test runs it on the page, the self-test on pages with a seeded defect."""
     ch = ctx.chrome
     probs: list[str] = []
     views = 0
     both_n: dict = {}
-    for rel in ("27.1", "26.4"):
+    for rel in rels:
         for s in STATES:
             for d in DCS:
                 h = "&".join(x for x in (f"r={rel}", s, d) if x)
@@ -1082,6 +1081,13 @@ def _(t: T):
                     probs.append(f"#{h}: one cycle shows more NFR epics ({len(E['all'])}) than both ({both_n[(rel, s)]})")
                 if not R.all and "planned" not in (P["sub"] or ""):
                     probs.append(f"#{h}: the sub line does not say which cycle it shows: {P['sub']!r}")
+    return probs, views
+
+
+@SUITE.test("nfrs_section_follows_the_delivery_cycle_filter_and_equals_an_independent_recount")
+def _(t: T):
+    data, url, universe = payload("variant")
+    probs, views = nfr_view_problems(url, data, universe)
     t.note(f"{views} views")
     # the filter must really bite on the fixture: with one cycle there are fewer NFR epics than with both, in at least one state
     R0 = Recount(data, "27.1", {"PMN", "CXCO", "CXSUP", "CXWFM", "WFM", "CXINT", "INT"}, set(), None, data["generated"][:10])
@@ -1453,8 +1459,6 @@ MUTANTS = [
     ("the after-release-end number is shown with one cycle", "after: dcs.all ? eps.filter(", "after: true ? eps.filter("),
     ("an epic with no planned date is left in no cycle instead of planned at the release end", "due: plannedDue(e) || relEnd, und: !plannedDue(e)", "due: plannedDue(e), und: !plannedDue(e)"),
     ("an epic with no planned date is overdue on its assumed date", "const cyLate = e => !cyDone(e) && !e.und && !!e.due", "const cyLate = e => !cyDone(e) && !!e.due"),
-    ("the NFRs section ignores the cycle for the epics it counts", "has: e => { const d = plannedDue(e) || relEnd; return (lo == null || d >= lo) && d <= hi; },", "has: e => true,"),
-    ("the links leave out the epics with no planned date", "${und ? ` OR (${cyNoDateQ()})` : \"\"}", "${\"\"}"),
     ("Delivery Cycle 1 ends a day early in the Cycles section", "const w6 = cyAdd(w[0], 48);", "const w6 = cyAdd(w[0], 47);"),
     ("both cycles are counted as Cycle 1 only", "end: sel[sel.length - 1].end,", "end: sel[0].end,"),
     ("the Cycle 2 epics are dropped from the combined view", "e.due >= cc.start && e.due <= cc.end);", "e.due >= cc.start && e.due <= (cc.multi ? cc.set[0].end : cc.end));"),
@@ -1515,7 +1519,7 @@ def _(t: T):
         tpl = _write_tmp(src.replace(old, new, 1))
         pages: dict = {}
         probs: list[str] = []
-        views = MUTANT_VIEWS + ([("variant", "r=27.1&p=PMN&dc=2"), ("variant", "r=27.1&p=PMN")] if "undated" in what else [])
+        views = MUTANT_VIEWS + ([("variant", "r=27.1&p=PMN&dc=2"), ("variant", "r=27.1&p=PMN")] if "undated" in what else []) + ([("asof_after", "r=27.1&dc=2"), ("asof_after", "r=27.1")] if "assumed date" in what else [])      # an epic with no planned date is overdue only on a day after the release end
         for kind, h in views:
             data, _u, universe = payload(kind)
             if kind not in pages:
@@ -1527,6 +1531,26 @@ def _(t: T):
         if what in STRUCTURAL:
             probs += structure_probs(ch, pages["variant"])
         t.check(bool(probs), f"the oracle did not notice the seeded defect: {what}")
+
+
+NFR_MUTANTS = [
+    ("the NFRs section ignores the cycle for the epics it counts", "has: e => { const d = plannedDue(e) || relEnd; return (lo == null || d >= lo) && d <= hi; },", "has: e => true,"),
+    ("the NFR links leave out the epics with no planned date", "${und ? ` OR (${cyNoDateQ()})` : \"\"}", "${\"\"}"),
+    ("an NFR epic with no planned date is left in no cycle", "const d = plannedDue(e) || relEnd; return (lo == null", "const d = plannedDue(e); return d && (lo == null"),
+]
+
+
+@SUITE.test("selftest_nfr_oracle_catches_seeded_defects")
+def _(t: T):
+    src = ctx.template.read_text(encoding="utf-8")
+    data, _u, universe = payload("variant")
+    for i, (what, old, new) in enumerate(NFR_MUTANTS):
+        if src.count(old) != 1:
+            raise kit.Skip(f"the seeding anchor for '{what}' is not in this template exactly once (found {src.count(old)})")
+        f = Path(ctx.dir) / f"dcf_nfr_mutant_{i}.html"
+        f.write_text(MS.render_page(data, _write_tmp(src.replace(old, new, 1))), encoding="utf-8")
+        probs, _views = nfr_view_problems("file://" + str(f), data, universe, rels=("27.1",))
+        t.check(bool(probs), f"the NFR oracle did not notice the seeded defect: {what}")
 
 
 # the header control: every way it could go back to the failure that was reported (a click on an option toggles it, so one click on Cycle 1 shows Cycle 2) or lose what it promises

@@ -3578,7 +3578,7 @@ function nfrTargetShare(isNfr, rel = state.release, cyc = null) {
   const o = {release: rel, commit: new Set(["Committed"]), extra: NFR_Q + CQ};
   if (!TB.pre && TB.win) o.wasOn = {release: rel, date: iso(TB.w1)};          // the same basis as the Forecast Epics link
   const dh = cyc ? jira({release: rel, commit: new Set(TARGET_COMMIT), wasOn: o.wasOn, extra: cyc.q}) : TB.href;
-  const den = D ? tlink(D.toLocaleString("en-US"), dh, cyc ? `${nn(D, "target epic", "target epics")} planned in ${cyc.name}\n${TB.tip}` : TB.tip) : "0";
+  const den = D ? tlink(D.toLocaleString("en-US"), dh, cyc ? `${nn(D, "target epic", "target epics")} planned in ${cyc.name}` : TB.tip) : "0";
   const xl = X.length ? tlink(X.length.toLocaleString("en-US"), jira(o), `${nn(X.length, "Committed NFR epic", "Committed NFR epics")} in the target scope\nIn ${rel}${TB.pre || !TB.win ? " so far" : ` on ${iso(TB.w1)}, the first day of W1`}; same basis as Forecast Epics.`) : "0";
   return {X: X.length, D, html: D >= MIN_N ? `<b>${pct(X.length, D)}%</b> of ${den} target-scope epics${cyc ? ` planned in ${esc(cyc.name)}` : ""} are Committed NFR epics (${xl} of ${den})${cyc ? "" : ": the Forecast Epics scope"}` : `${xl} Committed NFR epics of ${den} target-scope epics${cyc ? ` planned in ${esc(cyc.name)}` : ""}; no share under ${MIN_N}`};
 }
